@@ -12,6 +12,14 @@ module FinancialDocuments
       "merchant name" => "merchant",
       "transaction date" => "date",
       "posted date" => "date",
+      "posting date" => "date",
+      "details" => "label",
+      "transaction description" => "label",
+      "withdrawal amount" => "debit",
+      "deposit amount" => "credit",
+      "account number" => "account",
+      "reference" => "external_reference",
+      "reference number" => "external_reference",
       "authorized date" => "authorized_on",
       "authorization date" => "authorized_on",
       "account name" => "account",
@@ -83,26 +91,29 @@ module FinancialDocuments
         return failure("This workbook could not be inspected completely within the safe #{SpreadsheetSummarizer::MAX_SCANNED_CELLS}-cell limit. Remove empty rows or columns, or split it into smaller workbooks.")
       end
       if truncated_review_rows?(summary)
-        return failure("This spreadsheet has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} rows of review content. Split it into smaller files so every row can be reviewed without silently truncating the file.")
+        return failure("This spreadsheet has more than #{SpreadsheetSummarizer::MAX_ROWS_PER_SHEET} rows of review content. Split it into smaller files so every row can be reviewed without silently truncating the file.")
       end
 
       items = extract_items(summary)
       source_accounting = extract_source_accounting(summary)
       transaction_drafts = accounting_expense_projections(source_accounting)
+      parsed_sheets = parsed_sheet_indices(summary)
       return failure("This spreadsheet has more than #{Extractor::MAX_ITEMS} budget/profile rows. Split it into smaller files so every value can be reviewed without silently truncating the file.") if items.length > Extractor::MAX_ITEMS
-      return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
+      return failure("This statement has more than #{AccountingContract::MAX_EVENTS} source rows. Split it into smaller date ranges so every row can be reviewed.") if source_accounting[:events].length > AccountingContract::MAX_EVENTS
       return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty? && source_accounting[:events].empty?
 
       success(
         document_kind: document_kind == "statement" ? "statement" : "spreadsheet",
         document_date: nil,
-        period_start_on: transaction_drafts.filter_map { |draft| draft[:occurred_on] }.min,
-        period_end_on: transaction_drafts.filter_map { |draft| draft[:occurred_on] }.max,
+        period_start_on: source_accounting[:events].filter_map { |event| event[:posted_on] }.min&.to_date,
+        period_end_on: source_accounting[:events].filter_map { |event| event[:posted_on] }.max&.to_date,
         summary: structured_summary(items, transaction_drafts),
         confidence: "high",
         warnings: warnings.first(Extractor::MAX_WARNINGS),
         no_reviewable_transactions: items.empty? && transaction_drafts.empty?,
         items: items,
+        parsed_sheet_indices: parsed_sheets,
+        unparsed_sheet_indices: summary[:sheets].pluck(:sheet_index) - parsed_sheets,
         transaction_drafts: transaction_drafts,
         source_accounting: source_accounting
       )
@@ -120,6 +131,11 @@ module FinancialDocuments
       Array(summary[:sheets]).any? do |sheet|
         sheet[:rows_truncated]
       end
+    end
+
+    def parsed_sheet_indices(summary)
+      unknown = summary[:sheets].reject { |sheet| sheet[:rows].any? { |row| structured_header?(row[:values]) || transaction_header?(row[:values]) } }.pluck(:sheet_index)
+      (0...summary[:sheet_count]).to_a - unknown
     end
 
     def extract_items(summary)
@@ -174,6 +190,12 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
           values = row[:values]
+          next if transaction_header?(values)
+          # Export notes often occupy only column A. Keep incomplete financial
+          # rows, including date/amount-first layouts, without recognizing footer text.
+          financial_cell = parsed_date(cell(values, map, "date")) || %w[amount debit credit].any? { |field| cell(values, map, field).present? }
+          merchant_cell = %w[merchant label].any? { |field| map[field].to_i.positive? && cell(values, map, field).present? }
+          next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
           key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
           basis = cell(values, map, "account_basis").to_s.downcase
@@ -182,7 +204,7 @@ module FinancialDocuments
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
           amount, limitations = signed_row_amount(values, map)
-          kind = "posted"
+          kind = cell(values, map, "status").to_s.match?(/\Apending\z/i) ? "informational" : "posted"
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
           type = source_event_type(values, map, merchant, amount)
           limitations << "merchant_missing" if merchant.blank?
@@ -198,13 +220,13 @@ module FinancialDocuments
             merchant: merchant, category_name: category, stack_key: expense_stack_key(normalized_token(category), category.presence || merchant),
             raw_description: [ merchant, notes ].compact_blank.join(" — "), evidence: notes.presence || "Spreadsheet sheet #{sheet_index + 1}, row #{row[:row]}",
             source_amount_text: cell(values, map, "amount") || cell(values, map, "debit") || cell(values, map, "credit"),
-            external_id: "sheet-#{sheet_index}-row-#{row[:row]}", limitations: limitations
+            external_id: clean_text(cell(values, map, "external_reference"), max_length: 120).presence || "sheet-#{sheet_index}-row-#{row[:row]}", limitations: limitations
           }
         end
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
-        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: (0...summary[:sheet_count].to_i).to_a })
+        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary) })
     end
 
     def signed_row_amount(values, map)

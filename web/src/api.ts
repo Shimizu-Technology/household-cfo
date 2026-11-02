@@ -4684,7 +4684,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
     upload_context: uploadContext.trim() || undefined,
     document_kind_explicit: documentKindExplicit,
     upload_request_id: uploadRequestId,
-  })
+  }, { timeoutMs: 30_000, timeoutMessage: 'Preparing your upload took too long. Your file is still selected; try again.' })
   assertCurrentContext()
 
   let uploadResponse: Response
@@ -4697,15 +4697,20 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
         body: file,
       },
       FILE_UPLOAD_TIMEOUT_MS,
-      'The private file upload took too long.',
+      'Your file took too long to upload. It is still selected; try again.',
     )
   } catch (error) {
     if (error instanceof ApiDeadlineError) throw error
-    throw new Error('The private file upload could not reach storage. Check your connection and try again.', { cause: error })
+    const message = typeof navigator !== 'undefined' && navigator.onLine === false
+      ? 'You appear to be offline. Your file is still selected. Reconnect, then try again.'
+      : 'We couldn’t connect to our file storage. Your file is still selected. Try again in a few minutes; if it keeps happening, contact your program team.'
+    throw new Error(message, { cause: error })
   }
   assertCurrentContext()
   if (!uploadResponse.ok) {
-    throw new Error(`The private file upload failed (${uploadResponse.status}). Try again or report the problem.`)
+    throw new Error(uploadResponse.status === 413
+      ? 'That file is too large for our storage service. Try a smaller copy or a CSV export.'
+      : 'Our file storage couldn’t accept your file. It is still selected. Try again in a few minutes; if it keeps happening, contact your program team.')
   }
 
   const payload = await postJson<{ document_import: FinancialDocumentImport }>(
@@ -4713,7 +4718,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
     { upload_token: presign.upload_token },
     {
       timeoutMs: EXTRACTION_REQUEST_TIMEOUT_MS,
-      timeoutMessage: 'Document extraction took too long.',
+      timeoutMessage: 'We couldn’t confirm your upload was saved. Check your files before retrying; your file is still selected.',
     },
   )
   assertCurrentContext()

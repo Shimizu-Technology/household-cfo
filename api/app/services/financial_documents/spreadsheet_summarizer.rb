@@ -10,7 +10,7 @@ require "zip"
 module FinancialDocuments
   class SpreadsheetSummarizer
     MAX_SHEETS = 50
-    MAX_ROWS_PER_SHEET = HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS + 1
+    MAX_ROWS_PER_SHEET = AccountingContract::MAX_EVENTS + 20
     MAX_COLUMNS = 200
     MAX_SCANNED_CELLS = 250_000
     MAX_CELL_LENGTH = 120

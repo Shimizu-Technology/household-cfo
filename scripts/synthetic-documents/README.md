@@ -1,0 +1,30 @@
+# Synthetic Guam upload documents
+
+These fixtures contain fictional people, employers, account numbers and purchases. They use institution and merchant names as text, without logos. Every document has a small **Synthetic test document** footer. They are test inputs, not bank-issued documents or financial advice.
+
+The committed corpus is in `api/test/fixtures/files/documents/`; `manifest.json` describes every expected row, amount in integer cents, month, setup item, receipt split and overlap group. A fixture join key does not establish an account identity or authorize automatic duplicate matching.
+
+The 25 documents cover:
+
+- Bank of Guam checking activity for August, September and October 2026, each as PDF and CSV.
+- BankPacific PDF/CSV and Coast360 PDF, raster scan PDF, CSV and XLSX, using three different export column layouts.
+- Mainland Visa charges, payment, refund and interest; an ASC Trust-style retirement cash statement spanning three months.
+- A phone activity screenshot, including a pending authorization.
+- Payless, Shell, Ross and restaurant receipt photos. Payless includes tobacco; the restaurant includes a separate tip.
+- Government-style and private-employer semi-monthly pay stubs with current and year-to-date arithmetic.
+- An annual budget using the application's `type,label,amount,cadence,category,payment,notes` template, a supporting twelve-month schedule, and a messy workbook with merged headers, 600 archived planning rows and a notes sheet.
+- Matching 1,000-row CSV/XLSX statements containing purchases, payroll, transfers, refunds and card payments.
+
+Regenerate without network or app access:
+
+```sh
+uv venv --python 3.12 /tmp/household-cfo-documents
+uv pip install --python /tmp/household-cfo-documents/bin/python -r scripts/synthetic-documents/requirements.txt
+/tmp/household-cfo-documents/bin/python scripts/synthetic-documents/generate.py
+```
+
+The generator also needs Poppler's `pdftoppm` for the raster scan. Python is retained from the preserved corpus generator. Its seeded noise, fixed PDF metadata and normalized XLSX ZIP timestamps make regeneration repeatable with the pinned dependencies (including lxml for consistent XML serialization). Never replace fixtures with participant data.
+
+Posted credits minus posted debits reconcile asset balances. Liability closing balances use opening plus charges minus payments/refunds. Pending rows do not enter posted totals. Spending excludes incoming money, own-account transfers, card payments and cash withdrawals. Receipts overlap September statement rows; those relationships still require source/account review in the app. Budget schedules and superseded estimates must not become duplicate setup items or spending. The messy workbook may also propose its explicit tobacco reminder as a profile note; financial setup item counts exclude that note. Pending statement amounts are printed display amounts in the manifest; normalized informational source events have no posted signed movement. Pay-stub tests compare the printed semi-monthly net with any correctly normalized monthly proposal.
+
+`recorded_responses/` stores synthetic-only provider responses for offline extraction tests. Recordings do not prove future model accuracy. Tests independently check document hashes, manifest arithmetic, deterministic rows, and the recorded responses against expected totals and months. Live-call evidence and visual inspection records remain in the untracked QA evidence directory.

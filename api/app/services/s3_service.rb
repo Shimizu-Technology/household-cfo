@@ -44,7 +44,10 @@ class S3Service
           @s3_client = Aws::S3::Client.new(
             region: region,
             access_key_id: ENV.fetch("AWS_ACCESS_KEY_ID"),
-            secret_access_key: ENV.fetch("AWS_SECRET_ACCESS_KEY")
+            secret_access_key: ENV.fetch("AWS_SECRET_ACCESS_KEY"),
+            http_open_timeout: 5,
+            http_read_timeout: 30,
+            retry_limit: 1
           )
           @client_signature = signature
         end
@@ -63,7 +66,7 @@ class S3Service
         server_side_encryption: "AES256"
       )
       key
-    rescue Aws::S3::Errors::ServiceError => e
+    rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
       Rails.logger.error("[S3Service] Upload failed for #{key}: #{e.message}")
       nil
     end
@@ -98,7 +101,7 @@ class S3Service
 
     def download_to_io(key, io)
       download_to_io!(key, io)
-    rescue Aws::S3::Errors::ServiceError => e
+    rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
       Rails.logger.error("[S3Service] Stream download failed for #{key}: #{e.message}")
       false
     end
@@ -129,7 +132,7 @@ class S3Service
         options[:response_content_disposition] = %(#{mode}; filename="#{escaped}")
       end
       presigner.presigned_url(:get_object, **options)
-    rescue Aws::S3::Errors::ServiceError => e
+    rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
       Rails.logger.error("[S3Service] Presigned URL failed for #{key}: #{e.message}")
       nil
     end
@@ -153,7 +156,7 @@ class S3Service
         headers: signed_headers.merge("Content-Type" => content_type),
         expires_in: expires_in
       }
-    rescue Aws::S3::Errors::ServiceError => e
+    rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
       Rails.logger.error("[S3Service] Presigned upload failed for #{key}: #{e.message}")
       nil
     end
@@ -180,7 +183,7 @@ class S3Service
       # Requests perform one bounded first attempt; the durable outbox owns retries.
       cleanup_s3_client.delete_object(bucket: bucket_name, key: key)
       true
-    rescue Aws::S3::Errors::ServiceError => e
+    rescue Aws::S3::Errors::ServiceError, Seahorse::Client::NetworkingError => e
       Rails.logger.error("[S3Service] Delete failed error_class=#{e.class}")
       false
     end

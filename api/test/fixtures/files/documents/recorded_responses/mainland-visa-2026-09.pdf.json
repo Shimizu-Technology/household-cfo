@@ -1,0 +1,45 @@
+{
+  "fixture": "mainland-visa-2026-09.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-09-30\",\n  \"period_start_on\": \"2026-09-01\",\n  \"period_end_on\": \"2026-09-30\",\n  \"summary\": \"Mainland Visa (DEMO) credit card statement for Sept 2026: 5 posted rows, ending balance owed $3,355.00.\",\n  \"confidence\": 0.95,\n  \"warnings\": [\n    \"APR and minimum payment are not shown on this statement, so they are left null.\",\n    \"The printed Posted totals row was used only to check header totals and was not entered as a transaction.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"debt\",\n      \"label\": \"Mainland Visa credit card\",\n      \"amount\": null,\n      \"balance\": 3355.0,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": null,\n      \"debt_type\": \"credit_card\",\n      \"confidence\": 0.9,\n      \"evidence\": \"Ending balance: $3,355.00 on statement period 2026-09-01 through 2026-09-30; account DEMO 00009900.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": 5,\n    \"accounts\": [\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"account_basis\": \"liability\",\n        \"label\": \"Mainland Visa credit card\",\n        \"masked_identifier\": \"****9900\",\n        \"period_start_on\": \"2026-09-01\",\n        \"period_end_on\": \"2026-09-30\",\n        \"opening_balance_cents\": 340000,\n        \"closing_balance_cents\": 335500,\n        \"printed_debit_cents\": 22499,\n        \"printed_credit_cents\": 26999,\n        \"printed_row_count\": 5,\n        \"header_evidence\": \"Account: DEMO 00009900; Statement period: 2026-09-01 through 2026-09-30; Beginning balance $3,400.00; Ending balance $3,355.00; Posted credits $269.99; Posted debits $224.99; Posted rows: 5; Pending excluded from totals.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -11899,\n        \"amount_column_cents\": 11899,\n        \"posted_on\": \"2026-09-06\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": \"Amazon Marketplace\",\n        \"raw_description\": \"Amazon Marketplace\",\n        \"evidence\": \"Debit column 118.99 on 09/06; card purchase increases balance owed.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"debt_payment\",\n        \"signed_amount_cents\": 25000,\n        \"amount_column_cents\": 25000,\n        \"posted_on\": \"2026-09-12\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 2\n        },\n        \"merchant\": \"Bank of Guam\",\n        \"raw_description\": \"Payment from Bank of Guam 00001234\",\n        \"evidence\": \"Credit column 250.00 on 09/12; payment toward card from bank account ending 1234.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -8425,\n        \"amount_column_cents\": 8425,\n        \"posted_on\": \"2026-09-18\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 3\n        },\n        \"merchant\": \"Ross Dress for Less Tamuning\",\n        \"raw_description\": \"Ross Dress for Less Tamuning\",\n        \"evidence\": \"Debit column 84.25 on 09/18; card purchase increases balance owed.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"refund\",\n        \"signed_amount_cents\": 1999,\n        \"amount_column_cents\": 1999,\n        \"posted_on\": \"2026-09-24\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 4\n        },\n        \"merchant\": \"Amazon\",\n        \"raw_description\": \"Amazon merchandise refund\",\n        \"evidence\": \"Credit column 19.99 on 09/24; merchandise refund reduces balance owed.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"mainland-visa-9900\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"interest\",\n        \"signed_amount_cents\": -2175,\n        \"amount_column_cents\": 2175,\n        \"posted_on\": \"2026-09-30\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 5\n        },\n        \"merchant\": \"Mainland Visa\",\n        \"raw_description\": \"Purchase interest charge\",\n        \"evidence\": \"Debit column 21.75 on 09/30; interest charge increases balance owed.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2766,
+            "completion_tokens": 2718,
+            "total_tokens": 5484,
+            "cost": 0.034712,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.032712,
+              "upstream_inference_prompt_cost": 0.005532,
+              "upstream_inference_completions_cost": 0.02718
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 851,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

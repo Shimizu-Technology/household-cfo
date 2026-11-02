@@ -72,7 +72,20 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :service_unavailable
     body = JSON.parse(response.body)
-    assert_includes body.fetch("errors").join, "Private S3"
+    assert_includes body.fetch("errors").join, "Our file storage is unavailable"
+  end
+
+  test "shared storage failures never claim an original file is selected" do
+    document_import = create_import!
+    %w[source_url source_content source_preview].each do |action|
+      get "/api/v1/document_imports/#{document_import.id}/#{action}", headers: auth_headers(@user)
+      assert_response :service_unavailable
+      assert_equal "storage_unavailable", response.parsed_body["code"]
+      assert_equal [ "Our file storage is unavailable. Try again in a few minutes." ], response.parsed_body["errors"]
+    end
+    post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+    assert_response :service_unavailable
+    assert_equal [ "Our file storage is unavailable. Try again in a few minutes." ], response.parsed_body["errors"]
   end
 
   test "create stores upload in private S3 and enqueues extraction" do
@@ -382,6 +395,29 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_empty deleted_keys
   end
 
+  test "direct upload completion treats storage networking failures as retryable" do
+    checksum = "1" * 64
+    deleted_keys = []
+    token = nil
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+      object_metadata: ->(_key) { raise Seahorse::Client::NetworkingError.new(IOError.new("connection reset")) },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "spreadsheet" },
+        headers: auth_headers(@user), as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_includes JSON.parse(response.body).fetch("errors").join, "try again"
+    assert_empty deleted_keys
+  end
+
   test "direct upload requires a browser-computed SHA-256 checksum" do
     with_s3_stubs(configured?: true) do
       post "/api/v1/document_imports/presign",
@@ -606,7 +642,43 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     body = JSON.parse(response.body)
-    assert_match(/Could not store document/, body.fetch("errors").join)
+    assert_match(/Our file storage couldn’t accept your file/, body.fetch("errors").join)
+  end
+
+  test "ambiguous multipart upload persists cleanup before destroying its import and retries deletion" do
+    stored_keys = []
+    deleted_keys = []
+    client = Object.new
+    client.define_singleton_method(:put_object) do |**options|
+      stored_keys << options.fetch(:key)
+      # S3 has accepted the bytes, but the acknowledgement never arrives.
+      raise Seahorse::Client::NetworkingError.new(IOError.new("response lost"))
+    end
+    with_s3_stubs(configured?: true, s3_client: client, delete: ->(key) { deleted_keys << key; false }) do
+      assert_no_difference "FinancialDocumentImport.count" do
+        assert_difference "FinancialDocumentSourceCleanup.count", 1 do
+          assert_enqueued_with(job: FinancialDocumentSourceCleanupJob) do
+            post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user)
+          end
+        end
+      end
+      assert_response :unprocessable_entity
+      cleanup = FinancialDocumentSourceCleanup.last
+      assert_equal stored_keys.sole, cleanup.s3_key
+      assert_nil cleanup.financial_document_import_id
+      assert_equal @household.id, cleanup.household_id
+      FinancialDocumentSourceCleanupJob.perform_now(cleanup.id)
+      assert_equal "failed", cleanup.reload.status
+      assert_equal stored_keys.sole, cleanup.s3_key
+      travel_to(cleanup.next_attempt_at + 1.second) do
+        with_s3_stubs(delete: ->(key) { deleted_keys << key; true }) do
+          FinancialDocumentSourceCleanupJob.perform_now(cleanup.id)
+        end
+      end
+      assert_equal "completed", cleanup.reload.status
+      assert_nil cleanup.s3_key
+      assert_equal stored_keys * 2, deleted_keys
+    end
   end
 
   test "create accepts docx financial documents" do

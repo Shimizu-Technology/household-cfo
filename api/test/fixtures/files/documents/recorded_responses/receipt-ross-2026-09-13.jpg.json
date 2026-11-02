@@ -1,0 +1,45 @@
+{
+  "fixture": "receipt-ross-2026-09-13.jpg",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-09-13\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Ross Dress for Less receipt dated 2026-09-13 totaling $55.25, with a blouse, kids shorts and bath towels, paid by Visa ending 1234.\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"Bath towels do not clearly match any active budget category, so the participant should choose a category during review.\",\n    \"The receipt shows tax and tip as $0.00. Line items sum exactly to the $55.25 total.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-09-13\",\n      \"merchant\": \"Ross Dress for Less\",\n      \"total_amount\": 55.25,\n      \"source_type\": \"receipt\",\n      \"category_name\": null,\n      \"stack_key\": null,\n      \"confidence\": 0.9,\n      \"evidence\": \"Receipt SYN-2026-0900, 09/13/2026 18:24, Guam, Register DEMO-04. Lines: Blouse 16.99, Kids shorts 12.99, Bath towels 25.27. Subtotal $55.25, Tax $0.00, Tip $0.00, TOTAL $55.25. Visa ****1234 approved.\",\n      \"raw_description\": \"Ross Dress for Less - Guam - Receipt SYN-2026-0900\",\n      \"external_id\": \"SYN-2026-0900\",\n      \"splits\": [\n        {\n          \"amount\": 29.98,\n          \"category_name\": \"Clothing\",\n          \"stack_key\": null,\n          \"notes\": \"Blouse 16.99 + Kids shorts 12.99\",\n          \"confidence\": 0.92\n        },\n        {\n          \"amount\": 25.27,\n          \"category_name\": null,\n          \"stack_key\": null,\n          \"notes\": \"Bath towels (household goods, no matching active category)\",\n          \"confidence\": 0.3\n        }\n      ],\n      \"warnings\": [\n        \"Bath towels left uncategorized for participant review.\"\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 3771,
+            "completion_tokens": 1068,
+            "total_tokens": 4839,
+            "cost": 0.018222,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018222,
+              "upstream_inference_prompt_cost": 0.007542,
+              "upstream_inference_completions_cost": 0.01068
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 341,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

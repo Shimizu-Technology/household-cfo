@@ -1,0 +1,45 @@
+{
+  "fixture": "asc-style-retirement-2026-08-to-10.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-10-31\",\n  \"period_start_on\": \"2026-08-01\",\n  \"period_end_on\": \"2026-10-31\",\n  \"summary\": \"Retirement account statement (DEMO 00007777) for 2026-08-01 to 2026-10-31. Beginning balance $25,000.00, ending balance $26,024.50, with 7 posted credits totaling $1,024.50 and no debits.\",\n  \"confidence\": 0.95,\n  \"warnings\": [\n    \"The statement covers a three-month period, not a single month. No monthly normalization was applied.\",\n    \"Contribution frequency is not stated. The rows show 08/15, 09/15 and 10/15 postings, but no pay cadence is printed, so no income item was created.\",\n    \"The statement says pending activity is excluded from totals. No pending rows are visible.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Retirement account DEMO ...7777\",\n      \"amount\": null,\n      \"balance\": 26024.5,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"retirement\",\n      \"debt_type\": null,\n      \"confidence\": 0.93,\n      \"evidence\": \"Ending balance: $26,024.50 for statement period 2026-08-01 through 2026-10-31; Account: DEMO 00007777.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": 7,\n    \"accounts\": [\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"account_basis\": \"asset\",\n        \"label\": \"ASC Trust-style DEMO retirement\",\n        \"masked_identifier\": \"****7777\",\n        \"period_start_on\": \"2026-08-01\",\n        \"period_end_on\": \"2026-10-31\",\n        \"opening_balance_cents\": 2500000,\n        \"closing_balance_cents\": 2602450,\n        \"printed_debit_cents\": 0,\n        \"printed_credit_cents\": 102450,\n        \"printed_row_count\": 7,\n        \"header_evidence\": \"Account: DEMO 00007777; Statement period: 2026-08-01 through 2026-10-31; Beginning balance: $25,000.00; Ending balance: $26,024.50; Posted credits: $1,024.50; Posted debits: $0.00; Posted rows: 7\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-08-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": null,\n        \"raw_description\": \"Employee retirement contribution\",\n        \"evidence\": \"08/15 credit of 200.00. Employee contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 10000,\n        \"amount_column_cents\": 10000,\n        \"posted_on\": \"2026-08-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": null,\n        \"raw_description\": \"Employer contribution\",\n        \"evidence\": \"08/15 credit of 100.00. Employer contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-09-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": null,\n        \"raw_description\": \"Employee retirement contribution\",\n        \"evidence\": \"09/15 credit of 200.00. Employee contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 10000,\n        \"amount_column_cents\": 10000,\n        \"posted_on\": \"2026-09-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": null,\n        \"raw_description\": \"Employer contribution\",\n        \"evidence\": \"09/15 credit of 100.00. Employer contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-10-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": null,\n        \"raw_description\": \"Employee retirement contribution\",\n        \"evidence\": \"10/15 credit of 200.00. Employee contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 10000,\n        \"amount_column_cents\": 10000,\n        \"posted_on\": \"2026-10-15\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": null,\n        \"raw_description\": \"Employer contribution\",\n        \"evidence\": \"10/15 credit of 100.00. Employer contribution into the retirement account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"DEMO-7777\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 12450,\n        \"amount_column_cents\": 12450,\n        \"posted_on\": \"2026-10-31\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 7},\n        \"merchant\": null,\n        \"raw_description\": \"Cash dividend distribution\",\n        \"evidence\": \"10/31 credit of 124.50. Cash dividend distribution paid into the account.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2812,
+            "completion_tokens": 2846,
+            "total_tokens": 5658,
+            "cost": 0.036084,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.034084,
+              "upstream_inference_prompt_cost": 0.005624,
+              "upstream_inference_completions_cost": 0.02846
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 621,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,341 @@
+{
+  "fixture": "budget-messy-600-rows-2026.xlsx",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": "worksheet 2, rows 1-80. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 1-80 of the 'Planning archive' sheet contain only archived, superseded planning estimates. They are not current setup items, purchases, or actual transactions, so nothing was extracted.\",\"confidence\":0.9,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 7452,
+            "completion_tokens": 151,
+            "total_tokens": 7603,
+            "cost": 0.016414,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.016414,
+              "upstream_inference_prompt_cost": 0.014904,
+              "upstream_inference_completions_cost": 0.00151
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 81-160. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"spreadsheet\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Rows 81-160 of the 'Planning archive' sheet contain only archived, superseded planning estimates. They are not current setup items, purchases, or actual transactions, so nothing was extracted.\",\n  \"confidence\": 0.95,\n  \"warnings\": [],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8248,
+            "completion_tokens": 180,
+            "total_tokens": 8428,
+            "cost": 0.018296,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018296,
+              "upstream_inference_prompt_cost": 0.016496,
+              "upstream_inference_completions_cost": 0.0018
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 161-240. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 161-240 of the 'Planning archive' sheet contain only superseded planning estimates, which are labeled as not purchases or current budgets. No current setup items or transactions were extracted from this section.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8246,
+            "completion_tokens": 153,
+            "total_tokens": 8399,
+            "cost": 0.018022,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018022,
+              "upstream_inference_prompt_cost": 0.016492,
+              "upstream_inference_completions_cost": 0.00153
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 241-320. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 241-320 of the 'Planning archive' sheet contain only archived, superseded planning estimates, which are not purchases or current monthly budgets. No current setup items or actual transactions were extracted.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8248,
+            "completion_tokens": 154,
+            "total_tokens": 8402,
+            "cost": 0.018036,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018036,
+              "upstream_inference_prompt_cost": 0.016496,
+              "upstream_inference_completions_cost": 0.00154
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 321-400. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Worksheet 2 rows 321-400 (Planning archive) contain only archived, superseded planning estimates labeled as not purchases or current monthly budgets. No current setup items, transactions, or source events were extracted.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8248,
+            "completion_tokens": 158,
+            "total_tokens": 8406,
+            "cost": 0.018076,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018076,
+              "upstream_inference_prompt_cost": 0.016496,
+              "upstream_inference_completions_cost": 0.00158
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 401-480. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 401-480 of the 'Planning archive' sheet contain only archived, superseded planning estimates marked 'Planning note only; replaced by current plan'. They are not purchases or current budgets, so no setup items or transactions were extracted.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8248,
+            "completion_tokens": 167,
+            "total_tokens": 8415,
+            "cost": 0.018166,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.018166,
+              "upstream_inference_prompt_cost": 0.016496,
+              "upstream_inference_completions_cost": 0.00167
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 481-560. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 481-560 of the 'Planning archive' sheet contain only archived, superseded planning estimates. They are not current setup items or actual transactions, so nothing was extracted.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 8246,
+            "completion_tokens": 146,
+            "total_tokens": 8392,
+            "cost": 0.017952,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.017952,
+              "upstream_inference_prompt_cost": 0.016492,
+              "upstream_inference_completions_cost": 0.00146
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 2, rows 561-603. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"spreadsheet\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Rows 561-603 of the 'Planning archive' sheet contain only superseded planning estimates and a synthetic-test footer note. There are no current setup items, actual transactions or statement events to extract.\",\"confidence\":0.95,\"warnings\":[],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 6401,
+            "completion_tokens": 152,
+            "total_tokens": 6553,
+            "cost": 0.014322,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.014322,
+              "upstream_inference_prompt_cost": 0.012802,
+              "upstream_inference_completions_cost": 0.00152
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    },
+    {
+      "label": "worksheet 3, rows 1-5. Extract only the supplied rows; header_context_only is reference, never output. Use original sheet_index and row in locators. Other sections are read separately; do not invent omitted rows or warn about missing sections. already_extracted_setup_items were read deterministically from other sheets: do not repeat those values from supporting schedules. Archived or superseded planning estimates and notes are not current setup items or actual transactions",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"spreadsheet\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Notes and reminders worksheet (sheet_index 2, rows 1-5). It has no new amounts, accounts, debts, or transactions. It has one household note about separating tobacco from food on Payless receipts.\",\n  \"confidence\": 0.85,\n  \"warnings\": [],\n  \"items\": [\n    {\n      \"target_type\": \"profile_note\",\n      \"label\": \"Payless receipts: separate tobacco from food\",\n      \"amount\": null,\n      \"balance\": null,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": null,\n      \"stack_key\": null,\n      \"account_type\": null,\n      \"debt_type\": null,\n      \"confidence\": 0.8,\n      \"evidence\": \"Sheet index 2, row 3: Topic 'Groceries' - 'Payless receipts may include cigarettes; separate tobacco from food.'\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": null\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 3646,
+            "completion_tokens": 855,
+            "total_tokens": 4501,
+            "cost": 0.015842,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.015842,
+              "upstream_inference_prompt_cost": 0.007292,
+              "upstream_inference_completions_cost": 0.00855
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 451,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

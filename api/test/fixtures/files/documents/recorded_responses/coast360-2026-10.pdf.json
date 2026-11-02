@@ -1,0 +1,45 @@
+{
+  "fixture": "coast360-2026-10.pdf",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "recorded_on": "2026-11-02",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-10-31\",\n  \"period_start_on\": \"2026-10-01\",\n  \"period_end_on\": \"2026-10-31\",\n  \"summary\": \"Coast360 Federal Credit Union monthly statement for Oct 2026 with 4 posted rows: a transfer in, a prepaid mobile purchase, a dividend credit, and a debit card replacement fee. Ending balance is $4,170.85.\",\n  \"confidence\": 0.96,\n  \"warnings\": [\n    \"The statement says pending items are excluded from totals; no pending rows are visible in the table.\",\n    \"The 'Posted totals' row is a printed summary and was not extracted as a transaction.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Coast360 FCU account ending 2468\",\n      \"amount\": null,\n      \"balance\": 4170.85,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"checking\",\n      \"debt_type\": null,\n      \"confidence\": 0.7,\n      \"evidence\": \"Ending balance: $4,170.85 for account DEMO 00002468. The account type is not stated, so checking is inferred from the debit card and transaction activity.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": 4,\n    \"accounts\": [\n      {\n        \"account_key\": \"coast360_2468\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Coast360 Federal Credit Union account\",\n        \"masked_identifier\": \"****2468\",\n        \"period_start_on\": \"2026-10-01\",\n        \"period_end_on\": \"2026-10-31\",\n        \"opening_balance_cents\": 400000,\n        \"closing_balance_cents\": 417085,\n        \"printed_debit_cents\": 3000,\n        \"printed_credit_cents\": 20085,\n        \"printed_row_count\": 4,\n        \"header_evidence\": \"Account: DEMO 00002468; Statement period 2026-10-01 through 2026-10-31; Beginning balance $4,000.00; Ending balance $4,170.85; Posted credits $200.85; Posted debits $30.00; Posted rows: 4\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"coast360_2468\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-10-10\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Transfer from own Bank of Guam 00001234\",\n        \"evidence\": \"Credit of 200.00 on 10/10; transfer from the participant's own Bank of Guam account.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"coast360_2468\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2500,\n        \"amount_column_cents\": 2500,\n        \"posted_on\": \"2026-10-14\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 2\n        },\n        \"merchant\": \"GTA mobile prepaid\",\n        \"raw_description\": \"GTA mobile prepaid\",\n        \"evidence\": \"Debit of 25.00 on 10/14.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"coast360_2468\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"interest\",\n        \"signed_amount_cents\": 85,\n        \"amount_column_cents\": 85,\n        \"posted_on\": \"2026-10-28\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 3\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Monthly dividend credit\",\n        \"evidence\": \"Credit of 0.85 on 10/28; dividend credit from the credit union.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"coast360_2468\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"fee\",\n        \"signed_amount_cents\": -500,\n        \"amount_column_cents\": 500,\n        \"posted_on\": \"2026-10-31\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 4\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Debit card replacement fee\",\n        \"evidence\": \"Debit of 5.00 on 10/31.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2726,
+            "completion_tokens": 2234,
+            "total_tokens": 4960,
+            "cost": 0.029792,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.027792,
+              "upstream_inference_prompt_cost": 0.005452,
+              "upstream_inference_completions_cost": 0.02234
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 603,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

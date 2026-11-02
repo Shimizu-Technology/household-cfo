@@ -67,23 +67,26 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal typed[:accounts], merged[:accounts]
   end
 
-  test "account merging resolves unknown basis and retains all limitations while preserving real conflicts" do
+  test "account merging requires known identity and retains limitations and header conflicts" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
     source = lambda do |basis, closing, limitations|
-      { contract_version: FinancialDocuments::AccountingContract::VERSION, events: [], accounts: [ { source_key: "same-account", account_basis: basis, closing_balance_cents: closing, limitations: limitations } ] }
+      { contract_version: FinancialDocuments::AccountingContract::VERSION, events: [], accounts: [ { source_key: "same-account", account_basis: basis, closing_balance_cents: closing, limitations: limitations, evidence: { masked_identifier: "XXXX1234" } } ] }
     end
     unknown = source.call("unknown", nil, [ "account_basis_unknown", "first_page_limit" ])
     known = source.call("asset", 100, [ "later_page_limit" ])
     [ [ unknown, known ], [ known, unknown ] ].each do |sources|
-      account = extractor.send(:merge_source_accounting, sources.map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
+      accounts = extractor.send(:merge_source_accounting, sources.map { |value| { source_accounting: value } }, page_count: 2)[:accounts]
+      assert_equal 2, accounts.length
+      account = accounts.find { |value| value[:account_basis] == "asset" }
       assert_equal "asset", account[:account_basis]
       assert_equal 100, account[:closing_balance_cents]
-      assert_equal %w[first_page_limit later_page_limit], account[:limitations].sort
+      assert_equal [ "later_page_limit" ], account[:limitations]
+      assert_includes accounts.find { |value| value[:account_basis] == "unknown" }[:limitations], "account_basis_unknown"
     end
-    conflict = extractor.send(:merge_source_accounting, [ known, source.call("liability", 200, [ "third_page_limit" ]) ].map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
-    assert_includes conflict[:limitations], "conflicting_header_account_basis"
+    conflict = extractor.send(:merge_source_accounting, [ known, source.call("asset", 200, [ "third_page_limit" ]) ].map { |value| { source_accounting: value } }, page_count: 2)[:accounts].sole
     assert_includes conflict[:limitations], "conflicting_header_closing_balance_cents"
     assert_includes conflict[:limitations], "third_page_limit"
+    assert_equal [ "account_basis_unknown", "first_page_limit" ], unknown[:accounts].sole[:limitations]
   end
 
   test "accepts canonical model money and rejects malformed or unbounded formats" do
@@ -233,12 +236,12 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal [ 2, 2, 2, 2, 1 ], batches.pluck(:pages)
     assert_equal [ "pages 1-2 of 9", "pages 3-4 of 9", "pages 5-6 of 9", "pages 7-8 of 9", "pages 9-9 of 9" ], batches.pluck(:label)
     assert_equal 5, result.data.fetch(:transaction_drafts).length
-    assert_equal "Mia found 5 transaction drafts across 9 statement pages for review.", result.data.fetch(:summary)
+    assert_equal "Mia found 5 transaction drafts across 9 pages for review.", result.data.fetch(:summary)
     assert_equal "pdf_batches", result.metadata.fetch(:extraction_mode)
     assert_equal 9, result.metadata.fetch(:page_count)
     assert_equal 5, result.metadata.fetch(:batch_count)
     assert_equal 500, result.metadata.dig(:usage, "total_tokens")
-    assert_includes result.data.fetch(:warnings), "Mia read all 9 pages of this statement."
+    assert_includes result.data.fetch(:warnings), "Mia read all 9 pages of this document."
   ensure
     file&.close!
   end
@@ -672,9 +675,9 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
 
         refute result.success?
-        assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error
+        assert_equal(status == 402 ? FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error)
         assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
-        assert_match(/temporary/i, result.error)
+        assert_match(status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
         assert_match(/Reprocess/, result.error)
         assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
         assert_equal status, result.metadata.fetch(:status_code)
@@ -770,7 +773,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     result = extractor.send(:batched_pdf_result, document_import, file.path)
 
     refute result.success?
-    assert_equal "Pages 3-4 of this statement didn't finish. #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}", result.error
+    assert_equal "Pages 3-4 of this document didn't finish. #{FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE}", result.error
     assert_equal "pages 3-4 of 4: OpenRouter extraction failed with HTTP 503", result.metadata.fetch(:error_detail)
   ensure
     file&.close!
@@ -806,7 +809,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_empty account[:limitations]
     assert_equal [ account[:source_key] ] * 3, accounting.fetch(:events).pluck(:source_key)
     assert_equal 3, accounting.fetch(:events).pluck(:row_identity).uniq.length
-    assert_equal [ "Mia read all 6 pages of this statement.", "No category was assigned to any row; the participant should choose categories during review." ], result.data.fetch(:warnings)
+    assert_equal [ "Mia read all 6 pages of this document.", "No category was assigned to any row; the participant should choose categories during review." ], result.data.fetch(:warnings)
   end
 
   test "statement batches keep genuinely different accounts apart" do
@@ -831,9 +834,281 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1234", "asset")), batch.call(3, account.call("savings", nil, "asset"))).length
     # Different numbers.
     assert_equal 2, accounts_for.call(batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("savings", "XXXX2222", "asset"))).length
+    # Model-local keys can collide even when the printed accounts differ.
+    collision = [ batch.call(1, account.call("checking", "XXXX1111", "asset")), batch.call(3, account.call("checking", "XXXX2222", "asset")) ]
+    merged = extractor.send(:merge_source_accounting, collision, page_count: nil, sheet_count: 2)
+    assert_equal 2, merged[:accounts].length
+    assert_equal 2, merged[:events].pluck(:source_key).uniq.length
+    assert_equal %w[XXXX1111 XXXX2222], merged[:accounts].map { |item| item[:evidence][:masked_identifier] }
+  end
+
+  test "worksheet chunks join verified headers only within one worksheet" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    batch = lambda do |sheet, row|
+      { source_accounting: FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+        accounts: [ { account_key: "checking", account_basis: "asset", masked_identifier: "XXXX1111" } ],
+        events: [ { account_key: "checking", event_type: "purchase", row_kind: "posted", posted_on: "2026-10-01", signed_amount_cents: -100, amount_column_cents: 100, locator: { sheet_index: sheet, row: row } } ] },
+        coverage: { expected_sheet_count: 2, processed_sheets: [ sheet ] }) }
+    end
+    separate = extractor.send(:merge_source_accounting, [ batch.call(0, 1), batch.call(1, 1) ], page_count: nil, sheet_count: 2)
+    assert_equal 2, separate[:accounts].length, "Different banks can print the same account suffix on separate sheets"
+    assert_equal 2, separate[:events].pluck(:source_key).uniq.length
+    continued = extractor.send(:merge_source_accounting, [ batch.call(0, 1), batch.call(0, 81) ], page_count: nil, sheet_count: 2)
+    assert_equal 1, continued[:accounts].length
+    assert_equal 1, continued[:events].pluck(:source_key).uniq.length
+    assert_equal [ 1, 81 ], continued[:events].map { |event| event[:locator][:row] }
+    unknown = [ batch.call(0, 1), batch.call(1, 1) ]
+    unknown.each { |data| data[:source_accounting][:coverage][:processed_sheets] = [] }
+    assert_equal 2, extractor.send(:merge_source_accounting, unknown, page_count: nil, sheet_count: 2)[:accounts].length
+  end
+
+  test "statement fallback classification does not turn historical rows into recurring setup" do
+    document = FinancialDocumentImport.new(document_kind: "statement")
+    payload = { "items" => Array.new(61) { { "target_type" => "income_source", "label" => "Historical payroll", "amount" => 200, "cadence" => "monthly" } },
+      "source_accounting" => { "contract_version" => FinancialDocuments::AccountingContract::VERSION, "accounts" => [], "events" => [] } }
+    result = FinancialDocuments::Extractor.new.send(:normalize_extraction, payload, document)
+    assert_equal "statement", result[:document_kind]
+    assert_empty result[:items]
+  end
+
+  test "model spreadsheet batches keep original rows and shrink output-limited sections without accepting partial results" do
+    file = Tempfile.new([ "unrecognized-budget", ".csv" ])
+    file.write("Budget note,Monthly dollars\n")
+    81.times { |i| file.write("Synthetic note #{i},#{i}\n") }
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "messy.csv", content_type: "text/csv")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    seen = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |_document, _path, batch_label:|
+      rows = @spreadsheet_batch_summary[:sheets].sole[:rows]
+      seen << rows.pluck(:row)
+      if rows.length > 20
+        next FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "limit", metadata: { finish_reason: "length" })
+      end
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], warnings: [], confidence: "high", document_kind: "spreadsheet",
+        source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: { usage: { "total_tokens" => 1 } })
+    end
+    result = extractor.send(:batched_spreadsheet_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal (1..82).to_a, seen.select { |rows| rows.length <= 20 }.flatten
+    assert_equal "spreadsheet_batches", result.metadata[:extraction_mode]
+    assert_equal [ 0 ], result.data[:source_accounting][:coverage][:processed_sheets]
+    assert_equal 5, result.metadata[:batch_count]
+    assert_nil extractor.instance_variable_get(:@spreadsheet_batch_summary)
+  ensure
+    file&.close!
+  end
+
+  test "a provider output-limited PDF batch shrinks to individual original pages" do
+    file = Tempfile.new([ "adaptive-statement", ".pdf" ])
+    file.binmode
+    file.write(blank_pdf_bytes(3))
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "statement", filename: "adaptive.pdf", content_type: "application/pdf")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    labels = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |_document, path, batch_label:|
+      labels << batch_label
+      if CombinePDF.load(path).pages.length > 1
+        next FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "limit", metadata: { finish_reason: "length" })
+      end
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    result = extractor.send(:batched_pdf_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal [ "pages 1-2 of 3", "pages 1-1 of 3", "pages 2-2 of 3", "pages 3-3 of 3" ], labels
+    assert_equal 3, result.metadata[:batch_count]
+    assert_equal [ 1, 2, 3 ], result.data[:source_accounting][:coverage][:processed_pages]
+  ensure
+    file&.close!
+  end
+
+  test "later workbook failure never returns the earlier successful section" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+        calls += 1
+        if calls == 1
+          FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+        else
+          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "temporary outage", metadata: {})
+        end
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal 2, calls
+      assert_match(/section.*didn’t finish/, result.error)
+    end
+  end
+
+  test "mixed workbooks retain deterministic values and read unfamiliar financial sheets" do
+    file = Tempfile.new([ "mixed-budget", ".xls" ])
+    file.close
+    book = Spreadsheet::Workbook.new
+    known = book.create_worksheet(name: "Current budget")
+    known.row(0).concat(%w[type label amount cadence])
+    known.row(1).concat([ "income", "Salary", "3000", "monthly" ])
+    unknown = book.create_worksheet(name: "School notes")
+    unknown.row(0).concat([ "School fees planned monthly", "125.00" ])
+    book.write(file.path)
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "mixed.xls", content_type: "application/vnd.ms-excel", s3_key: "test/mixed")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    sheets_seen = []
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+      sheets_seen << @spreadsheet_batch_summary[:sheets].sole[:sheet_index]
+      FinancialDocuments::Extractor::Result.new(success: true, data: { items: [ { target_type: "expense_item", label: "School fees", amount_cents: 12_500 } ], transaction_drafts: [], warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    with_s3_stubs(configured?: true, download_to_io: ->(_key, io) { io.write(File.binread(file.path)); true }) do
+      result = extractor.call(document)
+      assert result.success?, result.error
+      assert_equal [ 1 ], sheets_seen
+      assert_equal [ "Salary", "School fees" ], result.data[:items].pluck(:label)
+      assert_equal [ 0, 1 ], result.data[:source_accounting][:coverage][:processed_sheets]
+    end
+  ensure
+    file&.close!
+  end
+
+  test "workbook batches reject repeated earlier source locators" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_options|
+        FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], source_accounting: { contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [], events: [ { locator: { sheet_index: 0, row: 2 } } ] } }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_match(/source rows/, result.error)
+    end
+  end
+
+  test "oversized unknown workbook is rejected before any paid batch" do
+    file = Tempfile.new([ "oversized-unknown", ".csv" ])
+    file.write("Notes,Unrecognized value\n")
+    (FinancialDocuments::Extractor::MAX_SPREADSHEET_BATCHES * FinancialDocuments::Extractor::SPREADSHEET_BATCH_ROWS).times { |i| file.write("Note #{i},#{i}\n") }
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "unknown.csv", content_type: "text/csv")
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    extractor.define_singleton_method(:extract_openrouter_document) { |*_, **_| raise "must not call provider" }
+    result = extractor.send(:batched_spreadsheet_result, document, file.path)
+    refute result.success?
+    assert_nil result.data
+    assert_match(/Split it/, result.error)
+  ensure
+    file&.close!
+  end
+
+  test "spreadsheet processing stops at the event limit before reading another section" do
+    with_unrecognized_workbook(row_count: 161) do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        calls += 1
+        row = @spreadsheet_batch_summary[:sheets].sole[:rows].first[:row]
+        events = Array.new(FinancialDocuments::AccountingContract::MAX_EVENTS / 2 + 1) { { locator: { sheet_index: 0, row: row } } }
+        FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: { events: events } }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal 2, calls
+      assert_match(/Split it/, result.error)
+    end
+  end
+
+  test "adaptive spreadsheet splitting shares a bounded model call budget" do
+    with_unrecognized_workbook do |document, path|
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      calls = 0
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        calls += 1
+        if @spreadsheet_batch_summary[:sheets].sole[:rows].length > 1
+          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "output limit", metadata: { finish_reason: "length" })
+        else
+          FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: { events: [] } }, error: nil, metadata: {})
+        end
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      refute result.success?
+      assert_nil result.data
+      assert_equal FinancialDocuments::Extractor::MAX_SPREADSHEET_BATCHES, calls
+    end
+  end
+
+  test "single PDF batch preserves a non-statement summary and uses document-neutral warnings" do
+    file = Tempfile.new([ "pay-stub", ".pdf" ])
+    file.binmode
+    file.write(blank_pdf_bytes(3))
+    file.flush
+    document = FinancialDocumentImport.new(document_kind: "pay_stub", filename: "pay.pdf", content_type: "application/pdf")
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+      FinancialDocuments::Extractor::Result.new(success: true, data: { summary: "Take-home pay for September.", warnings: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+    end
+    result = extractor.send(:batched_pdf_result, document, file.path)
+    assert result.success?, result.error
+    assert_equal "Take-home pay for September.", result.data[:summary]
+    assert_includes result.data[:warnings], "Mia read all 3 pages of this document."
+    refute_match(/statement/, result.data[:warnings].join)
+  ensure
+    file&.close!
+  end
+
+  test "spreadsheet batching does not reinsert the formula warning after merging" do
+    with_unrecognized_workbook do |document, path|
+      summary = FinancialDocuments::SpreadsheetSummarizer.new(file_path: path, filename: document.filename).call
+      summary[:uncalculated_formula_cells] = 1
+      summarizer = Object.new
+      summarizer.define_singleton_method(:call) { summary }
+      singleton = FinancialDocuments::SpreadsheetSummarizer.singleton_class
+      original = singleton.instance_method(:new)
+      singleton.define_method(:new) { |**_| summarizer }
+      extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+      warning = FinancialDocuments::SpreadsheetSummarizer.uncalculated_formula_warning(1)
+      extractor.define_singleton_method(:extract_openrouter_document) do |*_, **_|
+        FinancialDocuments::Extractor::Result.new(success: true, data: { warnings: [ warning ], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
+      end
+      result = extractor.send(:batched_spreadsheet_result, document, path)
+      assert result.success?, result.error
+      assert_equal 1, result.data[:warnings].count(warning)
+    ensure
+      singleton&.define_method(:new, original) if original
+    end
+  end
+
+  test "merged spreadsheet warns once about formulas and pluralizes worksheet counts" do
+    extractor = FinancialDocuments::Extractor.new
+    warning = FinancialDocuments::SpreadsheetSummarizer.uncalculated_formula_warning(1)
+    batch = { warnings: [ warning, *Array.new(12) { |i| "Warning #{i}" } ], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }
+    result = extractor.send(:merge_pdf_batch_results, [ batch, batch ], [], page_count: nil, sheet_count: 1)
+    assert result.success?, result.error
+    assert_equal 1, result.data[:warnings].count(warning)
+    assert_equal FinancialDocuments::Extractor::MAX_WARNINGS, result.data[:warnings].length
+    assert_includes result.data[:warnings], "Mia read all 1 worksheet in smaller sections."
+    assert_match(/1 worksheet for review/, result.data[:summary])
+  end
+
+  test "late column headers accompany later workbook sections" do
+    sheet = { rows: (1..90).map { |i| { row: i, values: i == 40 ? %w[Posted Payee Debit Credit] : [ "Preamble #{i}", i.to_s ] } } }
+    context = FinancialDocuments::Extractor.new.send(:spreadsheet_header_context, sheet, sheet[:rows].last(10))
+    assert_includes context.pluck(:row), 40
+    assert_equal %w[Posted Payee Debit Credit], context.find { |row| row[:row] == 40 }[:values]
+    assert context.all? { |row| row[:row] < 81 }
   end
 
   private
+
+  def with_unrecognized_workbook(row_count: 81)
+    file = Tempfile.new([ "unrecognized-budget", ".csv" ])
+    file.write("Budget note,Monthly dollars\n")
+    row_count.times { |i| file.write("Synthetic note #{i},#{i}\n") }
+    file.flush
+    yield FinancialDocumentImport.new(document_kind: "spreadsheet", filename: "messy.csv", content_type: "text/csv"), file.path
+  ensure
+    file&.close!
+  end
 
   def provider_import
     user = User.create!(clerk_id: "clerk_extractor_provider_#{SecureRandom.hex(4)}", email: "extractor-provider-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
