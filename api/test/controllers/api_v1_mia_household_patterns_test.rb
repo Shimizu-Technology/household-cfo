@@ -99,6 +99,9 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
         post "/api/v1/mia/messages", params: { message: "What spending patterns in #{reference}'s largest purchase?" }, headers: @headers, as: :json
         assert_response :created
         assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload", reference
+        post "/api/v1/mia/messages", params: { message: "What spending patterns do you see in #{reference}?" }, headers: @headers, as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload", reference
       end
       before = financial_counts
       post "/api/v1/mia/messages", params: { message: "What spending patterns do you see this month?" }, headers: @headers, as: :json

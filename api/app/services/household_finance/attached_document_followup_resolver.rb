@@ -7,7 +7,7 @@ module HouseholdFinance
     FOLLOW_UP_REFERENCE = /\b(?:that|those|it|them|this|these|upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
     ELLIPTICAL_PREFIX = /\A\s*(?:and\s+)?(?:what|how)\s+about\b/i
     DATE_SHORTHAND = /\A\s*(?:and\s+)?(?:only\s+)?(?:today|yesterday|this month|last month|next month|(?:in|for|during|only)\s+#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}|#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}(?:\s+(?:19|20)\d{2})?\s+only)\b/i
-    EVIDENCE_QUESTION = /\b(?:total|sum|largest|biggest|highest|merchant|transaction|purchase|charge|category|categorized|when|date|period|month|duplicate|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i
+    EVIDENCE_QUESTION = /\b(?:total|sum|largest|biggest|highest|merchant|transaction|purchase|charge|category|categorized|patterns?|habits?|when|date|period|month|duplicate|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i
     CLEARLY_UNRELATED_TOPIC = /\b(?:runway|safe to spend|readiness|red status|yellow status|green status|emergency fund|leave (?:my )?job|quit (?:my )?job|debt (?:strategy|payoff)|credit score|retirement)\b/i
     NEW_ADVICE_OR_ACTION = /\b(?:should|could i|can i|would it be better|set|change|update|increase|decrease|raise|lower|create|rename|archive|budget\s+(?:be|for))\b/i
     EXPLICIT_EVIDENCE_REFERENCE = /\b(?:upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
