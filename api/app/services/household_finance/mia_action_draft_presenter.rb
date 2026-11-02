@@ -10,7 +10,7 @@ module HouseholdFinance
         status: draft.status,
         draft_type: draft.draft_type,
         record_scope: "household_plan",
-        scope_note: "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms.",
+        scope_note: scope_note,
         year: draft.year,
         title: draft.title,
         summary: draft.summary,
@@ -33,6 +33,13 @@ module HouseholdFinance
     private
 
     attr_reader :draft
+
+    def scope_note
+      session = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session
+      return unless session&.cohort&.savings_challenge_enabled?
+
+      "Household plan — changes here do not approve challenge savings, change the challenge target, or update optional card terms."
+    end
 
     # Set when an apply was rejected because the saved numbers moved on. Only
     # a reviewable card can be out of date; applied or canceled ones are closed.
