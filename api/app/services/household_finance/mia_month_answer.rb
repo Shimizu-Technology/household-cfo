@@ -107,11 +107,12 @@ module HouseholdFinance
       when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
       else "Add the missing starting numbers before judging your cushion."
       end
-      review_line = next_move.presence || if facts[:pending_count].nil?
+      review_line = next_move.presence
+      review_line ||= if facts[:pending_count].nil?
         "The review list is incomplete, so check it before making your next money decision."
-                                          elsif facts[:pending_count].positive?
+      elsif facts[:pending_count].positive?
         "Check the purchases waiting on your review card before choosing where the next dollar goes."
-                                          else
+      else
         "Check the next bill due before deciding where any money left should go."
       end
       caveat = left.nil? ? "" : "; this is a plan figure, not a bank balance or permission to spend"
