@@ -263,7 +263,14 @@ module HouseholdFinance
     def requested_new_category
       match = user_message.match(/\bput (?:it|that) (?:under|in)\s+([\p{L}][\p{L} &’'-]{0,79}?)(?:\s+category)?[.!]?\z/i) ||
         user_message.match(/\b(?:a )?new\s+([\p{L}][\p{L} &’'-]{0,79}?)\s+category[.!]?\z/i)
-      match&.[](1)&.strip&.sub(/\A(?:a\s+)?new\s+/i, "")
+      return unless match
+
+      name = match[1].squish.sub(/\A(?:(?:a|the|my|our|new|category)\s+)+/i, "")
+        .sub(/\s+please\z/i, "").sub(/\s+category\z/i, "").strip
+      known = Array(context[:budget_categories]).find { |category| category[:name].to_s.squish.casecmp?(name) }
+      return known[:name] if known
+
+      name if user_message.match?(/\bnew\b/i)
     end
 
     def deterministic_category_followup_result
@@ -286,7 +293,7 @@ module HouseholdFinance
       return unless user_message.match?(/\A(?:it was |that was |at |\$)/i)
       recent = Array(context.dig(:conversation, :recent_messages)).last(6)
       assistant = recent.reverse.find { |entry| entry[:role].to_s == "assistant" }
-      return unless assistant && assistant[:content].to_s.match?(/how much|where|which (?:store|merchant)|what (?:store|merchant)|when/i)
+      return unless assistant && assistant[:content].to_s.match?(/\bhow much\b|\bwhere did you\b|\b(?:which|what) (?:store|merchant|day|past day)\b|\bwhen did\b/i)
       texts = recent.filter_map { |entry| entry[:content].to_s if entry[:role].to_s == "user" }
       report = texts.reverse.find { |text| text.match?(/\b(?:i|we) (?:spent|paid|bought)\b/i) && !text.include?("?") }
       return unless report
@@ -327,7 +334,8 @@ module HouseholdFinance
     end
 
     def deterministic_current_salary_result
-      match = user_message.match(/\A(?:my|our)\s+(?:salary|take[ -]home pay)\s+is\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?\s*(?:now|starting (?:this month|now))?[.!]?\z/i)
+      match = user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:my|our)\s+(?:salary|take[ -]home pay)\s+is\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?\s*(?:now|starting (?:this month|now))?[.!]?\z/i) ||
+        user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:(?:please|can you|could you|would you)\s+)?(?:change|set|update)\s+(?:my|our)\s+(?:salary|take[ -]home pay)\s+to\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?[.!]?\z/i)
       return unless match
 
       sources = Array(context[:income_sources]).select { |source| source[:source_type] == "job" && source[:active] }
@@ -348,7 +356,10 @@ module HouseholdFinance
         !::Mia::FinancialReadOnlyRequest.matches?(user_message) &&
         !user_message.match?(/\b(?:set|change|update|create|add|log|record|put it)\b/i) &&
         !MiaCoachAnswerer.spend_report_text?(user_message)
-      return unless MiaCoachAnswerer.reflective_message?(user_message) || MiaMonthAnswer.question?(user_message) || purse_advice
+      priority = MiaCoachAnswerer.routing_priority(user_message)
+      boundary = priority.in?(%i[hardship essential_skip])
+      return if !boundary && MiaCoachAnswerer.explicit_write_request?(user_message)
+      return unless boundary || priority.in?(%i[reflective month]) || purse_advice
       return if TransactionDraftBuilder.non_expense_movement?(user_message)
 
       Result.new(intent: "coaching", confidence: 1.0, continuation: false,
@@ -2924,7 +2935,17 @@ module HouseholdFinance
     def valid_review_category?(id, name)
       return true if blank_or_known_active_category?(id, name)
 
-      id.to_i.zero? && name.present? && user_message.downcase.include?(name.downcase)
+      phrase = name.to_s.squish
+      return false unless id.to_i.zero? && phrase.present?
+      # A shortened existing name needs clarification, not a second category.
+      partial = Array(context[:budget_categories]).any? do |category|
+        category[:name].to_s.match?(/(?<![[:alnum:]])#{Regexp.escape(phrase)}(?![[:alnum:]])/i)
+      end
+      return false if partial && !user_message.match?(/\bnew\b/i)
+
+      named = Regexp.escape(phrase)
+      user_message.match?(/(?<![[:alnum:]])#{named}(?![[:alnum:]])/i) &&
+        user_message.match?(/\b(?:new|category)\s+(?:(?:category|called|named|the|a)\s+)*#{named}(?![[:alnum:]])|(?<![[:alnum:]])#{named}\s+category\b/i)
     end
 
     def blank_or_known_active_category?(id, name)

@@ -698,9 +698,9 @@ cases:
   - id: mel_embarrassed_takeout
     route: controller
     prompt: "I'm embarrassed I ordered takeout again"
-    expected_phrases: [does not make you a failure, easy meal]
+    expected_phrases: [does not make you a failure, weighing, What]
     forbidden_phrases: [not counted, checked spending, Umbee, Lanya, Chelu, readiness]
-    live_expected: [[takeout, dinner, order], [tired, hard, easy, meal], [next, could, keep, ready]]
+    live_expected: [[takeout, choice], [weighing, hard, understandable], [before, next, what]]
 
   - id: mel_ross_purse
     route: controller
@@ -712,7 +712,7 @@ cases:
     route: controller
     messages:
       - I spent $12 at Payless today
-      - put it under Cigarettes
+      - put it under a new Cigarettes category
     expected_phrases: [Cigarettes, Payless, review]
     forbidden_phrases: [budget stack, which stack, monthly allocation]
     live_expected: [Cigarettes, [review, card]]

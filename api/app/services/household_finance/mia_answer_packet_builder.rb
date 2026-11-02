@@ -2,7 +2,10 @@
 
 module HouseholdFinance
   class MiaAnswerPacketBuilder
-    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil, mia_action_result: nil)
+    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil, mia_action_result: nil, month_answer: nil, participant_message: nil, reflection: false)
+      @month_answer = month_answer
+      @participant_message = participant_message.to_s
+      @reflection = reflection
       @kind = kind.to_s
       @fallback_response = fallback_response.to_s
       @write_state = write_state.presence || "no_write"
@@ -18,6 +21,7 @@ module HouseholdFinance
       {
         kind: kind,
         basis: answer_basis,
+        coaching_provenance: coaching_provenance,
         write_state: write_state,
         fallback_response: fallback_response,
         selected_year: annual_plan_year,
@@ -37,6 +41,8 @@ module HouseholdFinance
     attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft, :conversation_context, :mia_action_result
 
     def answer_basis
+      return "participant-reported experience; coaching guidance is not a verified financial outcome" if @reflection
+
       case kind
       when "budget_question"
         "active annual plan, confirmed actuals, and pending drafts"
@@ -49,6 +55,16 @@ module HouseholdFinance
       end
     end
 
+    def coaching_provenance
+      return unless @reflection
+
+      { participant_report: @participant_message,
+        achievement_basis: "participant report only",
+        cause: "unknown unless explicitly stated by participant",
+        financial_effect: "not established by this report",
+        guidance_basis: "assigned coach method; suggestions are not claims about what the participant did" }
+    end
+
     def annual_plan_year
       return unless annual_plan
 
@@ -56,6 +72,7 @@ module HouseholdFinance
     end
 
     def annual_plan_summary
+      return { month_answer: month_answer } if @month_answer && !annual_plan
       return unless annual_plan
 
       rows = Array(annual_plan[:rows] || annual_plan["rows"])
@@ -71,11 +88,9 @@ module HouseholdFinance
     end
 
     def month_answer
-      household_id = annual_plan[:household_id] || annual_plan["household_id"]
-      household = Household.find_by(id: household_id)
-      return unless household && selected_month.to_i.positive?
+      facts = @month_answer
+      return unless facts
 
-      facts = MiaMonthAnswer.new(household, annual_plan: annual_plan, month: selected_month).call
       facts.merge(coaching_figures: facts.filter_map do |key, value|
         [ key, (BigDecimal(value.to_s) / 100).round * 100 ] if key.to_s.end_with?("_cents") && !value.nil?
       end.to_h)
@@ -135,6 +150,7 @@ module HouseholdFinance
         category: transaction_draft.budget_category&.name,
         status: transaction_draft.status,
         source_type: transaction_draft.source_type,
+        category_creation: transaction_draft.transaction_draft_splits.any? { |split| split.budget_category_id.nil? && split.category_name.present? } ? "Named new categories are created only when this purchase review is confirmed." : nil,
         splits: transaction_draft.transaction_draft_splits.ordered.includes(:budget_category).map do |split|
           {
             category: split.budget_category&.name || split.category_name,

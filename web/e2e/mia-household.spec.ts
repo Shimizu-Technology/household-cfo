@@ -5,7 +5,7 @@ import { writeFileSync } from 'node:fs'
 // mocked financial responses; normal CI runs the existing mocked review specs.
 test('mobile Ask Mia household coaching and inline new category', async ({ page, request }, testInfo) => {
   test.skip(process.env.HCFO_W1_LIVE_API !== '1', 'Requires the isolated W1 synthetic API fixture')
-  // Twenty-four turns plus saved-outcome checks on the heavily loaded local host.
+  // Coaching, purchase and review turns plus saved-outcome checks on the loaded host.
   test.setTimeout(1_800_000)
   const token = 'test_token:e2e_participant:w1-participant@example.invalid:Ana:Test'
   const headers = { Authorization: `Bearer ${token}` }
@@ -113,12 +113,30 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   expect(bareFeeling.transaction_draft.amount_cents).toBe(1200)
   const spoken = await ask('I went to Ross again and spent sixty dollars today', 'spoken-amount', /Ross|review/i)
   expect(spoken.transaction_draft.amount_cents).toBe(6000)
+  const stressMonth = await ask('I feel stressed about money. How am I doing this month?', 'stress-month', /stressful.*plan.*spent/i)
+  expect(stressMonth.transaction_draft).toBeNull()
+  expect(stressMonth.mia_action_draft).toBeNull()
+  const skipped = await ask('I stayed under my budget. I skipped lunch to save for the challenge', 'skipped-lunch', /do not skip food/i)
+  expect(skipped.transaction_draft).toBeNull()
+  expect(skipped.assistant_message.content).not.toMatch(/you kept|what worked/i)
+  const embarrassed = await ask("I'm embarrassed I went to Ross again", 'embarrassed-ross', /Ross.*does not make you a failure/i)
+  expect(embarrassed.assistant_message.content).not.toMatch(/takeout|dinner|meal/i)
+  await ask('Can I buy a bag for school?', 'school-bag', /baseline need/i)
+  const checking = await ask('I have $500 in checking; should I buy a purse?', 'checking-purse', /what does the purse cost/i)
+  expect(checking.assistant_message.content).not.toContain('$500 purse')
+  await ask('How am I doing in 2026-13?', 'invalid-month', /which month and year/i)
+  const renameName = `Meals ${['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot'][testInfo.config.projects.findIndex((project) => project.name === label)]}`
+  const rename = await ask(`Rename Dining Out category to ${renameName}`, 'rename-review', /check the details.*nothing changes until you apply/i)
+  expect(rename.mia_action_draft).toBeTruthy()
+  expect(rename.assistant_message.content).not.toContain('amount and timing')
   const workspace = await request.get(`${api}/workspace`, { headers })
   expect(workspace.ok()).toBe(true)
   const saved = await workspace.json()
   for (const turn of transcripts) {
     expect(saved.mia.messages.some((message: { role: string; content: string }) => message.role === 'user' && message.content === turn.prompt)).toBe(true)
   }
+  expect(saved.budget.annual_plan.rows.some((row: { name: string }) => row.name === 'Dining Out')).toBe(true)
+  expect(saved.budget.annual_plan.rows.some((row: { name: string }) => row.name === renameName)).toBe(false)
   const category = saved.budget.annual_plan.rows.find((row: { name: string }) => row.name === name)
   expect(category).toBeTruthy()
   expect(saved.budget.annual_plan.recent_transactions.some((transaction: { merchant: string; amount: number; categories: string[] }) => transaction.merchant === 'Payless' && Number(transaction.amount) === 12 && transaction.categories.includes(name))).toBe(true)

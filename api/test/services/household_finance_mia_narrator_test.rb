@@ -1,6 +1,55 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "reported wins reject invented causes and financial achievements" do
+    fallback = "You kept your spending within the limit you set. What worked that you could repeat?"
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    [
+      "That came from choices you made at the store and at home. You stayed under budget. What worked?",
+      "You stayed under budget. You strengthened the base of your plan this week. What worked?",
+      "Staying under budget takes follow-through at the store. You stayed under budget. What worked?",
+      "You used a shopping list. You stayed under budget. What worked?"
+    ].each do |reply|
+      assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!"), reply
+    end
+    reply = "You used a shopping list. You stayed under budget. Would you use that list next week?"
+    assert_equal reply, narrate(reply, packet, "I stayed under my grocery budget. I used a shopping list")
+    reply = "You used a shopping list so you could stay under budget. That made the week easier. What worked?"
+    assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!")
+  end
+
+  test "stress with a month question acknowledges briefly and answers in the first sentence" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "That sounds stressful; your plan needs the missing numbers. Check the next bill." }
+    reply = "Feeling stressed makes sense, and the numbers are steadier than the stress might be telling you. Your plan leaves breathing room. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
+    reply = "That sounds stressful; your plan needs the missing income number. Your cushion is not known yet. Add that number first."
+    assert_equal reply, narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
+  end
+
+  test "month narration rejects an invented surplus fund but accepts the emergency cushion" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Use your month picture." }
+    reply = "Your plan leaves breathing room. Your surplus fund still needs building. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room. Your emergency cushion still needs building. Check the next bill."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "month narration allows one combined cash caveat and rejects a second hedge" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Use your month picture." }
+    reply = "Your plan leaves breathing room, not a bank balance or permission to spend. Your cushion needs building. Check the next bill."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room, not a bank balance. This is not cash. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room, not a bank balance. You have a purchase waiting on review so it hasn't changed your spending total yet. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "Ross reflections reject a store visit disclaimer" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "What happened before Ross?" }
+    reply = "A store visit without an amount doesn't tell me anything about damage, so this is about the habit. Ross is a repeat stop. What happened before Ross?"
+    assert_equal packet[:fallback_response], narrate(reply, packet, "I went to Ross again")
+  end
+
   test "internal voice rules never reach a participant in coaching or draft replies" do
     fallback = "Ordering takeout again does not make you a failure. Let’s make the next tired evening easier. What easy meal could you keep ready?"
     leaked = [
@@ -93,7 +142,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     messages = payload.fetch("messages")
     reference_index = messages.index { |message| message.fetch("content").include?("COACH_APPROVED_REFERENCE_DATA_JSON") }
     safety_index = messages.index { |message| message.fetch("content").include?("non-overridable") }
-    contract_index = messages.index { |message| message.fetch("content").include?("app has already verified the financial facts") }
+    contract_index = messages.index { |message| message.fetch("content").include?("ANSWER_PACKET_JSON distinguishes verified financial facts") }
     assert_equal "user", messages.fetch(reference_index).fetch("role")
     assert_operator reference_index, :<, safety_index
     assert_operator reference_index, :<, contract_index
@@ -208,7 +257,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     user_prompt = payload.fetch("messages").last.fetch("content")
     assert_equal AiModels.output_budget(payload.fetch("model"), HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS), payload.fetch("max_tokens")
     assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
-    assert_includes system_prompts, "app has already verified the financial facts"
+    assert_includes system_prompts, "ANSWER_PACKET_JSON distinguishes verified financial facts"
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"

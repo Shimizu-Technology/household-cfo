@@ -620,7 +620,7 @@ module HouseholdFinance
     end
 
     def proposal_response(summary, _draft_type)
-      "#{summary} Check the amount and timing on the review card before applying it."
+      "#{summary} Check the details on the review card; nothing changes until you apply it."
     end
 
     def validation_result(response)

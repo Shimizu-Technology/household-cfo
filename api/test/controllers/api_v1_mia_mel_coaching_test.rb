@@ -36,7 +36,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     refute_match(/Umbee|Lanya|Chelu/i, reply)
   end
 
-  test "month chat is four sentences with rounded figures while packet cents stay exact" do
+  test "month chat is three sentences with rounded figures while packet cents stay exact" do
     @household.household_transactions.find_by!(merchant: "Cafe").tap do |transaction|
       transaction.update!(total_amount_cents: 4555)
       transaction.transaction_splits.sole.update!(amount_cents: 4555)
@@ -45,7 +45,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_match(/\AYour plan leaves/, reply)
     assert_includes reply, "$46"
     assert_equal 4555, response.parsed_body.dig("month_answer", "spent_so_far_cents")
-    assert_equal 4, reply.split(/(?<=[.!?])\s+/).length
+    assert_equal 3, reply.split(/(?<=[.!?])\s+/).length
     refute_match(/Red|money in is|planned out is|\$45\.55/, reply)
   end
 
@@ -286,7 +286,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   test "category followup reuses the pending amount and merchant" do
     post_message("I spent $12 at Payless today")
     @household.transaction_drafts.where.not(id: response.parsed_body.dig("transaction_draft", "id")).destroy_all
-    post_message("Put it under Cigarettes")
+    post_message("Put it under a new Cigarettes category")
     draft = @household.transaction_drafts.pending.sole
     assert_equal "Payless", draft.merchant
     assert_equal 1200, draft.total_amount_cents

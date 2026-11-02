@@ -359,6 +359,9 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     )
     publish_persona(coach_persona, actor: admin)
     CohortPersonaAssignment.create!(cohort: coached_cohort, coach_persona: coach_persona, assigned_by_user: admin)
+    second_voice = CoachPersona.create!(name: "Second program voice", created_by_user: admin,
+      draft_config: persona_configuration(assistant_name: "Other Voice"))
+    publish_persona(second_voice, actor: admin)
 
     get "/api/v1/workspace", headers: auth_headers(staff)
 
@@ -366,8 +369,7 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     capabilities = response.parsed_body.dig("workspace", "capabilities")
     assert_equal participant_cohort.id, capabilities.fetch("cohort_id")
     assert_equal participant_cohort.id, response.parsed_body.dig("workspace", "cohort", "id")
-    # Voice inheritance is program-wide; capabilities still come only from the participant group.
-    assert_equal "Coach Cohort Voice", response.parsed_body.dig("profile", "coach", "name")
+    assert_equal Mia::Persona.find(Mia::Persona::NEUTRAL_ID).name, response.parsed_body.dig("profile", "coach", "name")
     assert_equal "published_cohort", capabilities.fetch("source")
     modules = capabilities.fetch("modules").index_by { |item| item.fetch("id") }
     refute modules.fetch("cfo_filter").fetch("enabled")

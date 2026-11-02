@@ -92,13 +92,52 @@ module HouseholdFinance
     WIN_PATTERN = /\b(?:stayed|kept|came in|was|were|am)\s+(?:under|within|on)(?:\s+my|\s+our|\s+the)?\s+\w*\s*budget\b|\b(?:stuck to|didn['’]?t go over|did not go over)\s+(?:my|our|the)\s+\w*\s*budget\b/i.freeze
     HABIT_PATTERN = /\b(?:went to|shopped at|keep going to|kept going to)\s+[^.!?]{1,70}\b(?:again|third time|second time)\b|\b(?:keep|kept)\s+(?:buying|ordering|spending|going|eating out)\b/i.freeze
 
+    # Shared by intent resolution and answer selection. A month read may accompany
+    # a write; it must never consume that write or lower an essentials boundary.
+    # hardship > skipped essentials > month > write > reflection > purchase
+    def self.routing_priority(value)
+      text = value.to_s
+      return :hardship if MoneyMovementText.food_insecurity?(text) || essential_hardship?(text)
+      return :essential_skip if essential_skipped?(text)
+      return :month if MiaMonthAnswer.question?(text)
+      return :write if explicit_write_request?(text)
+      return :reflective if reflective_message?(text)
+
+      :purchase
+    end
+
+    def self.explicit_write_request?(value)
+      text = value.to_s
+      return false if ::Mia::FinancialReadOnlyRequest.matches?(text)
+
+      text.match?(/\b(?:set|change|update|create|add(?! up\b)|move|log|record|rename|archive|restore|reclassify|put it)\b/i) ||
+        text.match?(/\b(?:my|our)\s+(?:salary|take[ -]home pay)\s+is\s+\$?[\d,]+/i) ||
+        (spend_report_text?(text) && PurchaseReportText.stated_amount?(text))
+    end
+
+    def self.essential_hardship?(text)
+      value = text.to_s
+      return false if value.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN)
+
+      # Food has its own tested household, timing, and discretionary exclusions.
+      # This extension covers present household housing/medical/utility hardship.
+      value.match?(/\b(?:i|we)\s+(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
+    end
+
+    def self.essential_skipped?(text)
+      text.to_s.split(/(?<=[.!?;])\s+/).any? do |clause|
+        clause.match?(ESSENTIAL_SKIP_PATTERN) &&
+          (clause.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN) || MoneyMovementText.savings_deposit?(clause)) &&
+          !clause.match?(DISCRETIONARY_FOOD_PATTERN) && !clause.match?(FOOD_INSECURITY_PATTERN)
+      end
+    end
+
     def self.reflective_message?(value)
       text = value.to_s
       # A clear incurred amount still belongs in purchase review.
       return false if spend_report_text?(text) && PurchaseReportText.stated_amount?(text)
-      return false if text.match?(/\b(?:set|change|update|create|add|move|log|record|put it)\b/i)
+      return false if explicit_write_request?(text)
       return false if text.match?(/\b(?:how much|how many|show me|list|when did)\b/i)
-      return false if PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) }
 
       [ WIN_PATTERN, HABIT_PATTERN, OVERWHELMED_PATTERN, EMOTIONAL_STRESS_PATTERN ].any? { |pattern| text.match?(pattern) } ||
         (text.match?(REPEAT_MARKER_PATTERN) && text.match?(REPEAT_SPENDING_PATTERN))
@@ -142,11 +181,15 @@ module HouseholdFinance
       return injection_boundary_answer if self.class.prompt_injection?(message)
       return read_only_amount_edit_answer if ::Mia::FinancialReadOnlyRequest.matches?(message) && message.match?(READ_ONLY_AMOUNT_EDIT_PATTERN)
       # A family short on food gets help first, even inside a spending report.
-      food_answer = food_insecurity_answer
-      return food_answer if food_answer
+      priority = priority_answer
+      return priority if priority
       return nil if transaction_report?
 
-      avoidance_answer || reflective_answer || month_overview_answer || essential_skip_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+    end
+
+    def prepared_month_answer
+      @month_answer if defined?(@month_answer)
     end
 
     def prepared_annual_plan
@@ -158,7 +201,7 @@ module HouseholdFinance
     def support_answer
       return if self.class.prompt_injection?(message)
 
-      food_insecurity_answer || avoidance_answer || reflective_answer || (savings_deposit_answer if non_expense_movement_only?) ||
+      priority_answer || (savings_deposit_answer if non_expense_movement_only?) ||
         (investment_boundary_answer if non_expense_movement_only? && MoneyMovementText.investment_purchase_report?(message))
     end
 
@@ -170,12 +213,27 @@ module HouseholdFinance
 
     attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan, :user
 
+    def priority_answer
+      case self.class.routing_priority(message)
+      when :hardship then food_insecurity_answer || essential_hardship_answer
+      when :essential_skip then essential_skip_answer
+      when :month
+        month_overview_answer unless self.class.explicit_write_request?(message)
+      when :reflective then avoidance_answer || reflective_answer
+      end
+    end
+
+    def essential_hardship_answer
+      "That sounds hard; protect food, housing, utilities, and medicine before savings or optional purchases. What essential cost is due next, and how much are you short?"
+    end
+
     def reflective_answer
       return unless self.class.reflective_message?(message)
       return if transaction_report?
       return win_answer if message.match?(WIN_PATTERN)
       if normalized_message.match?(/\b(?:embarrassed|ashamed|shame)\b/) && normalized_message.match?(REPEAT_MARKER_PATTERN)
-        return "Ordering takeout again does not make you a failure. It sounds like that choice is weighing on you, so let’s understand what made dinner hard before setting another rule. What is one easy meal you could keep ready for the next tired evening?"
+        activity = repeated_activity
+        return "#{activity ? "Repeating #{activity}" : "That choice"} does not make you a failure. It sounds like that choice is weighing on you. What was happening just before you decided to do it again?"
       end
       return repeated_pattern_answer if message.match?(HABIT_PATTERN) || (message.match?(REPEAT_SPENDING_PATTERN) && message.match?(REPEAT_MARKER_PATTERN))
 
@@ -184,13 +242,19 @@ module HouseholdFinance
     end
 
     def win_answer
-      "You kept your spending within the limit you set. You noticed a choice that helped your week. What worked that you could repeat next time?"
+      "You kept your spending within the limit you set. Let’s look at what helped without adding another rule. What worked that you could repeat next time?"
     end
 
     def month_overview_answer
       return unless MiaMonthAnswer.question?(message)
 
-      MiaMonthAnswer.for_question(household, message).response
+      @month_answer ||= MiaMonthAnswer.for_question(household, message, annual_plan: provided_annual_plan)
+      opening = message.match?(OVERWHELMED_PATTERN) ? "That sounds stressful; " : ""
+      response = @month_answer.response
+      "#{opening}#{opening.present? ? response.sub(/\AYour/, "your") : response}"
+    rescue StandardError => error
+      Rails.logger.warn("[MiaMonthAnswer] unavailable: #{error.class}")
+      "I couldn’t load that month’s picture. Please try your month question again."
     end
 
     def read_only_amount_edit_answer
@@ -885,9 +949,7 @@ module HouseholdFinance
     end
 
     def essential_skip_answer
-      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PATTERN)
-      return nil unless normalized_message.match?(ESSENTIAL_SKIP_PURPOSE_PATTERN) || MoneyMovementText.savings_deposit?(message)
-      return nil if normalized_message.match?(DISCRETIONARY_FOOD_PATTERN) || normalized_message.match?(FOOD_INSECURITY_PATTERN)
+      return nil unless self.class.essential_skipped?(message)
 
       if normalized_message.match?(ESSENTIAL_SKIP_BILL_PATTERN) && !normalized_message.match?(/\b(?:save|saving|savings|challenge|goal)\b/)
         return "Please do not skip meals to cover a bill. Food stays in the protected baseline with housing, utilities, medicine, and required payments. If everything cannot be covered this time, we decide together what gets paid, paused, or moved, and food comes first. Next CFO move: list what is due before your next paycheck, with amounts, so we can make that plan."
@@ -910,8 +972,13 @@ module HouseholdFinance
       return nil if normalized_message.match?(DEBT_TERM_PATTERN) || normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(/\b(?:behind|late|overdue|past due)\b/)
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
-      label = message.match(/\b(?:went to|shopped at|going to)\s+(.+?)(?=\s+again|[.!?]|$)/i)&.[](1) || normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
+      label = repeated_activity || "this spending"
       "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip. What was happening just before you decided to go again?"
+    end
+
+    def repeated_activity
+      message.match(/\b(?:went to|shopped at|going to)\s+(.+?)(?=\s+again|[.!?]|$)/i)&.[](1) ||
+        message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub(/take out/i, "takeout")
     end
 
     def savings_goal_answer
@@ -996,12 +1063,34 @@ module HouseholdFinance
       ConversationFollowupResolver.complete_conditional_income_question?(message)
     end
 
+    def essential_purchase?
+      if message.match?(SCREENSHOT_PURCHASE_TERMS)
+        message.match?(/\b(?:for|needed for|required for)\s+(?:(?:my|our|the|a|kids?['’]?s?)\s+)*(?:school|work|health|medical|job|classes)\b/i)
+      else
+        message.match?(ESSENTIAL_PURCHASE_TERMS)
+      end
+    end
+
+    # Only amounts grammatically attached to the item are prices. An account
+    # balance elsewhere in the message cannot fund or price a purchase.
+    def purchase_price_cents
+      amount = '\$\s*([\d,]+(?:\.\d{1,2})?)'
+      item = "(?:purse|handbag|bag)"
+      match = message.match(/#{amount}\s+#{item}\b/i) ||
+        message.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
+        message.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
+      Money.chat_cents(match[1]) if match
+    end
+
     def purse_decision_answer
       return unless normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      return if essential_purchase?
       return unless purchase_question? || normalized_message.match?(/\bthinking\b.{0,30}\bbuy\b/)
       return unavailable_plan_answer unless plan_available?
 
-      price = amount_from_message_cents
+      price = purchase_price_cents
+      return "Wanting something nice is understandable. What does the purse cost, and which category would fund it?" unless price
+
       label = price ? "the #{money(price)} purse" : "the purse"
       opening = snapshot[:readiness_tone] == "green" ? "Check what would fund #{label} before you decide." : "I’d pause on #{label} for now."
       "#{opening} Wanting something nice is understandable, and the plan’s breathing room still has a job to do before it becomes shopping money. Your flexible categories have #{money(current_discretionary_remaining_cents)} left in the plan before purchases waiting for review, which is not your bank balance. Would this come from a funded flexible category, or would it dip into money for bills or emergencies?"
@@ -1033,9 +1122,9 @@ module HouseholdFinance
     def purchase_decision_answer
       return nil unless purchase_question?
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
-      return nil if normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      return nil if normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) && !essential_purchase?
 
-      if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS)
+      if essential_purchase?
         return "This sounds like a baseline need, not a discretionary want. Based on the Household CFO priority order, protect roof, food, utilities, medical needs, and debt minimums before judging it like optional spending. I still need the amount and timing to say whether it fits this month’s cash flow. Next CFO move: send me the price and due date, then we will place it against the active plan."
       end
       return unavailable_plan_answer unless plan_available?

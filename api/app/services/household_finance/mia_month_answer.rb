@@ -12,30 +12,43 @@ module HouseholdFinance
     end
 
     def self.question_date(message, today: Date.current)
+      numeric = message.to_s.match(/\b(20\d{2})-(\d+)\b/)
+      if numeric
+        return unless numeric[2].to_i.between?(1, 12)
+
+        return Date.new(numeric[1].to_i, numeric[2].to_i, 1)
+      end
       relative = BudgetQuestionAnswerer.relative_month_date(message, today: today)
       return relative if relative
-
-      numeric = message.to_s.match(/\b(20\d{2})-(0[1-9]|1[0-2])\b/)
-      return Date.new(numeric[1].to_i, numeric[2].to_i, 1) if numeric
 
       month = MonthTerms.detect_number(message) || today.month
       year = message.to_s[/\b(20\d{2})\b/, 1]&.to_i || today.year
       Date.new(year, month, 1)
     end
 
-    def self.for_question(household, message)
+    def self.for_question(household, message, annual_plan: nil)
       date = question_date(message)
-      plan = AnnualBudgetManager.new(household, year: date.year).read_only_plan_data
+      return new(household, annual_plan: {}, invalid_period: true) unless date
+
+      plan = annual_plan if annual_plan && (annual_plan[:year] || annual_plan["year"]).to_i == date.year
+      plan ||= AnnualBudgetManager.new(household, year: date.year).read_only_plan_data
       new(household, annual_plan: plan, month: date.month)
     end
 
-    def initialize(household, annual_plan:, month: Date.current.month)
+    def initialize(household, annual_plan:, month: Date.current.month, invalid_period: false)
+      @invalid_period = invalid_period
       @household = household
       @plan = annual_plan.deep_symbolize_keys
       @month = month.to_i.clamp(1, 12)
     end
 
+    def plan_data
+      plan unless @invalid_period
+    end
+
     def call
+      return { clarification: "Which month and year do you mean? Please use a valid month, such as October 2026." } if @invalid_period
+
       @answer ||= begin
         rows = Array(plan[:rows])
         active = rows.select { |row| row.fetch(:active, true) }
@@ -53,7 +66,7 @@ module HouseholdFinance
         actual = approved ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
-        pending_unknown = truncated && pending.empty?
+        pending_unknown = truncated
         snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false).call
         readiness_known = income && planned && snapshot[:liquid_assets_known] && SetupStatus.new(household).complete?
         {
@@ -75,9 +88,11 @@ module HouseholdFinance
 
     def response
       facts = call
+      return facts[:clarification] if facts[:clarification]
+
       left = facts[:plan_left_cents]
       plan_line = if left.nil?
-        "I still need the missing income or planned costs to say what your plan leaves"
+        "For #{facts[:period_label]}, I still need the missing income or planned costs to say what your plan leaves"
       elsif left.negative?
         "Your plan is short by #{money(-left)} for #{facts[:period_label]}"
       else
@@ -99,7 +114,8 @@ module HouseholdFinance
       else
         "Check the next bill due before deciding where any money left should go."
       end
-      "#{plan_line}, and #{spent_line}. #{cushion_line} These are plan figures, rather than a checked bank balance. #{review_line}"
+      caveat = left.nil? ? "" : "; this is a plan figure, not a bank balance or permission to spend"
+      "#{plan_line}#{caveat}, and #{spent_line}. #{cushion_line} #{review_line}"
     end
 
     private
