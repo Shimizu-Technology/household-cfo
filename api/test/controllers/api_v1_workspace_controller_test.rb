@@ -2986,6 +2986,32 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a calendar this-week question is not treated as a stale upload follow-up" do
+    user = create_user(email: "mia-stale-evidence-calendar@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = create_mia_attachment_import(household, user, "stale-calendar")
+    create_mia_attachment_draft(document_import, household, category: category, amount_cents: 25_00, occurred_on: Date.current)
+    topic = {
+      schema_version: 4, id: SecureRandom.uuid, type: "document_evidence", title: "Prior upload",
+      subject: "uploaded financial documents", status: "open",
+      document_evidence: { schema_version: 1, financial_document_import_ids: [ document_import.id ], import_count: 1, query_scope: { entities: [ "groceries" ] } }
+    }
+    household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: topic, open_topics: [ topic ])
+    document_import.update!(status: "processing")
+
+    post "/api/v1/mia/messages", params: { message: "What spending patterns do you see this week?" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    refute_equal "mia_document_evidence_unavailable", response.parsed_body["code"]
+
+    # Real follow-ups still count; the stale-upload conflict path is covered above.
+    resolver = HouseholdFinance::AttachedDocumentFollowupResolver
+    assert resolver.evidence_style_reference?("Which merchant was that?")
+    assert resolver.evidence_style_reference?("What is the total in this?")
+    refute resolver.evidence_style_reference?("What spending patterns do you see this week?")
+    refute resolver.evidence_style_reference?("What spending patterns do you see in that month?")
+  end
+
   test "an in-flight attachment follow-up keeps idempotent processing precedence after evidence becomes invalid" do
     user = create_user(email: "mia-invalid-evidence-processing-replay@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

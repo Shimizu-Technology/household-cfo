@@ -44,7 +44,7 @@ class SpendingPatternsRequestedPeriodTest < ActiveSupport::TestCase
 
   test "unsupported invalid ambiguous and future periods never fall back to the default window" do
     [ "in Q1", "in Q1 2025", "in summer 2025", "in summer", "in the first half of 2025", "in early January 2025", "before January 2025", "after January 2025", "until January 2025", "next January 2025", "last summer", "last week", "last year", "since January 2025", "between January 2025 and March 2025", "in January 2025 through March 2025",
-      "in January and March 2025", "last 0 months", "last 13 months", "in January 2027", "on 2026-02-30", "from 2026-02-01 to 2026-01-01" ].each do |suffix|
+      "in January and March 2025", "last 0 months", "last 13 months", "in January 2027", "on 2026-02-30", "from 2026-02-01 to 2026-01-01", "from 2026-10-01 through 2026-12-31", "on 2026-11-03" ].each do |suffix|
       assert_raises(SpendingPatterns::RequestedPeriod::Unsupported, suffix) { resolve("What spending patterns do you see #{suffix}?") }
     end
   end

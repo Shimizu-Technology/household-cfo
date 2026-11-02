@@ -4,7 +4,9 @@ module HouseholdFinance
   class AttachedDocumentFollowupResolver
     Result = Data.define(:prompt, :query_scope)
 
-    FOLLOW_UP_REFERENCE = /\b(?:that|those|it|them|this|these|upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
+    # "this week" or "that month" is a calendar period, not a reference back to
+    # the upload.
+    FOLLOW_UP_REFERENCE = /\b(?:(?:that|this)(?!\s+(?:months?|weeks?|years?|quarters?|days?|morning|afternoon|evening))|those|it|them|these|upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
     ELLIPTICAL_PREFIX = /\A\s*(?:and\s+)?(?:what|how)\s+about\b/i
     DATE_SHORTHAND = /\A\s*(?:and\s+)?(?:only\s+)?(?:today|yesterday|this month|last month|next month|(?:in|for|during|only)\s+#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}|#{AttachedDocumentQuestionAnswerer::MONTH_PATTERN}(?:\s+(?:19|20)\d{2})?\s+only)\b/i
     EVIDENCE_QUESTION = /\b(?:total|sum|largest|biggest|highest|merchant|transaction|purchase|charge|category|categorized|patterns?|habits?|when|date|period|month|duplicate|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i

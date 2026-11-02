@@ -47,6 +47,9 @@ module SpendingPatterns
       elsif period.match?(/\A\d{4}-/)
         dates = period.split(/\s+(?:to|through)\s+/i).map { |date| Date.iso8601(date) }
         start, finish = dates.first, dates.last
+        # An explicit range must be honored whole; clipping a future end date
+        # would answer a different question.
+        raise Unsupported if finish > @today
       else
         start, finish = month_range(period)
       end
