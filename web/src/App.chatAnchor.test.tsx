@@ -61,3 +61,11 @@ it('anchors an untouched reply while it settles, then stops observing on departu
   expect(awayRef.current).toBe(false)
   expect(anchor).toHaveBeenCalledTimes(2)
 })
+
+it('keeps a focused review control in place when a late layout update arrives', () => {
+  const { anchor, awayRef } = setup()
+  fireEvent.focusIn(screen.getByRole('button'))
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
+  expect(awayRef.current).toBe(true)
+  expect(anchor).not.toHaveBeenCalled()
+})

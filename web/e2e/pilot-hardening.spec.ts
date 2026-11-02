@@ -10405,6 +10405,8 @@ async function sendMiaDailyReport(page:Page,reply?:object){
   return page.getByRole('region',{name:'Your check-in',exact:true})
 }
 async function assertDailySaveUncovered(button: ReturnType<Page['getByRole']>) {
+  // Keyboard/accessibility navigation focuses the card before reviewing its action.
+  await button.focus()
   await button.scrollIntoViewIfNeeded()
   await expect(button).toBeInViewport()
   await expect.poll(() => button.evaluate(node => {

@@ -26,6 +26,7 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
     chat.addEventListener('wheel', away, { passive: true })
     chat.addEventListener('touchmove', away, { passive: true })
     chat.addEventListener('keydown', away)
+    chat.addEventListener('focusin', away)
     const frame = requestAnimationFrame(() => {
       if (settled || awayRef.current) return
       anchor('auto')
@@ -46,6 +47,7 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
       chat.removeEventListener('wheel', away)
       chat.removeEventListener('touchmove', away)
       chat.removeEventListener('keydown', away)
+      chat.removeEventListener('focusin', away)
       chat.removeEventListener('load', reanchor, true)
     }
   }, [active, messageKey, loading, chatRef, awayRef, anchor, setShowScrollButton])
