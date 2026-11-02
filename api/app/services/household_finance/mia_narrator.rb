@@ -156,6 +156,9 @@ module HouseholdFinance
     end
 
     def response_shape_instruction
+      if draft_review? && MiaMonthAnswer.question?(user_message)
+        return "Reply in 3–4 short sentences, plain text. Answer the requested month first, then identify the pending proposal and one review action. Do not drop either request."
+      end
       return "Reply in exactly 3 short sentences, plain text, no heading or bullets. Identify the proposed change and one review action; do not repeat the card’s confirmation disclaimer." if draft_review?
       return "Reply in 3–4 short sentences, plain text, no heading or bullets; lead with what is left and spent so far, then the cushion’s meaning." if MiaCoachAnswerer.routing_priority(user_message) == :month
 
@@ -275,6 +278,10 @@ module HouseholdFinance
       end
       return :invented_coaching_cause if unsupported_win_claim?(content)
       return :invented_fund if MiaMonthAnswer.question?(user_message) && content.match?(/\bsurplus fund\b/i)
+      if draft_review? && MiaCoachAnswerer.routing_priority(user_message) == :month
+        first = content.split(/(?<=[.!?])\s+/).first.to_s
+        return :missing_direct_month_answer unless first.match?(/\b(?:plan|month)\b/i) && first.match?(/\$|missing|need|unknown|which month/i)
+      end
       if MiaCoachAnswerer.routing_priority(user_message) == :month && content.match?(/(?:hasn['’]?t|haven['’]?t|has not|have not|did not)\s+changed?\s+(?:(?:your|the)\s+)?(?:spending|actuals|total)|\$[\d,.]+.{0,45}(?:waiting|pending).{0,25}review/i)
         return :extra_month_review_caveat
       end

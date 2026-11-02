@@ -1,6 +1,15 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "mixed month and write narration cannot drop the requested month" do
+    fallback = "Your plan leaves breathing room for July. Your cushion needs building. Review the proposed income change."
+    packet = { kind: "budget_action", write_state: "pending_review", fallback_response: fallback }
+    reply = "I prepared your income change. It begins this month. Review the card before applying it."
+    assert_equal fallback, narrate(reply, packet, "How am I doing this month, and change my salary to $6,400?")
+    assert_includes HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month, and change my salary to $6,400?",
+      answer_packet: packet).send(:response_shape_instruction), "Answer the requested month first"
+  end
+
   test "unknown review count is never treated as a known zero" do
     packet = { kind: "coaching", write_state: "no_write", fallback_response: "Check your reviews.",
       annual_plan_summary: { pending_draft_count: nil } }

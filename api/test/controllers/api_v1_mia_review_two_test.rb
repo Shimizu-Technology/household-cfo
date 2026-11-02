@@ -48,9 +48,24 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
       @household.mia_action_drafts.destroy_all
       post_message(message)
       assert response.parsed_body["mia_action_draft"], response.parsed_body.inspect
+      assert_match(/\AYour plan leaves/, reply)
+      assert_includes reply, "July 2026"
+      assert_equal 800000, response.parsed_body.dig("month_answer", "money_in_cents")
+      assert_equal 189000, response.parsed_body.dig("month_answer", "plan_left_cents")
+      assert_equal 4, reply.split(/(?<=[.!?])\s+/).length
       assert_includes reply, "$6,400"
       assert_equal 800000, @household.income_sources.find_by!(source_type: "job").amount_cents
     end
+  end
+
+  test "month leads a purchase review while the reported purchase stays pending" do
+    post_message("I spent $60 at Ross today. How am I doing this month?")
+    assert_match(/\AYour plan leaves/, reply)
+    assert_includes reply, "pending Ross review for $60"
+    assert_equal 6000, response.parsed_body.dig("transaction_draft", "amount_cents")
+    assert_equal "pending", response.parsed_body.dig("transaction_draft", "status")
+    assert_equal 4500, response.parsed_body.dig("month_answer", "spent_so_far_cents")
+    assert_equal 3, reply.split(/(?<=[.!?])\s+/).length
   end
 
   test "unrelated turns never compute a month packet" do
@@ -87,6 +102,17 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
     assert_includes reply, "try your month question again"
   ensure
     HouseholdFinance::MiaMonthAnswer.define_method(:call, original)
+  end
+
+  test "a failed month rendering keeps the requested write review available" do
+    original = HouseholdFinance::MiaMonthAnswer.instance_method(:response)
+    HouseholdFinance::MiaMonthAnswer.define_method(:response) { |**| raise "synthetic rendering unavailable" }
+    post_message("How am I doing this month — and change my salary to $6,400")
+    assert response.parsed_body["mia_action_draft"]
+    assert_includes reply, "$6,400"
+    assert_equal 800000, @household.income_sources.find_by!(source_type: "job").amount_cents
+  ensure
+    HouseholdFinance::MiaMonthAnswer.define_method(:response, original)
   end
 
   test "invalid numeric month asks without loading a substituted plan" do

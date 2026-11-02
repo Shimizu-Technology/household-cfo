@@ -2325,6 +2325,9 @@ module Api
         if month_facts
           annual_plan = @mia_month_answer.plan_data
           selected_month = month_facts[:month]
+          if write_state.in?(%w[pending_review draft_updated]) && kind.in?(%w[budget_action transaction_draft transaction_draft_update])
+            fallback_response = month_answer_with_review(fallback_response, transaction_draft: transaction_draft)
+          end
         end
         # A reflection is about the participant's experience, not a fresh plan
         # calculation. Supplying totals invites unrelated figures and caveats.
@@ -2356,6 +2359,20 @@ module Api
         response = narrator.call
         @used_coach_content = narrator.respond_to?(:supplied_content_context) ? narrator.supplied_content_context : []
         response
+      end
+
+      def month_answer_with_review(reference, transaction_draft: nil)
+        review_step = if transaction_draft
+          date = transaction_draft.occurred_on&.strftime("%B %-d, %Y")
+          timing = date ? " on #{date}" : ""
+          "Check the pending #{transaction_draft.merchant} review for #{money(transaction_draft.total_amount_cents)}#{timing} on the card before confirming the merchant, amount, and category."
+        else
+          reference
+        end
+        @mia_month_answer.response(next_move: review_step)
+      rescue StandardError => error
+        Rails.logger.warn("[MiaMonthAnswer] combined answer unavailable: #{error.class}")
+        reference
       end
 
       def module_guidance
