@@ -14,11 +14,21 @@ class HouseholdFinanceMiaReviewTwoTest < ActiveSupport::TestCase
   end
 
   test "unknown category followup is never silently carried unless explicitly new" do
-    assert_nil resolver("Put it under Imaginary category.", pending_context).send(:deterministic_category_followup_result)
+    [ "Put it under Imaginary category.", "Put it under a new category", "Put it under Brand New Clothes category" ].each do |message|
+      assert_nil resolver(message, pending_context).send(:deterministic_category_followup_result), message
+    end
     result = resolver("Put it under the new Cigarettes category please", pending_context).call
     assert_equal "Cigarettes", result.action[:category_name]
     result = resolver("Put it in a new category Cigarettes please", pending_context).call
     assert_equal "Cigarettes", result.action[:category_name]
+  end
+
+  test "new is retained when it belongs to the category name" do
+    context = pending_context
+    context[:budget_categories] += [ { id: 3, name: "New Car" }, { id: 4, name: "My Travel" }, { id: 5, name: "Travel" } ]
+    assert_equal "New Car", resolver("Put it under the New Car category", context).call.action[:category_name]
+    assert_equal "My Travel", resolver("Put it under the My Travel category please", context).call.action[:category_name]
+    assert_equal "New Clothes", resolver("Put it under a new New Clothes category", pending_context).call.action[:category_name]
   end
 
   test "new category validation rejects incidental substrings and partial existing names" do

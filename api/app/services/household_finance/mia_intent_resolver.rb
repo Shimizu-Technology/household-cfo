@@ -263,16 +263,26 @@ module HouseholdFinance
     attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
 
     def requested_new_category
-      match = user_message.match(/\bput (?:it|that) (?:under|in)\s+([\p{L}][\p{L} &’'-]{0,79}?)(?:\s+category)?[.!]?\z/i) ||
-        user_message.match(/\b(?:a )?new\s+([\p{L}][\p{L} &’'-]{0,79}?)\s+category[.!]?\z/i)
+      followup = user_message.match(/\bput (?:it|that) (?:under|in)\s+([\p{L}][\p{L} &’'-]{0,79}?)(?:\s+category)?[.!]?\z/i)
+      creation = user_message.match(/\b(?:a )?new\s+([\p{L}][\p{L} &’'-]{0,79}?)\s+category[.!]?\z/i)
+      match = followup || creation
       return unless match
 
-      name = match[1].squish.sub(/\A(?:(?:a|the|my|our|new|category)\s+)+/i, "")
-        .sub(/\s+please\z/i, "").sub(/\s+category\z/i, "").strip
-      known = Array(context[:budget_categories]).find { |category| category[:name].to_s.squish.casecmp?(name) }
+      name = match[1].squish
+      # Prefer the complete known name before removing words that may be literal
+      # parts of it (New Car, My Travel, or a name ending in Please).
+      known = Array(context[:budget_categories]).sort_by { |category| -category[:name].to_s.length }.find do |category|
+        phrase = Regexp.escape(category[:name].to_s.squish)
+        name.match?(/\A(?:(?:a|the|my|our|new|category)\s+)*#{phrase}(?:\s+(?:category|please))*\z/i)
+      end
       return known[:name] if known
 
-      name if user_message.match?(/\bnew\b/i)
+      if followup
+        name = name.sub(/\A(?:(?:a|the|my|our)\s+)+/i, "")
+        return unless name.sub!(/\Anew\s+(?:category\s+)?/i, "")
+      end
+      name = name.sub(/\s+please\z/i, "").sub(/\s+category\z/i, "").strip
+      name unless name.blank? || name.match?(/\A(?:new|category)\z/i)
     end
 
     def deterministic_category_followup_result
