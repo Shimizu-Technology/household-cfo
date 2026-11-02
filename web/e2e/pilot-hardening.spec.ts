@@ -3377,20 +3377,12 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
     expect(element.right).toBeLessThanOrEqual(composerLayout.viewportWidth + 1)
   }
   expect(composerLayout.attach.right).toBeLessThanOrEqual(composerLayout.voice.left)
-  if (composerLayout.viewportWidth <= 420) {
-    // Narrow phones put the message above the controls, preserving readable width.
-    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.attach.top)
-    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.voice.top)
-    expect(composerLayout.textarea.bottom).toBeLessThanOrEqual(composerLayout.send.top)
-    expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.send.left)
-    expect(Math.abs(composerLayout.attach.bottom - composerLayout.send.bottom)).toBeLessThanOrEqual(1)
-  } else {
-    expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
-    expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
-    expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
-    expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
-    expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
-  }
+  // All sizes keep the message between the controls, leaving the phone thread room.
+  expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
+  expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
+  expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
 
   await composer.fill(Array.from({ length: 30 }, (_, index) => `Line ${index + 1}: review this planned change before applying it.`).join('\n'))
   const cappedMetrics = await composer.evaluate((element) => {
@@ -3433,13 +3425,8 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
     }
   })
   expect(nearLimitLayout.count.top).toBeGreaterThanOrEqual(nearLimitLayout.textarea.bottom - 1)
-  if (nearLimitLayout.viewportWidth <= 420) {
-    expect(nearLimitLayout.field.bottom).toBeLessThanOrEqual(nearLimitLayout.voice.top)
-    expect(nearLimitLayout.field.bottom).toBeLessThanOrEqual(nearLimitLayout.send.top)
-  } else {
-    expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
-    expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
-  }
+  expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
+  expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
   expect(nearLimitLayout.count.right).toBeLessThanOrEqual(nearLimitLayout.viewportWidth)
   expect(nearLimitLayout.row.bottom).toBeGreaterThanOrEqual(nearLimitLayout.count.bottom)
   await composer.fill('x'.repeat(7_999))
