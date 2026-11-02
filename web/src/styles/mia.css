@@ -388,3 +388,18 @@
 @media (max-width: 620px) {
   .app.is-chat-page { height: 100dvh; }
 }
+.chat-pending-line,
+.mia-change-details > summary,
+.mia-action-draft-actions button { transition: transform 140ms var(--ease-out); }
+.chat-pending-line:active,
+.mia-change-details > summary:active,
+.mia-action-draft-actions button:active { transform: scale(0.97); }
+.mia-change-details > summary:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .chat-pending-line,
+  .mia-change-details > summary,
+  .mia-action-draft-actions button { transition: none; }
+  .chat-pending-line:active,
+  .mia-change-details > summary:active,
+  .mia-action-draft-actions button:active { transform: none; }
+}

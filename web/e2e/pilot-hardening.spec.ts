@@ -13035,6 +13035,12 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
   await expect(page.locator('.chat-pending-line')).toBeVisible()
   await expect(page.locator('.chat-review-queue')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Hi, I’m Mia.' })).toBeVisible()
+  await (await chatHeaderAction(page, 'Prompts')).click()
+  await page.getByRole('button', { name: 'What spending patterns do you see?', exact: true }).click()
+  const preparedQuestion = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(preparedQuestion).toHaveValue('What spending patterns do you see?')
+  await expect(page.locator('.message-row')).toHaveCount(0)
+  await preparedQuestion.fill('')
   const viewport = page.viewportSize()!
   if (viewport.width <= 620) {
     const height = await page.locator('.chat-card').evaluate(card => card.clientHeight)

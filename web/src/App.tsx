@@ -4070,7 +4070,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
               updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
-              questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : data.mia.quick_prompts).map(message => ({ label: message, message }))}
+              questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : [...data.mia.quick_prompts, 'What spending patterns do you see?']).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
           <MiaDisclaimer assistantName={assistantName} fullText={data.mia.disclaimer} />
