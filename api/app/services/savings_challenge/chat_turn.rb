@@ -164,7 +164,7 @@ module SavingsChallenge
       # A polite request with an explicit amount is still a proposal. A question
       # about reaching the existing goal must not silently propose the default.
       return false if !suggestion && amounts.empty? && @message.match?(/\?|\A\s*(?:can|should|could|would|what|how)\b/i)
-      replacement = @message[/\b(?:to|at)\s+\$?\s*(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/i, 1]
+      replacement = @message[/\b(?:to|at|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/i, 1]
       chosen = if amounts.length > 1
         replacement
       else

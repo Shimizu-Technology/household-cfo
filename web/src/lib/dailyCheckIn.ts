@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { fetchDailyContext, updateChallengeChatCard } from '../api'
+import { ApiRequestError, fetchDailyContext, updateChallengeChatCard } from '../api'
 import type { BaselineScope } from './financialBaseline'
 import { dailyContextMatches, type DailyAction, type DailyContext, type DailyDay, type DailyInput, type DailyPurchaseDraft, type DailyScope } from './dailyChallenge'
 import type { ChallengeChatCard } from './challengeChatCards'
@@ -85,7 +85,15 @@ export async function syncDailyCard(nonce: string): Promise<void> {
       if (snapshot.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')
       return
     }
-    const result = await updateChallengeChatCard(server.card.id, { action: 'save_state', expected_lock_version: server.card.lock_version, state: snapshot })
+    let result: Awaited<ReturnType<typeof updateChallengeChatCard>>
+    try {
+      result = await updateChallengeChatCard(server.card.id, { action: 'save_state', expected_lock_version: server.card.lock_version, state: snapshot })
+    } catch (error) {
+      // Another window saved this card first; the participant should reopen
+      // Ask Mia to see the newer copy rather than a generic save failure.
+      if (error instanceof ApiRequestError && error.status === 409) throw new DailyCardSyncUnavailable('This check-in changed in another window. Reopen Ask Mia.')
+      throw error
+    }
     if (serverCards.get(nonce) !== server || !entries.has(nonce)) throw new DailyCardSyncUnavailable('This check-in was cleared.')
     if (result.record.lock_version >= server.card.lock_version) server.card = result.record
     if (server.card.status === 'closed' && snapshot.phase !== 'saved') throw new DailyCardSyncUnavailable('This check-in was finished in another window. Reopen Ask Mia.')

@@ -212,6 +212,25 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_includes response.parsed_body.dig("assistant_message", "content"), "Noticing how you felt is useful"
       assert_includes response.parsed_body.dig("assistant_message", "content"), "Got it: $60.00 at Ross."
 
+      # Only stated feelings get a response, and guilt is never assumed.
+      post "/api/v1/mia/messages", params: { message: "Today I spent $12 at Busy Bee Cafe", request_id: "daily-busy-merchant" }, headers: auth, as: :json
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert reply.start_with?("Got it: $12.00 at Busy Bee Cafe."), reply
+      post "/api/v1/mia/messages", params: { message: "I felt rushed, spent $7 at Kmart", request_id: "daily-rushed-no-guilt" }, headers: auth, as: :json
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "Being rushed can make the quick choice feel like the only one."
+      refute_match(/guilt/i, reply)
+      post "/api/v1/mia/messages", params: { message: "I felt rushed and now I feel guilty, spent $7 at Kmart", request_id: "daily-rushed-guilt" }, headers: auth, as: :json
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "feeling guilty afterward doesn't mean you failed"
+
+      # A disclosure that mentions "need to" or "skip" is answered as a feeling, not as a privacy question.
+      [ "I feel overwhelmed and need to catch up.", "I feel guilty when I skip a day." ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "feeling-disclosure-#{index}" }, headers: auth, as: :json
+        refute_includes response.parsed_body.dig("assistant_message", "content"), "You can leave feelings blank", message
+      end
+      post "/api/v1/mia/messages", params: { message: "Do I have to fill in how I feel? Can I skip the feelings part?", request_id: "feeling-optional" }, headers: auth, as: :json
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "You can leave feelings blank"
+
       # Money talk that is not a purchase keeps Mia's normal answer and shows no card.
       [ "My goal is $500", "Rent went up to $1,400", "I have $180 left", "Mom gave me $50" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "daily-money-talk-#{index}" }, headers: auth, as: :json

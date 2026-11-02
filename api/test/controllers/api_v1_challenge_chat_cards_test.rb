@@ -119,7 +119,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   end
 
   test "polite goal changes and old-to-new amounts prepare the requested review only" do
-    [ "Can we change my goal to $300?", "Please set my target to $300 instead of $500.", "Change my goal from $500 to $300" ].each_with_index do |message, index|
+    [ "Can we change my goal to $300?", "Please set my target to $300 instead of $500.", "Change my goal from $500 to $300", "Let's do $300 instead of $500 for my goal", "Make it $300 instead of $500 for my goal" ].each_with_index do |message, index|
       ask message, "polite-target-#{index}"
       assert_equal 30_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents"), message
       assert_nil @savings_enrollment.reload.current_accepted_plan_version_id

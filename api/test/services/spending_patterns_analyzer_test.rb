@@ -13,6 +13,10 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "Ross", 20_000) }
     purchase(Date.new(2026, 11, 1), "Current month", 999_999)
     purchase(Date.new(2026, 10, 2), "Ignored", 888_888, status: "ignored")
+    other_user = User.create!(clerk_id: "patterns-other-#{SecureRandom.hex(8)}", email: "patterns-other-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
+    other = HouseholdFinance::WorkspaceResolver.new(other_user).household
+    other_category = other.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
+    purchase(Date.new(2026, 9, 9), "Other household Ross", 777_777, household: other, category: other_category)
     result = analyze
     assert_equal({ start_on: "2026-08-01", end_on: "2026-10-31" }, result[:window])
     assert_equal 60_000, result[:observed_spending_cents]
@@ -118,11 +122,11 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
 
   private
   def analyze = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2)).call
-  def purchase(date, merchant, cents, status: "confirmed")
-    year = @household.budget_years.find_or_create_by!(year: date.year)
+  def purchase(date, merchant, cents, status: "confirmed", household: @household, category: @category)
+    year = household.budget_years.find_or_create_by!(year: date.year)
     period = year.budget_periods.find_or_create_by!(starts_on: date.beginning_of_month) { |row| row.ends_on = date.end_of_month }
-    row = @household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "statement", status: status)
-    row.transaction_splits.create!(budget_category: @category, amount_cents: cents)
+    row = household.household_transactions.create!(budget_period: period, occurred_on: date, merchant: merchant, total_amount_cents: cents, source_type: "statement", status: status)
+    row.transaction_splits.create!(budget_category: category, amount_cents: cents)
     row
   end
 end

@@ -186,8 +186,6 @@ module SavingsChallenge
       else
         "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total. If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
       end
-    rescue AccessPolicy::Unavailable
-      "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. Debt payments do not automatically count as saved money; review missing terms before considering a debt strategy."
     end
 
     def debt_comparison_answer
@@ -204,14 +202,16 @@ module SavingsChallenge
         else
           "Among your current eligible reviewed cards, the known-balance order is #{balance_order.any? ? balance_order.join(', ') : 'not established'}. The known single-rate APR order is #{rate_order.any? ? rate_order.join(', ') : 'not established'}. #{comparison[:stale_card_count]} card records have changed source facts; review them before comparing. Unknown APRs, unknown balances, promotions and separate-rate segments are not precise avalanche targets."
         end
-        "#{reviewed} This optional list does not establish complete household debt coverage. Income, essentials, required payments and liquidity are not verified here, so I cannot recommend an extra-payment amount or promise a payoff date. Card payments and debt progress stay separate from money actually reserved for the savings challenge. Missing values stay unknown; paid-off and archived cards are excluded. What card term would you like to review?"
+        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. Card payments lower debt but don't count toward your savings total. What card term would you like to look at?"
       end
     rescue AccessPolicy::Unavailable
       "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. Debt payments do not automatically count as saved money; review missing terms before considering a debt strategy."
     end
 
     def feeling_answer
-      if @message.match?(/\b(?:have to|need to|optional|blank|skip|without|don.t want|do not want)\b/i)
+      # Only a question about the feelings fields themselves gets the privacy
+      # reply; "I feel overwhelmed and need to catch up" is a disclosure.
+      if @message.match?(/\bfeelings?\b[^.?!]{0,40}\b(?:have to|need to|optional|blank|skip|without)\b|\b(?:have to|need to|skip|leave|without|don.t want to (?:add|share)|do not want to (?:add|share))\b[^.?!]{0,40}\bfeelings?\b/i)
         return "You can leave feelings blank and still check in. If you choose to add them, they stay private and don't change your purchase or savings amounts."
       end
       "That feeling is worth noticing without judging yourself for it. Before the next purchase, try one pause to ask what you need right then; you can choose a small step that feels manageable."
@@ -236,9 +236,14 @@ module SavingsChallenge
       missing = purchases.count { |row| row[:merchant].blank? }
       place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
-      heard = if @message.match?(/\b(?:rushed|rush|busy|hurry)\b/i)
-        "Being rushed can make the quick choice feel like the only one; feeling guilty afterward doesn't mean you failed. Try keeping one easy snack or a short shopping list ready for the next busy day. "
-      elsif @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|guilty|worried|sad|upset|overwhelmed|ashamed)\b/i)
+      # Respond only to feelings the participant actually stated: "Busy Bee Cafe"
+      # is a place, and guilt is never assumed.
+      guilty = @message.match?(/\b(?:guilty|guilt|ashamed|regret\w*)\b/i)
+      heard = if @message.match?(/\b(?:felt|feel|feeling|was|were|am|i['’]?m|been)\s+(?:so\s+|really\s+|very\s+|a\s+bit\s+|kind\s+of\s+)?(?:rushed|busy|hurried|in\s+a\s+hurry)\b/i)
+        "Being rushed can make the quick choice feel like the only one#{guilty ? "; feeling guilty afterward doesn't mean you failed" : ''}. Try keeping one easy snack or a short shopping list ready for the next busy day. "
+      elsif guilty
+        "Feeling guilty afterward doesn't mean you failed; it means you care about your plan. Before the next purchase, try a short pause to name what you need. "
+      elsif @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|worried|sad|upset|overwhelmed)\b/i)
         "Noticing how you felt is useful, without blaming yourself for the choice. Before the next purchase, try a short pause to name what you need. "
       else
         ""
