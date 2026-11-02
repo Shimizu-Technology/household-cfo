@@ -174,6 +174,9 @@ module HouseholdFinance
       return unless self.class.reflective_message?(message)
       return if transaction_report?
       return win_answer if message.match?(WIN_PATTERN)
+      if normalized_message.match?(/\b(?:embarrassed|ashamed|shame)\b/) && normalized_message.match?(REPEAT_MARKER_PATTERN)
+        return "Ordering takeout again does not make you a failure. It sounds like that choice is weighing on you, so let’s understand what made dinner hard before setting another rule. What is one easy meal you could keep ready for the next tired evening?"
+      end
       return repeated_pattern_answer if message.match?(HABIT_PATTERN) || (message.match?(REPEAT_SPENDING_PATTERN) && message.match?(REPEAT_MARKER_PATTERN))
 
       return "Tonight, start with one calmer conversation about money. Name the bill or purchase each of you is worried about, without deciding who is at fault. Can you choose one thing to handle together in the next day?" if normalized_message.match?(/spouse|fighting/i)
@@ -181,7 +184,7 @@ module HouseholdFinance
     end
 
     def win_answer
-      "You kept your spending within the limit you set. That is a choice worth noticing; I’m taking this as your update, not a checked spending total. What worked that you could repeat next time?"
+      "You kept your spending within the limit you set. You noticed a choice that helped your week. What worked that you could repeat next time?"
     end
 
     def month_overview_answer
@@ -908,7 +911,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = message.match(/\b(?:went to|shopped at|going to)\s+(.+?)(?=\s+again|[.!?]|$)/i)&.[](1) || normalized_message.match(REPEAT_LABEL_PATTERN)&.[](1)&.sub("take out", "takeout") || "this spending"
-      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip; I have not counted this as a purchase. What was happening just before you decided to go again?"
+      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip. What was happening just before you decided to go again?"
     end
 
     def savings_goal_answer

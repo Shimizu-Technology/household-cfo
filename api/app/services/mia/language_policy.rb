@@ -12,7 +12,7 @@ module Mia
       (?:reached|hit|met|achieved)\s+(?:my\s+|our\s+|the\s+)?(?:goal|target|milestone)|
       (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
     )\b/ix.freeze
-    EMOTIONAL_SUPPORT_PATTERN = /\b(?:ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
+    EMOTIONAL_SUPPORT_PATTERN = /\b(?:embarrassed|ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
     CRISIS_PATTERNS = [
       /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
       /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i,
@@ -33,6 +33,7 @@ module Mia
       "crisis" => "crisis"
     }.freeze
     REPEATED_PATTERN = /\b(?:
+      (?:i|we)\s+(?:went\s+to|shopped\s+at|keep\s+going\s+to)\s+[^.!?]{1,70}\bagain|
       keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time|
       (?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over|hit\s+(?:my\s+|the\s+)?(?:spending|credit|budget)\s+limit)\b.{0,40}\bagain|
       again\b.{0,40}\b(?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over)

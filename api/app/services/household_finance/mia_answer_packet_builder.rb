@@ -75,7 +75,10 @@ module HouseholdFinance
       household = Household.find_by(id: household_id)
       return unless household && selected_month.to_i.positive?
 
-      MiaMonthAnswer.new(household, annual_plan: annual_plan, month: selected_month).call
+      facts = MiaMonthAnswer.new(household, annual_plan: annual_plan, month: selected_month).call
+      facts.merge(coaching_figures: facts.filter_map do |key, value|
+        [ key, (BigDecimal(value.to_s) / 100).round * 100 ] if key.to_s.end_with?("_cents") && !value.nil?
+      end.to_h)
     end
 
     def summarized_categories(active_rows)

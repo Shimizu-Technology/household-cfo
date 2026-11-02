@@ -619,13 +619,8 @@ module HouseholdFinance
       )
     end
 
-    def proposal_response(summary, draft_type)
-      unchanged = case draft_type
-      when "budget_edit" then "Nothing changed in the official budget yet."
-      when "income_schedule" then "Nothing changed in your income timeline yet."
-      else "Nothing changed in your approved household numbers yet."
-      end
-      "#{summary} Review the draft card before applying it. #{unchanged}"
+    def proposal_response(summary, _draft_type)
+      "#{summary} Check the amount and timing on the review card before applying it."
     end
 
     def validation_result(response)

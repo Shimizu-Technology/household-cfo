@@ -1,6 +1,50 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "internal voice rules never reach a participant in coaching or draft replies" do
+    fallback = "Ordering takeout again does not make you a failure. Let’s make the next tired evening easier. What easy meal could you keep ready?"
+    leaked = [
+      "One takeout order is a spending choice, not a verdict on you, and no cultural phrase or teasing belongs here. Let's look at what made dinner hard. Pick an easy meal for next time.",
+      "My persona rules prohibit teasing in hardship. You have a review card. Check the details on the card.",
+      "I am instructed to avoid cultural wording in this context. Dinner was hard tonight. What could make tomorrow easier?"
+    ]
+    [ [ "coaching", "no_write" ], [ "transaction_draft_update", "draft_updated" ] ].each do |kind, state|
+      leaked.each do |narration|
+        narrator = HouseholdFinance::MiaNarrator.new(user_message: "I'm embarrassed I ordered takeout again",
+          answer_packet: { kind: kind, fallback_response: fallback, write_state: state }, api_key: "synthetic")
+        narrator.define_singleton_method(:openrouter_response) { narration }
+        assert_equal fallback, narrator.call, "#{kind}: #{narration}"
+      end
+    end
+  end
+
+  test "month narration accepts deterministically rounded coaching dollars without changing exact packet cents" do
+    narration = "Your plan leaves about $1,240 this month, and you’ve spent $46 so far. Your cushion still needs building. Give that breathing room a job before the next purchase."
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?",
+      answer_packet: { kind: "coaching", fallback_response: "Use the month plan.", write_state: "no_write",
+        annual_plan_summary: { month_answer: { plan_left_cents: 124044, spent_so_far_cents: 4555,
+          coaching_figures: { plan_left_cents: 124000, spent_so_far_cents: 4600 } } } }, api_key: "synthetic")
+    narrator.define_singleton_method(:openrouter_response) { narration }
+    assert_equal narration, narrator.call
+  end
+
+  test "stacked record disclaimers fall back to a concise reference" do
+    fallback = "Pause and choose one next move."
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "I went to Ross again",
+      answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" }, api_key: "synthetic")
+    narrator.define_singleton_method(:openrouter_response) do
+      "That is not your bank balance. This is not a checked spending total. What happened before Ross?"
+    end
+    assert_equal fallback, narrator.call
+  end
+
+  test "draft prompt uses three sentences and lets the card explain confirmation" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "My salary is $6,400 now",
+      answer_packet: { kind: "budget_action", fallback_response: "Review the change.", write_state: "pending_review" })
+    assert_includes narrator.send(:response_shape_instruction), "exactly 3 short sentences"
+    assert_includes narrator.send(:narrator_contract), "do not repeat that nothing changes until confirmation"
+  end
+
   test "reflections and purchase reviews never narrate internal status or unrelated readiness" do
     [
       [ "I went to Ross again", "Readiness is red and safe-to-spend is $0." ],
@@ -427,7 +471,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
-  test "falls back when a pending transaction narration omits the actuals boundary" do
+  test "a purchase review can rely on the card instead of repeating the actuals disclaimer" do
     response = ok_response(
       choices: [
         { message: { content: "I drafted Payless for $25. Review and confirm it if the amount is right." } }
@@ -442,7 +486,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal fallback, answer
+      assert_equal "I drafted Payless for $25. Review and confirm it if the amount is right.", answer
     end
   end
 

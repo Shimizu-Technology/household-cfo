@@ -556,7 +556,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Flexible spending", draft.fetch("category_name")
     assistant_content = body.fetch("assistant_message").fetch("content")
     assert_includes assistant_content, "I drafted this for review"
-    assert_includes assistant_content, "actuals will not change until you approve"
+    assert_includes assistant_content, "Check the merchant, amount, and category on the card"
     refute_match(/brings your month-to-date actuals/i, assistant_content)
 
     assert_difference("HouseholdTransaction.count", 1) do

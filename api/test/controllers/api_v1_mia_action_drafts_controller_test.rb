@@ -391,7 +391,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     action_draft_payload = body.fetch("mia_action_draft")
     assert_equal "pending", action_draft_payload.fetch("status")
     assert_equal "update_allocation", action_draft_payload.fetch("items").first.fetch("action_type")
-    assert_includes body.fetch("assistant_message").fetch("content"), "Nothing changed in the official budget yet"
+    assert_includes body.fetch("assistant_message").fetch("content"), "Check the amount and timing on the review card"
     assert_equal 1, body.fetch("budget").fetch("annual_plan").fetch("pending_mia_action_drafts").length
     assert_equal "mia_action_draft.proposed", HouseholdAuditEvent.find_by!(auditable_type: "MiaActionDraft", auditable_id: action_draft_payload.fetch("id")).event_type
     assert_equal [ 50_000 ], planned_amounts_for(category)

@@ -41,7 +41,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   await ask('I stayed under my grocery budget for the whole week!', 'win', /kept|within/i)
   await ask("I went to Ross again today. That's the third time this month.", 'ross-again', /Ross|repeat/i)
   await ask("I'm so stressed about money this week.", 'stress', /heavy week|bill/i)
-  const month = await ask('How am I doing this month?', 'month', /money in.*planned out/i)
+  const month = await ask('How am I doing this month?', 'month', /plan (?:leaves|is short).*spent/i)
   expect(month.month_answer.plan_left_cents).toBe(month.month_answer.money_in_cents - month.month_answer.planned_out_cents)
   // Each project changes the same synthetic fixture to a distinct amount so
   // later projects exercise an actual change rather than an already-saved value.

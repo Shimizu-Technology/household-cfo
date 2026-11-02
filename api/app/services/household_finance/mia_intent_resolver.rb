@@ -270,12 +270,15 @@ module HouseholdFinance
       return unless user_message.match?(/\A(?:please )?put (?:it|that) (?:under|in)\b/i)
       name = requested_new_category
       drafts = Array(context[:pending_transaction_reviews])
-      return unless name.present? && drafts.one? && Array(drafts.sole[:splits]).length <= 1
+      thread = context.dig(:conversation, :active_thread).to_h
+      draft = drafts.find { |candidate| candidate[:id].to_i == thread[:transaction_draft_id].to_i } if thread[:status] == "pending_review"
+      draft ||= drafts.sole if drafts.one?
+      return unless name.present? && draft && Array(draft[:splits]).length <= 1
 
       Result.new(intent: "transaction_draft_action", confidence: 1.0, continuation: true,
         resolved_message: user_message, needs_clarification: false, clarification: "",
-        topic: { type: "transaction_draft", title: "Reported spending", subject: drafts.sole[:merchant] },
-        action: { type: "update_transaction_draft", draft_id: drafts.sole[:id], category_name: name },
+        topic: { type: "transaction_draft", title: "Reported spending", subject: draft[:merchant] },
+        action: { type: "update_transaction_draft", draft_id: draft[:id], category_name: name },
         read_only_plan: {}, source: "deterministic")
     end
 
@@ -340,7 +343,12 @@ module HouseholdFinance
     end
 
     def deterministic_coaching_result
-      return unless MiaCoachAnswerer.reflective_message?(user_message) || MiaMonthAnswer.question?(user_message)
+      purse_advice = user_message.match?(MiaCoachAnswerer::SCREENSHOT_PURCHASE_TERMS) &&
+        MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| user_message.match?(pattern) } &&
+        !::Mia::FinancialReadOnlyRequest.matches?(user_message) &&
+        !user_message.match?(/\b(?:set|change|update|create|add|log|record|put it)\b/i) &&
+        !MiaCoachAnswerer.spend_report_text?(user_message)
+      return unless MiaCoachAnswerer.reflective_message?(user_message) || MiaMonthAnswer.question?(user_message) || purse_advice
       return if TransactionDraftBuilder.non_expense_movement?(user_message)
 
       Result.new(intent: "coaching", confidence: 1.0, continuation: false,

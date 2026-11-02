@@ -47,7 +47,7 @@ cases:
       - drafted this for review
       - McDonald's
       - $25
-      - actuals will not change until you approve
+      - Check the merchant, amount, and category on the card
     forbidden_phrases:
       - confirmed this transaction
       - actuals changed
@@ -392,7 +392,7 @@ cases:
       - drafted this for review
       - Payless
       - $12
-      - actuals will not change until you approve
+      - Check the merchant, amount, and category on the card
     forbidden_phrases:
       - Start with the baseline
       - actuals changed
@@ -647,10 +647,10 @@ cases:
   - id: mel_month_overview
     route: controller
     prompt: How am I doing this month?
-    expected_phrases: [money in, planned out, spent so far, plan leaves]
+    expected_phrases: [spent, plan leaves, cushion]
     forbidden_phrases: [not have enough approved data, confirmed actuals recorded]
     live_expected:
-      - [income, money in, coming in]
+      - [leaves, short]
       - [planned, plan]
       - [spent, spending]
 
@@ -694,3 +694,25 @@ cases:
     prompt: Spent $12 at Payless on cigarettes. Put it in a new Cigarettes category.
     expected_phrases: [Payless, $12, review]
     forbidden_phrases: [budget stack, which stack, monthly allocation]
+
+  - id: mel_embarrassed_takeout
+    route: controller
+    prompt: "I'm embarrassed I ordered takeout again"
+    expected_phrases: [does not make you a failure, easy meal]
+    forbidden_phrases: [not counted, checked spending, Umbee, Lanya, Chelu, readiness]
+    live_expected: [[takeout, dinner, order], [tired, hard, easy, meal], [next, could, keep, ready]]
+
+  - id: mel_ross_purse
+    route: controller
+    prompt: "I'm thinking of buying a $60 purse at Ross. Can I afford it?"
+    expected_phrases: [purse]
+    live_expected: [[pause, wait, brakes, hold], [purse, Ross]]
+
+  - id: mel_inline_category_followup
+    route: controller
+    messages:
+      - I spent $12 at Payless today
+      - put it under Cigarettes
+    expected_phrases: [Cigarettes, Payless, review]
+    forbidden_phrases: [budget stack, which stack, monthly allocation]
+    live_expected: [Cigarettes, [review, card]]

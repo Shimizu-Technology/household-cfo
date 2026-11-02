@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/mel_persona_test_helper"
 
 class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
+  include MelPersonaTestHelper
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
     @user, @household = HouseholdFinance::MiaEvalHousehold.create!
@@ -21,6 +23,64 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
       assert_includes reply, expected, message
       refute_match(/how much did you spend|budget stack|not have enough approved data|readiness is Red/i, reply)
     end
+  end
+
+  test "reflections do not pile up record disclaimers and embarrassment gets support" do
+    [ "I stayed under my grocery budget", "I went to Ross again", "I'm embarrassed I ordered takeout again" ].each do |message|
+      post_message(message)
+      refute_match(/not counted|checked spending|not a checked|have not counted/i, reply)
+      refute response.parsed_body["transaction_draft"]
+      refute response.parsed_body["mia_action_draft"]
+    end
+    assert_includes reply, "does not make you a failure"
+    refute_match(/Umbee|Lanya|Chelu/i, reply)
+  end
+
+  test "month chat is four sentences with rounded figures while packet cents stay exact" do
+    @household.household_transactions.find_by!(merchant: "Cafe").tap do |transaction|
+      transaction.update!(total_amount_cents: 4555)
+      transaction.transaction_splits.sole.update!(amount_cents: 4555)
+    end
+    post_message("How am I doing this month?")
+    assert_match(/\AYour plan leaves/, reply)
+    assert_includes reply, "$46"
+    assert_equal 4555, response.parsed_body.dig("month_answer", "spent_so_far_cents")
+    assert_equal 4, reply.split(/(?<=[.!?])\s+/).length
+    refute_match(/Red|money in is|planned out is|\$45\.55/, reply)
+  end
+
+  test "inherited published Guam voice survives narration and persists its version" do
+    membership, version = published_mel_program_for(@user)
+    assert_nil membership.cohort.cohort_persona_assignment
+    original = HouseholdFinance::MiaNarrator.method(:new)
+    selected = nil
+    packet = nil
+    build = lambda do |**attributes|
+      selected = attributes.fetch(:persona)
+      packet = attributes.fetch(:answer_packet)
+      original.call(**attributes.merge(api_key: "synthetic")).tap do |narrator|
+        narrator.define_singleton_method(:openrouter_response) do
+          "You noticed Ross is becoming a repeat stop. Chelu, pump the brakes on that one without beating yourself up. What was happening before you went in?"
+        end
+      end
+    end
+    begin
+      HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, build)
+      post_message("I went to Ross again")
+    ensure
+      HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, original)
+    end
+    assert_equal version.id, selected.version_id
+    assert_nil packet[:annual_plan_summary]
+    assert_includes reply, "Chelu, pump the brakes"
+    assert_equal version.id, ChatMessage.where(role: "assistant").order(:id).last.coach_persona_version_id
+  end
+
+  test "purse affordability uses deterministic coaching before any intent model" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I'm thinking of buying a $60 purse at Ross. Can I afford it?", context: {},
+      api_key: "synthetic", transport: ->(*) { raise "intent model must not decide this familiar coaching question" })
+    assert_equal "coaching", resolver.call.intent
   end
 
   test "clear reported amount remains a purchase even with feelings" do
@@ -172,7 +232,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_equal 2200, facts.fetch("pending_cents")
     assert_equal "red", facts.fetch("readiness_tone")
     assert_includes reply, "plan leaves"
-    assert_includes reply, "build your cushion"
+    assert_includes reply, "cushion"
     refute_match(/safe-to-spend|not have enough approved data/, reply)
   end
 

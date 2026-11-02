@@ -1871,7 +1871,6 @@ module Api
         parts = []
         if drafted.any?
           parts << "I drafted #{drafted.length} expense #{'review'.pluralize(drafted.length)}: #{labels.to_sentence}."
-          parts << "#{drafted.many? ? 'Each one is' : 'It is'} pending your review, and month-to-date actuals have not changed."
         end
         parts << "I could not draft #{failed.to_sentence}, so send #{failed.many? ? 'those' : 'that one'} again with the merchant, amount, and date." if failed.any?
         parts << "Your next move is to check each merchant, amount, and category, then confirm the ones that are right." if drafted.any?
@@ -2309,6 +2308,9 @@ module Api
           annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: date.year).read_only_plan_data
           selected_month = date.month
         end
+        # A reflection is about the participant's experience, not a fresh plan
+        # calculation. Supplying totals invites unrelated figures and caveats.
+        annual_plan = nil if kind == "coaching" && HouseholdFinance::MiaCoachAnswerer.reflective_message?(content)
         answer_packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
           kind: kind,
           fallback_response: fallback_response,
@@ -2359,7 +2361,7 @@ module Api
       def drafted_transaction_message(draft, annual_plan)
         category = drafted_transaction_category_label(draft)
         impact = drafted_transaction_impact_line(draft, annual_plan)
-        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."
       end
 
       def drafted_transaction_category_label(draft)
@@ -2378,7 +2380,7 @@ module Api
         if known.empty? && draft.source_type == "manual_chat" && draft.transaction_draft_splits.one?
           split = draft.transaction_draft_splits.sole
           if split.budget_category_id.nil? && split.category_name.present? && split.stack_key.present?
-            return "Your new category will be added to flexible spending when you confirm this purchase. You can set its budget later."
+            return "Your new category will be added to flexible spending on confirmation; you can set its budget later."
           end
         end
         return "Choose a category in the draft to see its budget impact." if known.empty?
@@ -2391,7 +2393,6 @@ module Api
           "would have #{money(remaining_cents)} left in its #{money(impact.fetch(:planned_cents))} plan"
         end
         line = "If approved, #{draft.occurred_on.strftime('%B')}'s #{impact.fetch(:category_name)} category #{outcome}."
-        line += " The review card shows all #{known.length} category impacts." if known.length > 1
         line
       end
 

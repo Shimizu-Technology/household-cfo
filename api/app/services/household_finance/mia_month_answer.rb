@@ -75,32 +75,31 @@ module HouseholdFinance
 
     def response
       facts = call
-      income = figure(facts[:money_in_cents])
-      planned = figure(facts[:planned_out_cents])
       left = facts[:plan_left_cents]
       plan_line = if left.nil?
-        "I still need the missing income or planned costs to say what your plan leaves."
+        "I still need the missing income or planned costs to say what your plan leaves"
       elsif left.negative?
-        "Your plan is short by #{money(-left)} after planned spending."
+        "Your plan is short by #{money(-left)} for #{facts[:period_label]}"
       else
-        "Your plan leaves #{money(left)} after planned spending; that is planned breathing room, not cash available to spend."
+        "Your plan leaves about #{money(left)} for #{facts[:period_label]}"
       end
-      pending_line = if facts[:pending_count].nil?
-        "; the review list is incomplete, so I cannot tell how many purchases are waiting for review in this month."
+      spent = facts[:spent_so_far_cents]
+      spent_line = spent.nil? ? "spent so far is not known yet" : "you’ve spent #{money(spent)} so far"
+      cushion_line = case facts[:readiness_tone]
+      when "red"
+        left&.positive? ? "Your emergency cushion needs building, so give that breathing room a job first." : "Protect food, housing, utilities, and required payments while you rebuild your cushion."
+      when "yellow" then "You have some cushion; keep strengthening it before adding new commitments."
+      when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
+      else "Add the missing starting numbers before judging your cushion."
+      end
+      review_line = if facts[:pending_count].nil?
+        "The review list is incomplete, so check it before making your next money decision."
       elsif facts[:pending_count].positive?
-        qualifier = facts[:pending_list_truncated] ? "At least " : ""
-        "; #{qualifier}#{figure(facts[:pending_cents])} is waiting for your review and is separate from spent so far."
+        "Check the purchases waiting on your review card before choosing where the next dollar goes."
       else
-        "; no purchases are waiting for review."
+        "Check the next bill due before deciding where any money left should go."
       end
-      next_move = if facts[:readiness_tone] == "red" && left&.positive?
-        "Keep must-pay bills covered and give that breathing room a job building your cushion."
-      elsif left&.negative?
-        "Choose one flexible cost to reduce before adding a new commitment."
-      else
-        "Check the next bill due before deciding what to do with any money left."
-      end
-      "For #{facts[:period_label]}, money in is #{income} and planned out is #{planned}, including required debt payments. #{plan_line} Your spent so far is #{figure(facts[:spent_so_far_cents])} in confirmed category purchases#{pending_line} #{facts[:readiness_meaning]}. #{next_move}"
+      "#{plan_line}, and #{spent_line}. #{cushion_line} These are plan figures, rather than a checked bank balance. #{review_line}"
     end
 
     private
@@ -115,12 +114,8 @@ module HouseholdFinance
       Array(row[:months])[month - 1].to_h
     end
 
-    def figure(cents)
-      cents.nil? ? "not known yet" : money(cents)
-    end
-
     def money(cents)
-      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
+      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: 0)
     end
   end
 end
