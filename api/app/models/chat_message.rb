@@ -8,6 +8,7 @@ class ChatMessage < ApplicationRecord
   belongs_to :coach_persona_version, optional: true, inverse_of: :chat_messages
   belongs_to :cohort, optional: true
   belongs_to :cohort_release, optional: true
+  has_one :savings_chat_card, dependent: :destroy
   has_many :coach_content_citations, -> { order(:rank) }, dependent: :delete_all
 
   normalizes :assistant_author, with: ->(value) { value.to_s.strip.presence }

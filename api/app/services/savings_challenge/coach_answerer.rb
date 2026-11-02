@@ -41,10 +41,10 @@ module SavingsChallenge
         return deterministic(hopeless_answer)
       end
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
-      return food_insecurity_answer if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+      return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return deterministic(loan_answer) if loan_decision_question?
-      return protected_baseline_answer if @message.match?(PROTECTED_BASELINE)
+      return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
@@ -57,10 +57,13 @@ module SavingsChallenge
         if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
           ranking = card_ranking_answer
           return deterministic(ranking) if ranking
-          return debt_answer
+          return debt_comparison_answer
         end
-        return debt_answer if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
-        return feeling_answer if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
+        if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
+          return debt_comparison_answer if @message.match?(/\b(?:minimum|apr|terms|what should i know|review|compare|comparison)\b/i)
+          return deterministic(debt_answer)
+        end
+        return deterministic(feeling_answer) if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
         return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
         return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
         return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
@@ -143,7 +146,7 @@ module SavingsChallenge
       return card_tool_unavailable unless @enrollment
       cards = approved_cards
       return card_tool_unavailable if cards.nil?
-      return "You have not approved any optional card with a balance yet, so I do not have a balance to share. From Home, open Optional card & debt review if you want to add one; it is optional and does not need a budget or bank link. Nothing is assumed in the meantime." if cards.empty?
+      return "You have not approved any optional card with a balance yet, so I do not have a balance to share. In Savings, open Optional card & debt review if you want to add one; it is optional and does not need a budget or bank link. Nothing is assumed in the meantime." if cards.empty?
 
       @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
       lines = cards.map { |row| card_balance_line(row) }
@@ -170,7 +173,7 @@ module SavingsChallenge
       return nil unless cards.any? { |row| row[:terms]["apr_bps"].nil? || row[:terms]["minimum_payment_cents"].nil? }
 
       @answer_facts = { approved_optional_debt: cards.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
-      "I cannot rank your cards or suggest an extra amount yet, because I do not have the interest rate (APR) and minimum payment for #{cards.one? ? 'your approved card' : 'each approved card'}, and I would not guess them. If you want, add those from Optional card & debt review on Home and I can compare them with you. Either way, I will not set a payoff date, and what you pay on a card stays separate from the money you set aside for the challenge. Would you like to add those terms?"
+      "I cannot rank your cards or suggest an extra amount yet, because I do not have the interest rate (APR) and minimum payment for #{cards.one? ? 'your approved card' : 'each approved card'}, and I would not guess them. If you want, add those from Optional card & debt review in Savings and I can compare them with you. Either way, I will not set a payoff date, and what you pay on a card stays separate from the money you set aside for the challenge. Would you like to add those terms?"
     end
 
     def card_tool_unavailable
@@ -181,24 +184,37 @@ module SavingsChallenge
       if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
         "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
       else
+        "A small cushion helps keep an unexpected bill from going back on your credit card while you work on paying it down. The challenge measures new money you set aside; a card payment reduces debt but isn't added to that savings total. If you want to compare your cards, open Optional card & debt review in Savings; you can use it without a full budget. For now, what small amount could you comfortably keep aside after essentials and required payments?"
+      end
+    end
+
+    def debt_comparison_answer
+      if @message.match?(/\b(?:no (?:debts?|credit cards?)|(?:don.t|do not) have(?: a| any)? (?:debts?|credit cards?)|debt.free|without(?: a| any)? (?:debts?|credit cards?))\b/i)
+        "You can participate without credit cards or debt. Start with a short daily check-in and a comfortable savings target; statements are optional. Only approved new money you set aside, minus withdrawals, counts toward the challenge."
+      else
         comparison = Debt::Reader.new(@enrollment, user: @user).call
         cards = comparison.fetch(:cards).index_by { |row| row[:card_id] }
         @answer_facts = { approved_optional_debt: comparison.fetch(:cards).reject { |row| row[:terms]["status"] == "archived" }.map { |row| { label: row[:label], balance_cents: row[:terms]["balance_cents"] } } }
         balance_order = comparison.fetch(:snowball_order).map { |id| cards.fetch(id).fetch(:label) }
         rate_order = comparison.fetch(:avalanche_order).map { |id| cards.fetch(id).fetch(:label) }
         reviewed = if cards.empty?
-          "You have not approved optional card terms yet. From Home, open Optional card & debt review to check balances, APRs, minimums and any promotional or separate-rate terms without setting up a full budget."
+          "You have not approved optional card terms yet. In Savings, open Optional card & debt review to check balances, APRs, minimums and any promotional or separate-rate terms without setting up a full budget."
         else
           "Among your current eligible reviewed cards, the known-balance order is #{balance_order.any? ? balance_order.join(', ') : 'not established'}. The known single-rate APR order is #{rate_order.any? ? rate_order.join(', ') : 'not established'}. #{comparison[:stale_card_count]} card records have changed source facts; review them before comparing. Unknown APRs, unknown balances, promotions and separate-rate segments are not precise avalanche targets."
         end
-        "#{reviewed} This optional list does not establish complete household debt coverage. Income, essentials, required payments and liquidity are not verified here, so I cannot recommend an extra-payment amount or promise a payoff date. Card payments and debt progress stay separate from money actually reserved for the savings challenge. Missing values stay unknown; paid-off and archived cards are excluded. What card term would you like to review?"
+        "#{reviewed} I only see the cards you've reviewed here, not your whole budget, so I can't pick an extra-payment amount or promise a payoff date. Card payments lower debt but don't count toward your savings total. What card term would you like to look at?"
       end
     rescue AccessPolicy::Unavailable
       "Optional card-term review is not available in this program release. You can continue the savings challenge without cards or a full budget. Debt payments do not automatically count as saved money; review missing terms before considering a debt strategy."
     end
 
     def feeling_answer
-      "You can leave feelings blank and still use the challenge. A short reflection can help you notice what was happening when you bought something and how you feel now. It is private by default, and changing it does not change a purchase or your savings. In Today, choose the purchase before adding or editing a reflection. What would make the next check-in feel manageable?"
+      # Only a question about the feelings fields themselves gets the privacy
+      # reply; "I feel overwhelmed and need to catch up" is a disclosure.
+      if @message.match?(/\bfeelings?\b[^.?!]{0,40}\b(?:have to|need to|optional|blank|skip|without)\b|\b(?:have to|need to|skip|leave|without|don.t want to (?:add|share)|do not want to (?:add|share))\b[^.?!]{0,40}\bfeelings?\b/i)
+        return "You can leave feelings blank and still check in. If you choose to add them, they stay private and don't change your purchase or savings amounts."
+      end
+      "That feeling is worth noticing without judging yourself for it. Before the next purchase, try one pause to ask what you need right then; you can choose a small step that feels manageable."
     end
 
     def daily_answer
@@ -220,7 +236,18 @@ module SavingsChallenge
       missing = purchases.count { |row| row[:merchant].blank? }
       place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
-      heard = @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|guilty|worried|sad|upset|overwhelmed|ashamed)\b/i) ? "Thanks for telling me how you're feeling. " : ""
+      # Respond only to feelings the participant actually stated: "Busy Bee Cafe"
+      # is a place, and guilt is never assumed.
+      guilty = @message.match?(/\b(?:guilty|guilt|ashamed|regret\w*)\b/i)
+      heard = if @message.match?(/\b(?:felt|feel|feeling|was|were|am|i['’]?m|been)\s+(?:so\s+|really\s+|very\s+|a\s+bit\s+|kind\s+of\s+)?(?:rushed|busy|hurried|in\s+a\s+hurry)\b/i)
+        "Being rushed can make the quick choice feel like the only one#{guilty ? "; feeling guilty afterward doesn't mean you failed" : ''}. Try keeping one easy snack or a short shopping list ready for the next busy day. "
+      elsif guilty
+        "Feeling guilty afterward doesn't mean you failed; it means you care about your plan. Before the next purchase, try a short pause to name what you need. "
+      elsif @message.match?(/\b(?:feel|feels|feeling|felt|stressed|anxious|worried|sad|upset|overwhelmed)\b/i)
+        "Noticing how you felt is useful, without blaming yourself for the choice. Before the next purchase, try a short pause to name what you need. "
+      else
+        ""
+      end
       "#{heard}Got it: #{items.to_sentence}.#{place}#{feelings} I've put #{purchases.one? ? 'it' : 'these'} below — check #{purchases.one? ? 'it' : 'them'} and tap Save. Nothing is saved until you do."
     end
 

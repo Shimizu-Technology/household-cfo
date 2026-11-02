@@ -157,7 +157,7 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       debt_approve(debt_stage(debt_terms(label: "Reviewed card", apr_bps: 1999)))
       answer = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: "No minimum payment information for my credit card").call
       assert_includes answer, "Reviewed card"
-      assert_includes answer, "cannot recommend an extra-payment amount"
+      assert_includes answer, "can't pick an extra-payment amount or promise a payoff date"
       refute_includes answer, "You can participate without credit cards or debt"
       no_debt = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: "I have no debt").call
       assert_includes no_debt, "You can participate without credit cards or debt"
@@ -218,7 +218,7 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       coach = coach("which card first and how much extra should I pay?")
       answer = coach.call
       refute coach.deterministic?
-      assert_includes answer, "cannot recommend an extra-payment amount"
+      assert_includes answer, "can't pick an extra-payment amount or promise a payoff date"
       assert_equal [ { label: "Visa", balance_cents: 30_000 } ], coach.answer_facts[:approved_optional_debt]
     end
   end

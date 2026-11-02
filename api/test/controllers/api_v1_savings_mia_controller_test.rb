@@ -133,7 +133,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
-    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "leave feelings blank" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
+    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "without judging yourself" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json
       assert_response :created
       assert_includes response.parsed_body.dig("assistant_message", "content"), expected
@@ -209,7 +209,27 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
       post "/api/v1/mia/messages", params: { message: "I feel stressed, spent $60 at Ross", request_id: "daily-feeling-first" }, headers: auth, as: :json
       assert_equal [ 6000 ], response.parsed_body.dig("savings_intake", "purchases").map { |row| row["amount_cents"] }
-      assert response.parsed_body.dig("assistant_message", "content").start_with?("Thanks for telling me how you're feeling. Got it: $60.00 at Ross.")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Noticing how you felt is useful"
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Got it: $60.00 at Ross."
+
+      # Only stated feelings get a response, and guilt is never assumed.
+      post "/api/v1/mia/messages", params: { message: "Today I spent $12 at Busy Bee Cafe", request_id: "daily-busy-merchant" }, headers: auth, as: :json
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert reply.start_with?("Got it: $12.00 at Busy Bee Cafe."), reply
+      post "/api/v1/mia/messages", params: { message: "I felt rushed, spent $7 at Kmart", request_id: "daily-rushed-no-guilt" }, headers: auth, as: :json
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "Being rushed can make the quick choice feel like the only one."
+      refute_match(/guilt/i, reply)
+      post "/api/v1/mia/messages", params: { message: "I felt rushed and now I feel guilty, spent $7 at Kmart", request_id: "daily-rushed-guilt" }, headers: auth, as: :json
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "feeling guilty afterward doesn't mean you failed"
+
+      # A disclosure that mentions "need to" or "skip" is answered as a feeling, not as a privacy question.
+      [ "I feel overwhelmed and need to catch up.", "I feel guilty when I skip a day." ].each_with_index do |message, index|
+        post "/api/v1/mia/messages", params: { message: message, request_id: "feeling-disclosure-#{index}" }, headers: auth, as: :json
+        refute_includes response.parsed_body.dig("assistant_message", "content"), "You can leave feelings blank", message
+      end
+      post "/api/v1/mia/messages", params: { message: "Do I have to fill in how I feel? Can I skip the feelings part?", request_id: "feeling-optional" }, headers: auth, as: :json
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "You can leave feelings blank"
 
       # Money talk that is not a purchase keeps Mia's normal answer and shows no card.
       [ "My goal is $500", "Rent went up to $1,400", "I have $180 left", "Mom gave me $50" ].each_with_index do |message, index|
@@ -280,14 +300,15 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ true, true, false ], flags.last(3)
   end
 
-  test "goal changes in the challenge point to the challenge target, and saved money gets a plain reply" do
+  test "goal changes prepare a review card without writing a plan, and saved money gets a plain reply" do
     @savings_household.goals.create!(label: "Family trip", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100_000)
     assert_no_difference [ "SavingsPlanDraft.count", "MiaActionDraft.count", "SavingsEntryDraft.count" ] do
       [ "Change my goal to $300", "Update my goal to $700", "lower my target to 300", "make my goal $400" ].each_with_index do |message, index|
         post "/api/v1/mia/messages", params: { message: message, request_id: "goal-#{index}" }, headers: auth, as: :json
         assert_response :created
         reply = response.parsed_body.dig("assistant_message", "content")
-        assert_includes reply, "open Savings, then Your target & spending choices", message
+        assert_includes reply, "Review the card below", message
+        assert_equal "goal", response.parsed_body.dig("challenge_chat_card", "kind")
         refute_includes reply, "household plan or your savings challenge", message
         assert_nil response.parsed_body["savings_intake"], message
       end
@@ -554,7 +575,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_nil response.parsed_body.fetch("mia_action_draft")
     refute_includes response.parsed_body.dig("assistant_message", "content"), "Household plan:"
-    assert_empty session.reload.active_topic
+    assert_equal "challenge_goal", session.reload.active_topic["type"]
   end
 
   private

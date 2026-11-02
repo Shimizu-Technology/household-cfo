@@ -96,6 +96,8 @@ Rails.application.routes.draw do
       post "financial_baseline/preview", to: "financial_baselines#preview"
       post "financial_baseline/approve", to: "financial_baselines#approve"
       post "financial_baseline/revise", to: "financial_baselines#revise"
+      get "savings_challenge/chat_cards", to: "savings_challenges#chat_cards"
+      post "savings_challenge/chat_cards/:id", to: "savings_challenges#update_chat_card"
       get "savings_challenge", to: "savings_challenges#show"
       get "savings_challenge/request_status", to: "savings_challenges#request_status"
       post "savings_challenge/enrollment", to: "savings_challenges#enroll"
