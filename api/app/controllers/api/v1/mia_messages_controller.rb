@@ -123,6 +123,11 @@ module Api
           return render_acknowledgment_response(session, content, message_request: message_request)
         end
 
+        # Challenge goal/pattern continuations must not fall through to household goal reads.
+        if savings_program_selected? && attached_imports.empty? && SavingsChallenge::ChatTurn.special?(content, session: session)
+          return render_savings_response(session, content, attached_imports, message_request: message_request)
+        end
+
         if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
             message: content, year: budget_year_param, month: budget_month_param)
@@ -395,6 +400,7 @@ module Api
             end
 
             detach_action_reviews_before_clearing(messages)
+            SavingsChatCard.where(chat_message_id: messages.select(:id)).delete_all
             messages.delete_all
             requests.delete_all
             session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
@@ -525,32 +531,20 @@ module Api
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session, persona_version_id: current_persona.version_id,
           cohort_id: current_participant_runtime.cohort_id, cohort_release_id: current_participant_runtime.release_id).call
         history = intent_transcript_without_memory_commands(transcript_for_current_persona(transcript)).map { |message| message.slice(:role, :content) }
-        # Read before the household lock: the optional extractor may wait on the provider.
-        chat_intake = SavingsChallenge::ChatIntake.new(enrollment, message: content) if attached_imports.empty?
-        savings_intake = chat_intake&.call
-        coach_answerer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user,
-          enrollment: enrollment, message: content, attachments: attached_imports, daily_report: savings_intake,
-          daily_rejection: chat_intake&.rejection, savings_intake: savings_intake)
-        reference = coach_answerer.call
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
-        narrator = SavingsChallenge::Narrator.new(user_message: content,
-          answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
-            write_state: "no_write", fallback_response: reference, guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
-            available_product_modules: module_guidance.context,
-            verified_facts: coach_answerer.answer_facts }.compact,
-          history: history, persona: module_guidance.persona(current_persona), approved_content: @approved_coach_content)
-        # Fact-grounded and hard-day answers are final; the model must not rewrite them.
-        answer = coach_answerer.deterministic? ? reference : narrator.call
-        @used_coach_content = coach_answerer.deterministic? ? [] : narrator.supplied_content_context
+        turn = SavingsChallenge::ChatTurn.new(household: current_household, user: current_user, enrollment: enrollment,
+          session: session, message: content, attachments: attached_imports, persona: module_guidance.persona(current_persona),
+          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context).call
+        @used_coach_content = turn.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
           require_savings_chat_access!
-          user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
-          session.update!(active_topic: {})
+          user_message, assistant_message = persist_chat_messages(session, content, attached_imports, turn.answer)
+          card = turn.persist!(assistant_message)
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
-            savings_intake: savings_intake }
+            savings_intake: turn.intake, challenge_chat_card: card, spending_patterns: turn.patterns }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
           render json: payload, status: :created
@@ -559,6 +553,7 @@ module Api
 
       def render_crisis_response(session, content, attached_imports, message_request:)
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
+        session.update!(active_topic: {}) if session.active_topic["type"].in?(%w[challenge_patterns challenge_goal])
         payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
@@ -1263,7 +1258,8 @@ module Api
 
         message_request.expire_if_stale!
         if message_request.completed?
-          render json: message_request.response_payload, status: message_request.response_status || :created
+          payload = SavingsChallenge::ChatTurn.replay_payload(message_request.response_payload, session: message_request.chat_session)
+          render json: payload, status: message_request.response_status || :created
           return true
         end
 

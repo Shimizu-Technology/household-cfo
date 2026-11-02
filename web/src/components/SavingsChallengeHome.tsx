@@ -17,15 +17,16 @@ import type { HomeSavingsAction } from '../lib/homeSavingsRecovery'
 import './SavingsChallengeHome.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import { formatDay, formatRange, timeZoneLabel } from '../lib/plainDates'
+import { ChallengeTimeline } from './ChallengeTimeline'
 import { ChallengeExport } from './ChallengeExport'
 import { ParticipantPrivacyAccess } from './ParticipantPrivacyAccess'
 import { SavingsRowButton, SavingsRowContent } from './SavingsRow'
 
 type RecordRow = SavingsEntry | SavingsEntryVersion | SavingsEntryDraft | SavingsPlanDraft
 type Retry = { key: string; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }
-type HomeProps = { onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; checkedInToday?: boolean; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
+type HomeProps = { dailyRefreshToken?: number; onDay?: (date: string) => void; onCheckpoint?: () => void; onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; checkedInToday?: boolean; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
 export function SavingsChallengeHome(props: HomeProps) { return <SavingsChallengeHomeBody key={`${props.participantScope?.user_id}:${props.participantScope?.household_id}:${props.cohortId}`} {...props}/> }
-function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, checkedInToday = false, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
+function SavingsChallengeHomeBody({ dailyRefreshToken, onDay, onCheckpoint, onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, checkedInToday = false, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
   const { assistantName } = useBrand()
   const [planOpen, setPlanOpen] = useState(false)
   const [changingPlan, setChangingPlan] = useState(false)
@@ -225,8 +226,9 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
   const actionLocked = (action:HomeSavingsAction, draftId?:number, entryId?:number) => busy || loading || readFailed || retry !== null || planMutation.busy || planMutation.needsRefresh || Boolean(homeMutation.pending && !(freshHome?.action===action && freshHome.draftId===draftId && freshHome.entryId===entryId))
   const entryFormLocked = actionLocked('entry_stage',undefined,editingEntry?.id)
   function prepareHomeFresh() { const pending=homeMutation.pending; if(pending?.action==='entry_stage'||pending?.action==='entry_approve'||pending?.action==='zero_attest')setEntryOpen(true);if(pending?.action==='zero_attest')setZeroOpen(true);if(pending?.action==='entry_approve'&&pending.draftId)setReviewAnchor({collection:'entry_drafts',id:pending.draftId});setParticipation(false);setLateAcceptance(false);setKnownZero(false);setAmount('');setEntryReason('');setEditingEntry(null);void refresh() }
-  const appliedEvidenceToken = useRef(evidenceRefreshToken)
-  useEffect(()=>{if(evidenceRefreshToken===appliedEvidenceToken.current||busy||loading||retry||homeMutation.pending||planMutation.pending)return;appliedEvidenceToken.current=evidenceRefreshToken;void refresh()},[evidenceRefreshToken,busy,loading,retry,homeMutation.pending,planMutation.pending,refresh])
+  const externalRefreshToken = `${evidenceRefreshToken ?? 0}:${dailyRefreshToken ?? 0}`
+  const appliedEvidenceToken = useRef(externalRefreshToken)
+  useEffect(()=>{if(externalRefreshToken===appliedEvidenceToken.current||busy||loading||retry||homeMutation.pending||planMutation.pending)return;appliedEvidenceToken.current=externalRefreshToken;void refresh()},[externalRefreshToken,busy,loading,retry,homeMutation.pending,planMutation.pending,refresh])
   function validate(action: () => void) {
     try { setError(null); action() } catch (failure) { setError(message(failure)); requestAnimationFrame(() => requestErrorRef.current?.focus()) }
   }
@@ -307,15 +309,10 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
 
     {challenge && !challenge.enrollment && <article className="panel savings-enrollment" aria-label="Join the challenge">
       <h3>Join the 90-day savings challenge</h3>
-      <p>Set aside new money at your own pace for 90 days, toward {suggested} or a target you choose.</p>
+      <p>A {suggested} cushion can keep surprises off the card while you pay down debt. Choose a comfortable goal for your 90 days.</p>
       {offer ? <>
         <p className="savings-join-dates"><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on).split(' – ').map((part, index) => <span key={index}>{index > 0 && ' – '}<span className="savings-nowrap">{part}</span></span>) : 'dates not set yet'}</strong><span>{offer.cohort_label}</span></p>
-        <ul className="savings-terms">
-          <li>You choose your target after joining: {suggested}, a smaller amount, or decide later.</li>
-          <li>We keep a record of the savings and choices you confirm. Joining doesn’t move money, connect a bank, or need a credit card or a full budget.</li>
-          <li>Statements are optional and reviewed separately. Joining doesn’t give a coach access to your statements.</li>
-          <li>Your spot in the group is confirmed when you join.</li>
-        </ul>
+        <p className="savings-terms">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
         <label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I’ve read this and accept joining the challenge.</label>
         {offer.late_start_acceptance_required && <label className="savings-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my 90 days start later than the group’s, as shown above.</label>}
         <button type="button" className="savings-primary" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
@@ -336,7 +333,8 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
               : <><span>You’ll choose a target later</span> — <button type="button" className="savings-link" onClick={openTarget}>choose now</button></>}</p>
         {projection?.progress_basis_points != null && <progress className="savings-bar" aria-label="Progress toward your target" max={10000} value={projection.progress_basis_points} />}
         {calendar && <p className="savings-day-line">{dayLine(calendar, next)}</p>}
-        {projection && !projection.reporting_known && <p className="savings-caption">We don’t assume $0. Add money when you set it aside, or {elapsed ? <button type="button" className="savings-link savings-link--inline" onClick={openZero}>tell us if you set nothing aside</button> : 'tell us later if you set nothing aside'}.</p>}
+        {challenge.timeline && <ChallengeTimeline timeline={challenge.timeline} onDay={onDay} onCheckpoint={onCheckpoint ?? onToday} />}
+        {projection && !projection.reporting_known && <p className="savings-caption">Your total is waiting for your first report. Add money when you set it aside, or {elapsed ? <button type="button" className="savings-link savings-link--inline" onClick={openZero}>tell us if you set nothing aside</button> : 'tell us later if you set nothing aside'}.</p>}
         {projection?.zero_attested && <p className="savings-caption">You confirmed nothing set aside through {formatDay(projection.cutoff_on)}.</p>}
         {/* Withdrawals use up matched money first, so the matched part can be smaller than any one record's match. */}
         {matched > 0 && <p className="savings-caption">{projection?.withdrawal_cents ? `After the money you took out, ${savingsDollars(matched)} of what’s left is matched to a statement.` : `${savingsDollars(matched)} of this is matched to a statement.`} That’s included above, not extra.</p>}
@@ -353,7 +351,7 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
 
       <section id={asideId} className={entryOpen ? 'savings-aside panel' : 'savings-aside panel is-collapsed'} aria-label="Add money you set aside">
         <h3 ref={entryHeadingRef} tabIndex={-1}>{editingEntry?.current_approved_version ? `Fix the ${entryWords(editingEntry.current_approved_version.signed_cents, editingEntry.current_approved_version.effective_on, 'fix')}` : editingEntry ? 'Fix this record' : 'Add money you set aside'}</h3>
-        <p>This is your own record of money you’ve already put aside. It doesn’t move money and isn’t checked with your bank. Paying down debt, or moving money you already had, doesn’t count as new.</p>
+        <p>Record new money you already set aside. This won’t move money; card payments and money you already had stay separate.</p>
         <form onSubmit={submitEntry}><fieldset disabled={entryFormLocked || !elapsed}>
           <label>Amount in US dollars<input inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
           <label className="savings-check"><input type="checkbox" checked={withdrawal} onChange={(event) => { setNewMoneyReviewed(false); setWithdrawal(event.target.checked) }} />I took this money out of my challenge savings</label>
@@ -421,8 +419,10 @@ function SavingsChallengeHomeBody({ onOptionalDebt, cohortId, evidenceRefreshTok
               <p><strong>{savingsDollars(version.signed_cents)}</strong> · {formatDay(version.effective_on)}{version.version_number > 1 ? ` · fixed (version ${version.version_number})` : ''}</p>
               <p>{savingsFundingLabel(version.funding_source)}{match ? ` · ${match}` : ''}</p>
               <div className="savings-form-actions">
+                <details className="savings-record-actions"><summary>Review or fix this record</summary>
                 {onReviewEvidence && version.signed_cents > 0 && savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible) && <button type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>{version.evidence_status === 'not_linked' ? 'Match to a statement' : 'Review statement match'}</button>}
                 <button type="button" disabled={actionLocked('entry_stage',undefined,entry.id)} onClick={() => editEntry(entry)}>Fix the {entryWords(version.signed_cents, version.effective_on, 'fix')}</button>
+                </details>
               </div>
             </>
           }} />

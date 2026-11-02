@@ -8,12 +8,13 @@ import { savePrivacyRecovery } from '../lib/privacyRecovery'
 import { ApiRequestError } from '../api'
 beforeEach(() => { sessionStorage.clear(); HTMLDialogElement.prototype.showModal = function () { this.open = true }; HTMLDialogElement.prototype.close = function () { this.open = false } })
 afterEach(() => { cleanup(); vi.resetAllMocks() })
+const expandSharing = () => { const summary = screen.queryByText('Sharing choices')?.closest('summary'); if (summary && !summary.parentElement?.hasAttribute('open')) fireEvent.click(summary) }
 const approve = () => { fireEvent.click(screen.getByRole('checkbox', { name: 'I understand and approve this exact change.' })); fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed change' })) }
 function open(api = syntheticPrivacyApi()) { return render(<ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} documentImportId={500} api={api} />) }
 describe('participant privacy help and reminders', () => {
   it('names sharing purposes in plain words and keeps each privacy limit', async () => {
     open()
-    await screen.findByText('You haven’t shared anything.')
+    await screen.findByText('You haven’t shared anything.'); expandSharing()
     expect(document.querySelector('.privacy-eyebrow')).toBeNull()
     expect(screen.getByText('When this ends and how to stop sharing everywhere')).toBeTruthy()
     expect(document.body.textContent).not.toContain('Exact expiry and global revocation')
@@ -32,7 +33,7 @@ describe('participant privacy help and reminders', () => {
     data.grants = [{ id: 91, kind: 'coach_summary', recipient_user_id: 903, granted: true, selected_records: [], expires_at: null, policy_version: data.policy_version, lock_version: 2 }]
     const api = syntheticPrivacyApi(); api.privacy = vi.fn().mockResolvedValue(data)
     open(api)
-    await screen.findByText('Your approved totals · Sharing on')
+    await screen.findByText('Your approved totals · Sharing on'); expandSharing()
     fireEvent.click(screen.getByRole('button', { name: 'Review revoke sharing' }))
     expect(screen.getByText('Purpose: Your approved totals')).toBeTruthy()
     expect(screen.getByText('Access stops right away. Copies already downloaded can’t be recalled.')).toBeTruthy()
@@ -40,13 +41,13 @@ describe('participant privacy help and reminders', () => {
   })
   it('does not consent by default and separately reviews exact recipient before a write', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api)
-    await screen.findByText('You haven’t shared anything.'); expect(api.mutate).not.toHaveBeenCalled()
+    await screen.findByText('You haven’t shared anything.'); expandSharing(); expect(api.mutate).not.toHaveBeenCalled()
     fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' }))
     expect(screen.getByText('Recipient: Fictional Mel')).toBeTruthy(); expect(api.mutate).not.toHaveBeenCalled(); approve()
     await waitFor(() => expect(api.mutate).toHaveBeenCalledWith(expect.objectContaining({ action: 'consent' }), expect.objectContaining({ granted: true, recipient_user_id: 903, selected_records: [] }), expect.any(AbortSignal)))
   })
   it('selected sharing reviews the ENTIRE record and keeps feelings unsupported', async () => {
-    const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api); await screen.findByLabelText('Purpose')
+    const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api); await screen.findByLabelText('Purpose'); expandSharing()
     fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'selected_details' } }); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } })
     fireEvent.click(screen.getAllByRole('button', { name: 'Find exact records' })[0]); fireEvent.click(await screen.findByRole('checkbox', { name: /Fictional sample statement/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); expect(screen.getByText(/Share ENTIRE selected records/)).toBeTruthy(); expect(screen.queryByRole('option', { name: 'Feelings' })).toBeNull(); approve()
@@ -59,7 +60,7 @@ describe('participant privacy help and reminders', () => {
   })
   it('timeout requires status first and retries unchanged payload with original identity', async () => {
     const api = syntheticPrivacyApi(); api.mutate = vi.fn().mockRejectedValueOnce(new Error('network lost')).mockResolvedValue({}); api.status = vi.fn().mockResolvedValue({ state: 'unknown' as const, actor_scope: privacyScope }); open(api)
-    await screen.findByLabelText('Purpose'); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
+    await screen.findByLabelText('Purpose'); expandSharing(); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
     await screen.findByText(/couldn’t confirm this change was saved/); expect((screen.getByRole('button', { name: 'Approve reviewed change' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByRole('button', { name: 'Retry exact reviewed request' })).toBeNull(); fireEvent.click(screen.getByRole('button', { name: 'Check earlier request' })); fireEvent.click(await screen.findByRole('button', { name: 'Retry exact reviewed request' }));
     await waitFor(() => expect(api.mutate).toHaveBeenCalledTimes(2)); expect(vi.mocked(api.mutate).mock.calls[1].slice(0, 2)).toEqual(vi.mocked(api.mutate).mock.calls[0].slice(0, 2)); expect(sessionStorage.getItem('challenge-private-request-identity-v1')).toBeNull()
@@ -67,7 +68,7 @@ describe('participant privacy help and reminders', () => {
   it('cold unknown recovery holds identity and permits only a newly reviewed matching action', async () => {
     savePrivacyRecovery({ scope: privacyScope, enrollmentId: 100, action: 'consent', key: 'cold-original' })
     const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); api.status = vi.fn(async () => ({ state: 'unknown' as const, actor_scope: privacyScope })); open(api)
-    await screen.findByLabelText('Purpose'); expect((screen.getByRole('button', { name: 'Review sharing choice' }).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
+    await screen.findByLabelText('Purpose'); expandSharing(); expect((screen.getByRole('button', { name: 'Review sharing choice' }).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Check earlier request' })); await screen.findByText(/Re-review the same action/)
     fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
     await waitFor(() => expect(api.mutate).toHaveBeenCalledWith(expect.objectContaining({ key: 'cold-original' }), expect.anything(), expect.anything()))
@@ -122,14 +123,14 @@ describe('participant privacy help and reminders', () => {
   })
   it('an explicitly requested enrollment beyond the first metadata page does not open another program', async () => {
     const api = syntheticPrivacyApi(); const first = await api.controls(); api.controls = vi.fn(async (cursor) => cursor ? { ...first, records: [{ ...first.records[0], id: 101 }], next_cursor: null } : { ...first, next_cursor: 100 }); api.privacy = vi.fn(api.privacy)
-    render(<ChallengePrivacyDialog actorScope={privacyScope} participant initialEnrollmentId={101} onClose={vi.fn()} api={api} />); await screen.findByText('You haven’t shared anything.')
+    render(<ChallengePrivacyDialog actorScope={privacyScope} participant initialEnrollmentId={101} onClose={vi.fn()} api={api} />); await screen.findByText('You haven’t shared anything.'); expandSharing()
     expect(api.controls).toHaveBeenCalledTimes(2); expect(api.privacy).toHaveBeenCalledWith(101, null, expect.anything())
   })
   it('owns one program page synchronously and releases it for retry after failure', async () => {
     const api = syntheticPrivacyApi(); const first = { ...await api.controls(), next_cursor: 100 }
     let rejectPage!: (error: Error) => void
     api.controls = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPage = reject }))
-    open(api); await screen.findByLabelText('Purpose')
+    open(api); await screen.findByLabelText('Purpose'); expandSharing()
     const more = screen.getByRole('button', { name: 'Load more programs' })
     act(() => { fireEvent.click(more); fireEvent.click(more) })
     expect(api.controls).toHaveBeenCalledTimes(2)
@@ -148,14 +149,14 @@ describe('participant privacy help and reminders', () => {
     const api = syntheticPrivacyApi(); const first = { ...await api.controls(), next_cursor: 100 }
     let resolvePage!: (page: typeof first) => void
     api.controls = vi.fn().mockResolvedValueOnce(first).mockImplementationOnce(() => new Promise(resolve => { resolvePage = resolve }))
-    const view = open(api); await screen.findByLabelText('Purpose')
+    const view = open(api); await screen.findByLabelText('Purpose'); expandSharing()
     fireEvent.click(screen.getByRole('button', { name: 'Load more programs' }))
     const oldSignal = vi.mocked(api.controls).mock.calls[1][1]!
     const nextScope = { ...privacyScope, user_id: 999 }
     vi.mocked(api.controls).mockResolvedValue({ ...first, actor_scope: nextScope, next_cursor: 200 })
     api.privacy = vi.fn(async () => ({ ...privacyFixture, actor_scope: nextScope }))
     view.rerender(<ChallengePrivacyDialog actorScope={nextScope} participant onClose={vi.fn()} api={api} />)
-    await screen.findByLabelText('Purpose')
+    await screen.findByLabelText('Purpose'); expandSharing()
     expect(oldSignal.aborted).toBe(true)
     await act(async () => { resolvePage({ ...first, records: [{ ...first.records[0], id: 101, program_name: 'Previous actor private program' }] }) })
     expect(screen.queryByRole('option', { name: /Previous actor private program/ })).toBeNull()
@@ -169,7 +170,7 @@ describe('participant privacy help and reminders', () => {
 })
 it.each(['quota', 'disabled', 'silently ignored'])('does not send approved privacy choices when identity storage is %s', async mode => {
   const api = syntheticPrivacyApi(); api.mutate = vi.fn(api.mutate); open(api)
-  await screen.findByLabelText('Purpose'); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' }))
+  await screen.findByLabelText('Purpose'); expandSharing(); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' }))
   const storage = mode === 'disabled' ? vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new DOMException('Disabled', 'SecurityError') }) : vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { if (mode === 'quota') throw new DOMException('Quota', 'QuotaExceededError') })
   try { approve(); await screen.findByText(/No change was submitted/); expect(api.mutate).not.toHaveBeenCalled(); expect(screen.queryByRole('button', { name: 'Check earlier request' })).toBeNull() } finally { storage.mockRestore() }
   fireEvent.click(screen.getByRole('button', { name: 'Approve reviewed change' })); await waitFor(() => expect(api.mutate).toHaveBeenCalledOnce())
@@ -178,7 +179,7 @@ it('retains a cold original key after changed-input conflict until original stat
   const identity = { scope: privacyScope, enrollmentId: 100, action: 'consent' as const, key: 'cold-conflict' }
   savePrivacyRecovery(identity)
   const api = syntheticPrivacyApi(); api.mutate = vi.fn().mockRejectedValue(new ApiRequestError('Fingerprint conflicts', { status: 409 })); api.status = vi.fn().mockResolvedValueOnce({ state: 'unknown', can_retry: true, actor_scope: privacyScope }).mockResolvedValue({ state: 'committed', actor_scope: privacyScope }); open(api)
-  await screen.findByLabelText('Purpose'); fireEvent.click(screen.getByRole('button', { name: 'Check earlier request' })); await screen.findByText(/Re-review the same action/)
+  await screen.findByLabelText('Purpose'); expandSharing(); fireEvent.click(screen.getByRole('button', { name: 'Check earlier request' })); await screen.findByText(/Re-review the same action/)
   fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
   await screen.findByText(/fresh review conflicted/); expect(sessionStorage.getItem('challenge-private-request-identity-v1')).toContain('cold-conflict'); expect(api.mutate).toHaveBeenCalledWith(identity, expect.anything(), expect.anything())
   expect(((await screen.findByRole('button', { name: 'Review sharing choice' })).closest('fieldset') as HTMLFieldSetElement).disabled).toBe(true)
@@ -186,7 +187,7 @@ it('retains a cold original key after changed-input conflict until original stat
 })
 it('clears a first-attempt definitive conflict and requires a fresh review', async () => {
   const api = syntheticPrivacyApi(); api.mutate = vi.fn().mockRejectedValue(new ApiRequestError('Fresh choices stale', { status: 409 })); open(api)
-  await screen.findByLabelText('Purpose'); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
+  await screen.findByLabelText('Purpose'); expandSharing(); fireEvent.change(screen.getByLabelText('Exact recipient'), { target: { value: '903' } }); fireEvent.click(screen.getByRole('button', { name: 'Review sharing choice' })); approve()
   await screen.findByText('Fresh choices stale'); expect(sessionStorage.getItem('challenge-private-request-identity-v1')).toBeNull(); expect(screen.queryByRole('button', { name: 'Approve reviewed change' })).toBeNull()
 })
 
@@ -204,7 +205,7 @@ describe('privacy request ownership under effect replay', () => {
       queueMicrotask(() => { if (!signal?.aborted) void originalPrivacy(id, cursor, signal).then(resolve, reject) })
     }))
     render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
-    await screen.findByText('You haven’t shared anything.')
+    await screen.findByText('You haven’t shared anything.'); expandSharing()
     expect(screen.queryByText('Metadata could not reach the API')).toBeNull()
     expect(screen.queryByText('Privacy could not reach the API')).toBeNull()
     expect(api.controls).toHaveBeenCalledTimes(2)
@@ -215,7 +216,7 @@ describe('privacy request ownership under effect replay', () => {
     let rejectEarlier: (error: Error) => void = () => {}
     api.privacy = vi.fn().mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectEarlier = reject })).mockResolvedValue(privacyFixture)
     render(<StrictMode><ChallengePrivacyDialog actorScope={privacyScope} participant onClose={vi.fn()} api={api} /></StrictMode>)
-    await screen.findByText('You haven’t shared anything.')
+    await screen.findByText('You haven’t shared anything.'); expandSharing()
     await act(async () => { rejectEarlier(new Error('Earlier request failed after replay')) })
     expect(screen.queryByText('Earlier request failed after replay')).toBeNull()
     expect(screen.getByText('You haven’t shared anything.')).toBeTruthy()

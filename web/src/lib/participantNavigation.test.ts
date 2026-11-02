@@ -22,7 +22,7 @@ describe('participant navigation', () => {
   })
 
   it('uses the savings challenge destinations for challenge programs', () => {
-    expect(partitionParticipantSections(participantSectionsForModules(allModules), true).primary).toEqual(['Home', 'Ask Mia', 'Statements'])
+    expect(partitionParticipantSections(participantSectionsForModules(allModules), true)).toEqual({ primary: ['Home', 'Ask Mia', 'Statements'], secondary: ['My Profile'] })
   })
   it('decouples Statements from Profile for schema four', () => {
     expect(participantSectionsForModules(['home', 'ask_mia', 'statements'], { independentStatements: true })).toEqual(['Home', 'Ask Mia', 'Statements'])

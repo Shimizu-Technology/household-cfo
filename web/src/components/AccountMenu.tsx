@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { useAuthContext } from '../contexts/authContextValue'
 import { SignOutButton } from './AuthControls'
 
-export function AccountMenu({ children, menuRef, onOpen }: { children?: ReactNode; menuRef?: RefObject<HTMLDetailsElement | null>; onOpen?: () => void }) {
+export function AccountMenu({ children, menuRef, onOpen, participantLabel = 'Household member' }: { participantLabel?: string; children?: ReactNode; menuRef?: RefObject<HTMLDetailsElement | null>; onOpen?: () => void }) {
   const auth = useAuthContext()
   const ownRef = useRef<HTMLDetailsElement>(null)
   const ref = menuRef ?? ownRef
@@ -29,7 +29,7 @@ export function AccountMenu({ children, menuRef, onOpen }: { children?: ReactNod
     <div className="shell-account-panel">
       {auth.currentUser && <div className="shell-account-identity">
         <strong>{auth.currentUser.full_name || 'Your account'}</strong>
-        <span className="shell-account-role">{auth.currentUser.is_admin ? 'Administrator' : auth.currentUser.is_coach ? 'Coach' : 'Household member'}</span>
+        <span className="shell-account-role">{auth.currentUser.is_admin ? 'Administrator' : auth.currentUser.is_coach ? 'Coach' : participantLabel}</span>
         {auth.currentUser.email && <span className="shell-account-email" title={auth.currentUser.email}>{auth.currentUser.email}</span>}
       </div>}
       {auth.isAuthEnabled && <SignOutButton />}

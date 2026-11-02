@@ -147,3 +147,6 @@ details[open] > summary.savings-row .savings-chevron { transform: rotate(90deg);
 .savings-home .screen-heading { position: relative; }
 .savings-home .screen-heading .savings-refreshing { position: absolute; left: 2px; top: 100%; margin: 0; font-size: var(--text-xs); line-height: 16px; color: var(--muted); }
 @media (max-width: 360px) { .savings-checkpoints li { padding: 8px; } .savings-checkpoints li strong, .savings-checkpoints li span { font-size: var(--text-xs); } }
+.savings-record-actions { margin: 8px 0; }
+.savings-record-actions summary { min-height: 44px; cursor: pointer; align-content: center; font-weight: var(--weight-semibold); }
+.savings-record-actions button { margin: 6px 0; }

@@ -8,6 +8,17 @@ const init = () => ({ rows: [{ id: 0, amount: '8.00', merchant: 'Shell', purchas
 afterEach(() => { sessionStorage.clear(); vi.resetModules() })
 
 describe('daily check-in helpers', () => {
+  it('turns a save conflict from another window into a reopen-Ask-Mia message', async () => {
+    const { registerServerDailyCard, syncDailyCard } = await import('./dailyCheckIn')
+    const api = await import('../api')
+    const update = vi.spyOn(api, 'updateChallengeChatCard')
+    const server = { id: 71, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 21, input: report, state: init() }
+    const entry = registerServerDailyCard(server, 'conflict-test')!
+    update.mockRejectedValueOnce(new api.ApiRequestError('Conflict', { status: 409 }))
+    await expect(syncDailyCard(entry.nonce)).rejects.toThrow('This check-in changed in another window. Reopen Ask Mia.')
+    expect(update).toHaveBeenCalledWith(71, expect.objectContaining({ action: 'save_state', expected_lock_version: 0 }))
+  })
+
   it('holds money prompts under a server-flagged safety reply until an ordinary reply follows', async () => {
     const { latestReplyIsSafety } = await import('./dailyCheckIn')
     expect(latestReplyIsSafety([{ role: 'user' }, { role: 'assistant', safety_reply: true }])).toBe(true)
@@ -50,4 +61,35 @@ describe('daily check-in helpers', () => {
     expect(Object.keys(sessionStorage).filter((key) => key.includes('mia-daily-cards'))).toEqual([])
     expect(reloaded.readDailyCard('n1')).toBeUndefined()
   })
+  it('uses newer server lock versions without overwriting local edits or request keys', async () => {
+    const { registerServerDailyCard, writeDailyCard, readDailyCard, syncDailyCard, useDailyCard, clearDailyCards } = await import('./dailyCheckIn')
+    const update = vi.spyOn(await import('../api'), 'updateChallengeChatCard')
+    const server = { id: 70, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 20, input: report, state: {} }
+    const entry = registerServerDailyCard(server, 'lock-test')!
+    const { renderHook, act } = await import('@testing-library/react')
+    const view = renderHook(() => useDailyCard(entry.nonce, init))
+    act(() => writeDailyCard(entry.nonce, state => ({ ...state, feelingNow: 'local', keys: { local: 'key' } })))
+    registerServerDailyCard({ ...server, lock_version: 4, state: { ...init(), feelingNow: 'other tab' } }, 'lock-test')
+    registerServerDailyCard({ ...server, lock_version: 2 }, 'lock-test')
+    update.mockResolvedValue({ record: { ...server, lock_version: 5 }, challenge: {} as never })
+    await act(async () => { await syncDailyCard(entry.nonce) })
+    expect(update).toHaveBeenCalledWith(70, expect.objectContaining({ expected_lock_version: 4, state: expect.objectContaining({ feelingNow: 'local', keys: { local: 'key' } }) }))
+    expect(readDailyCard(entry.nonce)?.feelingNow).toBe('local')
+    let finish!: (result: Awaited<ReturnType<typeof update>>) => void
+    update.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+    await act(async () => {
+      const saving = syncDailyCard(entry.nonce)
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(update).toHaveBeenLastCalledWith(70, expect.objectContaining({ expected_lock_version: 5 }))
+      registerServerDailyCard({ ...server, lock_version: 8 }, 'lock-test')
+      finish({ record: { ...server, lock_version: 6 }, challenge: {} as never })
+      await saving
+    })
+    update.mockResolvedValue({ record: { ...server, lock_version: 9 }, challenge: {} as never })
+    await act(async () => { await syncDailyCard(entry.nonce) })
+    expect(update).toHaveBeenLastCalledWith(70, expect.objectContaining({ expected_lock_version: 8 }))
+    view.unmount(); clearDailyCards(); update.mockRestore()
+  })
+
 })

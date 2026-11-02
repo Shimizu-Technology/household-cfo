@@ -2,6 +2,7 @@ class SavingsEnrollment < ApplicationRecord
   TIME_ZONE = "Pacific/Guam".freeze
   STATUSES = %w[active withdrawn completed].freeze
 
+  has_many :savings_chat_cards, dependent: :destroy
   belongs_to :household
   belongs_to :user
   belongs_to :cohort

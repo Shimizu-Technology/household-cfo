@@ -26,3 +26,8 @@ it('identifies a coach in plain language', () => {
   render(<AccountMenu />)
   expect(screen.getByText('Coach')).toBeTruthy()
 })
+it('names a challenge participant without household wording', () => {
+  render(<AccountMenu participantLabel="Challenge participant" />)
+  expect(screen.getByText('Challenge participant')).toBeTruthy()
+  expect(screen.queryByText('Household member')).toBeNull()
+})

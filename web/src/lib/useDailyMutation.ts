@@ -5,7 +5,7 @@ import { dailyResponseMatches } from './dailyChallenge'
 import type { DailyAction, DailyInput, DailyScope } from './dailyChallenge'
 import { bindDailyActor, clearDailyRecovery, isDailyActor, readDailyRecovery, saveDailyRecovery, subscribeDailyRecovery } from './dailyRecovery'
 import { participantErrorMessage } from './participantErrorMessage'
-export type DailyMutate = (action: DailyAction, input: DailyInput, reflectionId?: number) => Promise<unknown | null>
+export type DailyMutate = (action: DailyAction, input: DailyInput, reflectionId?: number, key?: string) => Promise<unknown | null>
 export function useDailyMutation(scope: DailyScope | undefined, refresh: () => void) {
   const [, update] = useState(0)
   const [error, setError] = useState<string | null>(null)

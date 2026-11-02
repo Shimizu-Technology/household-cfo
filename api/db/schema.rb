@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_02_040001) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_02_120000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2760,6 +2760,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_02_040001) do
     t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying, 'drafted'::character varying, 'ignored'::character varying]::text[])", name: "plaid_transactions_review_status"
   end
 
+  create_table "savings_chat_cards", force: :cascade do |t|
+    t.bigint "chat_message_id", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "input", default: {}, null: false
+    t.string "kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.bigint "savings_enrollment_id", null: false
+    t.jsonb "state", default: {}, null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["chat_message_id"], name: "index_savings_chat_cards_on_chat_message_id", unique: true
+    t.index ["savings_enrollment_id", "status", "id"], name: "savings_chat_cards_pending"
+    t.index ["savings_enrollment_id"], name: "index_savings_chat_cards_on_savings_enrollment_id"
+    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying]::text[])", name: "savings_chat_card_kind"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'closed'::character varying]::text[])", name: "savings_chat_card_status"
+  end
+
   create_table "savings_checkpoint_drafts", force: :cascade do |t|
     t.bigint "approved_version_id"
     t.integer "base_head_lock_version", null: false
@@ -4243,6 +4260,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_02_040001) do
   add_foreign_key "plaid_transactions", "plaid_accounts"
   add_foreign_key "plaid_transactions", "plaid_items"
   add_foreign_key "plaid_transactions", "transaction_drafts", on_delete: :nullify
+  add_foreign_key "savings_chat_cards", "chat_messages"
+  add_foreign_key "savings_chat_cards", "savings_enrollments"
   add_foreign_key "savings_checkpoint_drafts", "savings_checkpoint_versions", column: ["approved_version_id", "savings_checkpoint_id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoint_drafts_approved_version_id", on_delete: :restrict
   add_foreign_key "savings_checkpoint_drafts", "savings_checkpoint_versions", column: ["base_version_id", "savings_checkpoint_id"], primary_key: ["id", "savings_checkpoint_id"], name: "savings_checkpoint_drafts_base_version_id", on_delete: :restrict
   add_foreign_key "savings_checkpoint_drafts", "savings_checkpoints"
