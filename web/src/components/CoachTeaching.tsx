@@ -15,7 +15,7 @@ export function CoachTeachingWorkspace({ persona, currentUser, lifecycle, onDirt
     onPreview()
   }
   return <>
-    {persona && <CoachTeaching key={`${persona.id}:${persona.draft_revision}`} persona={persona} lifecycle={lifecycle} onDirtyChange={setMethodDirty} onSaved={(next) => { onPersonaChange(next); setSaved(true); preview() }} />}
+    {persona && <CoachTeaching key={persona.id} persona={persona} lifecycle={lifecycle} onDirtyChange={setMethodDirty} onSaved={(next) => { onPersonaChange(next); setSaved(true); preview() }} />}
     {saved && <p role="status">Your teaching method is saved. Save your library changes or leave them behind to preview. <Button variant="secondary" disabled={methodDirty || lifecycle.pending} onClick={preview}>Preview saved teaching</Button></p>}
     <details><summary>Teaching library and sources</summary><CoachContentLibrary currentUser={currentUser} selectedPersona={persona} mutationLifecycle={lifecycle} onDirtyChange={setLibraryDirty} onPersonaChange={onPersonaChange} /></details>
   </>
@@ -35,7 +35,10 @@ export function CoachTeaching({ persona, lifecycle, onDirtyChange, onSaved }: { 
     setBusy(true); setError(null)
     try {
       const saved = await updateAdminPersona(persona.id, { draft_revision: persona.draft_revision, draft_config: { ...persona.draft, coaching: { ...persona.draft.coaching, method } } })
-      if (mounted.current && lifecycle.isCurrent(ticket)) onSaved(saved)
+      if (mounted.current && lifecycle.isCurrent(ticket)) {
+        setMethod(saved.draft?.coaching.method ?? '')
+        onSaved(saved)
+      }
     } catch { if (mounted.current && lifecycle.isCurrent(ticket)) setError('Your teaching could not be saved. Keep your changes here and try again, or reload if another coach has updated it.') }
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
