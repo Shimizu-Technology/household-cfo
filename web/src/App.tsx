@@ -2498,7 +2498,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const currentYear = savedWorkspace?.dashboard.action_center.current_year
     // Complete mutation responses already carry the new confirmations and month
     // answer. Only their other-year budget needs a current-year plan for Home.
-    if (savedWorkspace && savedBudget.annual_plan?.year === currentYear) return
+    if (savedWorkspace && savedBudget.annual_plan?.year === currentYear) {
+      setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
+      return
+    }
     // Budget-only responses need the service snapshot for Home and Wealth too.
     const generation = financialMutationGenerationRef.current
     try {
