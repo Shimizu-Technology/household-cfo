@@ -22,7 +22,7 @@ class HouseholdFinanceMiaActionDraftPresenterTest < ActiveSupport::TestCase
       draft.update!(summary: "An unrelated $190 in prose must not become the figure")
       payload = present(draft)
       assert_equal({ amount_cents: 6000, label: "moved to Repairs & surprises" }, payload[:headline])
-      assert_equal [ { label: "Dining out", before: "$250", after: "$190" }, { label: "Repairs & surprises", before: "$40", after: "$100" } ], payload[:detail_rows]
+      assert_equal [ { label: "Dining out", before_cents: 25_000, after_cents: 19_000, before: "$250", after: "$190" }, { label: "Repairs & surprises", before_cents: 4000, after_cents: 10_000, before: "$40", after: "$100" } ], payload[:detail_rows]
       assert_equal "November only. Your actual spending doesn’t change.", payload[:detail_note]
     end
   end
@@ -40,9 +40,9 @@ class HouseholdFinanceMiaActionDraftPresenterTest < ActiveSupport::TestCase
   end
 
   test "allocation and category creation headline their planned amount and keep meaningful cents" do
-    allocation = present(build(type: "set_allocation", category_id: @dining.id, amount: "190.25", months: [ 11 ], year: 2026))
-    assert_equal({ amount_cents: 19_025, label: "new planned amount" }, allocation[:headline])
-    assert_equal "$190.25", allocation[:detail_rows].sole[:after]
+    allocation = present(build(type: "set_allocation", category_id: @dining.id, amount: "190.50", months: [ 11 ], year: 2026))
+    assert_equal({ amount_cents: 19_050, label: "new planned amount" }, allocation[:headline])
+    assert_equal "$190.50", allocation[:detail_rows].sole[:after]
     category = present(build(type: "create_category", new_name: "School", amount: "30", stack_key: "discretionary", months: [ 11 ], year: 2026))
     assert_equal({ amount_cents: 3000, label: "new planned amount" }, category[:headline])
   end
@@ -67,6 +67,27 @@ class HouseholdFinanceMiaActionDraftPresenterTest < ActiveSupport::TestCase
     assert_equal({ amount_cents: 650_000, label: "new monthly income" }, setup[:headline])
     created = present(build(type: "create_income_source", income_source_name: "Weekend work", source_type: "job", amount: "200", cadence: "weekly", effective_on: "2026-11-01"))
     assert_equal HouseholdFinance::Money.period_cents(20_000, "weekly", month: 11), created.dig(:headline, :amount_cents)
+  end
+
+  test "invalid nested recurring income dates omit the optional headline without aborting the presenter" do
+    source = @household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 400_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1))
+    [ "not-a-date", "2026-02-30", 123 ].each do |invalid|
+      draft = build(type: "schedule_income_change", income_source_id: source.id, entry_type: "recurring_change", amount: "4800", effective_on: "2026-11-01")
+      item = draft.mia_action_items.first
+      item.update!(payload: item.payload.merge("effective_on" => invalid))
+      draft.mia_action_items.reset
+      payload = present(draft)
+      assert_nil payload[:headline], invalid.inspect
+      assert_equal draft.id, payload[:id]
+      assert_equal 1, payload[:items].length
+    end
+    draft = build(type: "create_income_source", income_source_name: "Weekend work", source_type: "job", amount: "200", cadence: "weekly", effective_on: "2026-11-01")
+    item = draft.mia_action_items.first
+    prepared = item.prepared_operation.deep_dup
+    prepared["predicted_after_snapshot"]["source"]["starts_on"] = "2026-99-01"
+    item.update!(prepared_operation: prepared)
+    draft.mia_action_items.reset
+    assert_nil present(draft)[:headline]
   end
 
   test "debt goal and account headlines preserve known amounts and omit unknowns" do

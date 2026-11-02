@@ -69,6 +69,7 @@ module HouseholdFinance
         (uniform ? changes.first(1) : changes).map do |row|
           name = item.payload["category_name"] || item.before_snapshot["category_name"]
           { label: uniform ? name : "#{name} · #{review_month(row["month"])}",
+            before_cents: row["before_cents"], after_cents: row["after_cents"],
             before: row["before_cents"].nil? ? "Not entered" : compact_money(row["before_cents"]),
             after: row["after_cents"].nil? ? "Not entered" : compact_money(row["after_cents"]) }
         end

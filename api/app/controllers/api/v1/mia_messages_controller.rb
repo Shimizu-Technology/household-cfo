@@ -129,7 +129,7 @@ module Api
         end
 
         if !savings_program_selected? && attached_imports.empty? && SpendingPatterns::Answerer.matches?(content) &&
-           !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.evidence_style_reference?(content))
+           !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(content))
           return render_household_patterns_response(session, content, message_request: message_request)
         end
 

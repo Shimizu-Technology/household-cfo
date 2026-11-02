@@ -63,6 +63,10 @@ module HouseholdFinance
       cadence = input["cadence"] || "monthly"
       date = Date.iso8601(input["effective_on"] || input["starts_on"] || "#{@draft.year}-01-01")
       figure(Money.period_cents(cents, cadence, month: date.month), "new monthly income")
+    rescue Date::Error, TypeError
+      # Persisted JSON can contain invalid dates. The optional figure must not
+      # prevent the participant from reading the rest of the review card.
+      nil
     end
 
     def known_money(before, after, fields)

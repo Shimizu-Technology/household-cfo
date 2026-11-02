@@ -27,6 +27,12 @@ module HouseholdFinance
       (normalized.match?(FOLLOW_UP_REFERENCE) && normalized.match?(EVIDENCE_QUESTION)) || normalized.match?(DATE_SHORTHAND)
     end
 
+    # A general household question can contain "this month" without pointing at
+    # a document. Use the stricter reference when choosing between both paths.
+    def self.document_directed_reference?(message)
+      message.to_s.match?(EXPLICIT_EVIDENCE_REFERENCE) || message.to_s.match?(/\b(?:that|this)\s+one\b/i)
+    end
+
     def self.elliptical_scope_reference?(message, query_scope)
       normalized = message.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^a-z0-9]+/, " ").squish
       return false unless normalized.match?(ELLIPTICAL_PREFIX)

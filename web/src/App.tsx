@@ -207,7 +207,8 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const reviewCurrency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 })
+const reviewWholeCurrency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+const formatReviewMoney = (cents: number) => (cents % 100 === 0 ? reviewWholeCurrency : currency).format(cents / 100)
 
 const sections = PARTICIPANT_SECTIONS
 const sectionCapabilityIds = SECTION_CAPABILITY_IDS
@@ -1566,7 +1567,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // older-history page cannot pull them back; sending a message or opening Ask
   // Mia resets it.
   const chatScrolledAwayRef = useRef(false)
-  const sentTurnRef = useRef(false)
+  const chatAnchorModeRef = useRef<'entry' | 'sent' | 'latest'>('entry')
   // Our own anchoring scrolls must not read as the participant scrolling away.
   const miaProgrammaticScrollUntilRef = useRef(0)
 
@@ -1576,10 +1577,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const distanceFromBottom = chatCard.scrollHeight - chatCard.scrollTop - chatCard.clientHeight
     setShowChatScrollButton(distanceFromBottom > 72)
-    // Sending follows explicit interaction intent from useMiaEntryAnchor. A late
-    // image/layout scroll must not masquerade as the participant leaving the turn.
-    if (!sentTurnRef.current && performance.now() >= miaProgrammaticScrollUntilRef.current) {
-      const nearAnchor = Math.abs(chatCard.scrollTop - miaChatAnchorTop(chatCard, sentTurnRef.current)) <= 80
+    // Sent turns and Latest follow explicit interaction intent from the hook.
+    // Browser scroll anchoring during a reply/layout change is not user intent.
+    if (chatAnchorModeRef.current === 'entry' && performance.now() >= miaProgrammaticScrollUntilRef.current) {
+      const nearAnchor = Math.abs(chatCard.scrollTop - miaChatAnchorTop(chatCard)) <= 80
       chatScrolledAwayRef.current = !(distanceFromBottom <= 80 || nearAnchor)
     }
   }, [])
@@ -1590,15 +1591,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!chatCard) return
 
     miaProgrammaticScrollUntilRef.current = performance.now() + (behavior === 'smooth' ? 900 : 150)
-    chatCard.scrollTo({ top: miaChatAnchorTop(chatCard, sentTurnRef.current), behavior })
+    const top = chatAnchorModeRef.current === 'latest' ? chatCard.scrollHeight : miaChatAnchorTop(chatCard, chatAnchorModeRef.current === 'sent')
+    chatCard.scrollTo({ top, behavior })
   }, [])
 
   const scrollMiaChatToBottom = useCallback(() => {
     const chat = chatCardRef.current
     if (!chat) return
     // This explicit navigation takes over from the automatic sent-turn anchor.
-    chatScrolledAwayRef.current = true
-    sentTurnRef.current = false
+    chatScrolledAwayRef.current = false
+    chatAnchorModeRef.current = 'latest'
     const spacer = chat.querySelector<HTMLElement>('.chat-turn-spacer')
     if (spacer) spacer.style.height = '0px'
     miaProgrammaticScrollUntilRef.current = performance.now() + 150
@@ -1610,11 +1612,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
 
   useEffect(() => {
-    if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; sentTurnRef.current = false }
+    if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'entry' }
   }, [activeSection])
 
   useEffect(() => {
-    if (miaLoading) { chatScrolledAwayRef.current = false; sentTurnRef.current = true }
+    if (miaLoading) { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'sent' }
   }, [miaLoading])
 
   useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
@@ -2346,7 +2348,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         setMiaAttachmentNotice(null)
         setMiaLoading(false)
         setMiaWaitLong(false)
-        requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+        requestAnimationFrame(() => {
+          // Completing a request must not take focus from Latest or from a
+          // history/review control the participant chose while waiting.
+          if (activeSectionRef.current === 'Ask Mia' && chatAnchorModeRef.current === 'sent' && !chatScrolledAwayRef.current) {
+            composerRef.current?.focus({ preventScroll: true })
+          }
+        })
       }
     }
   }
@@ -7081,7 +7089,7 @@ function MiaActionDraftReviewCard({
     <article aria-label={draft.title} className={`mia-action-draft-card${isStale ? ' is-stale' : ''}`}>
       <div className="mia-action-draft-main">
         <p className="mia-change-sentence" id={sentenceId}>{draft.summary || draft.title}</p>
-        {draft.headline && !isStale && <div className="mia-change-headline"><strong className="mia-change-figure">{reviewCurrency.format(draft.headline.amount_cents / 100)}</strong><span>{draft.headline.label}</span></div>}
+        {draft.headline && !isStale && <div className="mia-change-headline"><strong className="mia-change-figure">{formatReviewMoney(draft.headline.amount_cents)}</strong><span>{draft.headline.label}</span></div>}
         {!isPending && <span className="document-status">{titleize(draft.status)}</span>}
         {isStale && <span className="document-status red">Out of date</span>}
         {isStale && (
@@ -7094,7 +7102,7 @@ function MiaActionDraftReviewCard({
           {draft.scope_note && !isStale && <p className="mia-action-scope-note">{draft.scope_note}</p>}
           {!draft.detail_rows && draft.rationale && draft.rationale !== draft.summary && !isStale && <p>{draft.rationale}</p>}
           {draft.detail_rows && !isStale && <dl className="mia-change-lines">
-            {draft.detail_rows.map((row, index) => <div key={index}><dt>{row.label}</dt><dd>{row.before} → {row.after}</dd></div>)}
+            {draft.detail_rows.map((row, index) => <div key={index}><dt>{row.label}</dt><dd>{row.before_cents == null ? row.before : formatReviewMoney(row.before_cents)} → {row.after_cents == null ? row.after : formatReviewMoney(row.after_cents)}</dd></div>)}
           </dl>}
           {draft.detail_note && !isStale && <p className="mia-change-note">{draft.detail_note}</p>}
         {draft.draft_type === 'action_plan' && (

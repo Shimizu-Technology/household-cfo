@@ -13028,6 +13028,40 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(0)
 })
 
+for (const longReply of [false, true]) {
+test(`mobile Ask Mia Latest during a pending request follows the arriving ${longReply ? 'long' : 'short'} reply`, async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  let release: (() => void) | undefined
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/mia/messages', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await waiting
+    return route.fulfill({ status: 201, json: {
+      user_message: { id: 9201, role: 'user', author: 'You', content: 'Help me look at my spending.', attachments: [] },
+      assistant_message: { id: 9202, role: 'assistant', author: 'Mia', content: 'This is the arriving reply. ' + (longReply ? 'Your reviewed purchases give us a place to start. '.repeat(100) : 'We can start with one purchase.'), attachments: [] },
+      transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null,
+    } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Help me look at my spending.')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByLabel('Mia is thinking').first()).toBeVisible()
+  const history = page.locator('.chat-card')
+  await history.dispatchEvent('wheel', { deltaY: -400 })
+  await history.evaluate(card => { card.scrollTop = 0; card.dispatchEvent(new Event('scroll')) })
+  await page.getByRole('button', { name: 'Scroll to latest Mia message' }).click()
+  // Keep the response pending until Latest's own scroll has settled.
+  await expect.poll(() => history.evaluate(card => card.scrollHeight - card.clientHeight - card.scrollTop)).toBeLessThan(3)
+  // Let the initial programmatic-scroll guard expire before the response.
+  await page.waitForTimeout(250)
+  release!()
+  await expect(page.locator('.message-row.assistant').last()).toContainText('This is the arriving reply.')
+  await expect.poll(() => history.evaluate(card => card.scrollHeight - card.clientHeight - card.scrollTop)).toBeLessThan(3)
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).not.toBeFocused()
+  await expect.poll(() => page.locator('.chat-turn-spacer').evaluate(spacer => spacer.getBoundingClientRect().height)).toBe(0)
+})
+}
+
 test('mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.mia.messages = []

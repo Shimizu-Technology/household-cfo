@@ -21,17 +21,28 @@ module SpendingPatterns
     attr_reader :supplied_content_context, :patterns
 
     def call
-      @patterns = Analyzer.new(@household).call
+      @supplied_content_context = []
+      period = RequestedPeriod.new(@message).call
+      @patterns = Analyzer.new(@household, **period).call
+      if period.present? && @patterns[:purchase_count].zero?
+        label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
+        return "I don’t have reviewed purchases for #{label}, so I can’t tell what you spent then. You can review a statement or tell me about purchases from that period."
+      end
       choices = @patterns[:candidate_changes].first(2)
       coverage = @patterns[:coverage]
       present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
       missing = coverage[:months].any? { |row| row[:spending_cents].nil? }
       merchants = @patterns[:discretionary_merchants].first(2)
-      @supplied_content_context = []
       if merchants.empty?
         return "I don’t have enough reviewed purchases in flexible categories to spot a pattern yet. You can review a statement or tell me about a few purchases to start. A store name alone doesn’t tell me what you needed."
       end
-      window = missing ? "I only see purchases for #{present.to_sentence}" : "From #{present.first} to #{present.last} in the recorded purchases"
+      window = if period.present?
+        label = period[:from].strftime("%B %Y")
+        label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}" unless period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
+        "For #{label}#{missing ? ", I only see purchases for #{present.to_sentence}" : ' in the recorded purchases'}"
+      else
+        missing ? "I only see purchases for #{present.to_sentence}" : "From #{present.first} to #{present.last} in the recorded purchases"
+      end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       observed = "#{window}, #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
       cluster = @patterns[:small_purchase_clusters].first
@@ -50,6 +61,8 @@ module SpendingPatterns
       answer = narrator.call
       @supplied_content_context = narrator.supplied_content_context
       answer
+    rescue RequestedPeriod::Unsupported
+      "I couldn’t identify a supported spending period. Try a month and year, like January 2025, or the last 3 months (up to 12). Nothing changed."
     end
 
     private

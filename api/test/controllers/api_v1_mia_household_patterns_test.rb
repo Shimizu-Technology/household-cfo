@@ -85,6 +85,57 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.dig("assistant_message", "content"), "don’t have enough reviewed purchases"
   end
 
+  test "this month after an upload reads household purchases while explicit document references retain evidence" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      purchase(Date.new(2026, 11, 1), "Current shop", 1250)
+      purchase(Date.new(2026, 10, 5), "Older shop", 90_000)
+      document = @household.financial_document_imports.create!(uploaded_by_user: @user, document_kind: "statement", status: "needs_review",
+        filename: "synthetic-statement.pdf", content_type: "application/pdf", byte_size: 100, s3_key: "household-cfo/test/synthetic-statement.pdf")
+      @household.transaction_drafts.create!(financial_document_import: document, merchant: "Unreviewed upload shop", occurred_on: Date.current,
+        total_amount_cents: 12_345, budget_category: @category, source_type: "statement")
+      [ "that statement", "this receipt", "the upload", "that file", "that one" ].each do |reference|
+        post "/api/v1/mia/messages", params: { message: "What is the total in this upload?", document_import_ids: [ document.id ] }, headers: @headers, as: :json
+        assert_response :created
+        post "/api/v1/mia/messages", params: { message: "What spending patterns in #{reference}'s largest purchase?" }, headers: @headers, as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload", reference
+      end
+      before = financial_counts
+      post "/api/v1/mia/messages", params: { message: "What spending patterns do you see this month?" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "Current shop ($12.50)"
+      refute_includes answer, "Older shop"
+      refute_includes answer, "Unreviewed upload shop"
+      refute_includes answer, "Using your prior upload"
+      assert_equal before, financial_counts
+    end
+  end
+
+  test "explicit spending periods select only requested purchases and empty periods remain unknown" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      purchase(Date.new(2025, 1, 5), "January shop", 1250)
+      purchase(Date.new(2026, 10, 5), "Recent shop", 90_000)
+      before = financial_counts
+      post "/api/v1/mia/messages", params: { message: "What patterns across my purchases in January 2025?" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "January 2025"
+      assert_includes answer, "January shop ($12.50)"
+      refute_includes answer, "Recent shop"
+      post "/api/v1/mia/messages", params: { message: "What spending patterns do you see in February 2025?" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "don’t have reviewed purchases for February"
+      refute_includes answer, "$0"
+      refute_includes answer, "Recent shop"
+      post "/api/v1/mia/messages", params: { message: "What spending patterns do you see last week?" }, headers: @headers, as: :json
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "couldn’t identify a supported spending period"
+      assert_equal before, financial_counts
+    end
+  end
+
   test "household review cards omit challenge-specific scope" do
     draft = @household.mia_action_drafts.create!(requested_by_user: @user, draft_type: "budget_edit", status: "pending", year: 2026, title: "Change plan", summary: "Change plan")
     assert_nil HouseholdFinance::MiaActionDraftPresenter.new(draft).call[:scope_note]

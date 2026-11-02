@@ -271,6 +271,14 @@ it('uses only the structured headline, shares it across placements, and describe
   expect(screen.getAllByText('$250 → $190')).toHaveLength(2)
 })
 
+it.each([[1200, '$12'], [1250, '$12.50'], [1201, '$12.01'], [0, '$0'], [-1250, '-$12.50'], [123450, '$1,234.50']])('keeps review money at zero or two decimals for %s cents', (cents, expected) => {
+  const draft = { id: 95, status: 'pending', draft_type: 'budget_edit', year: 2026, title: 'Set planned amount', summary: 'Review this change',
+    headline: { amount_cents: cents, label: 'new planned amount' }, detail_rows: [{ label: 'Dining out', before: 'Not entered', after: 'Legacy money', before_cents: null, after_cents: cents }], items: [], rationale: null, source_prompt: null, created_at: null, applied_at: null, canceled_at: null } as MiaActionDraft
+  render(<MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} />)
+  expect(document.querySelector('.mia-change-figure')?.textContent).toBe(expected)
+  expect(document.querySelector('.mia-change-lines')?.textContent).toContain(`Not entered → ${expected}`)
+})
+
 it('does not derive a figure from prose when the server supplies no headline', () => {
   const draft = { id: 93, status: 'pending', draft_type: 'budget_edit', year: 2026, title: 'Rename', summary: 'Rename the $500 fund', items: [], rationale: null } as unknown as MiaActionDraft
   render(<MiaActionDraftReviewStack drafts={[draft]} isRealWorkspace action={null} onApply={vi.fn()} onCancel={vi.fn()} />)

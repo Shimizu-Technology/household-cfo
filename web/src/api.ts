@@ -659,7 +659,7 @@ export type MiaActionItem = {
 
 export type MiaActionDraft = {
   headline?: { amount_cents: number; label: string } | null
-  detail_rows?: { label: string; before: string; after: string }[] | null
+  detail_rows?: { label: string; before: string; after: string; before_cents?: number | null; after_cents?: number | null }[] | null
   detail_note?: string | null
   record_scope?: string
   scope_note?: string | null
