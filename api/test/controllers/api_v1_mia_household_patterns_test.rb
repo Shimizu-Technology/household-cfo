@@ -60,7 +60,7 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
   end
 
   test "patterns require spending context rather than debt or income records" do
-    [ "What patterns in my debts?", "Show patterns in my income", "What patterns do you see?" ].each do |message|
+    [ "What patterns in my debts?", "Show patterns in my income", "What patterns do you see?", "What patterns in my income statements?", "What patterns in my debts from statements?" ].each do |message|
       refute SpendingPatterns::Answerer.matches?(message), message
     end
     [ "What spending habits do you notice?", "Show patterns in my purchases", "What shopping patterns do you see?" ].each do |message|
