@@ -136,3 +136,9 @@ it('fades only a newly received assistant reply, leaving history and the sent me
   expect(document.querySelectorAll('.is-new-reply')).toHaveLength(1)
   expect(document.querySelector('.is-new-reply')?.textContent).toContain('Your reply.')
 })
+
+it('keeps challenge check-ins and recovery visible when the household review cards collapse', () => {
+  render(<ChatHistory {...baseProps} reviewCount={2} onOpenReview={vi.fn()} emptyReviewContent={<p role="alert">Retry loading your saved check-in</p>} reviewContent={<p>Household review card</p>} />)
+  expect(screen.getByRole('alert').textContent).toBe('Retry loading your saved check-in')
+  expect(screen.queryByText('Household review card')).toBeNull()
+})

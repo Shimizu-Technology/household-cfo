@@ -24,6 +24,7 @@ type ChatHistoryProps = {
   onOpenImportId: (documentImportId: number) => void
   onReviewImportId: (documentImportId: number) => void
   freshReplyId?: number | null
+  emptyReviewContent?: ReactNode
   reviewContent?: ReactNode
   pendingPurchaseCount?: number
   onOpenReview?: () => void
@@ -52,6 +53,7 @@ export function ChatHistory({
   onOpenImportId,
   onReviewImportId,
   reviewContent,
+  emptyReviewContent,
   freshReplyId,
   reviewCount = 0,
   pendingPurchaseCount = 0,
@@ -88,6 +90,7 @@ export function ChatHistory({
     return () => observer.disconnect()
   }, [chatCardRef, measureQueue])
 
+  const shownReviewContent = totalMessageCount === 0 && onOpenReview ? emptyReviewContent : reviewContent
   const showReviewShortcut = showScrollButton && totalMessageCount > 0 && reviewCount > 0 && queueBelowFold
   return (
     <div className={`chat-card-wrap${showReviewShortcut ? ' has-review-shortcut' : ''}`}>
@@ -166,7 +169,7 @@ export function ChatHistory({
           </div>
         )}
         {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
-        {reviewContent && (totalMessageCount > 0 || !onOpenReview) && <div className="chat-review-queue" ref={reviewQueueRef}>{reviewContent}</div>}
+        {shownReviewContent && <div className="chat-review-queue" ref={reviewQueueRef}>{shownReviewContent}</div>}
       </article>
       {showScrollButton && totalMessageCount > 0 && (
         reviewCount > 0

@@ -11484,17 +11484,15 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
   expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
-  // At 320px the line shortens to "Mia: AI coach, …" and "About" (the button keeps "About Mia" as its name).
-  expect(await page.locator('.mia-disclaimer > p').first().innerText()).toBe('Mia: AI coach, not a financial advisor. About')
-  // The short line and its About link stay on one line on the smallest phone.
-  expect(await page.locator('.mia-disclaimer > p').first().evaluate(node => Math.round(node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight)))).toBe(1)
-  await expect(page.getByText(disclaimer, { exact: true })).toBeHidden()
-  const aboutToggle = page.getByRole('button', { name: 'About Mia', exact: true })
-  await aboutToggle.click()
-  await expect(aboutToggle).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.locator('.mia-disclaimer').getByText(disclaimer, { exact: true })).toBeVisible()
-  await aboutToggle.click()
-  await expect(page.locator('.mia-disclaimer').getByText(disclaimer, { exact: true })).toBeHidden()
+  // The phone disclosure lives in About, leaving more room for the thread.
+  await expect(page.locator('.mia-disclaimer')).toBeHidden()
+  await page.locator('.chat-more-button').click()
+  await page.getByRole('button', { name: 'About Mia', exact: true }).click()
+  const disclosure = page.getByRole('dialog', { name: 'About Mia', exact: true })
+  await expect(disclosure).toContainText(disclaimer)
+  await disclosure.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(disclosure).toHaveCount(0)
+  await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
   const titleFits = await page.locator('.chat-shell-header').evaluate(node => {
     const heading = node.querySelector('h3')!.getBoundingClientRect()
     const actions = node.querySelector('.chat-actions')!.getBoundingClientRect()
@@ -13041,6 +13039,11 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
   if (viewport.width <= 620) {
     const height = await page.locator('.chat-card').evaluate(card => card.clientHeight)
     expect(height).toBeGreaterThan(viewport.height - 270)
+    await page.locator('.chat-more-button').click()
+    await page.getByRole('button', { name: 'About Mia', exact: true }).click()
+    const about = page.getByRole('dialog', { name: 'About Mia', exact: true })
+    await expect(about).toContainText('AI coach, not a financial advisor.')
+    await about.getByRole('button', { name: 'Close', exact: true }).click()
     const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
     await composer.focus()
     await expect(page.locator('.shell-header')).toBeHidden()
