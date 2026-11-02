@@ -31,6 +31,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal reply, narrate(reply, packet, "I stayed under my grocery budget. I used a shopping list")
     reply = "You used a shopping list so you could stay under budget. That made the week easier. What worked?"
     assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!")
+    reply = "A full week under your grocery budget is a real win, especially with food costs and payday timing pulling at a household budget. I don't know yet how you pulled it off, so I'd like to hear it from you: was it meal planning, a shorter list, fewer takeout swaps, or something else? Whatever it was, that's the habit worth protecting, because it's what keeps your food category steady and gives your emergency runway room to grow. What's the one thing you did this week that you could repeat next week?"
+    assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!")
   end
 
   test "stress with a month question acknowledges briefly and answers in the first sentence" do

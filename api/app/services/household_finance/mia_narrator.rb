@@ -319,6 +319,9 @@ module HouseholdFinance
         next false if sentence.end_with?("?") || sentence.match?(/\A(?:if|could|might|try|consider|next time)\b/i)
         next true if sentence.match?(/\b(?:you(?:['’]ve| have)?|your choices|this|that)\s+(?:strengthened|improved|built|boosted|funded|freed|grew|increased|reduced|protected)\b/i)
         next true if sentence.match?(/\b(?:came from|because you|choices you made|takes? follow.through|took follow.through)\b/i)
+        # A reported result does not establish that an unnamed habit improved
+        # the household's financial position, even without an invented number.
+        next true if sentence.match?(/\b(?:that|this|it|habit|choice|keeping|staying)\b.*\b(?:keeps?|gives?|strengthens?|improves?|builds?|protects?|leaves?|frees?|creates?|boosts?)\b.{0,70}\b(?:cushion|runway|baseline|budget|category|margin|breathing room|savings|surplus)\b/i)
 
         claim = sentence[/\byou\s+(?:used|made|chose|planned|cooked|packed|shopped|followed|stuck with)\s+[^.!?]+/i]
         claim && !user_message.downcase.include?(claim.downcase.sub(/\Ayou\s+/, "i "))
