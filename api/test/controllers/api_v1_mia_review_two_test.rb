@@ -159,6 +159,12 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
     refute_includes reply, "$500 purse"
     post_message("I have $500 in checking; should I buy a purse at Ross for $60?")
     assert_includes reply, "$60 purse"
+    [ "I have $500 in checking; can I spend $60 on a handbag if it is on sale?",
+      "I have $500 in checking; should I pay $60 for the purse?" ].each do |message|
+      post_message(message)
+      assert_includes reply, "$60 purse"
+      refute_includes reply, "$500 purse"
+    end
   end
 
   test "school and work purpose is essential but incidental timing is discretionary" do

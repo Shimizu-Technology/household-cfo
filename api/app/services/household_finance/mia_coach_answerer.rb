@@ -1077,6 +1077,7 @@ module HouseholdFinance
       amount = '\$\s*([\d,]+(?:\.\d{1,2})?)'
       item = "(?:purse|handbag|bag)"
       match = message.match(/#{amount}\s+#{item}\b/i) ||
+        message.match(/\b(?:spend|spending|pay|paying)\s*#{amount}\s+(?:on|for)\s+(?:(?:a|an|the|this|that)\s+)?#{item}\b/i) ||
         message.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
         message.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
       Money.chat_cents(match[1]) if match
