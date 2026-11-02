@@ -78,6 +78,8 @@ module HouseholdFinance
           pending_cents: approved && !pending_unknown ? pending.sum { |draft| draft[:amount_cents] || Money.cents(draft[:amount]) } : nil,
           pending_count: pending_unknown ? nil : pending.length, pending_list_truncated: truncated,
           readiness_tone: readiness_known ? snapshot[:readiness_tone] : nil,
+          runway_months: readiness_known ? snapshot[:runway_months] : nil,
+          readiness_guidance: cushion_guidance(readiness_known ? snapshot[:readiness_tone] : nil, income && planned ? income - planned : nil),
           readiness_meaning: readiness_known ? snapshot[:readiness_label] : "Add the missing starting numbers before judging your cushion.",
           safe_to_spend_cents: readiness_known ? snapshot[:safe_to_spend_cents] : nil,
           spent_basis: "confirmed category spending; debt payments are separate",
@@ -100,13 +102,7 @@ module HouseholdFinance
       end
       spent = facts[:spent_so_far_cents]
       spent_line = spent.nil? ? "spent so far is not known yet" : "you’ve spent #{money(spent)} so far"
-      cushion_line = case facts[:readiness_tone]
-      when "red"
-        left&.positive? ? "Your emergency cushion needs building, so give that breathing room a job first." : "Protect food, housing, utilities, and required payments while you rebuild your cushion."
-      when "yellow" then "You have some cushion; keep strengthening it before adding new commitments."
-      when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
-      else "Add the missing starting numbers before judging your cushion."
-      end
+      cushion_line = facts[:readiness_guidance]
       review_line = next_move.presence
       review_line ||= if facts[:pending_count].nil?
         "The review list is incomplete, so check it before making your next money decision."
@@ -122,6 +118,16 @@ module HouseholdFinance
     private
 
     attr_reader :household, :plan, :month
+
+    def cushion_guidance(tone, left)
+      case tone
+      when "red"
+        left&.positive? ? "Your emergency cushion needs building, so give that breathing room a job first." : "Protect food, housing, utilities, and required payments while you rebuild your cushion."
+      when "yellow" then "You have some cushion; keep strengthening it before adding new commitments."
+      when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
+      else "Add the missing starting numbers before judging your cushion."
+      end
+    end
 
     def year
       plan.fetch(:year, Date.current.year).to_i
