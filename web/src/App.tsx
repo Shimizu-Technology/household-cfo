@@ -7098,7 +7098,7 @@ function MiaActionDraftReviewCard({
           </p>
         )}
         <details className="mia-change-details" open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)}>
-          <summary>See details</summary>
+          <summary aria-describedby={sentenceId}>See details</summary>
           {draft.scope_note && !isStale && <p className="mia-action-scope-note">{draft.scope_note}</p>}
           {!draft.detail_rows && draft.rationale && draft.rationale !== draft.summary && !isStale && <p>{draft.rationale}</p>}
           {draft.detail_rows && !isStale && <dl className="mia-change-lines">

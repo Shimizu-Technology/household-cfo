@@ -20,6 +20,15 @@ class SpendingPatternsRequestedPeriodTest < ActiveSupport::TestCase
     assert_empty resolve("What spending patterns do you see?")
   end
 
+  test "modal may is not read as the month of May" do
+    assert_empty resolve("What spending patterns may I be missing?")
+    assert_empty resolve("Which spending habits may be hurting my plan?")
+    { "in May" => [ "2026-05-01", "2026-05-31" ], "in May 2025" => [ "2025-05-01", "2025-05-31" ], "during may" => [ "2026-05-01", "2026-05-31" ] }.each do |suffix, expected|
+      assert_equal expected, resolve("What spending patterns do you see #{suffix}?").values_at(:from, :to).map(&:iso8601), suffix
+    end
+    assert_raises(SpendingPatterns::RequestedPeriod::Unsupported) { resolve("What spending patterns may I see in summer 2025?") }
+  end
+
   test "unsupported invalid ambiguous and future periods never fall back to the default window" do
     [ "in Q1", "in Q1 2025", "in summer 2025", "in summer", "in the first half of 2025", "in early January 2025", "before January 2025", "after January 2025", "until January 2025", "next January 2025", "last summer", "last week", "last year", "since January 2025", "between January 2025 and March 2025", "in January 2025 through March 2025",
       "in January and March 2025", "last 0 months", "last 13 months", "in January 2027", "on 2026-02-30", "from 2026-02-01 to 2026-01-01" ].each do |suffix|

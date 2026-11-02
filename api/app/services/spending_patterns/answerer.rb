@@ -4,7 +4,7 @@ module SpendingPatterns
   class Answerer
     QUESTION = /\b(?:what|which|show|tell|help|see|notice|spot|find|look|analy[sz]e)\b/i.freeze
     PATTERN = /\b(?:spending|purchase|shopping)\s+(?:patterns?|habits?)\b|\bpatterns?\b.*\b(?:spending|purchases?|shopping)\b/i.freeze
-    WRITE = /\b(?:set|change|update|move|create|add|delete|remove|apply|save|confirm|lower|raise|increase|decrease)\b/i.freeze
+    WRITE = /\b(?:set|change|update|move|create|add|delete|remove|apply|save|confirm|lower|raise|increase|decrease|draft|prepare|log|record|transfer|cancel)\b/i.freeze
 
     def self.matches?(message)
       message.match?(QUESTION) && message.match?(PATTERN) && !message.match?(WRITE) &&

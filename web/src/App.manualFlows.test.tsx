@@ -264,6 +264,7 @@ it('uses only the structured headline, shares it across placements, and describe
   expect(new Set(ids).size).toBe(2)
   document.querySelectorAll('.mia-action-draft-card').forEach((card, index) => {
     card.querySelectorAll('.mia-action-draft-actions button').forEach(button => expect(button.getAttribute('aria-describedby')).toBe(ids[index]))
+    expect(card.querySelector('.mia-change-details > summary')?.getAttribute('aria-describedby')).toBe(ids[index])
   })
   expect(screen.queryByText(/Budget plan · Pending/)).toBeNull()
   fireEvent.click(screen.getAllByText('See details')[0])

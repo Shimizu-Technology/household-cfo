@@ -4,7 +4,11 @@ module SpendingPatterns
   class RequestedPeriod
     Unsupported = Class.new(StandardError)
     MONTH = /Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?/i
-    TEMPORAL = /\b(?:#{MONTH}|months?|years?|weeks?|days?|quarters?|q[1-4]|spring|summer|autumn|fall|winter|today|yesterday|since|before|after|until|between|last|past|next|recent|\d{4})\b/i
+    # "May" is also a modal verb ("patterns may I be missing"), so it only counts
+    # as a month after a date introducer or before a day/year.
+    MONTH_EXCEPT_MAY = /Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?/i
+    MAY_AS_MONTH = /\b(?:in|for|during|over|across|on|from|since|before|after|until|of|last|this|next|early|late|mid)\s+may\b|\bmay\s+\d{1,4}\b/i
+    TEMPORAL = /#{MAY_AS_MONTH}|\b(?:#{MONTH_EXCEPT_MAY}|months?|years?|weeks?|days?|quarters?|q[1-4]|spring|summer|autumn|fall|winter|today|yesterday|since|before|after|until|between|last|past|next|recent|\d{4})\b/i
     SUFFIX = /\b(?<period>(?:this|last)\s+month|(?:the\s+)?last\s+\d+\s+months?|(?:#{MONTH})(?:\s+\d{4})?|\d{4}|\d{4}-\d{2}-\d{2}(?:\s+(?:to|through)\s+\d{4}-\d{2}-\d{2})?)\s*[?.!]*\z/i
 
     def initialize(message, today: Time.current.in_time_zone("Pacific/Guam").to_date)
