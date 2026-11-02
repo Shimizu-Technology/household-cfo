@@ -58,6 +58,10 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
       refute SpendingPatterns::Answerer.matches?(message), message
     end
     assert SpendingPatterns::Answerer.matches?("What spending patterns do you see in my last 3 months?")
+    [ "What spending patterns do you see in my spending log?", "What spending patterns show up in my record of purchases?" ].each do |message|
+      assert SpendingPatterns::Answerer.matches?(message), message
+    end
+    refute SpendingPatterns::Answerer.matches?("Log $20 at Payless. What spending patterns do you see?")
   end
 
   test "patterns require spending context rather than debt or income records" do
@@ -112,9 +116,16 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
         assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload", reference
         assert @household.chat_sessions.find_by!(user: @user).active_topic["document_evidence"], reference
       end
-      [ "What spending patterns do you see this week?", "What spending patterns do you see this month?" ].each do |message|
+      [ "What spending patterns do you see this week?", "What spending patterns do you see this month?", "What spending patterns do you see in that month?", "What spending patterns from those weeks?" ].each do |message|
         refute HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(message), message
       end
+      post "/api/v1/mia/messages", params: { message: "What is the total in this upload?", document_import_ids: [ document.id ] }, headers: @headers, as: :json
+      assert_response :created
+      post "/api/v1/mia/messages", params: { message: "What spending patterns do you see in that month?" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      refute_includes answer, "Using your prior upload"
+      assert_includes answer, "couldn’t identify a supported spending period"
       before = financial_counts
       post "/api/v1/mia/messages", params: { message: "What spending patterns do you see this month?" }, headers: @headers, as: :json
       assert_response :created
@@ -131,6 +142,7 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
     travel_to Time.zone.local(2026, 11, 2, 12) do
       purchase(Date.new(2025, 1, 5), "January shop", 1250)
       purchase(Date.new(2026, 10, 5), "Recent shop", 90_000)
+      purchase(Date.new(2026, 5, 9), "May shop", 4500)
       before = financial_counts
       post "/api/v1/mia/messages", params: { message: "What patterns across my purchases in January 2025?" }, headers: @headers, as: :json
       assert_response :created
@@ -138,6 +150,12 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
       assert_includes answer, "January 2025"
       assert_includes answer, "January shop ($12.50)"
       refute_includes answer, "Recent shop"
+      post "/api/v1/mia/messages", params: { message: "What are my May spending patterns?" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "May shop ($45)"
+      refute_includes answer, "Recent shop"
+      refute_includes answer, "January shop"
       post "/api/v1/mia/messages", params: { message: "What spending patterns do you see in February 2025?" }, headers: @headers, as: :json
       assert_response :created
       answer = response.parsed_body.dig("assistant_message", "content")

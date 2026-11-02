@@ -5,10 +5,13 @@ module SpendingPatterns
     Unsupported = Class.new(StandardError)
     MONTH = /Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?/i
     # "May" is also a modal verb ("patterns may I be missing"), so it only counts
-    # as a month after a date introducer or before a day/year.
+    # as a month after a date introducer, before a day/year, or describing
+    # spending ("my May spending patterns").
     MONTH_EXCEPT_MAY = /Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?/i
-    MAY_AS_MONTH = /\b(?:in|for|during|over|across|on|from|since|before|after|until|of|last|this|next|early|late|mid)\s+may\b|\bmay\s+\d{1,4}\b/i
+    MAY_AS_MONTH = /\b(?:in|for|during|over|across|on|from|since|before|after|until|of|last|this|next|early|late|mid)\s+may\b|\bmay\s+\d{1,4}\b|\bmay\s+(?:spending|purchases?|shopping|expenses?)\b/i
     TEMPORAL = /#{MAY_AS_MONTH}|\b(?:#{MONTH_EXCEPT_MAY}|months?|years?|weeks?|days?|quarters?|q[1-4]|spring|summer|autumn|fall|winter|today|yesterday|since|before|after|until|between|last|past|next|recent|\d{4})\b/i
+    # "my October spending patterns" names the month before the subject.
+    ATTRIBUTIVE = /\b(?:my|the|our)\s+(?<period>(?:#{MONTH})(?:\s+\d{4})?)\s+(?:spending|purchase|shopping)\s+(?:patterns?|habits?)\b/i
     SUFFIX = /\b(?<period>(?:this|last)\s+month|(?:the\s+)?last\s+\d+\s+months?|(?:#{MONTH})(?:\s+\d{4})?|\d{4}|\d{4}-\d{2}-\d{2}(?:\s+(?:to|through)\s+\d{4}-\d{2}-\d{2})?)\s*[?.!]*\z/i
 
     def initialize(message, today: Time.current.in_time_zone("Pacific/Guam").to_date)
@@ -17,6 +20,11 @@ module SpendingPatterns
 
     def call
       return {} unless @message.match?(TEMPORAL)
+      attributive = @message.match(ATTRIBUTIVE)
+      if attributive && !"#{attributive.pre_match} #{attributive.post_match}".match?(TEMPORAL)
+        return bounded(*month_range(attributive[:period]))
+      end
+
       match = @message.match(SUFFIX)
       raise Unsupported unless match && !match.pre_match.match?(TEMPORAL)
 
@@ -40,16 +48,28 @@ module SpendingPatterns
         dates = period.split(/\s+(?:to|through)\s+/i).map { |date| Date.iso8601(date) }
         start, finish = dates.first, dates.last
       else
-        name, year = period.split
-        month = Date::ABBR_MONTHNAMES.index { |label| label&.casecmp?(name.first(3)) }
-        start = Date.new(year&.to_i || @today.year, month, 1)
-        finish = start.end_of_month
+        start, finish = month_range(period)
       end
+      bounded(start, finish)
+    rescue Date::Error
+      raise Unsupported
+    end
+
+    private
+
+    def month_range(period)
+      name, year = period.split
+      month = Date::ABBR_MONTHNAMES.index { |label| label&.casecmp?(name.first(3)) }
+      start = Date.new(year&.to_i || @today.year, month, 1)
+      [ start, start.end_of_month ]
+    rescue Date::Error
+      raise Unsupported
+    end
+
+    def bounded(start, finish)
       finish = [ finish, @today ].min
       raise Unsupported unless start <= finish && (finish - start).to_i <= 366
       { from: start, to: finish }
-    rescue Date::Error
-      raise Unsupported
     end
   end
 end

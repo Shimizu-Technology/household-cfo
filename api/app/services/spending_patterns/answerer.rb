@@ -4,10 +4,13 @@ module SpendingPatterns
   class Answerer
     QUESTION = /\b(?:what|which|show|tell|help|see|notice|spot|find|look|analy[sz]e)\b/i.freeze
     PATTERN = /\b(?:spending|purchase|shopping)\s+(?:patterns?|habits?)\b|\bpatterns?\b.*\b(?:spending|purchases?|shopping)\b/i.freeze
-    WRITE = /\b(?:set|change|update|move|create|add|delete|remove|apply|save|confirm|lower|raise|increase|decrease|draft|prepare|log|record|transfer|cancel)\b/i.freeze
+    WRITE = /\b(?:set|change|update|move|create|add|delete|remove|apply|save|confirm|lower|raise|increase|decrease)\b/i.freeze
+    # These double as nouns ("my spending log"), so only an object after them
+    # makes them a request.
+    ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
 
     def self.matches?(message)
-      message.match?(QUESTION) && message.match?(PATTERN) && !message.match?(WRITE) &&
+      message.match?(QUESTION) && message.match?(PATTERN) && !message.match?(WRITE) && !message.match?(ACTION_REQUEST) &&
         !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) &&
         !::Mia::CrisisBoundary.matches?(message) && !::Mia::CrisisBoundary.hopeless?(message) &&
         !HouseholdFinance::MoneyMovementText.food_insecurity?(message)

@@ -12,7 +12,7 @@ module HouseholdFinance
     NEW_ADVICE_OR_ACTION = /\b(?:should|could i|can i|would it be better|set|change|update|increase|decrease|raise|lower|create|rename|archive|budget\s+(?:be|for))\b/i
     # "in that" or "from those" points back at the upload; "this month" or
     # "this week" is a calendar period, not a document.
-    DIRECTED_PRONOUN_REFERENCE = /\b(?:that|this)\s+one\b|\b(?:in|from|on|about|across|of|with)\s+(?:that|those|these|it|them)\b|\b(?:in|from|on|about|across|of|with)\s+this\b(?!\s+(?:month|week|year|quarter|period|time|morning|afternoon|evening))/i
+    DIRECTED_PRONOUN_REFERENCE = /\b(?:that|this)\s+one\b|\b(?:in|from|on|about|across|of|with)\s+(?:that|those|these|it|them)\b(?!\s+(?:months?|weeks?|years?|quarters?|periods?|days?|times?))|\b(?:in|from|on|about|across|of|with)\s+this\b(?!\s+(?:month|week|year|quarter|period|time|morning|afternoon|evening))/i
     EXPLICIT_EVIDENCE_REFERENCE = /\b(?:upload|uploads|attachment|attachments|receipt|receipts|statement|statements|file|files|document|documents)\b/i
 
     def initialize(household, message:, document_imports:, prior_query_scope: nil)
