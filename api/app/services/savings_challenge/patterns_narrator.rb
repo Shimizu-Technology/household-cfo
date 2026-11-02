@@ -1,5 +1,6 @@
 module SavingsChallenge
-  # Pattern observations share the same factual contract in both workspaces.
-  class PatternsNarrator < SpendingPatterns::Narrator
+  # Keep challenge boundaries while sharing the exact-figure pattern contract.
+  class PatternsNarrator < Narrator
+    include SpendingPatterns::Narration
   end
 end
