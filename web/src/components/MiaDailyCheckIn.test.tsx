@@ -219,6 +219,8 @@ describe('Mia daily report card', () => {
     await waitFor(() => expect((check as HTMLButtonElement).disabled).toBe(false), { timeout: 3000 })
     fireEvent.click(check)
     await within(again.card).findByRole('heading', { name: 'Almost done' })
+    expect(again.card.textContent).not.toContain('Nothing is saved until')
+    expect(within(again.card).getByText('Feelings stay private.')).toBeTruthy()
     await ready(again.card)
     expect(calls()).toHaveLength(count)
     fireEvent.click(within(again.card).getByRole('button', { name: 'Save to today' }))

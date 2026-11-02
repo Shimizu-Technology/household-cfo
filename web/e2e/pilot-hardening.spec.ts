@@ -10275,6 +10275,12 @@ test('BOG UI daily Mia card reload mid-save checks the interrupted approval and 
   const restored=page.getByRole('region',{name:'Your check-in',exact:true})
   await expect(restored.getByRole('heading',{name:'Almost done',exact:true})).toBeVisible()
   await expect(restored.getByRole('status')).toHaveText('Your purchases are saved. Tap Save to finish this check-in.')
+  await expect(restored).not.toContainText('Nothing is saved until')
+  await expect(restored.getByText('Feelings stay private.', { exact: true })).toBeVisible()
+  if (process.env.HCFO_W3_EVIDENCE_DIR) {
+    await restored.getByRole('button', { name: 'Save', exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `${process.env.HCFO_W3_EVIDENCE_DIR}/shots/${test.info().project.name}-confirmed-purchase-before-checkin.png`, fullPage: true })
+  }
   await restored.getByRole('button',{name:'Save',exact:true}).click();await expect(restored.getByRole('heading',{name:'Saved',exact:true})).toBeVisible()
   expect(calls.filter(row=>row.action==='purchase_stage')).toHaveLength(2);expect(calls.filter(row=>row.action==='purchase_approve')).toHaveLength(2)
   expect(calls.filter(row=>row.action==='check_in_save')).toHaveLength(1);expect(calls.filter(row=>row.action==='reflection_save')).toHaveLength(2)

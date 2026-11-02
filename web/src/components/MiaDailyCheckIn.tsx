@@ -376,6 +376,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const dayWord = plainDay(report.local_on, today) === 'Today' ? 'today' : `on ${plainDay(report.local_on, today)}`
   const visibleRows = state.rows.filter((row) => row.status !== 'moved')
   const title = moving ? 'Moving to Today…' : saved ? (allToday ? 'Saved to today' : 'Saved') : noSpend ? `No spending ${dayWord}` : finishing ? 'Almost done' : visibleRows.filter(open).length === 1 ? 'Check this, then save' : 'Check these, then save'
+  const hasSavedRecords = state.noSpendSaved || state.rows.some((row) => row.status === 'saved')
+  const footnote = hasSavedRecords ? (noSpend ? null : 'Feelings stay private.') : `Nothing is saved until you tap ${allToday ? 'Save to today' : 'Save'}.${noSpend ? '' : ' Feelings stay private.'}`
   const feelingsOpen = Boolean(report.feelings?.when_spent || report.feelings?.now)
   const setFeeling = (field: 'feelingThen' | 'feelingNow', value: string) => update((current) => ({ ...current, [field]: value }))
   const statusText = finishing && !busy && !reconciling && !state.message ? `Your purchases are saved. Tap ${allToday ? 'Save to today' : 'Save'} to finish this check-in.` : foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
@@ -414,7 +416,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       <p className="mia-daily-status" role="status">{statusText}</p>
       {reconciling && <button type="button" className="secondary-button" disabled={checking} onClick={() => setStatusAttempt((value) => value + 1)}>{checking ? 'Checking last save…' : 'Check last save'}</button>}
       {foreignPending && mutation.checkStatus && <button type="button" className="secondary-button" disabled={foreignPending.working} onClick={() => void mutation.checkStatus?.()}>Check the earlier save first</button>}
-      {!saved && <p className="mia-daily-footnote">Nothing is saved until you tap {allToday ? 'Save to today' : 'Save'}.{noSpend ? '' : ' Feelings stay private.'}</p>}
+      {!saved && footnote && <p className="mia-daily-footnote">{footnote}</p>}
       {!saved ? (
         <div className="mia-daily-actions">
           <button type="button" className="mia-daily-save" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
