@@ -27,12 +27,24 @@ class HouseholdFinanceMiaActionDraftPresenterTest < ActiveSupport::TestCase
     end
   end
 
+  test "a legacy move with an unknown starting amount has no invented figure" do
+    draft = build(type: "move_allocation", category_id: @dining.id, target_category_id: @repairs.id, amount: "60", months: [ 11 ], year: 2026)
+    item = draft.mia_action_items.first
+    payload = item.payload.deep_dup
+    payload["changes"].first["before_cents"] = nil
+    item.update!(payload: payload)
+    draft.mia_action_items.reset
+    presented = present(draft)
+    assert_nil presented[:headline]
+    assert_equal "Not entered", presented[:detail_rows].first[:before]
+  end
+
   test "allocation and category creation headline their planned amount and keep meaningful cents" do
     allocation = present(build(type: "set_allocation", category_id: @dining.id, amount: "190.25", months: [ 11 ], year: 2026))
     assert_equal({ amount_cents: 19_025, label: "new planned amount" }, allocation[:headline])
     assert_equal "$190.25", allocation[:detail_rows].sole[:after]
     category = present(build(type: "create_category", new_name: "School", amount: "30", stack_key: "discretionary", months: [ 11 ], year: 2026))
-    assert_equal({ amount_cents: 3000, label: "planned each month" }, category[:headline])
+    assert_equal({ amount_cents: 3000, label: "new planned amount" }, category[:headline])
   end
 
   test "rename reclassify archive and restore do not invent a monetary figure" do

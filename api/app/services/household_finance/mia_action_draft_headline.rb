@@ -20,7 +20,7 @@ module HouseholdFinance
         values = Array(input["changes"]).pluck("after_cents").uniq
         figure(values.first, "new planned amount") if values.one?
       when "create_category"
-        figure(input["monthly_amount_cents"], "planned each month")
+        figure(input["monthly_amount_cents"], "new planned amount")
       when "create_income_source", "update_income_source", "restore_income_source"
         source = after["source"] || item.after_snapshot
         previous = before["source"] || item.before_snapshot
@@ -46,6 +46,7 @@ module HouseholdFinance
 
       rows = @items.map { |item| Array(item.payload["changes"]).sort_by { |row| row["month"].to_i } }
       return if rows.any?(&:empty?) || rows[0].pluck("month") != rows[1].pluck("month")
+      return unless rows.flatten.all? { |row| row.values_at("before_cents", "after_cents").all? { |cents| cents.is_a?(Integer) } }
       deltas = rows.map { |changes| changes.map { |row| row["after_cents"] - row["before_cents"] }.uniq }
       return unless deltas.all?(&:one?) && deltas[0].first == -deltas[1].first && deltas[0].first.nonzero?
 
