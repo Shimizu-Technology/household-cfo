@@ -78,12 +78,14 @@ async function openSetAside(page: Page) {
 
 async function openMoneyTopic(page: Page, name: string) {
   if (decodeURIComponent(new URL(page.url()).hash) !== '#My Money') await openSection(page, 'My Money')
+  await expect(page.locator('.money-screen')).toBeVisible({ timeout: 15000 })
   const picker = page.getByRole('combobox', { name: 'Money details', exact: true })
   if (await picker.isVisible()) await picker.selectOption({ label: name })
   else await page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name, exact: true }).click()
 }
 
 async function expectMoneyTopic(page: Page, name: string) {
+  await expect(page.locator('.money-screen')).toBeVisible({ timeout: 15000 })
   const picker = page.getByRole('combobox', { name: 'Money details', exact: true })
   if (await picker.isVisible()) await expect(picker).toHaveValue(name.toLowerCase())
   else await expect(page.getByRole('navigation', { name: 'My Money topics' }).getByRole('button', { name, exact: true })).toHaveAttribute('aria-pressed', 'true')
@@ -10534,7 +10536,7 @@ async function assertDialogVisibleHeight(dialog: ReturnType<Page['getByRole']>) 
   expect(bounds.scroll).toBeLessThanOrEqual(bounds.client + 1)
 }
 
-test('BOG UI route headings stay semantic without decorative outlines and keyboard controls keep focus', async ({ page }) => {
+test('BOG UI route headings stay semantic without decorative outlines and keyboard controls keep focus', async ({ page, browserName }) => {
   await page.goto('/#Home')
   for (const section of ['Review', 'Ask Mia', 'Budget', 'Home']) {
     await openSection(page, section)
@@ -10545,7 +10547,8 @@ test('BOG UI route headings stay semantic without decorative outlines and keyboa
   }
   const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
   await budgetLink.focus()
-  await page.keyboard.press('Tab')
+  // WebKit uses Option-Tab for full keyboard navigation across links and buttons.
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
   const focus = await page.evaluate(() => {
     const element = document.activeElement!
     return { tag: element.tagName, region: element.matches('[role="region"][tabindex="0"]'), style: getComputedStyle(element).outlineStyle, width: getComputedStyle(element).outlineWidth }
@@ -12506,7 +12509,7 @@ test('BOG UI future pay stays schedulable while archived income stays unavailabl
   await expect(schedule.locator('select').first().getByRole('option', { name: 'Archived pay' })).toHaveCount(0)
   await schedule.getByRole('button', { name: 'Continue', exact: true }).click()
   await schedule.getByLabel('Amount', { exact: true }).fill('150.03')
-  await expect(schedule.locator('.income-schedule-preview')).toContainText(`Starting Dec ${currentYear}, Future pay changes to $150.03 monthly.`)
+  await expect(schedule.locator('.income-schedule-preview')).toContainText(`Starting Dec, Future pay changes to $150.03 monthly.`)
   const saved = page.waitForRequest(request => request.url().includes('/income_schedule_entries') && request.method() === 'POST')
   await schedule.getByRole('button', { name: 'Schedule income change', exact: true }).click()
   expect((await saved).postDataJSON().income_schedule_entry).toMatchObject({ income_source_id: 910, amount: '150.03', effective_on: `${currentYear}-12-01` })
@@ -12751,7 +12754,7 @@ test('BOG UI guided income edit preserves a saved mid-month effective date', asy
     return route.fulfill({ json: { budget: workspace.budget } })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  await page.getByRole('button', { name: `Edit ${source.label} income change from Nov ${currentYear}`, exact: true }).click()
+  await page.getByRole('button', { name: `Edit ${source.label} income change from Nov`, exact: true }).click()
   const form = page.locator('.income-schedule-form')
   await form.getByRole('button', { name: 'Continue', exact: true }).click()
   await expect(form.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)

@@ -1,5 +1,6 @@
 import type { BudgetData, DashboardData } from '../api'
 import { YearOutlook } from './YearOutlook'
+import { guamTodayIso } from '../lib/householdDate'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { Button } from './Button'
 import { useBrand } from '../contexts/brandContextValue'
@@ -29,7 +30,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
   return <section className="screen-grid home-screen">
     <div className="screen-heading home-heading">
       <h2 data-page-heading tabIndex={-1}>Home</h2>
-      <p>{actionCenter.current_month_label}{actionCenter.current_year !== new Date().getFullYear() ? ` ${actionCenter.current_year}` : ''}</p>
+      <p>{actionCenter.current_month_label}{actionCenter.current_year !== Number(guamTodayIso().slice(0, 4)) ? ` ${actionCenter.current_year}` : ''}</p>
     </div>
     <section className="home-month-answer" aria-label="Your month in money">
       <dl className="home-money-values">
@@ -57,5 +58,6 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
 }
 
 function MoneyValue({ label, cents }: { label: string; cents: number | null | undefined }) {
-  return <div><dt>{label}</dt><dd>{cents == null ? 'Not entered' : formatReviewMoney(cents)}</dd></div>
+  const value = cents == null ? 'Not entered' : formatReviewMoney(cents)
+  return <div><dt>{label}</dt><dd className={value.length > 14 ? 'is-long-money' : undefined}>{value}</dd></div>
 }

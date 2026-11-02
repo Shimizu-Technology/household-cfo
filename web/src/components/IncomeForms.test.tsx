@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import type { AnnualBudgetPlan, IncomeTimelineSource, IncomeScheduleEntry } from '../api'
 import { AnnualIncomePlanner } from './AnnualIncomePlanner'
 import { IncomeSourceManager } from './IncomeSourceManager'
 import { IncomeForms } from './IncomeForms'
 
-afterEach(() => { cleanup(); vi.resetAllMocks() })
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-11-02T00:00:00Z')) })
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.useRealTimers() })
 const source: IncomeTimelineSource = { id: 8, label: 'Ana pay', source_type: 'job', active: true, timeline_status: 'current', starts_on: '2026-01-01', ends_on: null, base_amount: 6200, base_cadence: 'monthly', schedule_entries: [] }
 const plan = { year: 2026, months: [], monthly_income: {}, income_sources: [source] } as unknown as AnnualBudgetPlan
 function open(onSave = vi.fn().mockResolvedValue(undefined)) {
@@ -51,7 +52,7 @@ it('turns pay ending into a dated zero-dollar recurring change without asking an
   await dateStep('Pay ending')
   await click('Continue')
   expect(screen.queryByRole('spinbutton')).toBeNull()
-  expect(screen.getByText('Ana pay will end beginning Nov 2026.')).toBeTruthy()
+  expect(screen.getByText('Ana pay will end beginning Nov.')).toBeTruthy()
   expect(save).not.toHaveBeenCalled()
   await click('Schedule income change')
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ entry_type: 'recurring_change', amount: '0', effective_on: '2026-11-01', retained_after_transition: false }), undefined))
@@ -131,7 +132,7 @@ it('preserves an existing mid-month effective date while moving through the guid
   const datedPlan = { ...plan, income_sources: [{ ...source, schedule_entries: [entry] }] }
   const save = vi.fn().mockResolvedValue(undefined)
   render(<AnnualIncomePlanner plan={datedPlan} isRealWorkspace action={null} onSave={save} onDelete={vi.fn()} />)
-  await click('Edit Ana pay income change from Nov 2026')
+  await click('Edit Ana pay income change from Nov')
   await click('Continue')
   expect(screen.getByLabelText('Starting month')).toHaveProperty('value', '2026-11')
   await click('Continue')

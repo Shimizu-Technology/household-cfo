@@ -70,3 +70,9 @@
 @media (max-width: 620px) {
   .home-money-values dd { margin-inline-start: auto; text-align: right; }
 }
+.money-screen .money-topics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (min-width: 900px) {
+  .budget-screen .expense-stack-list { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 20px; }
+}
+
+.home-money-values dd.is-long-money { font-size: clamp(18px, 2.3vw, 28px); white-space: nowrap; }

@@ -86,7 +86,7 @@ import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/document
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
-import { guamTodayIso } from './lib/householdDate'
+import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/householdDate'
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
@@ -6212,7 +6212,7 @@ function formatByteSize(bytes: number) {
 function formatOptionalDate(value: string | null) {
   if (!value) return null
 
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+  return formatHouseholdDay(value)
 }
 
 function importPeriodLabel(documentImport: FinancialDocumentImport) {
@@ -6432,14 +6432,14 @@ function titleize(value: string) {
 }
 
 function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+  return formatHouseholdDay(value)
 }
 
 function formatMonthYear(value: string) {
   const [year, month] = value.split('-').map(Number)
   if (!year || !month) return value
 
-  return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))
+  return formatHouseholdMonth(value)
 }
 
 function monthIndexFromIsoDate(value: string) {
