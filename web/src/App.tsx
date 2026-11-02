@@ -1592,7 +1592,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   useEffect(() => {
     setFreshMiaReplyId(null)
     if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; sentTurnRef.current = false }
-  }, [activeSection, chatStorageKey])
+  }, [activeSection])
+
+  useEffect(() => { setFreshMiaReplyId(null) }, [chatStorageKey])
 
   useEffect(() => {
     if (miaLoading) { chatScrolledAwayRef.current = false; sentTurnRef.current = true }
