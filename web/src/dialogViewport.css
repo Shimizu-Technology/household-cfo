@@ -92,12 +92,6 @@
   .document-preview-actions :is(a, button) { width: auto; }
 }
 
-@media (max-height: 450px) {
-  /* Let the page grow around the minimum useful conversation height. */
-  .is-chat-page > .mia-screen,
-  .is-chat-page .mia-layout { flex: 0 0 auto; }
-}
-
 /* Keep the entire privacy/card panel reachable when its header wraps or a
    keyboard shrinks the visible viewport; avoid competing inner scroll areas. */
 .challenge-privacy-dialog,

@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { ChatHistory } from './ChatHistory'
 
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.resetAllMocks() })
 
 const baseProps = {
   messages: [],
@@ -115,4 +115,24 @@ it('re-measures the review shortcut when the chat card is resized, without any s
     spy.mockRestore()
     globalThis.ResizeObserver = originalObserver
   }
+})
+
+it('shows one review line before the first message instead of the review cards', () => {
+  const onOpenReview = vi.fn()
+  render(<ChatHistory {...baseProps} reviewCount={2} pendingPurchaseCount={2} onOpenReview={onOpenReview} reviewContent={<p>Large old review card</p>} />)
+  const link = screen.getByRole('button', { name: '2 purchases to review' })
+  expect(document.querySelector('.chat-card')?.firstElementChild).toBe(link)
+  expect(screen.queryByText('Large old review card')).toBeNull()
+  fireEvent.click(link)
+  expect(onOpenReview).toHaveBeenCalledOnce()
+})
+
+it('fades only a newly received assistant reply, leaving history and the sent message still', () => {
+  const { rerender } = render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} />)
+  const sent = { id: 3, role: 'user' as const, author: 'You', content: 'What changed?' }
+  rerender(<ChatHistory {...baseProps} messages={[...twoMessages, sent]} totalMessageCount={3} miaLoading />)
+  expect(document.querySelectorAll('.is-new-reply')).toHaveLength(0)
+  rerender(<ChatHistory {...baseProps} messages={[...twoMessages, sent, { id: 4, role: 'assistant', author: 'Mia', content: 'Your reply.' }]} totalMessageCount={4} freshReplyId={4} />)
+  expect(document.querySelectorAll('.is-new-reply')).toHaveLength(1)
+  expect(document.querySelector('.is-new-reply')?.textContent).toContain('Your reply.')
 })

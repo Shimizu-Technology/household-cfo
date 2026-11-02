@@ -16,7 +16,11 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
 
     let settled = false
     const away = () => { awayRef.current = true }
-    const reanchor = () => { if (!settled && !awayRef.current) anchor('auto') }
+    let resizeFrame = 0
+    const reanchor = () => {
+      cancelAnimationFrame(resizeFrame)
+      resizeFrame = requestAnimationFrame(() => { if (!settled && !awayRef.current) anchor('auto') })
+    }
     // A press on Load earlier is intent too: its target must not move before release.
     chat.addEventListener('pointerdown', away, { passive: true })
     chat.addEventListener('wheel', away, { passive: true })
@@ -35,6 +39,7 @@ export function useMiaEntryAnchor({ active, messageKey, loading, chatRef, awayRe
     return () => {
       settled = true
       cancelAnimationFrame(frame)
+      cancelAnimationFrame(resizeFrame)
       window.clearTimeout(settle)
       observer?.disconnect()
       chat.removeEventListener('pointerdown', away)

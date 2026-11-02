@@ -23,7 +23,10 @@ type ChatHistoryProps = {
   onOpenImport: (documentImport: FinancialDocumentImport) => void
   onOpenImportId: (documentImportId: number) => void
   onReviewImportId: (documentImportId: number) => void
+  freshReplyId?: number | null
   reviewContent?: ReactNode
+  pendingPurchaseCount?: number
+  onOpenReview?: () => void
   reviewCount?: number
   onSetupHelp?: () => void
   onFinancialRestart?: () => void
@@ -49,7 +52,10 @@ export function ChatHistory({
   onOpenImportId,
   onReviewImportId,
   reviewContent,
+  freshReplyId,
   reviewCount = 0,
+  pendingPurchaseCount = 0,
+  onOpenReview,
   onSetupHelp,
   onFinancialRestart,
   starterPrompts = [],
@@ -86,6 +92,11 @@ export function ChatHistory({
   return (
     <div className={`chat-card-wrap${showReviewShortcut ? ' has-review-shortcut' : ''}`}>
       <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={() => { onScroll(); measureQueue() }}>
+        {totalMessageCount === 0 && reviewCount > 0 && onOpenReview && (
+          <button type="button" className="chat-pending-line" onClick={onOpenReview}>
+            {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
+          </button>
+        )}
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
             <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
@@ -109,7 +120,7 @@ export function ChatHistory({
           const messageIndex = hiddenMessageCount + index
           const presentation = message.role === 'assistant' ? parseMiaAnswerPresentation(message.presentation) : null
           return (
-            <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}`} key={messageKey(message, messageIndex)}>
+            <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}${message.role === 'assistant' && message.id != null && message.id === freshReplyId ? ' is-new-reply' : ''}`} key={messageKey(message, messageIndex)}>
               {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>}
               <div className={`message ${message.role}`}>
                 <strong>{message.role === 'assistant' ? shortAssistantName(message.author) || message.author : message.author}</strong>
@@ -154,12 +165,13 @@ export function ChatHistory({
             </div>
           </div>
         )}
-        {reviewContent && <div className="chat-review-queue" ref={reviewQueueRef}>{reviewContent}</div>}
+        {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
+        {reviewContent && (totalMessageCount > 0 || !onOpenReview) && <div className="chat-review-queue" ref={reviewQueueRef}>{reviewContent}</div>}
       </article>
       {showScrollButton && totalMessageCount > 0 && (
         reviewCount > 0
           ? !queueBelowFold ? null : (
-            <button type="button" className="chat-scroll-bottom-button has-review" aria-label={`Jump to ${reviewCount} ${reviewCount === 1 ? 'item' : 'items'} waiting for your review`} onClick={() => reviewQueueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            <button type="button" className="chat-scroll-bottom-button has-review" aria-label={`Jump to ${reviewCount} ${reviewCount === 1 ? 'item' : 'items'} waiting for your review`} onClick={() => reviewQueueRef.current?.scrollIntoView({ behavior: 'auto', block: 'start' })}>
               <ScrollDownIcon />
               <span>{reviewCount} to review</span>
             </button>

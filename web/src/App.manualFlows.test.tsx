@@ -185,8 +185,22 @@ describe('out-of-date Mia review cards', () => {
   it('keeps a current card applicable with its before and after values', () => {
     render(<MiaActionDraftReviewStack {...props([miaDraft()])} />)
     expect(screen.getByRole('button', { name: 'Apply reviewed change' })).toBeTruthy()
-    expect(screen.getByText('Pending')).toBeTruthy()
+    expect(screen.getByText(/Budget plan · Pending/)).toBeTruthy()
+    fireEvent.click(screen.getByText('See details'))
     expect(screen.getByText('$1,100')).toBeTruthy()
+  })
+
+  it('keeps details collapsed and exposes Change and Not now without applying', () => {
+    const onEditManually = vi.fn()
+    const onCancel = vi.fn()
+    const onApply = vi.fn()
+    render(<MiaActionDraftReviewStack {...props([miaDraft()], { onEditManually, onCancel, onApply })} />)
+    expect(document.querySelector('details')?.open).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    expect(onEditManually).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onCancel).toHaveBeenCalledOnce()
+    expect(onApply).not.toHaveBeenCalled()
   })
 
   it('closes a stale card: out of date, no Apply, no old before values, and a fresh-draft path', () => {
@@ -194,7 +208,7 @@ describe('out-of-date Mia review cards', () => {
     const onCancel = vi.fn()
     render(<MiaActionDraftReviewStack {...props([miaDraft({ stale: true, stale_message: 'Budget changed since Mia drafted this.' })], { onAskFresh, onCancel })} />)
 
-    expect(screen.getByText('Out of date')).toBeTruthy()
+    expect(screen.getAllByText('Out of date').length).toBeGreaterThan(0)
     expect(screen.queryByText('Pending')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Apply reviewed change' })).toBeNull()
     expect(screen.queryByText('$1,100')).toBeNull()

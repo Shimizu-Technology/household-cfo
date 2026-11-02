@@ -62,6 +62,14 @@ async function openSection(page: Page, name: string) {
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
 
+async function openMiaReviewDetails(page: Page) {
+  await page.locator('.mia-action-draft-card').first().waitFor()
+  const disclosures = page.locator('.mia-change-details')
+  for (const details of await disclosures.all()) {
+    if (!(await details.evaluate(element => element.hasAttribute('open')))) await details.locator(':scope > summary').click()
+  }
+}
+
 async function openSetAside(page: Page) {
   const toggle = page.getByRole('region', { name: 'Savings challenge', exact: true }).getByRole('button', { name: /^I set money aside/ })
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
@@ -2408,8 +2416,11 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await expect(composer).toHaveValue('Help me update my household income sources and schedules.')
   await expect(composer).toBeFocused()
 
+  await openMiaReviewDetails(page)
   const householdCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Update an approved household number' })
+  await openMiaReviewDetails(page)
   const incomeCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Schedule an income change' })
+  await openMiaReviewDetails(page)
   const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await expect(page.getByRole('heading', { name: 'This screen hit an unexpected problem.' })).toHaveCount(0)
   await expect(householdCard).toContainText('Household numbers')
@@ -2417,16 +2428,16 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await expect(incomeCard).toContainText('Income timeline')
   await expect(incomeCard).toContainText(`October ${currentYear}`)
   await expect(budgetCard).toContainText('Budget plan')
-  await expect(budgetCard).toContainText(/leaves? actual spending untouched/i)
+  await expect(budgetCard).toContainText(/actual spending.*unchanged/i)
 
   for (const card of [householdCard, incomeCard, budgetCard]) {
     await expect(card.locator('.mia-action-before-after')).toHaveCount(0)
     await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
-    await expect(card.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
-    await expect(card.getByRole('button', { name: 'Open manual controls' })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Not now' })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Change', exact: true })).toBeEnabled()
   }
 
-  await householdCard.getByRole('button', { name: 'Open manual controls' }).click()
+  await householdCard.getByRole('button', { name: 'Change', exact: true }).click()
   await expect(page).toHaveURL(/#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 })
@@ -2458,10 +2469,11 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Update the emergency reserve' })
   await expect(card).toContainText('Accounts & assets')
   await expect(card).toContainText('Emergency Fund')
-  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  await card.getByRole('button', { name: 'Change', exact: true }).click()
 
   await expect(page).toHaveURL(/#My%20Money$/)
   const manager = page.locator('.account-manager')
@@ -2589,9 +2601,10 @@ test('tracked goal Mia reviews route to the exact manual editor', async ({ page 
   }
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
   await expect(card).toContainText('Tracked goals')
-  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  await card.getByRole('button', { name: 'Change', exact: true }).click()
   const manager = page.locator('.goal-manager')
   await expect(manager.getByLabel('Goal name')).toHaveValue('Family trip')
   await expect(manager.getByLabel('Goal name')).toBeFocused()
@@ -2615,8 +2628,9 @@ test('account manager routes keep-saved reviews to Keep saved and never Accept',
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([account], draft) }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
-  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  await card.getByRole('button', { name: 'Change', exact: true }).click()
 
   const manager = page.locator('.account-manager')
   await expect(manager.getByRole('button', { name: 'Keep saved' })).toBeFocused()
@@ -2695,8 +2709,9 @@ test('account manager opens archived accounts before routing a restore review', 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([archived], draft) }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
-  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  await card.getByRole('button', { name: 'Change', exact: true }).click()
 
   const archive = page.locator('.account-manager details.debt-archive')
   await expect(archive).toHaveAttribute('open', '')
@@ -2766,8 +2781,9 @@ test('account manager keeps a link review pending until Plaid observations load'
   })
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
-  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  await card.getByRole('button', { name: 'Change', exact: true }).click()
   const manager = page.locator('.account-manager')
   await expect(manager).toBeVisible()
   await expect(manager.getByLabel('Match a bank observation')).toHaveCount(0)
@@ -2799,6 +2815,7 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
   await householdName.fill('Unsaved family name')
 
   await openSection(page, 'Ask Mia')
+  await openMiaReviewDetails(page)
   const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
   await expect(budgetCard).toBeHidden()
@@ -2834,16 +2851,18 @@ test('only one money change can run at a time from Ask Mia', async ({ page }) =>
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('One more question')
+  await openMiaReviewDetails(page)
   const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
   await expect(budgetCard.getByRole('button', { name: 'Applying' })).toBeDisabled()
 
   // Every other review control and Send wait until the change finishes.
-  await expect(budgetCard.getByRole('button', { name: 'Cancel draft' })).toBeDisabled()
+  await expect(budgetCard.getByRole('button', { name: 'Not now' })).toBeDisabled()
+  await openMiaReviewDetails(page)
   const otherDraftButtons = page.locator('.mia-action-draft-actions button, .transaction-draft-card .transaction-draft-actions button')
   for (const button of await otherDraftButtons.all()) await expect(button).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
-  await budgetCard.getByRole('button', { name: 'Cancel draft' }).click({ force: true })
+  await budgetCard.getByRole('button', { name: 'Not now' }).click({ force: true })
 
   releaseApply()
   await expect(budgetCard).toBeHidden()
@@ -2867,6 +2886,7 @@ test('a stale card for another year still shows out of date when that year budge
     return route.fulfill({ status: 422, json: { code: 'stale_review', errors: ['Budget changed since Mia drafted this. Ask Mia to draft a fresh edit.'] } })
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await card.getByRole('button', { name: 'Apply reviewed change' }).click()
   await expect(card.getByText('Out of date')).toBeVisible({ timeout: 15_000 })
@@ -3024,6 +3044,7 @@ test('a rejected stale Mia card shows once that it is out of date and offers a f
   })
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
 
@@ -3044,6 +3065,7 @@ test('Mia review cards show missing before and after amounts as unknown, not $0'
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: unknownWorkspace }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const impact = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' }).locator('.mia-action-impact')
   const income = impact.locator('.mia-action-impact-grid > div').filter({ hasText: 'Monthly income' })
   await expect(income).toContainText('Not known yet')
@@ -3105,6 +3127,7 @@ test('first-session review states what it completes and what Mia still needs', a
   }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Add monthly income to your starting picture' })
   await expect(card).toContainText('1 of 5 essentials after approval')
   await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
@@ -3221,6 +3244,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
   })
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
   const applyButton = card.getByRole('button', { name: 'Apply 1 value' })
   await applyButton.focus()
@@ -7643,12 +7667,13 @@ test('BOG UI household real review controls keep transaction and Mia changes beh
   expect((await confirmRequest).headers()['idempotency-key']).toBeTruthy()
 
   await openSection(page, 'Ask Mia')
+  await openMiaReviewDetails(page)
   const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
-  await expect(miaCard.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
-  await expect(miaCard).toContainText('leaves actual spending untouched')
+  await expect(miaCard.getByRole('button', { name: 'Not now' })).toBeEnabled()
+  await expect(miaCard).toContainText('Keep actual spending unchanged.')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
-  await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
+  await miaCard.getByRole('button', { name: 'Not now' }).click()
   expect((await cancelRequest).headers()['idempotency-key']).toBeTruthy()
 })
 
@@ -7694,6 +7719,7 @@ test('mobile Ask Mia action plans keep apply-all simple and partial selection de
   }))
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
   await expect(card).toBeVisible()
   await expect(card.getByText('Set checking to $250', { exact: false })).toBeVisible()
@@ -7741,6 +7767,7 @@ test('partial action plans keep dependencies satisfied by already-applied steps'
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
   await card.getByRole('button', { name: 'Choose changes' }).click()
   const dependent = card.getByRole('checkbox', { name: 'Include Update Family trip' })
@@ -7761,11 +7788,12 @@ test('Ask Mia opens an authoritative named-step selection in explicit review mod
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
   await expect(card.getByRole('checkbox', { name: 'Include Update Everyday checking' })).not.toBeChecked()
   await expect(card.getByRole('checkbox', { name: 'Include Update Family trip' })).toBeChecked()
   await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
-  await expect(card.getByRole('button', { name: 'Cancel plan' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Not now' })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -7785,6 +7813,7 @@ test('390px action-plan account link opens and focuses the exact account editor'
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Everyday checking' })
   await item.getByRole('button', { name: 'Open My Money' }).click()
 
@@ -7814,6 +7843,7 @@ test('320px action-plan goal link opens and focuses the exact goal editor', asyn
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   const item = page.locator('.mia-action-item').filter({ hasText: 'Update Family trip' })
   await item.getByRole('button', { name: 'Open My Money' }).click()
 
@@ -7851,6 +7881,7 @@ test('mobile Ask Mia 390px action-plan budget link opens and focuses the exact c
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   const item = page.locator('.mia-action-item').filter({ hasText: 'Set Dining out for January' })
   await item.getByRole('button', { name: 'Open Budget' }).click()
 
@@ -7879,6 +7910,7 @@ test('mobile Ask Mia 320px category-create link preserves and submits exact mont
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
   const form = page.locator('.annual-category-form')
   await expect(form.getByLabel('New category', { exact: true })).toHaveValue('School supplies')
@@ -7910,6 +7942,7 @@ test('mobile Ask Mia 390px category-create link keeps the scoped months editable
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
   const form = page.locator('.annual-category-form')
   await expect(form.getByLabel('Category month scope')).toHaveValue('selected')
@@ -7944,6 +7977,7 @@ test('desktop action-plan category update prefills only proposed fields', async 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
   const row = page.locator('[data-budget-category-id="2"]')
   await expect(row.locator('[data-budget-category-action="name"]')).toHaveValue('Restaurants')
@@ -7961,6 +7995,7 @@ test('desktop action-plan profile link focuses the exact manual control', async 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Primary goal')).toHaveValue('Build a twelve-month reserve.')
   await expect(page.getByLabel('Primary goal')).toBeFocused()
@@ -7986,16 +8021,19 @@ test('desktop setup-confirmation manual route prefills the reviewed runway targe
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm household name' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveCount(0)
   await expect(page.locator('.setup-form input[name="household_name"]')).toBeFocused()
   await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').filter({ hasText: 'Clear runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('')
   await expect(page.getByLabel('Target runway months')).toBeFocused()
   await page.locator('.setup-form').getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Ask Mia')
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').filter({ hasText: 'Confirm runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('9')
   await expect(page.getByLabel('Target runway months')).toBeFocused()
@@ -8019,6 +8057,7 @@ test('desktop action-plan debt link focuses the exact debt editor', async ({ pag
   })]
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toHaveValue('Visa Gold')
   await expect(page.locator('.debt-form').getByLabel('Debt name')).toBeFocused()
@@ -8038,6 +8077,7 @@ test('320px action-plan income-source link focuses the exact profile control', a
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const sourceName = page.locator('.income-source-form').getByLabel('Name', { exact: true })
   await expect(sourceName).toHaveValue('Primary income')
@@ -8055,6 +8095,7 @@ test('320px action-plan runway-policy link focuses the exact profile control', a
   })]
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Target runway months')).toHaveValue('9')
   await expect(page.getByLabel('Target runway months')).toBeFocused()
@@ -8078,6 +8119,7 @@ test('mobile Ask Mia 390px action-plan schedule-create link preloads and focuses
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('2')
@@ -8099,6 +8141,7 @@ test('mobile Ask Mia 390px schedule-update link merges proposed values into the 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   const scheduleForm = page.locator('.income-schedule-form')
   await expect(scheduleForm.getByLabel('Income source')).toHaveValue('1')
@@ -8120,6 +8163,7 @@ test('a missing scheduled-income manual target is cleared after the first routin
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Money' }).click()
   await expect(page.locator('.annual-income-planner')).toBeVisible()
   await expect(page.locator('.income-schedule-form')).toHaveCount(0)
@@ -8139,6 +8183,7 @@ test('mobile Ask Mia 390px action-plan transition-policy link focuses the exact 
   })]
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
   await expect(page.getByLabel('Primary goal')).toHaveValue('Prepare for a careful transition.')
   await expect(page.getByLabel('Primary goal')).toBeFocused()
@@ -10873,15 +10918,18 @@ test('BOG UI financial review cards stay available in Mia with their explicit ho
   workspace.budget.annual_plan.pending_mia_action_drafts = [scopedDraft]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openMiaReviewDetails(page)
   await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
   await expect(page.locator('.mia-action-draft-card')).toBeVisible()
   const navigation = page.getByRole('navigation', { name: /participant sections/ })
   await expect(navigation.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
   await navigation.getByRole('link', { name: 'Savings', exact: true }).click()
   await openSection(page, 'Ask Mia')
+  await openMiaReviewDetails(page)
   await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
   await expect(page.locator('.mia-action-draft-card')).toBeVisible()
   await page.reload()
+  await openMiaReviewDetails(page)
   await expect(page.locator('.mia-action-scope-note')).toHaveText(scopedDraft.scope_note)
   await expect(page.locator('.mia-action-draft-card')).toBeVisible()
 })
@@ -12940,4 +12988,66 @@ test('BOG UI bank activity dates and selection targets fit 320px', async ({ page
   await page.getByRole('checkbox', { name: 'Select QA Island Market' }).check()
   await expect(page.getByRole('button', { name: 'Prepare 1 for review' })).toBeVisible()
   await expectPhoneTargets(page)
+})
+
+test('mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  let release: (() => void) | undefined
+  const waiting = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/mia/messages', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await waiting
+    return route.fulfill({ status: 201, json: {
+      user_message: { id: 9001, role: 'user', author: 'You', content: 'What spending patterns do you see?', attachments: [] },
+      assistant_message: { id: 9002, role: 'assistant', author: 'Mia', content: 'Ross ($600) led your flexible purchases. Would you feel comfortable cutting back there?', attachments: [] },
+      transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null,
+    } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('What spending patterns do you see?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  const sentAtTop = () => page.locator('.chat-card').evaluate(card => {
+    const user = [...card.querySelectorAll('.message-row.user')].at(-1)!.getBoundingClientRect()
+    return Math.abs(user.top - card.getBoundingClientRect().top - 12) < 3
+  })
+  await expect.poll(sentAtTop).toBe(true)
+  await expect(page.getByLabel('Mia is thinking').first()).toBeVisible()
+  expect(await page.locator('.typing-row').evaluate(row => {
+    const area = row.closest('.chat-card')!.getBoundingClientRect()
+    const box = row.getBoundingClientRect()
+    return box.top >= area.top && box.bottom <= area.bottom
+  })).toBe(true)
+  release!()
+  await expect(page.locator('.message-row.assistant').last()).toContainText('Ross ($600)')
+  await expect.poll(sentAtTop).toBe(true)
+  await expect(page.locator('.message-row.is-new-reply')).toHaveCount(1)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await expect(page.locator('.is-new-reply')).toHaveCSS('animation-name', 'none')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = []
+  workspace.mia.older_message_count = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.chat-pending-line')).toBeVisible()
+  await expect(page.locator('.chat-review-queue')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Hi, I’m Mia.' })).toBeVisible()
+  const viewport = page.viewportSize()!
+  if (viewport.width <= 620) {
+    const height = await page.locator('.chat-card').evaluate(card => card.clientHeight)
+    expect(height).toBeGreaterThan(viewport.height - 270)
+    const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    await composer.focus()
+    await expect(page.locator('.shell-header')).toBeHidden()
+    await page.setViewportSize({ width: viewport.width, height: 430 })
+    await expect(composer).toBeInViewport()
+    await expect(page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })).toBeInViewport()
+  }
+  await page.locator('.chat-pending-line').click()
+  await expect(page).toHaveURL(/#Review$/)
 })

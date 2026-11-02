@@ -48,7 +48,7 @@ it('yields to a pointer press before a late entry frame, image load or resize ca
 it('anchors an untouched reply while it settles, then stops observing on departure', () => {
   const { anchor, setShowScrollButton, awayRef, unmount } = setup()
   const button = screen.getByRole('button')
-  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver) })
+  act(() => { frames.forEach(frame => frame(0)); resize([], {} as ResizeObserver); frames.at(-1)?.(0) })
   expect(anchor).toHaveBeenCalledTimes(2)
   expect(setShowScrollButton).toHaveBeenCalledWith(false)
   act(() => vi.advanceTimersByTime(2500))
