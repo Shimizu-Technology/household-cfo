@@ -203,6 +203,15 @@ describe('out-of-date Mia review cards', () => {
     expect(onApply).not.toHaveBeenCalled()
   })
 
+  it('opens the exact manual edit from Change on a single-step plan', () => {
+    const onEditManually = vi.fn()
+    const draft = miaDraft({ draft_type: 'action_plan' })
+    render(<MiaActionDraftReviewStack {...props([draft], { onEditManually })} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+    expect(onEditManually).toHaveBeenCalledWith(draft, draft.items[0])
+    expect(screen.queryByRole('checkbox')).toBeNull()
+  })
+
   it('closes a stale card: out of date, no Apply, no old before values, and a fresh-draft path', () => {
     const onAskFresh = vi.fn()
     const onCancel = vi.fn()

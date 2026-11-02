@@ -296,12 +296,6 @@
   }
 }
 
-@media (max-width: 420px) {
-  /* Send and attach sit under the field on narrow phones; when the keyboard
-     scrolls the field into view, keep that row visible too. */
-  .mia-chat-shell .ask-row textarea { scroll-margin-bottom: 64px; }
-}
-
 /* Memory opens beside the chat like Prompts and Context & help. The panel header
    already names it, so the profile card's own title and frame step back. */
 .mia-assist-body > .mia-memory-panel { padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
@@ -341,6 +335,8 @@
   flex: 0 0 auto;
   min-height: 44px;
   margin: 0 8px 4px;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
 }
 .chat-card-wrap.has-review-shortcut .chat-card { padding-bottom: 12px; }
 @media (max-width: 620px) {
@@ -354,6 +350,15 @@
   .is-chat-page .mia-chat-shell .ask-row .send-button { grid-column: 4; grid-row: 2; }
   .is-chat-page .mia-chat-shell .ask-row textarea { min-height: 44px; padding: 10px 4px; scroll-margin-bottom: 0; }
   .is-chat-page .mia-screen > .mia-disclaimer { display: none; }
+  .mia-action-draft-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .mia-action-draft-actions button { width: 100%; min-height: 44px; }
+  .empty-chat-starters { flex-direction: column; align-items: stretch; }
+  .empty-chat-starters button { width: 100%; border-radius: var(--radius-md); }
+  .is-chat-page .mia-chat-shell .ask-row textarea { font-size: 16px; }
+  /* A short viewport still keeps the composer inside the available height. */
+  .app.is-chat-page { min-height: 0; }
+  .is-chat-page .mia-chat-shell:not(.is-expanded) { height: 100%; }
+  .app.is-chat-page { height: 100dvh; }
 }
 
 /* A review is a sentence and a decision; the audit trail stays one tap away. */
@@ -367,26 +372,12 @@
 .mia-change-details[open] > summary::after { content: ' −'; }
 .mia-change-details > h4 { margin: 0 0 8px; font-family: var(--font-body); }
 .mia-change-details .mia-action-item { padding: 12px 0; border: 0; border-radius: 0; border-top: 1px solid var(--line); background: none; }
-.mia-action-draft-actions { margin-top: 12px; }
-@media (max-width: 620px) {
-  .mia-action-draft-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
-  .mia-action-draft-actions button { width: 100%; min-height: 44px; }
-}
+.mia-action-draft-actions { margin-top: 12px; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+.mia-action-draft-actions button { min-height: 44px; }
+.mia-change-sentence, .mia-change-figure { overflow-wrap: anywhere; }
 .chat-card-wrap.has-review-shortcut { padding-bottom: 0; }
-.chat-card-wrap .chat-scroll-bottom-button { box-shadow: none; border-radius: var(--radius-sm); }
 .chat-card > .message-row,
 .chat-card > .chat-review-queue { flex-shrink: 0; }
-@media (max-width: 620px) {
-  .empty-chat-starters { flex-direction: column; align-items: stretch; }
-  .empty-chat-starters button { width: 100%; border-radius: var(--radius-md); }
-  .is-chat-page .mia-chat-shell .ask-row textarea { font-size: 16px; }
-  /* A short viewport still keeps the composer inside the available height. */
-  .app.is-chat-page { min-height: 0; }
-  .is-chat-page .mia-chat-shell:not(.is-expanded) { height: 100%; }
-}
-@media (max-width: 620px) {
-  .app.is-chat-page { height: 100dvh; }
-}
 .chat-pending-line,
 .mia-change-details > summary,
 .mia-action-draft-actions button { transition: transform 140ms var(--ease-out); }

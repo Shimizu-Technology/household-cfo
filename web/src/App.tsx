@@ -7159,8 +7159,14 @@ function MiaActionDraftReviewCard({
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
             {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
           </button>
-          {draft.draft_type === 'action_plan' && remainingItems.length > 1 && !planRequiresFullApply && !isChoosingChanges && (
-            <button type="button" className="secondary-button" disabled={actionsDisabled} onClick={() => { setDetailsOpen(true); setIsChoosingChanges(true) }}>Change</button>
+          {draft.draft_type === 'action_plan' && !isChoosingChanges && (
+            <button type="button" className="secondary-button" disabled={actionsDisabled} onClick={() => {
+              if (remainingItems.length === 1 && onEditManually) onEditManually(draft, remainingItems[0])
+              else {
+                setDetailsOpen(true)
+                if (!planRequiresFullApply) setIsChoosingChanges(true)
+              }
+            }}>Change</button>
           )}
           {onEditManually && draft.draft_type !== 'action_plan' && (
             <button type="button" className="secondary-button" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft)}>

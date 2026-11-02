@@ -13029,6 +13029,8 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await expect(page.locator('.message-row.assistant').last()).toContainText('Ross ($600)')
   await expect.poll(sentAtTop).toBe(true)
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(1)
+  await expect(page.locator('.is-new-reply')).toHaveCSS('animation-duration', '0.15s')
+  await expect(page.locator('.message-row.user').last()).toHaveCSS('animation-name', 'none')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.locator('.is-new-reply')).toHaveCSS('animation-name', 'none')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
