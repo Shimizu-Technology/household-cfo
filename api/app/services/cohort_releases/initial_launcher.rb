@@ -107,6 +107,8 @@ module CohortReleases
     attr_reader :cohort, :actor
 
     def lock_components!
+      CoachPersona.active.where(coach_workspace_id: cohort.coach_workspace_id)
+        .where.not(current_published_version_id: nil).order(:id).lock.load
       assignment = cohort.cohort_persona_assignment
       CoachPersona.lock.find(assignment.coach_persona_id) if assignment
       cohort.association(:cohort_persona_assignment).reset

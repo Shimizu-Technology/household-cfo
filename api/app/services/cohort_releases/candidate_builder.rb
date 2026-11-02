@@ -84,12 +84,10 @@ module CohortReleases
     end
 
     def persona_component
-      assignment = cohort.cohort_persona_assignment
-      return fallback_persona(nil, "No published persona is selected for this cohort.") unless assignment
+      assignment, persona, version = Mia::PersonaResolver.selection_for(cohort)
+      return fallback_persona(nil, "No published persona is selected for this cohort.") unless persona
 
-      persona = assignment.coach_persona
-      version = assignment.coach_persona_version
-      runtime_valid = persona&.current_published_version_id == version&.id && persona&.archived_at.nil?
+      runtime_valid = Mia::PersonaResolver.valid_selection?(cohort, persona, version)
       begin
         snapshot = Contract.persona_snapshot(version: version) if runtime_valid
       rescue Mia::PersonaSchema::InvalidConfiguration, ArgumentError, KeyError

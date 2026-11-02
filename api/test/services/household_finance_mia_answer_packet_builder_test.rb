@@ -1,6 +1,13 @@
 require "test_helper"
 
 class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
+  test "truncated annual reviews stay unknown in the narrator summary" do
+    packet = HouseholdFinance::MiaAnswerPacketBuilder.new(kind: "coaching", fallback_response: "Check your reviews.",
+      write_state: "no_write", annual_plan: { year: 2026, rows: [], pending_transaction_drafts: [ { id: 1 } ],
+        pending_transaction_drafts_meta: { truncated: true } }).call
+    assert_nil packet.dig(:annual_plan_summary, :pending_draft_count)
+  end
+
   test "builds a spending report packet with the report period label" do
     packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
       kind: "spending_report",

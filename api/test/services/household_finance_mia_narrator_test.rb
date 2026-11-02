@@ -1,6 +1,149 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "mixed month and write narration cannot drop the requested month" do
+    fallback = "Your plan leaves breathing room for July. Your cushion needs building. Review the proposed income change."
+    packet = { kind: "budget_action", write_state: "pending_review", fallback_response: fallback }
+    reply = "I prepared your income change. It begins this month. Review the card before applying it."
+    assert_equal fallback, narrate(reply, packet, "How am I doing this month, and change my salary to $6,400?")
+    assert_includes HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month, and change my salary to $6,400?",
+      answer_packet: packet).send(:response_shape_instruction), "Answer the requested month first"
+  end
+
+  test "unknown review count is never treated as a known zero" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Check your reviews.",
+      annual_plan_summary: { pending_draft_count: nil } }
+    reply = "There may be purchases waiting for your review. Check the review list first. Then choose your next move."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "narration cannot praise a budget win before protecting skipped meals" do
+    fallback = "Please do not skip food to save money. Food comes first. Choose a flexible expense instead."
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    reply = "Staying under budget took real discipline. But skipping lunch isn't the move I want to coach you toward. Choose a flexible expense instead."
+    assert_equal fallback, narrate(reply, packet, "I stayed under my budget. I skipped lunch to save for the challenge")
+    assert_equal fallback, narrate(fallback, packet, "I stayed under my budget. I skipped lunch to save for the challenge")
+  end
+
+  test "reported wins reject invented causes and financial achievements" do
+    fallback = "You kept your spending within the limit you set. What worked that you could repeat?"
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    [
+      "That came from choices you made at the store and at home. You stayed under budget. What worked?",
+      "You stayed under budget. You strengthened the base of your plan this week. What worked?",
+      "Staying under budget takes follow-through at the store. You stayed under budget. What worked?",
+      "You used a shopping list. You stayed under budget. What worked?"
+    ].each do |reply|
+      assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!"), reply
+    end
+    reply = "You used a shopping list. You stayed under budget. Would you use that list next week?"
+    assert_equal reply, narrate(reply, packet, "I stayed under my grocery budget. I used a shopping list")
+    reply = "You used a shopping list so you could stay under budget. That made the week easier. What worked?"
+    assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!")
+    reply = "A full week under your grocery budget is a real win, especially with food costs and payday timing pulling at a household budget. I don't know yet how you pulled it off, so I'd like to hear it from you: was it meal planning, a shorter list, fewer takeout swaps, or something else? Whatever it was, that's the habit worth protecting, because it's what keeps your food category steady and gives your emergency runway room to grow. What's the one thing you did this week that you could repeat next week?"
+    assert_equal fallback, narrate(reply, packet, "I stayed under my grocery budget for the whole week!")
+  end
+
+  test "stress with a month question acknowledges briefly and answers in the first sentence" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "That sounds stressful; your plan needs the missing numbers. Check the next bill." }
+    reply = "Feeling stressed makes sense, and the numbers are steadier than the stress might be telling you. Your plan leaves breathing room. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
+    reply = "That sounds stressful; your plan needs the missing income number. Your cushion is not known yet. Add that number first."
+    assert_equal reply, narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
+  end
+
+  test "month narration rejects an invented surplus fund but accepts the emergency cushion" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Use your month picture." }
+    reply = "Your plan leaves breathing room. Your surplus fund still needs building. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room. Your emergency cushion still needs building. Check the next bill."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "month narration allows one combined cash caveat and rejects a second hedge" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Use your month picture." }
+    reply = "Your plan leaves breathing room, not a bank balance or permission to spend. Your cushion needs building. Check the next bill."
+    assert_equal reply, narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room, not a bank balance. This is not cash. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    reply = "Your plan leaves breathing room, not a bank balance. You have a purchase waiting on review so it hasn't changed your spending total yet. Check the next bill."
+    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "Ross reflections reject a store visit disclaimer" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "What happened before Ross?" }
+    reply = "A store visit without an amount doesn't tell me anything about damage, so this is about the habit. Ross is a repeat stop. What happened before Ross?"
+    assert_equal packet[:fallback_response], narrate(reply, packet, "I went to Ross again")
+  end
+
+  test "recorded Ross embarrassment rejects voice abstention and purchase intake explanations" do
+    fallback = "Going back to Ross does not define you. What was happening just before you went?"
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    prompt = "I'm embarrassed I went to Ross again"
+    reply = "Feeling embarrassed tells me you care about the plan, and going back to Ross doesn't say anything about your worth. It's a pattern we can coach, and I'm not here to shame it. No amount has been shared, so I'm not treating this as a purchase to draft. I'm also keeping the cute phrases out of this one, because embarrassment deserves a straight answer. What was going on right before you went, like a stressful day, a payday, or boredom?"
+    assert_equal fallback, narrate(reply, packet, prompt)
+    assert_equal fallback, narrate("Going back to Ross does not define you. No amount has been shared, so I'm not treating this as a purchase to draft. What happened before you went?", packet, prompt)
+    assert_equal fallback, narrate("Going back to Ross does not define you. I'm keeping the cute phrases out of this one. What happened before you went?", packet, prompt)
+    assert_equal fallback, narrate(fallback, packet, prompt)
+  end
+
+  test "internal voice rules never reach a participant in coaching or draft replies" do
+    fallback = "Ordering takeout again does not make you a failure. Let’s make the next tired evening easier. What easy meal could you keep ready?"
+    leaked = [
+      "One takeout order is a spending choice, not a verdict on you, and no cultural phrase or teasing belongs here. Let's look at what made dinner hard. Pick an easy meal for next time.",
+      "My persona rules prohibit teasing in hardship. You have a review card. Check the details on the card.",
+      "I am instructed to avoid cultural wording in this context. Dinner was hard tonight. What could make tomorrow easier?"
+    ]
+    [ [ "coaching", "no_write" ], [ "transaction_draft_update", "draft_updated" ] ].each do |kind, state|
+      leaked.each do |narration|
+        narrator = HouseholdFinance::MiaNarrator.new(user_message: "I'm embarrassed I ordered takeout again",
+          answer_packet: { kind: kind, fallback_response: fallback, write_state: state }, api_key: "synthetic")
+        narrator.define_singleton_method(:openrouter_response) { narration }
+        assert_equal fallback, narrator.call, "#{kind}: #{narration}"
+      end
+    end
+  end
+
+  test "month narration accepts deterministically rounded coaching dollars without changing exact packet cents" do
+    narration = "Your plan leaves about $1,240 this month, and you’ve spent $46 so far. Your cushion still needs building. Give that breathing room a job before the next purchase."
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?",
+      answer_packet: { kind: "coaching", fallback_response: "Use the month plan.", write_state: "no_write",
+        annual_plan_summary: { month_answer: { plan_left_cents: 124044, spent_so_far_cents: 4555,
+          coaching_figures: { plan_left_cents: 124000, spent_so_far_cents: 4600 } } } }, api_key: "synthetic")
+    narrator.define_singleton_method(:openrouter_response) { narration }
+    assert_equal narration, narrator.call
+  end
+
+  test "stacked record disclaimers fall back to a concise reference" do
+    fallback = "Pause and choose one next move."
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "I went to Ross again",
+      answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" }, api_key: "synthetic")
+    narrator.define_singleton_method(:openrouter_response) do
+      "That is not your bank balance. This is not a checked spending total. What happened before Ross?"
+    end
+    assert_equal fallback, narrator.call
+  end
+
+  test "draft prompt uses three sentences and lets the card explain confirmation" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "My salary is $6,400 now",
+      answer_packet: { kind: "budget_action", fallback_response: "Review the change.", write_state: "pending_review" })
+    assert_includes narrator.send(:response_shape_instruction), "exactly 3 short sentences"
+    assert_includes narrator.send(:narrator_contract), "do not repeat that nothing changes until confirmation"
+  end
+
+  test "reflections and purchase reviews never narrate internal status or unrelated readiness" do
+    [
+      [ "I went to Ross again", "Readiness is red and safe-to-spend is $0." ],
+      [ "I spent $12 at Payless", "The purchase shows needs_category." ]
+    ].each do |prompt, narration|
+      fallback = "Pause and choose one next step."
+      narrator = HouseholdFinance::MiaNarrator.new(user_message: prompt,
+        answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" }, api_key: "synthetic")
+      narrator.define_singleton_method(:openrouter_response) { narration }
+      assert_equal fallback, narrator.call
+    end
+  end
+
   test "supplies approved coaching context below immutable system contracts and records it only as supplied context" do
     item_version = Data.define(:title, :kind).new(title: "Coach decision check", kind: "guidance")
     pack_version = Data.define(:name, :pack_kind).new(name: "Mrs. Mel method", pack_kind: "coaching_method")
@@ -36,7 +179,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     messages = payload.fetch("messages")
     reference_index = messages.index { |message| message.fetch("content").include?("COACH_APPROVED_REFERENCE_DATA_JSON") }
     safety_index = messages.index { |message| message.fetch("content").include?("non-overridable") }
-    contract_index = messages.index { |message| message.fetch("content").include?("app has already verified the financial facts") }
+    contract_index = messages.index { |message| message.fetch("content").include?("ANSWER_PACKET_JSON distinguishes verified financial facts") }
     assert_equal "user", messages.fetch(reference_index).fetch("role")
     assert_operator reference_index, :<, safety_index
     assert_operator reference_index, :<, contract_index
@@ -151,7 +294,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     user_prompt = payload.fetch("messages").last.fetch("content")
     assert_equal AiModels.output_budget(payload.fetch("model"), HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS), payload.fetch("max_tokens")
     assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
-    assert_includes system_prompts, "app has already verified the financial facts"
+    assert_includes system_prompts, "ANSWER_PACKET_JSON distinguishes verified financial facts"
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"
@@ -414,7 +557,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
-  test "falls back when a pending transaction narration omits the actuals boundary" do
+  test "a purchase review can rely on the card instead of repeating the actuals disclaimer" do
     response = ok_response(
       choices: [
         { message: { content: "I drafted Payless for $25. Review and confirm it if the amount is right." } }
@@ -429,7 +572,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal fallback, answer
+      assert_equal "I drafted Payless for $25. Review and confirm it if the amount is right.", answer
     end
   end
 

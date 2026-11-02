@@ -140,6 +140,8 @@ module CohortReleases
     attr_reader :cohort, :actor, :publication_source, :actor_role_snapshot
 
     def lock_release_personas!(source_release)
+      CoachPersona.active.where(coach_workspace_id: cohort.coach_workspace_id)
+        .where.not(current_published_version_id: nil).order(:id).lock.load
       assignment = cohort.cohort_persona_assignment
       persona_ids = [ assignment&.coach_persona_id, source_release&.coach_persona_id ].compact.uniq.sort
       persona_ids.each { |persona_id| CoachPersona.lock.find(persona_id) }

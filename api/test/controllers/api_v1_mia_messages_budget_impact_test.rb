@@ -30,7 +30,7 @@ class ApiV1MiaMessagesBudgetImpactTest < ActiveSupport::TestCase
     message = Api::V1::MiaMessagesController.new.send(:drafted_transaction_message, draft, plan)
 
     assert_includes message, "If approved, July's Gas category would be $150 over its $50 plan."
-    assert_includes message, "Month-to-date actuals will not change until you approve it."
+    assert_includes message, "Check the merchant, amount, and category on the card."
   end
 
   private

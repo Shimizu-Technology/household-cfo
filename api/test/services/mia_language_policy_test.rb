@@ -1,6 +1,11 @@
 require "test_helper"
 
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
+  test "a repeated store visit permits accountability but recall does not" do
+    assert Mia::LanguagePolicy.new(user_message: "I went to Ross again").cultural_language_allowed?
+    refute Mia::LanguagePolicy.new(user_message: "What was that Ross amount again?").cultural_language_allowed?
+  end
+
   test "removes cultural language from routine financial explanations" do
     result = Mia::LanguagePolicy.new(user_message: "Why is my readiness red?").sanitize(
       "Your approved readiness is Red, chelu. Lanya, runway is below the threshold."

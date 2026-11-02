@@ -47,7 +47,7 @@ cases:
       - drafted this for review
       - McDonald's
       - $25
-      - actuals will not change until you approve
+      - Check the merchant, amount, and category on the card
     forbidden_phrases:
       - confirmed this transaction
       - actuals changed
@@ -115,8 +115,8 @@ cases:
     route: controller
     prompt: I'm overwhelmed by bills.
     expected_phrases:
-      - baseline
-      - Next CFO move
+      - required payments
+      - Which bill is due next
     forbidden_phrases:
       - panic
       - ignore your bills
@@ -246,9 +246,9 @@ cases:
     route: controller
     prompt: I ordered takeout again tonight. That's the fourth time this week even though I told myself I'd stop.
     expected_phrases:
-      - noticing a pattern is the hard part
-      - takeout keeps coming back
-      - "Next step:"
+      - you are noticing it
+      - takeout is becoming a repeat stop
+      - What was happening just before
     forbidden_phrases:
       - enough approved data to answer that as a fact
       - ashamed of yourself
@@ -392,7 +392,7 @@ cases:
       - drafted this for review
       - Payless
       - $12
-      - actuals will not change until you approve
+      - Check the merchant, amount, and category on the card
     forbidden_phrases:
       - Start with the baseline
       - actuals changed
@@ -634,3 +634,85 @@ cases:
       - I also see a $30 purchase in your message, and I have not added it yet
     forbidden_phrases:
       - I did not add it as an expense
+
+  - id: mel_weekly_grocery_win
+    route: controller
+    prompt: I stayed under my grocery budget for the whole week!
+    expected_phrases: [You kept, worked]
+    forbidden_phrases: [How much did you spend, budget stack, not have enough approved data]
+    live_expected:
+      - [under, within, kept]
+      - [worked, repeat, next, keep]
+
+  - id: mel_month_overview
+    route: controller
+    prompt: How am I doing this month?
+    expected_phrases: [spent, plan leaves, cushion]
+    forbidden_phrases: [not have enough approved data, confirmed actuals recorded]
+    live_expected:
+      - [leaves, short]
+      - [planned, plan]
+      - [spent, spending]
+
+  - id: mel_ross_repeat_visit
+    route: controller
+    prompt: I went to Ross again today. That is the third time this month.
+    expected_phrases: [Ross, you are noticing it, What was happening]
+    forbidden_phrases: [How much did you spend, budget stack, not have enough approved data]
+    live_expected: [Ross, [pattern, repeat, again], [before, trigger, what]]
+    live_forbidden: [How much did you spend, budget stack, safe-to-spend, readiness]
+
+  - id: mel_stuck_to_budget
+    route: controller
+    prompt: I stuck to my food budget this week.
+    expected_phrases: [You kept, worked]
+    forbidden_phrases: [How much did you spend, not have enough approved data]
+
+  - id: mel_money_stress
+    route: controller
+    prompt: I am so stressed about money this week.
+    expected_phrases: [heavy week, Which bill is due next]
+    forbidden_phrases: [readiness is Red, budget stack, not have enough approved data]
+    live_expected: [[stress, heavy, hard], [bill, payment], [next, first]]
+    live_forbidden: [readiness, safe-to-spend, budget stack, not have enough approved data]
+
+  - id: mel_keep_buying_takeout
+    route: controller
+    prompt: I keep buying takeout when I get home tired.
+    expected_phrases: [takeout, repeat stop, What was happening]
+    forbidden_phrases: [How much did you spend, not have enough approved data]
+
+  - id: mel_current_salary
+    route: controller
+    prompt: My salary is $6,400 now
+    expected_phrases: [July 2026, review]
+    forbidden_phrases: [January 2026, budget stack]
+    live_expected: [July 2026, [review, approve, check], "$6,400"]
+
+  - id: mel_inline_category
+    route: controller
+    prompt: Spent $12 at Payless on cigarettes. Put it in a new Cigarettes category.
+    expected_phrases: [Payless, $12, review]
+    forbidden_phrases: [budget stack, which stack, monthly allocation]
+
+  - id: mel_embarrassed_takeout
+    route: controller
+    prompt: "I'm embarrassed I ordered takeout again"
+    expected_phrases: [does not make you a failure, weighing, What]
+    forbidden_phrases: [not counted, checked spending, Umbee, Lanya, Chelu, readiness]
+    live_expected: [[takeout, choice], [weighing, hard, understandable], [before, next, what]]
+
+  - id: mel_ross_purse
+    route: controller
+    prompt: "I'm thinking of buying a $60 purse at Ross. Can I afford it?"
+    expected_phrases: [purse]
+    live_expected: [[pause, wait, brakes, hold], [purse, Ross]]
+
+  - id: mel_inline_category_followup
+    route: controller
+    messages:
+      - I spent $12 at Payless today
+      - put it under a new Cigarettes category
+    expected_phrases: [Cigarettes, Payless, review]
+    forbidden_phrases: [budget stack, which stack, monthly allocation]
+    live_expected: [Cigarettes, [review, card]]

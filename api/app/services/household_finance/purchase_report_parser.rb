@@ -58,7 +58,7 @@ module HouseholdFinance
     # A bare number counts as dollars only after one of these spending verbs.
     BARE_AFTER_VERB = /\b(?:spent|paid|charged|dropped|blew)\s+(?:(?:about|around|like|roughly|almost|over|just|another)\s+)?\z/i.freeze
     # Words that may follow a bare money amount; anything else ("2 kids", "3 times") is not money.
-    BARE_FOLLOWERS = /\A(?:\s*(?:dollars?|bucks)\b|\s+(?:at|@|from|on|for|in|today|tonight|yesterday|this|last|earlier|and|then|plus|total|cash|altogether)\b|\s*[.,;!]|\s*\z)/i.freeze
+    BARE_FOLLOWERS = /\A(?:\s*(?:dollars?|bucks)\b|\s+(?:at|@|from|on|for|in|today|tonight|yesterday|this|last|earlier|and|then|plus|total|cash|altogether)\b|\s*[.,;!~]|\s*\z)/i.freeze
     LEADING_JOINER = /\A(?:(?:and|then|plus|also|another|oh|ok|okay|so|um)\b[\s,]*|(?>~+)\s*)*\z/i.freeze
     DOLLAR_PATTERN = Regexp.new("\\$\\s*(#{NUMBER_SOURCE})(\\s*(?:k\\b|thousand\\b))?|\\b(#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)\\b", Regexp::IGNORECASE).freeze
     BARE_PATTERN = Regexp.new("(?<![\\w.$#,:/-])(#{NUMBER_SOURCE}(?:k\\b|\\s*thousand\\b)?)(?![\\w%.:,/]|\\.\\d)", Regexp::IGNORECASE).freeze
@@ -66,10 +66,10 @@ module HouseholdFinance
     LIST_ITEM = Regexp.new("\\A(?<place>[a-z][^$\\d\\n]{0,60}?)\\s*(?:[:\\-–—]\\s*)?(?<dollar>\\$)?\\s*(?<amount>#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)?(?:\\s+(?:for|with)\\s+[^$\\d]*)?\\s*\\z", Regexp::IGNORECASE).freeze
     # A store name ends at a date, a connector, or "for" plus a purpose or budget category
     # ("for Dining Out", "for the kids"). Other "for" words stay: "Ross Dress for Less".
-    MERCHANT_STOP = "(?=\\s+(?:today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
+    MERCHANT_STOP = "(?=\\s+(?:again|today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
       "|for\\s+(?:\\$|\\d+|my|the|a|an|some|our|lunch|dinner|breakfast|coffee|gas|fuel|food|groceries|snacks|kids?|me|us|dining(?:\\s+out)?|eating\\s+out|entertainment|household|personal|transport(?:ation)?|utilities|bills?|shopping|clothes|clothing|health|medical|school|work|church|gifts?|pets?|car|rent)\\b" \
       "|at|because|since|cause|cuz|when|while|but|so|with|and|felt|feel|feeling|which|that|after|before)\\b|\\s+\\$|[.,;!?\\n]|\\z)"
-    MERCHANT_PATTERN = Regexp.new("(?:\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
+    MERCHANT_PATTERN = Regexp.new("(?:\\bwent to|\\bshopped at|\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
     NOT_A_PLACE = /\A(?:night|noon|lunch(?:\s*time)?|breakfast|dinner|least|first|once|all|most|\d+)\z/i.freeze
     NO_SPEND_PATTERN = Regexp.new(
       "\\b(?:(?:i|we)\\s+)?(?:didn['’]?t|did\\s+not|haven['’]?t|have\\s+not)\\s+(?:spend|spent|buy|bought|purchase)\\s+(?:anything|a\\s+thing|any(?:\\s+money)?|a\\s+(?:single\\s+)?(?:cent|dime|penny|dollar))" \
