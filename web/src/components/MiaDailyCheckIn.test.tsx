@@ -5,7 +5,7 @@ import { ApiRequestError, fetchDailyContext, fetchDailyRequestStatus, mutateDail
 import type { DailyMutate } from '../lib/useDailyMutation'
 import type { DailyContext, DailyDay, DailyInput } from '../lib/dailyChallenge'
 import { clearDailyCards, forgetDailyCard, dailyCardNeedsAttention, registerDailyCard, restoreDailyCards, registerServerDailyCard, readDailyCard, syncDailyCard, saveDailyCardPurchase } from '../lib/dailyCheckIn'
-import { saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
+import { isDailyActor, saveDailyRecovery, setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { DailyReportIntake } from '../lib/savingsChallenge'
 import { baselineScope } from '../test/baselineFixtures'
 import { dailyContext, dailyDraft, dailyVersion } from '../test/dailyFixtures'
@@ -302,7 +302,11 @@ describe('Mia daily report card', () => {
   it('waits for an earlier unconfirmed daily save from elsewhere before sending anything', async () => {
     const { card } = renderCard({ ...report, purchases: [report.purchases[0]] })
     await ready(card)
-    act(() => { saveDailyRecovery({ scope: { ...baselineScope, enrollment_id: 100 }, action: 'check_in_save', key: 'today-form-key', input: {}, working: false, error: null }) })
+    // The card binds its actor in an effect that can land after Save enables;
+    // a save from elsewhere only counts once that actor is bound.
+    const elsewhere = { ...baselineScope, enrollment_id: 100 }
+    await waitFor(() => expect(isDailyActor(elsewhere)).toBe(true))
+    act(() => { expect(saveDailyRecovery({ scope: elsewhere, action: 'check_in_save', key: 'today-form-key', input: {}, working: false, error: null })).toBe(true) })
     expect(await within(card).findByRole('button', { name: 'Check the earlier save first' })).toBeTruthy()
     expect((within(card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
     expect(within(card).getByRole('status').textContent).toContain('An earlier daily save needs checking first')
