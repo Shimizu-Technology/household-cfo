@@ -11,6 +11,7 @@ import './styles/participantFlows.css'
 import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
 import { householdPlanKnown } from './lib/householdMoneyKnown'
+import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
@@ -184,7 +185,7 @@ import type {
 } from './api'
 import { verifiedParticipantProgram } from './lib/participantProgramSelection'
 import { ParticipantProgramSession } from './components/ParticipantProgramSession'
-import { type ParticipantPrograms, fetchParticipantPrograms } from './participantProgramsApi'
+import { fetchParticipantPrograms } from './participantProgramsApi'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
@@ -200,12 +201,6 @@ import { participantErrorMessage } from './lib/participantErrorMessage'
 import './dialogViewport.css'
 
 const monthNameFormatter = new Intl.DateTimeFormat('en-US', { month: 'long' })
-const currency = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
 
 const sections = PARTICIPANT_SECTIONS
 const sectionCapabilityIds = SECTION_CAPABILITY_IDS
@@ -679,7 +674,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const shellAccountMenuRef = useRef<HTMLDetailsElement | null>(null)
   const [accountProgramsOpen, setAccountProgramsOpen] = useState(false)
-  const [startupPrograms, setStartupPrograms] = useState<{ actorId: number; cohortId: number; checkedAt: number; programs: ParticipantPrograms } | null>(null)
   const sectionScrollPositionsRef = useRef(new Map<string, number>())
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
   const lastHandledLocationRef = useRef('')
@@ -1008,7 +1002,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
     return [...participantSections, ...staffSections, ...adminSections]
   }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
-  const moneyTopic = selectedMoneyTopic === 'statements' && !visibleSections.includes('Statements') ? 'income' : selectedMoneyTopic
+  const moneyTopic = selectedMoneyTopic === 'statements' ? 'income' : selectedMoneyTopic
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   useEffect(() => {
     if (!savingsEnrollmentScope || activeSection === 'Home' || savingsEnrollment?.scope === savingsEnrollmentScope) return
@@ -1299,7 +1293,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       ? fetchParticipantPrograms().then(programs => {
           if (cancelled) return false
           if (!verifiedParticipantProgram(programs, participantActorId, selectedCohortId)) { onProgramUnavailable(); return false }
-          setStartupPrograms({ actorId: participantActorId, cohortId: selectedCohortId, checkedAt: Date.now(), programs })
           return true
         })
       : Promise.resolve(true)
@@ -2473,7 +2466,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       budgetOperationKeysRef.current.complete(signature)
       setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
-      await refreshCurrentHomeAfterSharedChange(budget)
+      await refreshCurrentHouseholdView(budget)
       setNewBudgetCategory(blankBudgetCategoryDraft())
       setBudgetNotice(`Added the category "${input.name.trim()}". It now appears in your plan below.`)
       setRouteAnnouncement(`Added the category ${input.name.trim()}.`)
@@ -2500,13 +2493,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
-  async function refreshCurrentHomeAfterSharedChange(budget: BudgetData) {
-    if (budget.annual_plan?.year === data?.dashboard.action_center.current_year) return
+  async function refreshCurrentHouseholdView(savedBudget: BudgetData) {
+    // Home and Wealth read the service snapshot, so a Budget-only response must
+    // refresh it even when the edited plan belongs to the current year.
     const generation = financialMutationGenerationRef.current
     try {
       const payload = await fetchAppData(true)
       if (generation !== financialMutationGenerationRef.current) return
       setData(payload)
+      // Keep the exact saved plan and the editor’s draft baseline while refreshing
+      // the household snapshot; it may be a different selected year.
+      setData(current => current ? { ...current, budget: savedBudget } : current)
       setWorkspaceRefreshNotice(current => current?.kind === 'home' ? null : current)
     } catch {
       if (generation !== financialMutationGenerationRef.current) return
@@ -2717,7 +2714,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       }
       setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })
       refreshSpendingReportForBudget(latestBudget)
-      if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
+      await refreshCurrentHouseholdView(latestBudget)
       captureAnalyticsEvent('budget_edits_saved', {
         allocation_change_count: changes.allocations.length,
         category_change_count: changes.categories.length,
@@ -2737,8 +2734,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               const latest = latestAllocation(fresh?.annual_plan, attempted.change.allocation_id)
               return changedElsewhereMessage({
                 rowName: latest?.rowName ?? 'This row',
-                latest: latest ? currency.format(latest.planned) : 'different now',
-                mine: currency.format(Number(attempted.change.planned_amount || 0)),
+                latest: latest ? formatReviewMoney(Math.round((latest.planned) * 100)) : 'different now',
+                mine: formatReviewMoney(Math.round((Number(attempted.change.planned_amount || 0)) * 100)),
                 savedCount: appliedChanges,
               })
             })()
@@ -2755,7 +2752,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           const refreshed = fresh
           setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: refreshed } : current })
           refreshSpendingReportForBudget(refreshed)
-          if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(refreshed)
+          await refreshCurrentHouseholdView(refreshed)
           setBudgetError(message)
           throw new BudgetEditPartialSaveError(message, refreshed, { cause: caught })
         }
@@ -2766,7 +2763,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (appliedChanges > 0) {
         setData(changes.categories.length > 0 ? { type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current } : { type: 'financial_mutation', update: (current) => current ? { ...current, budget: latestBudget } : current })
         refreshSpendingReportForBudget(latestBudget)
-      if (changes.categories.length > 0) await refreshCurrentHomeAfterSharedChange(latestBudget)
+      await refreshCurrentHouseholdView(latestBudget)
         setBudgetError(`${message} Earlier changes were saved; your remaining edits are still available to retry.`)
         throw new BudgetEditPartialSaveError(message, latestBudget, { cause: caught })
       }
@@ -2793,7 +2790,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       budgetOperationKeysRef.current.complete(signature)
       setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
-      await refreshCurrentHomeAfterSharedChange(budget)
+      await refreshCurrentHouseholdView(budget)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
       setBudgetError(participantErrorMessage(caught, 'Budget category could not be archived.'))
@@ -2814,7 +2811,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       budgetOperationKeysRef.current.complete(signature)
       setData({ type: 'shared_financial_mutation', update: (current) => current ? { ...current, budget } : current })
       refreshSpendingReportForBudget(budget)
-      await refreshCurrentHomeAfterSharedChange(budget)
+      await refreshCurrentHouseholdView(budget)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
       setBudgetError(participantErrorMessage(caught, 'Budget category could not be restored.'))
@@ -2843,7 +2840,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
-      if (miaDraftChangesSharedFinancialRecords(draft, selection)) await refreshCurrentHomeAfterSharedChange(workspace.budget)
+      if (miaDraftChangesSharedFinancialRecords(draft, selection)) await refreshCurrentHouseholdView(workspace.budget)
       captureAnalyticsEvent('mia_action_draft_applied', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -3018,7 +3015,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       replaceMiaHistory(workspace.mia)
       const confirmedMonth = workspace.budget.annual_plan?.months[draftMonthIndex]
       const total = workspace.budget.annual_plan?.rows.reduce((sum, row) => sum + (row.months[draftMonthIndex]?.actual ?? 0), 0)
-      setTransactionNotice(`Confirmed ${draft.merchant} for ${currency.format(exactMoneyNumber(draft.amount, draft.amount_cents))}.${total !== undefined ? ` ${confirmedMonth?.label ?? 'Month'} confirmed spending: ${currency.format(total)}.` : ''}`)
+      setTransactionNotice(`Confirmed ${draft.merchant} for ${formatReviewMoney(Math.round((exactMoneyNumber(draft.amount, draft.amount_cents)) * 100))}.${total !== undefined ? ` ${confirmedMonth?.label ?? 'Month'} confirmed spending: ${formatReviewMoney(Math.round((total) * 100))}.` : ''}`)
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -3079,7 +3076,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       // Typed confirmation happens in an in-app dialog (BulkConfirmDialog); it re-enters below.
       setBulkConfirmRequest({ drafts: pendingDrafts, total })
       return
-    } else if (resolution === 'ignore' && !window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
+    } else if (resolution === 'ignore' && !window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${formatReviewMoney(Math.round((total) * 100))}? Actuals will not change.`)) {
       return
     }
 
@@ -3398,7 +3395,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData({ type: 'shared_financial_mutation', update: response.workspace })
-      await refreshCurrentHomeAfterSharedChange(response.workspace.budget)
+      await refreshCurrentHouseholdView(response.workspace.budget)
       await restoreSelectedBudgetPlan(response.workspace.budget)
       setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
@@ -3750,9 +3747,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
         </div>
         <div className="shell-actions">
-          <AccountMenu participantLabel={isSavingsExperience ? 'Challenge participant' : undefined} menuRef={shellAccountMenuRef} onOpen={() => setAccountProgramsOpen(true)}>
-              {accountProgramsOpen && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} hideWhenSingle
-                initialPrograms={startupPrograms?.actorId === auth.currentUser.id && startupPrograms.cohortId === data.workspace.cohort?.id && Date.now() - startupPrograms.checkedAt < 30_000 ? startupPrograms.programs : undefined} />}
+          <AccountMenu participantLabel={isSavingsExperience ? 'Challenge participant' : undefined} menuRef={shellAccountMenuRef} onOpen={() => setAccountProgramsOpen(true)} onClose={() => setAccountProgramsOpen(false)}>
+              {accountProgramsOpen && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} hideWhenSingle />}
               <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} savingsChallenge={isSavingsExperience} householdId={data.workspace.household_id} />
               {(brand.support.url || brand.support.email) && <a className="button button--ghost button--compact" href={brand.support.url ?? `mailto:${brand.support.email}`} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{brand.support.label ?? 'Support'}</a>}
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
@@ -4178,10 +4174,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             title="Your household money"
             copy={isSavingsExperience ? 'Optional household tools. Your challenge progress and approved savings stay in Savings.' : `See your income, spending, debt, accounts, and goals. Update them here or ask ${assistantName} to prepare a change.`}
           />
-          {isRealWorkspace && <Button variant="secondary" size="compact" className="money-setup-help" onClick={() => setSetupHelpOpen(true)}>Fix my setup</Button>}
-          <label className="money-topic-picker">Money details
+          {isRealWorkspace && <Button variant="secondary" className="money-setup-help" onClick={() => setSetupHelpOpen(true)}>Fix my setup</Button>}
+          <label className="money-topic-picker">Show:
             <select value={moneyTopic} onChange={event => {
+              // Restore the controlled value even when a dirty form rejects this native change.
               const topic = event.currentTarget.value as MoneyTopic
+              event.currentTarget.value = moneyTopic
               if (canResumePlaidOAuthReturn && topic !== 'accounts') { setRouteAnnouncement('Finish the bank connection before switching money topics.'); return }
               if (topic !== moneyTopic && blockFinancialTransition('switching money topics')) return
               setMoneyTopic(topic)
@@ -4252,8 +4250,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       return <li key={row.id}>
                         <div><strong>{row.name}</strong><span>{row.stack_label}</span></div>
                         <div>
-                          <strong>{month && !month.allocation_missing ? currency.format(month.planned) : 'Not available'} planned</strong>
-                          <span>{month ? currency.format(month.actual) : 'Not available'} confirmed</span>
+                          <strong>{month && !month.allocation_missing ? formatReviewMoney(Math.round((month.planned) * 100)) : 'Not available'} planned</strong>
+                          <span>{month ? formatReviewMoney(Math.round((month.actual) * 100)) : 'Not available'} confirmed</span>
                         </div>
                       </li>
                     })}
@@ -4307,7 +4305,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                       focusRequest={goalFocusRequest}
                       onFocusRequestHandled={() => setGoalFocusRequest(null)}
                     onUnsavedChangesChange={handleGoalDirtyChange} /> : <article className="panel empty-state"><p>Sign in to manage your household goals.</p></article>)}
-            {moneyTopic === 'statements' && <article className="panel"><h3>Your private statements</h3><p>Upload a statement, check its accounts and lines, and approve only the changes you want.</p><Button onClick={() => openDocumentReview()}>Open Statements</Button></article>}
           </div>
         </section>
       )}
@@ -4438,7 +4435,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
-              incomeKnown={(!isRealWorkspace || data.dashboard.month_answer?.money_in_cents != null) && (!isRealWorkspace || data.workspace.setup_status.confirmed_fields.includes('primary_income') || data.workspace.income_sources.length > 0)}
               planKnown={!isRealWorkspace || householdPlanKnown(data)}
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
@@ -4495,9 +4491,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} />
             <Metric
               className="wealth-explainer-metric"
-              label="Left to give a job each month"
-              value={monthlySurplusAvailable == null ? 'Not available' : formatReviewMoney(monthlySurplusAvailable)}
-              detail="Income left after the current category plan and debt minimums. It is not treated as saved until you assign or transfer it."
+              label={monthlySurplusAvailable != null && monthlySurplusAvailable < 0 ? 'Short of the plan this month' : 'Left to give a job this month'}
+              value={monthlySurplusAvailable == null ? 'Not available' : formatReviewMoney(Math.abs(monthlySurplusAvailable))}
+              detail="Your plan for this month, before any money is moved to savings."
             />
           </div>
 
@@ -4532,7 +4528,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   <span>{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
-                <strong>{!debtMinimumsKnown ? 'Not available' : currency.format(decision.amount)}</strong>
+                <strong>{!debtMinimumsKnown ? 'Not available' : formatReviewMoney(Math.round((decision.amount) * 100))}</strong>
                 <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}
@@ -4557,7 +4553,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
           <div className="lever-row">
             {data.optionality.levers.map((lever) => (
-              <Metric key={lever.label} label={lever.label} value={currency.format(lever.amount)} />
+              <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />
             ))}
           </div>
 
@@ -4773,7 +4769,7 @@ export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count
           <p className="eyebrow">Review before posting</p>
           <h3 id="bulk-confirm-title">Confirm {count} transaction{count === 1 ? '' : 's'}?</h3>
           <p id="bulk-confirm-copy">
-            This posts {count} transaction{count === 1 ? '' : 's'} totaling {currency.format(total)} to your actuals. It is all or nothing, so check possible matches first. To continue, type <strong>{phrase}</strong>.
+            This posts {count} transaction{count === 1 ? '' : 's'} totaling {formatReviewMoney(Math.round((total) * 100))} to your actuals. It is all or nothing, so check possible matches first. To continue, type <strong>{phrase}</strong>.
           </p>
           <label className="bulk-confirm-field">
             <span>Type {phrase}</span>
@@ -4991,8 +4987,8 @@ function milestoneProgressWidth(current: number, target: number) {
 const milestoneStatusLabels: Record<string, string> = { green: 'Reached', yellow: 'In progress', red: 'Needs attention' }
 
 function milestoneSummary(milestone: WealthData['milestones'][number]) {
-  if (milestone.kind === 'progress') return milestone.unit === 'dollars' ? `${formatReviewMoney(Math.round(milestone.current * 100))} of ${formatReviewMoney(Math.round(milestone.target * 100))}` : `${milestone.current.toLocaleString()} of ${milestone.target.toLocaleString()} ${milestone.unit}`
-  if (milestone.kind === 'debt_remaining') return `${currency.format(milestone.current)} remaining`
+  if (milestone.kind === 'progress') return milestone.unit === 'dollars' ? `${formatReviewMoney(Math.round(milestone.current * 100))} of ${formatReviewMoney(Math.round(milestone.target * 100))}` : milestone.unit === 'months' ? `${formatRunway(milestone.current)} · Goal: ${milestone.target} months` : `${milestone.current.toLocaleString()} of ${milestone.target.toLocaleString()} ${milestone.unit}`
+  if (milestone.kind === 'debt_remaining') return `${formatReviewMoney(Math.round((milestone.current) * 100))} remaining`
 
   return milestone.unit
 }
@@ -5693,7 +5689,7 @@ function AppliedImportSummary({ documentImport, onEdit }: { documentImport: Fina
           <article key={group.label}>
             <span>{group.label}</span>
             <strong>{group.count}</strong>
-            <small>{currency.format(group.total)}</small>
+            <small>{formatReviewMoney(Math.round((group.total) * 100))}</small>
           </article>
         ))}
       </div>
@@ -6511,7 +6507,7 @@ export function WorkspaceSetupForm({
         return (
           <p className="setup-base-note" role="note">
             These are your base monthly amounts, the usual month. Budget can plan a different amount for a single month.
-            {(fixedDiffers || flexibleDiffers) && ` Your ${monthPlan.label} plan in Budget: ${[fixedDiffers ? `Fixed essentials ${currency.format(monthPlan.fixed)}` : null, flexibleDiffers ? `Flexible spending ${currency.format(monthPlan.flexible)}` : null].filter(Boolean).join(', ')}.`}
+            {(fixedDiffers || flexibleDiffers) && ` Your ${monthPlan.label} plan in Budget: ${[fixedDiffers ? `Fixed essentials ${formatReviewMoney(Math.round((monthPlan.fixed) * 100))}` : null, flexibleDiffers ? `Flexible spending ${formatReviewMoney(Math.round((monthPlan.flexible) * 100))}` : null].filter(Boolean).join(', ')}.`}
           </p>
         )
       })()}
@@ -6790,13 +6786,13 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
     } finally { setSaving(false) }
   }
 
-  const formatKnownMoney = (value: number, known: boolean) => known ? currency.format(value) : 'Not entered'
-  const recordMoney = (value: number | null) => value === null ? 'Not entered' : currency.format(value)
+  const formatKnownMoney = (value: number, known: boolean) => known ? formatReviewMoney(Math.round((value) * 100)) : 'Not entered'
+  const recordMoney = (value: number | null) => value === null ? 'Not entered' : formatReviewMoney(Math.round((value) * 100))
   const initialSummaryBalance = portfolio.balance_known ? String(portfolio.total_balance) : ''
   const initialSummaryMinimum = portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''
   const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (!sameOptionalMoneyValue(summaryBalance, initialSummaryBalance) || !sameOptionalMoneyValue(summaryMinimum, initialSummaryMinimum)))
   const formDirty = editingId !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof DebtDraft] !== value)
-  useEffect(() => {
+  useLayoutEffect(() => {
     onUnsavedChangesChange?.(saving || archiveId !== null || trackingDirty || formDirty)
     return () => onUnsavedChangesChange?.(false)
   }, [saving, archiveId, trackingDirty, formDirty, onUnsavedChangesChange])
@@ -7298,7 +7294,7 @@ export function ManualTransactionCapture({
       })
       reset()
       setOpen(false)
-      setAdded(`Added ${addedMerchant}${Number.isFinite(addedAmount) ? ` for ${currency.format(addedAmount)}` : ''} to your review. Your actuals stay unchanged until you confirm it.`)
+      setAdded(`Added ${addedMerchant}${Number.isFinite(addedAmount) ? ` for ${formatReviewMoney(Math.round((addedAmount) * 100))}` : ''} to your review. Your actuals stay unchanged until you confirm it.`)
       toggleRef.current?.focus()
     } catch (caught) {
       setFormError(participantErrorMessage(caught, 'Transaction review could not be created.'))
@@ -7749,13 +7745,13 @@ function TransactionDraftReviewCard({
             <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
           </div>
         </div>
-        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{currency.format(displayAmount)}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (!needsCategoryReview && draft.splits?.[0]?.category_name ? draft.splits[0].category_name : draft.category_name ?? 'Needs category')}</span></div>
+        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{formatReviewMoney(Math.round((displayAmount) * 100))}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (!needsCategoryReview && draft.splits?.[0]?.category_name ? draft.splits[0].category_name : draft.category_name ?? 'Needs category')}</span></div>
         <details className="transaction-review-details" open={editing || undefined}><summary>Splits &amp; budget impact</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
               <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
-                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.category_name} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
+                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.category_name} · {formatReviewMoney(Math.round((exactMoneyNumber(split.amount, split.amount_cents)) * 100))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
                     !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
@@ -7786,7 +7782,7 @@ function TransactionDraftReviewCard({
           <div className="transaction-match-suggestions">
             {proposedMatches.slice(0, 2).map((match) => (
               <div key={match.id}>
-                <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {currency.format(match.transaction.amount)}</span>
+                <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {formatReviewMoney(Math.round((match.transaction.amount) * 100))}</span>
                 {onMatch && (
                   <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
                     {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
@@ -7859,7 +7855,7 @@ function TransactionDraftReviewCard({
           </div>
           <div className="transaction-draft-edit-actions">
             <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
-            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
+            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
             {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
             <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
             <button type="button" disabled={Boolean(action) || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
@@ -7915,7 +7911,7 @@ function TransactionDraftBudgetImpactPanel({
               <article className="transaction-draft-impact-row needs-category" key={`${impact.categoryId ?? 'none'}-${index}`}>
                 <div>
                   <strong>{impact.categoryName}</strong>
-                  <span>{currency.format(impact.draftAmount)} in this draft</span>
+                  <span>{formatReviewMoney(Math.round((impact.draftAmount) * 100))} in this draft</span>
                 </div>
                 <p>Choose a budget category to see what this would leave—or put over plan.</p>
               </article>
@@ -7927,15 +7923,15 @@ function TransactionDraftBudgetImpactPanel({
             <article className={`transaction-draft-impact-row${over ? ' is-over' : ''}`} key={`${impact.categoryId}-${index}`}>
               <div className="transaction-draft-impact-title">
                 <strong>{impact.categoryName}</strong>
-                <b>{over ? `${currency.format(Math.abs(impact.remainingIfApproved))} over` : `${currency.format(impact.remainingIfApproved)} left`}</b>
+                <b>{over ? `${formatReviewMoney(Math.round((Math.abs(impact.remainingIfApproved)) * 100))} over` : `${formatReviewMoney(Math.round((impact.remainingIfApproved) * 100))} left`}</b>
               </div>
               <dl>
-                <div><dt>Planned</dt><dd>{currency.format(impact.planned)}</dd></div>
-                <div><dt>Confirmed</dt><dd>{currency.format(impact.actual)}</dd></div>
-                <div><dt>This draft</dt><dd>{currency.format(impact.draftAmount)}</dd></div>
-                {impact.otherPending > 0 && <div><dt>Other pending</dt><dd>{currency.format(impact.otherPending)}</dd></div>}
+                <div><dt>Planned</dt><dd>{formatReviewMoney(Math.round((impact.planned) * 100))}</dd></div>
+                <div><dt>Confirmed</dt><dd>{formatReviewMoney(Math.round((impact.actual) * 100))}</dd></div>
+                <div><dt>This draft</dt><dd>{formatReviewMoney(Math.round((impact.draftAmount) * 100))}</dd></div>
+                {impact.otherPending > 0 && <div><dt>Other pending</dt><dd>{formatReviewMoney(Math.round((impact.otherPending) * 100))}</dd></div>}
               </dl>
-              <p>{over ? `${currency.format(Math.abs(impact.remainingIfApproved))} over plan if approved.` : `${currency.format(impact.remainingIfApproved)} would remain if approved.`} Actuals stay unchanged until you confirm.</p>
+              <p>{over ? `${formatReviewMoney(Math.round((Math.abs(impact.remainingIfApproved)) * 100))} over plan if approved.` : `${formatReviewMoney(Math.round((impact.remainingIfApproved) * 100))} would remain if approved.`} Actuals stay unchanged until you confirm.</p>
             </article>
           )
         })}
@@ -8068,12 +8064,12 @@ export function CurrentMonthActivityPanel({
           <p className="eyebrow">{month?.label ?? 'Current month'} operating view</p>
           <h4>Planned, actual, and pending review</h4>
         </div>
-        {loading ? <span>Loading report</span> : totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
+        {loading ? <span>Loading report</span> : totalPending > 0 && <span>{formatReviewMoney(Math.round((totalPending) * 100))} waiting for review</span>}
       </div>
       {error && <p className="setup-error" role="alert">{error}</p>}
       <CategoryPressureList
         positions={positions}
-        title="Every category, ordered by pressure"
+        title="Spending by category"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
       {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} />}
@@ -8089,12 +8085,12 @@ function SpendingReportLedger({ report, reopen }: { report: SpendingReport; reop
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{currency.format(report.totals.actual)} actual</strong>
-        <span>{currency.format(report.totals.planned)} planned</span>
-        <span>{currency.format(report.totals.pending)} pending</span>
+        <strong>{formatReviewMoney(Math.round((report.totals.actual) * 100))} actual</strong>
+        <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>
+        <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>
       <TransactionLedger
-        title="Confirmed transaction ledger"
+        title="Confirmed purchases"
         transactions={report.transactions}
         emptyMessage="No confirmed transactions for this period yet."
         pageSize={8}
@@ -8157,7 +8153,7 @@ function TransactionLedger({
           <p className="eyebrow">{title}</p>
           {transactions.length > 0 && (
             <span>
-              Showing {visibleTransactions.length === 0 ? 0 : pageStart + 1}–{pageStart + visibleTransactions.length} of {filteredTransactions.length} · {currency.format(filteredTotal)} selected
+              Showing {visibleTransactions.length === 0 ? 0 : pageStart + 1}–{pageStart + visibleTransactions.length} of {filteredTransactions.length} · {formatReviewMoney(Math.round((filteredTotal) * 100))} selected
             </span>
           )}
         </div>
@@ -8196,7 +8192,7 @@ function TransactionLedger({
           <span>{formatShortDate(transaction.occurred_on)}</span>
           <strong>{transaction.merchant}</strong>
           <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
-          <b>{currency.format(transaction.amount)}</b>
+          <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
           {reopen && (transaction.transaction_draft_id ? <TransactionReopenButton transaction={transaction} {...reopen} /> : <span aria-hidden="true" />)}
         </div>
       ))}
@@ -8276,7 +8272,6 @@ export function CategoryEditCell({
 
 export function AnnualBudgetPlanner({
   plan,
-  incomeKnown = true,
   planKnown = true,
   needsSetup = false,
   onReviewTransactions,
@@ -8306,7 +8301,6 @@ export function AnnualBudgetPlanner({
   onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
-  incomeKnown?: boolean
   planKnown?: boolean
   needsSetup?: boolean
   onReviewTransactions: () => void
@@ -8382,7 +8376,7 @@ export function AnnualBudgetPlanner({
   const isViewingCurrentYear = plan.year === currentCalendarYear
   const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onUnsavedChangesChange(hasUnsavedBudgetChanges)
     return () => onUnsavedChangesChange(false)
   }, [hasUnsavedBudgetChanges, onUnsavedChangesChange])
@@ -8610,7 +8604,7 @@ export function AnnualBudgetPlanner({
             <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
           </div>
 
-          {hasUnsavedIncomeChanges && <p className="annual-edit-hint" role="status">Save or cancel your income draft before switching tools or report periods.</p>}
+          {hasUnsavedIncomeChanges && <p className="annual-edit-hint" role="status">Save or cancel your income draft before switching tools or months.</p>}
           {error && <p className="setup-error" role="alert">{error}</p>}
           {notice && !error && <p className="document-alert success" role="status">{notice}</p>}
 
@@ -8769,13 +8763,13 @@ export function AnnualBudgetPlanner({
                                   onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
                                 />
                               ) : (
-                                <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
+                                <strong className="annual-planned-readonly">{formatReviewMoney(Math.round((month.planned) * 100))}</strong>
                               )}
-                              <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
+                              <small>{allocationMissing ? 'Planned amount needs repair' : `${formatReviewMoney(Math.round((month.actual) * 100))} actual`}</small>
                             </td>
                           )
                         })}
-                        <td className="edit-year-total"><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
+                        <td className="edit-year-total"><strong>{formatReviewMoney(Math.round((row.planned_total) * 100))}</strong><small>{formatReviewMoney(Math.round((row.actual_total) * 100))} actual</small></td>
                       </tr>
                     ))}
                   </tbody>
@@ -8803,7 +8797,6 @@ export function AnnualBudgetPlanner({
         </section>
       )}
 
-      <YearOutlook plan={plan} moneyKnown={incomeKnown && planKnown} />
       {planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
 
       {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
@@ -8811,7 +8804,7 @@ export function AnnualBudgetPlanner({
 
       {planKnown && <details className="budget-detail-disclosure">
         <summary>
-          <span><strong>Monthly activity and transactions</strong><small>See category pressure, confirmed spending, and the ledger.</small></span>
+          <span><strong>This month’s spending</strong><small>What you’ve spent in each category.</small></span>
           <b>{currentPositions.length} categories</b>
         </summary>
         <CurrentMonthActivityPanel

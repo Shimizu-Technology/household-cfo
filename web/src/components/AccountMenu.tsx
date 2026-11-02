@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { useAuthContext } from '../contexts/authContextValue'
 import { SignOutButton } from './AuthControls'
 
-export function AccountMenu({ children, menuRef, onOpen, participantLabel = 'Household member' }: { participantLabel?: string; children?: ReactNode; menuRef?: RefObject<HTMLDetailsElement | null>; onOpen?: () => void }) {
+export function AccountMenu({ children, menuRef, onOpen, onClose, participantLabel = 'Household member' }: { participantLabel?: string; children?: ReactNode; menuRef?: RefObject<HTMLDetailsElement | null>; onOpen?: () => void; onClose?: () => void }) {
   const auth = useAuthContext()
   const ownRef = useRef<HTMLDetailsElement>(null)
   const ref = menuRef ?? ownRef
@@ -15,6 +15,7 @@ export function AccountMenu({ children, menuRef, onOpen, participantLabel = 'Hou
   }, [ref])
   return <details ref={ref} className="shell-account-menu" onToggle={event => {
     if (event.currentTarget.open) onOpen?.()
+    else onClose?.()
   }} onKeyDown={event => {
     if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
       event.preventDefault()

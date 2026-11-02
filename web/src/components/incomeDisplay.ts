@@ -1,6 +1,5 @@
 import type { IncomeTimelineSource } from '../api'
 import { formatHouseholdMonth, guamTodayIso } from '../lib/householdDate'
-export const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 export const cadenceOptions = ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']
 export function titleize(value: string) { return value.replace(/_/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
 export function formatMonthYear(value: string) {

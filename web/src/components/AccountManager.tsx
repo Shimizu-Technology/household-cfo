@@ -1,3 +1,4 @@
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type Ref } from 'react'
 import {
   archiveAccount, createAccount, fetchPlaidOverview, linkPlaidAccount, reconcilePlaidAccount,
@@ -11,7 +12,6 @@ import { accountSummaryText } from './accountSummary'
 import { useBrand } from '../contexts/brandContextValue'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const accountTypes: AccountType[] = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
 const signedTypes: AccountType[] = ['checking', 'savings']
 const liquidTypes: AccountType[] = ['checking', 'savings', 'emergency_fund']
@@ -69,7 +69,8 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
 
   const formDirty = editing !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof Draft] !== value)
   const hasUnsavedChanges = saving || archiveId !== null || formDirty
-  useEffect(() => {
+  // Publish the guard before another control can receive the next interaction.
+  useLayoutEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges)
     return () => onUnsavedChangesChange?.(false)
   }, [hasUnsavedChanges, onUnsavedChangesChange])
@@ -210,7 +211,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     } finally { setSaving(false) }
   }
 
-  const amount = (value: number | null) => value === null ? 'Not entered' : money.format(value)
+  const amount = (value: number | null) => value === null ? 'Not entered' : formatReviewMoney(Math.round((value) * 100))
 
   return <article ref={sectionRef} className="panel account-manager">
     <div className="row-between account-manager-heading"><div><p className="eyebrow">Accounts & assets</p><h3>Keep one approved balance for each household asset.</h3><p>Blank means unknown. An entered $0 is a confirmed zero. Bank balances stay observations until you accept them.</p></div>{editing === null && <button ref={addButtonRef} type="button" disabled={saving} onClick={(event) => beginCreate(undefined, event.currentTarget)}>Add an account</button>}</div>
@@ -233,7 +234,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     </fieldset>{draft.plaid_account_id && <p className="account-observation-note">This will match the saved account to the selected bank observation. You can unmatch it later without deleting the account.</p>}{error && <p className="setup-error" role="alert">{error}</p>}<div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancel}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editing === 'new' ? 'Add account' : 'Save account'}</button></div></form>}
 
     {plaidError && <div className="account-observation-error" role="status"><span>{plaidError}</span><button type="button" className="secondary-button" onClick={() => setPlaidReload((value) => value + 1)}>Retry bank connections</button></div>}
-    {unlinked.length > 0 && editing === null && <details className="account-observations"><summary>Unmatched bank observations ({unlinked.length})</summary><p>These values came from connected institutions. Add one for review before it affects household planning.</p>{unlinked.map(({ item, account }) => <div className="account-observation" key={account.id}><div><strong>{item.institution_name} · {account.name}{account.mask ? ` ••${account.mask}` : ''}</strong><span>{account.current_balance_cents === null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</span></div><button type="button" className="secondary-button" onClick={(event) => beginCreate(account, event.currentTarget)}>Review and add</button></div>)}</details>}
+    {unlinked.length > 0 && editing === null && <details className="account-observations"><summary>Unmatched bank observations ({unlinked.length})</summary><p>These values came from connected institutions. Add one for review before it affects household planning.</p>{unlinked.map(({ item, account }) => <div className="account-observation" key={account.id}><div><strong>{item.institution_name} · {account.name}{account.mask ? ` ••${account.mask}` : ''}</strong><span>{account.current_balance_cents === null ? 'Balance unavailable' : formatReviewMoney(Math.round((account.current_balance_cents / 100) * 100))}</span></div><button type="button" className="secondary-button" onClick={(event) => beginCreate(account, event.currentTarget)}>Review and add</button></div>)}</details>}
     {archived.length > 0 && <details className="debt-archive"><summary>Archived accounts ({archived.length})</summary><p>Archived accounts keep their history and bank match, but do not affect totals.</p>{archived.map((account) => <div className="account-row" data-account-id={account.id} key={account.id}><div><strong>{account.label}</strong><span>{titleize(account.account_type)}</span></div><strong>{amount(account.balance)}</strong><button type="button" data-account-action="restore" className="secondary-button" aria-label={`Restore ${account.label}`} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`restore:${account.id}`, (key) => restoreAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="edit"]`) }}>Restore</button></div>)}</details>}
     {error && editing === null && <p className="setup-error" role="alert">{error}</p>}
   </article>

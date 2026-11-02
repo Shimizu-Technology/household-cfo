@@ -1,3 +1,4 @@
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { formatDay } from '../lib/plainDates'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlaidLink, type PlaidLinkOnExit, type PlaidLinkOnSuccess } from 'react-plaid-link'
@@ -48,7 +49,6 @@ function operationIsCurrent(assertCurrent: () => void) {
   try { assertCurrent(); return true } catch { return false }
 }
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const PLAID_LINK_SCRIPT_URL = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js'
 const PLAID_SYNC_POLL_INTERVAL_MS = 2_500
 const PLAID_SYNC_MAX_ATTEMPTS = 24
@@ -627,7 +627,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                   </div>
                   <div className="plaid-accounts">
                     {item.accounts.filter((account) => account.active).map((account) => (
-                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{!hasFreshBankObservation(item, account) ? (item.context_paused_by_restart ? 'Previous picture · balance hidden' : 'Awaiting fresh balance') : account.current_balance_cents == null ? 'Balance unavailable' : money.format(account.current_balance_cents / 100)}</strong></div>
+                      <div key={account.id}><span>{account.name} {account.mask ? `••${account.mask}` : ''}</span><strong>{!hasFreshBankObservation(item, account) ? (item.context_paused_by_restart ? 'Previous picture · balance hidden' : 'Awaiting fresh balance') : account.current_balance_cents == null ? 'Balance unavailable' : formatReviewMoney(Math.round((account.current_balance_cents / 100) * 100))}</strong></div>
                     ))}
                   </div>
                   <label className="plaid-automation-toggle">
@@ -675,10 +675,10 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
           {activitySummary && (
             <>
               <div className="plaid-activity-summary" aria-label="Bank activity summary">
-                <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows{activitySummary.not_counted_as_spending_count ? ` · ${money.format((activitySummary.not_counted_as_spending_cents ?? 0) / 100)} in activity not counted as spending` : ''}</small></article>
-                <article className="is-confirmed"><span>{picture === 'history' ? 'Previously confirmed' : 'Confirmed actuals'}</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
-                <article className="is-review"><span>{picture === 'history' ? 'Previous review status' : 'Needs review'}</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
-                <article><span>{picture === 'history' ? 'Previous bank pending' : 'Bank pending'}</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
+                <article className="is-observed"><span>Bank-observed spending</span><strong>{formatReviewMoney(Math.round((activitySummary.posted_outflow_cents / 100) * 100))}</strong><small>{activitySummary.posted_outflow_count} posted outflows{activitySummary.not_counted_as_spending_count ? ` · ${formatReviewMoney(Math.round(((activitySummary.not_counted_as_spending_cents ?? 0) / 100) * 100))} in activity not counted as spending` : ''}</small></article>
+                <article className="is-confirmed"><span>{picture === 'history' ? 'Previously confirmed' : 'Confirmed actuals'}</span><strong>{formatReviewMoney(Math.round((activitySummary.confirmed_cents / 100) * 100))}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
+                <article className="is-review"><span>{picture === 'history' ? 'Previous review status' : 'Needs review'}</span><strong>{formatReviewMoney(Math.round((activitySummary.needs_review_cents / 100) * 100))}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
+                <article><span>{picture === 'history' ? 'Previous bank pending' : 'Bank pending'}</span><strong>{formatReviewMoney(Math.round((activitySummary.pending_cents / 100) * 100))}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
               </div>
               <div className="plaid-review-scope" role="status" hidden={picture === 'history'}>
                 <span><strong>{activitySummary.review_year_needs_review_count ?? activitySummary.needs_review_count} in the {activitySummary.review_year ?? reviewYear} budget-year queue.</strong>{(activitySummary.other_years_needs_review_count ?? 0) > 0 ? ` ${activitySummary.other_years_needs_review_count} older decision${activitySummary.other_years_needs_review_count === 1 ? '' : 's'} remain available in their budget years.` : ' All waiting decisions are in this budget year.'}</span>
@@ -738,7 +738,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                     {transaction.removed && <small className="plaid-source-warning">The institution removed this source transaction after it entered your household record.</small>}
                   </span>
                   <span className={`plaid-trust-state is-${transaction.trust_state}`}>{trustLabels[transaction.trust_state]}</span>
-                  <strong className={transaction.direction === 'inflow' ? 'positive' : ''}>{transaction.direction === 'inflow' ? '+' : ''}{money.format(Math.abs(transaction.amount_cents) / 100)}</strong>
+                  <strong className={transaction.direction === 'inflow' ? 'positive' : ''}>{transaction.direction === 'inflow' ? '+' : ''}{formatReviewMoney(Math.round((Math.abs(transaction.amount_cents) / 100) * 100))}</strong>
                 </article>
               ))}
               {transactions.length === 0 && <div className="plaid-empty"><strong>Nothing in this view.</strong><p>Try another activity state or sync the connected account.</p></div>}

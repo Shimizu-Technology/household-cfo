@@ -18,7 +18,7 @@ export type ParticipantTabsProps = {
 const sectionDescriptions: Record<string, string> = {
   'My Profile': 'Your household details and preferences.',
   'My Money': 'Update income, spending, debt, accounts, and goals.',
-  Statements: 'Upload privately and review accounts, periods, and statement rows.',
+  Statements: 'Upload a statement or receipt and check what Mia found.',
   Review: 'Review and confirm transactions.',
   Budget: 'Plan your money across the year.',
   Wealth: 'See debt, assets, and long-range capacity.',

@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
+import { formatReviewMoney } from '../lib/reviewMoney'
+import { useLayoutEffect, useEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import type { IncomeTimelineSource, IncomeSourceInput, MiaActionItem } from '../api'
 import { payloadHas, proposedText, proposedMoney, proposedChoice } from '../lib/miaManualPrefill'
 import { useIncomeForm, type IncomeSourceFocusRequest } from './incomeFormState'
-import { currency, titleize, formatMonthYear, guamCurrentMonthIso, cadenceOptions, effectiveIncomeTerms, monthlyIncomeAmount, incomeSourceIsCurrent, nextIncomeChange } from './incomeDisplay'
+import { titleize, formatMonthYear, guamCurrentMonthIso, cadenceOptions, effectiveIncomeTerms, monthlyIncomeAmount, incomeSourceIsCurrent, nextIncomeChange } from './incomeDisplay'
 import './IncomeForms.css'
 
 const incomeSourceTypeOptions = ['job', 'business', 'rental', 'passive', 'bonus', 'other']
@@ -85,7 +86,8 @@ export function IncomeSourceManager({
   const handledFocusKeyRef = useRef<number | null>(null)
 
   const hasUnsavedChanges = endingId !== null || Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof IncomeSourceDraft] !== value)
-  useEffect(() => {
+  // Publish the guard before another control can receive the next interaction.
+  useLayoutEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges)
     return () => onUnsavedChangesChange?.(false)
   }, [hasUnsavedChanges, onUnsavedChangesChange])
@@ -245,7 +247,7 @@ export function IncomeSourceManager({
           <h3 id="income-source-manager-title">Your income</h3>
           <p>Your usual pay and the next change for each source.</p>
         </div>
-        <strong>{sources.length === 0 ? 'Income not entered' : `${currency.format(sources.filter(incomeSourceIsCurrent).reduce((total, source) => total + monthlyIncomeAmount(source), 0))} current monthly`}</strong>
+        <strong>{sources.length === 0 ? 'Income not entered' : `${formatReviewMoney(Math.round((sources.filter(incomeSourceIsCurrent).reduce((total, source) => total + monthlyIncomeAmount(source), 0)) * 100))} current monthly`}</strong>
       </div>
 
       {error && <p className="setup-error" role="alert">{error}</p>}
@@ -282,12 +284,12 @@ export function IncomeSourceManager({
                     <span>{titleize(source.source_type)}</span>
                     <strong>{source.label}</strong>
                   </div>
-                  <b>{currency.format(effectiveTerms.amount)} · {titleize(effectiveTerms.cadence)}</b>
+                  <b>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
                 </div>
                 <dl>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
                   <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
-                  <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${currency.format(upcoming.amount)}` : 'None scheduled'}</dd></div>
+                  <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${formatReviewMoney(Math.round((upcoming.amount) * 100))}` : 'None scheduled'}</dd></div>
                 </dl>
                 <div className="income-source-manager-actions">
                   {ended && canUndoEnd ? (

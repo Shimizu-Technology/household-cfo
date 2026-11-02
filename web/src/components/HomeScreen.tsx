@@ -1,4 +1,5 @@
 import type { BudgetData, DashboardData } from '../api'
+import { formatRunway } from '../lib/runway'
 import { YearOutlook } from './YearOutlook'
 import { guamTodayIso } from '../lib/householdDate'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -21,7 +22,7 @@ type HomeScreenProps = {
   canReviewTransactions?: boolean
 }
 
-export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenBudget, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
+export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const { action_center: actionCenter, month_answer: answer } = dashboard
   const plan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
@@ -38,13 +39,14 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         <MoneyValue label="Money out · planned" cents={answer?.planned_out_cents} />
         <MoneyValue label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
       </dl>
-      <p>{left == null ? 'Add the missing income or planned costs to see what’s left.' : 'After planned costs and debt minimums. This is your plan, not your bank balance.'}</p>
-      <p className="home-spent">Spent so far: <strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong> · confirmed category purchases</p>
+      <p className="home-plan-caveat">{left == null ? 'Add the missing income or planned costs to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
+      {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="text-button" onClick={onOpenDebt}>Add debt minimums</button>}
+      <p className="home-spent">Spent so far this month: <strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
       {answer && answer.pending_count == null && <p>More purchases may be waiting. Check Review before your next money decision.</p>}
     </section>
     {(purchaseCount > 0 || canAskMia) && <div className="home-next-action"><Button onClick={purchaseCount > 0 ? onReviewTransactions : onAskMia}>{purchaseCount > 0 ? `Review ${purchaseCount} purchase${purchaseCount === 1 ? '' : 's'}` : `Tell ${assistantName} what changed`}</Button></div>}
     <section className="home-cushion" aria-label="Your emergency cushion">
-      <h3>{answer?.runway_months == null ? 'Your emergency cushion' : `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }).format(answer.runway_months)} months of breathing room`}</h3>
+      <h3>{answer?.runway_months == null ? 'Your emergency cushion' : formatRunway(answer.runway_months)}</h3>
       <p>{answer?.readiness_guidance ?? 'Add the missing starting numbers before judging your cushion.'}</p>
       {answer?.runway_months != null && <p>Goal: {dashboard.readiness_path.target_runway_months} months of planned costs.</p>}
     </section>

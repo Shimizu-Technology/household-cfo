@@ -73,7 +73,7 @@ test('bank card payments are shown as not counted as spending and cannot be prep
   await screen.findByText('CREDIT CARD 3333 PAYMENT')
   expect(screen.getByText('Not counted as spending')).toBeTruthy()
   expect(screen.getByText('Card / debt payment · No spending is recorded for this row.')).toBeTruthy()
-  expect(screen.getByText(/\$25\.00 in activity not counted as spending/)).toBeTruthy()
+  expect(screen.getByText(/\$25 in activity not counted as spending/)).toBeTruthy()
   expect(screen.queryByRole('checkbox', { name: 'Select CREDIT CARD 3333 PAYMENT' })).toBeNull()
 })
 test('a Link token reply after reset cannot launch SDK or save a session in the new context', async () => {
@@ -135,14 +135,14 @@ test('resumed connection keeps the previous balance hidden until a fresh sync ti
   vi.mocked(api.fetchPlaidOverview).mockResolvedValue({ ...overview, items: [{ ...item, financial_generation: 1, context_paused_by_restart: false, financial_resumed_at: '2026-10-06T00:00:00Z', accounts: [account] }] })
   render(<PlaidConnections userId="42" householdId={12} onDraftsCreated={vi.fn()} />)
   await screen.findByText('Awaiting fresh balance')
-  expect(screen.queryByText('$9,000.00')).toBeNull()
+  expect(screen.queryByText('$9,000')).toBeNull()
 })
 test.each([undefined, 0, 1])('resumed balance observation must match its financial generation (%s)', async (generation) => {
   const account: api.PlaidAccount = { financial_generation: generation, id: 4, name: 'QA Checking', official_name: null, mask: null, type: 'depository', subtype: 'checking', current_balance_cents: 900000, available_balance_cents: null, currency: 'USD', active: true, eligible_for_asset_tracking: false, allowed_account_types: [], suggested_account_type: null, canonical_account_id: null, canonical_balance_known: false, canonical_balance_cents: null, observation_newer_than_saved: false }
   vi.mocked(api.fetchPlaidOverview).mockResolvedValue({ ...overview, items: [{ ...item, financial_generation: 1, context_paused_by_restart: false, financial_resumed_at: '2026-10-06T00:00:00Z', last_synced_at: '2026-10-06T00:00:05Z', accounts: [account] }] })
   render(<PlaidConnections userId="42" householdId={12} onDraftsCreated={vi.fn()} />)
-  if (generation === 1) await screen.findByText('$9,000.00')
-  else { await screen.findByText('Awaiting fresh balance'); expect(screen.queryByText('$9,000.00')).toBeNull() }
+  if (generation === 1) await screen.findByText('$9,000')
+  else { await screen.findByText('Awaiting fresh balance'); expect(screen.queryByText('$9,000')).toBeNull() }
 })
 test('a failed resume displays its retryable error inside the still-open review', async () => {
   vi.mocked(api.resumePlaidItemFinancialPicture).mockRejectedValue(new Error('Connection changed. Refresh and review again.'))

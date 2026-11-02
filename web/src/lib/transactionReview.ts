@@ -1,6 +1,6 @@
+import { formatReviewMoney } from './reviewMoney'
 import type { IgnoredTransactionDraft, RecentTransaction, TransactionDraft } from '../api'
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 type DraftIdentity = Pick<TransactionDraft, 'merchant' | 'amount' | 'amount_cents'> & { occurred_on?: string }
 
@@ -15,10 +15,10 @@ function shortDate(occurredOn?: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)))
 }
 
-/** Names one transaction for screen readers, e.g. "McDonald's $25.00 on Oct 3" (date keeps repeat purchases distinct). */
+/** Names one transaction for screen readers, e.g. "McDonald's $25 on Oct 3" (date keeps repeat purchases distinct). */
 export function transactionItemName(draft: DraftIdentity) {
   const date = shortDate(draft.occurred_on)
-  return `${draft.merchant} ${currency.format(draftAmount(draft))}${date ? ` on ${date}` : ''}`
+  return `${draft.merchant} ${formatReviewMoney(Math.round((draftAmount(draft)) * 100))}${date ? ` on ${date}` : ''}`
 }
 
 export function transactionMonthName(occurredOn: string) {
@@ -29,7 +29,7 @@ export function transactionMonthName(occurredOn: string) {
 
 /** Plain-language confirmation shown before a reviewed transaction goes back to pending review. */
 export function transactionReopenConfirmMessage(draft: Pick<TransactionDraft, 'merchant' | 'amount' | 'amount_cents' | 'status' | 'occurred_on'>) {
-  const item = `${draft.merchant} (${currency.format(draftAmount(draft))})`
+  const item = `${draft.merchant} (${formatReviewMoney(Math.round((draftAmount(draft)) * 100))})`
   if (draft.status === 'ignored') {
     return `Restore ${item} to review? It goes back to your pending transactions. Your actuals do not change until you confirm it.`
   }

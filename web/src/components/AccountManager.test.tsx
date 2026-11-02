@@ -71,8 +71,8 @@ describe('AccountManager', () => {
   it('distinguishes no entered subtotal from confirmed zero', () => {
     expect(accountSummaryText(0, false, 0, 1)).toBe('Needs a balance')
     expect(accountSummaryText(0, false, 0, 0)).toBe('Not entered')
-    expect(accountSummaryText(0, true, 1, 1)).toBe('$0.00')
-    expect(accountSummaryText(125, false, 1, 2)).toBe('$125.00 known so far')
+    expect(accountSummaryText(0, true, 1, 1)).toBe('$0')
+    expect(accountSummaryText(125, false, 1, 2)).toBe('$125 known so far')
   })
 
   it('shows inactive bank guidance, disables reconciliation, and surfaces Plaid load failures', async () => {

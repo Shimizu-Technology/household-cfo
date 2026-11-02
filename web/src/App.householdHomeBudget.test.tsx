@@ -26,23 +26,23 @@ it('keeps unknown income and plan distinct from confirmed zero and from missing 
   const view = render(<MonthPlanSummary {...summary} income={0} planned={0} actual={0} pending={0} incomeKnown={false} planKnown={false} />)
   expect(screen.getAllByText('Not entered')).toHaveLength(2)
   expect(screen.getByText('No confirmed transactions yet')).toBeTruthy()
-  expect(view.container.textContent).not.toContain('$0.00')
+  expect(view.container.textContent).not.toContain('$0')
   view.rerender(<MonthPlanSummary {...summary} income={0} planned={0} actual={0} pending={0} />)
-  expect(screen.getAllByText('$0.00')).toHaveLength(2)
+  expect(screen.getAllByText('$0')).toHaveLength(2)
   expect(screen.getByText('No confirmed transactions yet')).toBeTruthy()
 })
 
 it('reads money in, planned out and spent so far, without subtracting pending purchases', () => {
   render(<MonthPlanSummary {...summary} />)
-  for (const amount of ['$6,200.00', '$3,900.00', '$229.92']) expect(screen.getByText(amount)).toBeTruthy()
-  expect(screen.getByText('Your plan leaves $2,300.00 after planned spending.')).toBeTruthy()
+  for (const amount of ['$6,200', '$3,900', '$229.92']) expect(screen.getByText(amount)).toBeTruthy()
+  expect(screen.getByText('Your plan leaves $2,300 after planned spending.')).toBeTruthy()
   expect(screen.getByText('$135.90 pending review · not counted as spent')).toBeTruthy()
 })
 
 it('says plainly when the plan spends more than comes in, counting debt minimums', () => {
   render(<MonthPlanSummary {...summary} income={3000} debtMinimums={200} />)
-  expect(screen.getByText('Planned out').parentElement?.textContent).toContain('$4,100.00')
-  expect(screen.getByText('This month’s plan is $1,100.00 more than money in.')).toBeTruthy()
+  expect(screen.getByText('Planned out').parentElement?.textContent).toContain('$4,100')
+  expect(screen.getByText('This month’s plan is $1,100 more than money in.')).toBeTruthy()
   expect(screen.queryByText(/over the plan/)).toBeNull()
 })
 
@@ -72,19 +72,18 @@ it('uses one setup primary and one manual alternative on first Home', () => {
   expect(container.querySelectorAll('.button--primary')).toHaveLength(1)
   fireEvent.click(screen.getByRole('button', { name: 'Enter my numbers' }))
   expect(manual).toHaveBeenCalledOnce()
-  expect(container.textContent).not.toContain('$0.00')
+  expect(container.textContent).not.toContain('$0')
 })
 
 function plannerProps() {
   return { plan, isRealWorkspace: true, action: null, error: null, selectedMonthIndex: 9, spendingReport: null, spendingReportLoading: false, spendingReportError: null, newCategory: { name: '', stack_key: 'discretionary', monthly_amount: '', month_numbers: [10] }, onAskMia: vi.fn(), onUnsavedChangesChange: vi.fn(), onReviewTransactions: vi.fn() } as unknown as ComponentProps<typeof AnnualBudgetPlanner>
 }
-it('puts the whole year before monthly detail and replaces the full queue with a Review link', () => {
+it('keeps the year on Home and starts Budget with this month’s groups and a Review link', () => {
   const props = plannerProps()
   const pendingPlan = { ...plan, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
   const { container } = render(<AnnualBudgetPlanner {...props} plan={pendingPlan} />)
-  const chart = container.querySelector('.annual-outlook')!
-  const month = container.querySelector('.expense-stack-overview')!
-  expect(chart.compareDocumentPosition(month) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(container.querySelector('.annual-outlook')).toBeNull()
+  expect(container.querySelector('.expense-stack-overview')).toBeTruthy()
   expect(container.querySelector('.transaction-draft-card')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Review' }))
   expect(props.onReviewTransactions).toHaveBeenCalledOnce()
@@ -99,11 +98,11 @@ it('links Mia plan changes waiting for review to Ask Mia, separately from purcha
   expect(props.onAskMia).toHaveBeenCalledOnce()
   expect(screen.queryByText(/purchases? waiting for review/)).toBeNull()
 })
-it('shows a quiet unknown year and one setup path before values are entered', () => {
-  const { container } = render(<AnnualBudgetPlanner {...plannerProps()} incomeKnown={false} planKnown={false} needsSetup />)
+it('keeps Budget focused on setup when the monthly plan is unknown', () => {
+  const { container } = render(<AnnualBudgetPlanner {...plannerProps()} planKnown={false} needsSetup />)
   expect(container.querySelectorAll('.cash-flow-bars i')).toHaveLength(0)
   expect(container.querySelector('.cash-flow-detail-panel')).toBeNull()
-  expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
+  expect(container.querySelector('.year-outlook')).toBeNull()
   expect(screen.queryByRole('button', { name: 'Ask Mia to update my plan' })).toBeNull()
 })
 it('labels four everyday expense groups with independent visual group marks', () => {
@@ -139,4 +138,39 @@ it('makes an irregular shortfall visible and withholds the year when an allocati
 it('keeps Home actions inside the enabled participant modules', () => {
  render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} canAskMia={false} canReviewTransactions={false} />)
  expect(screen.queryByRole('button', { name: /Review .* purchase|Tell .* what changed|Plan details/ })).toBeNull()
+})
+
+it('puts one plan caveat below the whole money row and uses plain spent copy', () => {
+ const {container} = render(<HomeScreen dashboard={dashboard} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+ const caveat = screen.getByText('This is your plan, not your bank balance.')
+ expect(caveat.previousElementSibling?.className).toBe('home-money-values')
+ expect(container.querySelector('.home-spent')?.textContent).toBe('Spent so far this month: $229.92')
+})
+it('recovers missing debt minimums from Home without inventing a zero outflow', () => {
+ const openDebt = vi.fn()
+ render(<HomeScreen dashboard={{...dashboard, coach_read: {title: 'Debt minimums needed', body: 'Add minimums', action: 'open_debt'}, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
+ expect(screen.getAllByText('Not entered')).toHaveLength(2)
+ fireEvent.click(screen.getByRole('button', {name: 'Add debt minimums'}))
+ expect(openDebt).toHaveBeenCalledOnce()
+})
+it('explains identical irregular costs once for grouped months', () => {
+ const months = plan.annual_outlook.months.map((month,i) => i >= 10 ? {...month, income: 6200, planned_outflow: 7520, baseline_surplus: -1320, expected_irregular: 3800, expected_contributors: [{name: 'School costs', amount: 3800}]} : month)
+ render(<YearOutlook plan={{...plan, annual_outlook: {...plan.annual_outlook, months}}} />)
+ expect(screen.getByText('Nov–Dec')).toBeTruthy()
+ expect(screen.getAllByText('School costs: $3,800')).toHaveLength(1)
+ expect(screen.getByText('$1,320 short each month')).toBeTruthy()
+})
+it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown debt minimums', () => {
+ const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
+ const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={null} />)
+ const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
+ expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero bill$0')
+ expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billNot entered')
+ expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
+ expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')
+ expect(within(group).getByText('Add your debt minimums.')).toBeTruthy()
+ expect(group.textContent).not.toContain('Plus $0')
+ view.rerender(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={0} />)
+ expect(view.container.querySelector('.expense-stack-row-heading b')?.textContent).toBe('$100 planned')
+ expect(screen.getByText('Plus $0 in debt minimums.')).toBeTruthy()
 })

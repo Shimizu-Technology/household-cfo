@@ -102,7 +102,8 @@ describe('debt minimums card', () => {
     } as unknown as DashboardData
     const onOpenDebt = vi.fn()
     render(<HomeScreen dashboard={dashboard} budget={{} as never} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} pendingImportCount={0} onReviewImports={vi.fn()} onOpenDebt={onOpenDebt} />)
-    expect(screen.queryByRole('button', { name: 'Add debt minimums' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Add debt minimums' }))
+    expect(onOpenDebt).toHaveBeenCalledOnce()
     expect(screen.queryByRole('button', { name: 'Open My Money > Debt' })).toBeNull()
     expect(screen.getByRole('button', { name: /Tell .+ what changed/ })).toBeTruthy()
   })

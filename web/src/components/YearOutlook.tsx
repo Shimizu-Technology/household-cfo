@@ -25,7 +25,7 @@ export function YearOutlook({ plan, moneyKnown = true }: { plan: AnnualBudgetPla
         return <li key={first.period_id} className={first.baseline_surplus < 0 ? 'is-short' : ''}>
           <div><strong>{first.label}{first !== last ? `–${last.label}` : ''}</strong><span>{money(Math.abs(first.baseline_surplus))} {first.baseline_surplus < 0 ? 'short' : 'left'}{first !== last ? ' each month' : ''}</span></div>
           <p>{money(first.planned_outflow)} planned out{first.income !== months[0]?.income ? ` · ${money(first.income)} money in` : ''}</p>
-          {first.expected_contributors.length > 0 && group.months.length === 1 && <p>{first.expected_contributors.map(item => `${item.name}: ${money(item.amount)}`).join(' · ')}</p>}
+          {first.expected_contributors.length > 0 && <p>{first.expected_contributors.map(item => `${item.name}: ${money(item.amount)}`).join(' · ')}</p>}
         </li>
       })}</ul>
     </>}
