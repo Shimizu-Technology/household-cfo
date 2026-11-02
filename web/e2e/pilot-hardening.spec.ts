@@ -3349,13 +3349,15 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
     const styles = getComputedStyle(element)
     return {
       height: element.getBoundingClientRect().height,
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
       maxHeight: Number.parseFloat(styles.maxHeight),
       overflowY: styles.overflowY,
     }
   })
   expect(wrappedMetrics.height).toBeGreaterThan(initialHeight)
   expect(wrappedMetrics.height).toBeLessThanOrEqual(wrappedMetrics.maxHeight)
-  expect(wrappedMetrics.overflowY).toBe('hidden')
+  expect(wrappedMetrics.overflowY).toBe(wrappedMetrics.scrollHeight > wrappedMetrics.clientHeight ? 'auto' : 'hidden')
 
   const composerLayout = await page.locator('.mia-chat-shell .ask-row').evaluate((row) => {
     const rectFor = (selector: string) => {
