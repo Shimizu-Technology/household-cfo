@@ -1590,11 +1590,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
 
   useEffect(() => {
-    setFreshMiaReplyId(null)
     if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; sentTurnRef.current = false }
   }, [activeSection])
-
-  useEffect(() => { setFreshMiaReplyId(null) }, [chatStorageKey])
 
   useEffect(() => {
     if (miaLoading) { chatScrolledAwayRef.current = false; sentTurnRef.current = true }
@@ -1786,6 +1783,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     setActive(targetSection)
     if (targetSection !== 'Ask Mia') {
+      setFreshMiaReplyId(null)
       setIsChatExpanded(false)
       setAssistPanel(null)
     }
