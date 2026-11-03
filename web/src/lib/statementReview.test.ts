@@ -23,6 +23,7 @@ describe('statement review wording', () => {
   })
   it('keeps uncertainty visible: a mismatch and an unchecked file are both said, a match is quiet', () => {
     expect(totalsNote('mismatch')).toContain('don’t add up')
+    expect(totalsNote('count')).toContain('number of lines')
     expect(totalsNote('unchecked')).toContain('couldn’t check')
     expect(totalsNote('matches')).toBeNull()
   })

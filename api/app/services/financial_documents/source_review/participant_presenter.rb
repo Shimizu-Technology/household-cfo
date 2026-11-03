@@ -86,12 +86,13 @@ module FinancialDocuments
       end
 
       # "matches" only when the statement's own printed totals agree; a file that prints none is "unchecked", never "matches".
+      # Money that does not add up and a line count that differs from the printed one are different problems and are said differently.
       def totals_check
         report = revision.reconciliation || {}
         accounts = Array(report["accounts"])
         residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
-        return "mismatch" if report.dig("row_census", "matches_reported") == false || report.dig("page_coverage", "all_processed") == false ||
-          residuals.any? { |value| value != 0 } || accounts.any? { |account| account["row_count_matches"] == false }
+        return "mismatch" if report.dig("page_coverage", "all_processed") == false || residuals.any? { |value| value != 0 }
+        return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
       end
 

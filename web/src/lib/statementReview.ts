@@ -21,7 +21,7 @@ export type StatementPlan = {
   total: number
   done: number
   ready_event_ids: number[]
-  totals_check: 'matches' | 'mismatch' | 'unchecked'
+  totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
   attention: PlanAttention[]
@@ -100,6 +100,7 @@ export function statementCounts(plan: StatementPlan): { open: number; attention:
 
 export function totalsNote(check: StatementPlan['totals_check']): string | null {
   if (check === 'mismatch') return 'The totals on this statement don’t add up, so a line may be missing or wrong. We’ll keep that noted.'
+  if (check === 'count') return 'The number of lines we found doesn’t match the number printed on your statement, so a line may be missing or extra. We’ll keep that noted.'
   if (check === 'unchecked') return 'This file doesn’t show totals, so we couldn’t check it against your statement.'
   return null
 }

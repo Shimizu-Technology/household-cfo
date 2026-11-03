@@ -25,6 +25,23 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "unchecked", plan.fetch("totals_check")
   end
 
+  test "the plan says plainly whether the printed totals disagree, the line count differs, or nothing could be checked" do
+    presenter = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, @source[:revision], user: @user)
+    balanced = { "accounts" => [ { "arithmetic_balanced" => true, "balance_residual_cents" => 0, "debit_residual_cents" => 0, "credit_residual_cents" => 0, "row_count_matches" => true } ], "row_census" => { "matches_reported" => true }, "page_coverage" => { "all_processed" => true } }
+    {
+      balanced => "matches",
+      balanced.merge("accounts" => [ balanced["accounts"].first.merge("balance_residual_cents" => 4_250, "arithmetic_balanced" => false) ]) => "mismatch",
+      balanced.merge("page_coverage" => { "all_processed" => false }) => "mismatch",
+      balanced.merge("row_census" => { "matches_reported" => false }) => "count",
+      balanced.merge("accounts" => [ balanced["accounts"].first.merge("row_count_matches" => false) ]) => "count",
+      { "accounts" => [ { "arithmetic_balanced" => false, "balance_residual_cents" => nil } ], "row_census" => { "matches_reported" => nil } } => "unchecked"
+    }.each do |report, expected|
+      revision = @source[:revision]
+      revision.define_singleton_method(:reconciliation) { report }
+      assert_equal expected, presenter.plan_summary.fetch(:totals_check), report.inspect
+    end
+  end
+
   test "approving the rest links the account, saves exactly those lines and counts only categorized spending" do
     ready = review_plan.fetch("ready_event_ids")
     approve_lines({ expect_ready_ids: ready, lines: ready.map { |id| { event_id: id, decision: "as_read" } } })
