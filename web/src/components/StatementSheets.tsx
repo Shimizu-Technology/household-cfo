@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { Button } from './Button'
 import type { SourceAccount } from '../lib/sourceReview'
+import type { ReviewedSourceAccount } from '../lib/participantSourceReview'
 import { LINE_KIND_OPTIONS, accountSentence, amountInputText, parseLineAmount, type AccountChange, type AccountLabel, type LineEdit, type LineKind } from '../lib/statementReview'
 import './StatementSheets.css'
 
@@ -75,14 +76,14 @@ export function StatementLineSheet({ line, categories, busy, error, onSave, onLe
 
 type AccountDraft = { source_account_id: number; label: string; account_basis: '' | 'asset' | 'liability'; period_start_on: string; period_end_on: string }
 
-export function StatementAccountSheet({ accounts, names, busy, error, onSave, onClose }: {
-  accounts: SourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; error: string | null
+export function StatementAccountSheet({ accounts, reviewed, names, busy, error, onSave, onClose }: {
+  accounts: SourceAccount[]; reviewed: ReviewedSourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; error: string | null
   onSave: (changes: AccountChange[]) => void; onClose: () => void
 }) {
   const ref = usePilotDialog(() => { if (!busy) onClose() })
   const [drafts, setDrafts] = useState<AccountDraft[]>(() => accounts.map((account) => ({
     source_account_id: account.id, label: names[account.id]?.name ?? '',
-    account_basis: account.account_basis === 'unknown' ? '' : account.account_basis,
+    account_basis: reviewed.find((row) => row.source_account_id === account.id)?.approved?.tracked_account.account_basis ?? (account.account_basis === 'unknown' ? '' : account.account_basis),
     period_start_on: account.period_start_on ?? '', period_end_on: account.period_end_on ?? '',
   })))
   const [problem, setProblem] = useState<string | null>(null)

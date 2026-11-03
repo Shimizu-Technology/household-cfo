@@ -53,11 +53,14 @@ module Api
         raise ArgumentError, "Review request contains unsupported fields" unless (body.keys - %i[revision_id input]).empty?
         input = body.fetch(:input).to_h.deep_symbolize_keys
         raise ArgumentError, "Idempotency-Key is required" if request.headers["Idempotency-Key"].to_s.strip.empty?
-        result = with_locked_revision(body) do |revision|
+        result = with_locked_revision(body, lock_timeout: "5s") do |revision|
           FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input, cohort_membership: current_cohort_membership).call
         end
         response.set_header("Cache-Control", "no-store")
         render json: { result: result }
+      rescue ActiveRecord::LockWaitTimeout
+        # A page holds the household lock while it saves; another request waits only briefly, saves nothing, and can be repeated.
+        render json: { errors: [ "Your statement is being saved by another request. Nothing was saved. Try again in a moment." ] }, status: :conflict
       rescue KeyError, TypeError
         render json: { errors: [ "Statement review request is missing required fields" ] }, status: :unprocessable_entity
       end
@@ -147,8 +150,9 @@ module Api
 
       private
 
-      def with_locked_revision(body)
+      def with_locked_revision(body, lock_timeout: nil)
         ApplicationRecord.transaction do
+          ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '#{lock_timeout}'") if lock_timeout
           current_household.lock!
           domain.authorize!
           document = current_household.financial_document_imports.lock.find(params[:document_import_id])

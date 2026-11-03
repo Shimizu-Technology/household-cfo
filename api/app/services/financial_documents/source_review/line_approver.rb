@@ -80,7 +80,10 @@ module FinancialDocuments
           facts = statement_facts(account, current, change)
           # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
           next if current && tracked.label == label && tracked.account_basis == basis && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
-          existing = SourceTrackedAccount.current_picture.where(household: household, label: label, account_basis: basis).order(:id).first
+          # A generic fallback name ("Bank account") says nothing about which account it is: two unnamed accounts must stay two,
+          # or a charge in one would be offered as a duplicate of the same charge in the other.
+          named = change[:label].present? || tracked.present? || label.include?("····")
+          existing = named ? SourceTrackedAccount.current_picture.where(household: household, label: label, account_basis: basis).order(:id).first : nil
           raw = { source_account_id: account.id, tracked_account_id: existing&.id, label: label, account_basis: basis,
             base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, statement_facts: facts, reason: REASON }
           domain.execute("account_link", domain.normalize("account_link", raw))

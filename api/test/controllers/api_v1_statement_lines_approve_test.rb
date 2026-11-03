@@ -1,5 +1,12 @@
 require "test_helper"
 
+# Lets one test make the household lock look busy; inert unless switched on.
+module LockWaitSwitch
+  class << self; attr_accessor :on; end
+  def lock!(*) = LockWaitSwitch.on ? raise(ActiveRecord::LockWaitTimeout, "timed out") : super
+end
+Household.prepend(LockWaitSwitch)
+
 # "Approve the rest" must save exactly the lines that looked right, all or none, and be safe to repeat.
 class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   setup do
@@ -199,8 +206,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       assert_equal({ "approved" => 0, "left_out" => 0, "unchanged" => 2, "complete" => false }, response.parsed_body.fetch("result"))
       assert_equal 2, SourceReviewVersion.where(household: @household).count
       # A page that holds a line she was never shown as looking right saves nothing.
-      page.call(ids[2, 2] + [ -1 ])
-      assert_response :unprocessable_entity
+      page.call(ids[2, 1] + [ -1 ])
+      assert_response :conflict
       assert_equal 2, SourceReviewVersion.where(household: @household).count
       page.call(ids[2, 2])
       page.call(ids.last(1), coverage_answer: "nothing_missing")
@@ -436,6 +443,32 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal [ 300, 120 ], @household.household_transactions.order(:id).pluck(:total_amount_cents)
   end
 
+  test "two unnamed accounts stay two accounts, so a charge in one is never offered as a duplicate of the other" do
+    source = build_source(rows: [ [ "Payless", -1_000, "purchase", 1, "first" ], [ "Payless", -1_000, "purchase", 1, "second" ] ], label: "Spreadsheet account")
+    ids = source[:revision].financial_source_events.order(:position).ids
+    approve_lines({ lines: ids.map { |id| { event_id: id, decision: "leave_out" } } }, source: source)
+    assert_response :success
+    assert_equal 2, SourceTrackedAccount.where(household: @household).count
+    # A name she gives is still reused, so the same real account on the next statement is one account.
+    named = build_source(rows: [ [ "Ross", -500, "purchase", 2 ] ])
+    approve_lines({ lines: [], accounts: [ { source_account_id: named[:revision].financial_source_accounts.sole.id, account_basis: "asset", label: "Bank of Guam checking" } ] }, source: named)
+    again = build_source(rows: [ [ "Ross", -700, "purchase", 3 ] ])
+    approve_lines({ lines: [], accounts: [ { source_account_id: again[:revision].financial_source_accounts.sole.id, account_basis: "asset", label: "Bank of Guam checking" } ] }, source: again)
+    assert_equal 3, SourceTrackedAccount.where(household: @household).count
+  end
+
+  test "a page that waits too long for the household lock saves nothing and says so" do
+    LockWaitSwitch.on = true
+    begin
+      approve_lines({ lines: [ { event_id: @events.fetch("Payroll").id, decision: "as_read" } ] })
+    ensure
+      LockWaitSwitch.on = false
+    end
+    assert_response :conflict
+    assert_match(/Nothing was saved\. Try again/, response.parsed_body.fetch("errors").first)
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+  end
+
   test "a name or a saved description with a raw account number reads masked, even when it was approved before" do
     names = ->(label, masked = nil) { FinancialDocuments::SourceReview::AccountName.parts(label, masked) }
     assert_equal({ name: "Bank of Guam checking ····5678", last4: nil }, names.call("Bank of Guam checking 000012345678"))
@@ -522,11 +555,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {})
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: SecureRandom.hex(32))
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
-    events = rows.map do |name, cents, type, row|
-      { account_key: "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
+    events = rows.map do |name, cents, type, row, key|
+      { account_key: key || "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: [ { account_key: "synthetic-account", account_basis: basis, label: label }.merge(account) ],
+      accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) },
       events: events, reported_row_count: reported || events.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
     result = FinancialDocuments::SourceAccountingPersister.new(document, attempt: attempt, accounting: accounting).call
     document.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })

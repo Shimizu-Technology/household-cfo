@@ -10170,6 +10170,28 @@ test('BOG UI a finished statement leads to what Mia notices, with the snapshot a
   await expect(page.getByText('Dining out is your steadiest pattern.')).toBeVisible()
 })
 
+test('BOG UI asking what Mia notices never sends or wipes a message she already has waiting', async ({ page }) => {
+  const sent: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent.push('sent')
+    return route.fulfill({ status: 500, json: { error: 'must not be sent' } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
+    return data
+  })
+  await openSection(page, 'Ask Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('Can we talk about my car insurance?')
+  await openSection(page, 'Statements')
+  await review.getByRole('button', { name: 'See what Mia notices', exact: true }).click()
+  await expect(page.getByText('Your message and files are still waiting here.')).toBeVisible()
+  await expect(composer).toHaveValue('Can we talk about my car insurance?')
+  expect(sent).toHaveLength(0)
+})
+
 test('BOG UI a long statement is approved 100 lines at a time', async ({ page }) => {
   const bodies: Array<{ input: { expect_ready_ids: number[]; paged?: boolean; lines: unknown[] } }> = []
   await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {

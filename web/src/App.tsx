@@ -2173,7 +2173,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   // After a statement is saved the next step is what Mia notices in it: ask the question for her.
   const askMiaAboutPatterns = isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && visibleSections.includes('Ask Mia') && !challengeNotOpen
-    ? () => { if (switchSection('Ask Mia', { focusHeading: false })) void handleAskMia(SPENDING_PATTERNS_PROMPT) }
+    ? () => {
+        if (!switchSection('Ask Mia', { focusHeading: false })) return
+        // A message or files she already has waiting are hers: asking for patterns must not send them or wipe them.
+        if (question.trim() || pendingMiaAttachments.length > 0) setMiaError('Your message and files are still waiting here. Send or clear them, then ask what Mia notices.')
+        else void handleAskMia(SPENDING_PATTERNS_PROMPT)
+      }
     : undefined
 
   async function handleAskMia(prompt = question) {

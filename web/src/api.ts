@@ -4693,7 +4693,8 @@ export async function fetchDocumentSourceReview(id: number, revisionId: number, 
   return payload.source_review
 }
 
-export async function mutateStatementReview<T>(importId: number, revisionId: number, action: SourceReviewAction, input: object, requestId: string, signal?: AbortSignal): Promise<{ record: T; replayed: boolean }> {
+export type ApproveLinesResult = { approved: number; left_out: number; unchanged: number; complete: boolean }
+export async function mutateStatementReview(importId: number, revisionId: number, action: SourceReviewAction, input: object, requestId: string, signal?: AbortSignal): Promise<{ result: ApproveLinesResult }> {
   return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
 }

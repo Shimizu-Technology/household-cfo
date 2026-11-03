@@ -216,7 +216,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
                 return <tr key={event.id} data-needs-look={attention || undefined}>
                   <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</span></td>
                   <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</td>
-                  <td className="statement-num">{signed == null ? 'Pending' : sourceMoney(signed, true)}</td>
+                  <td className="statement-num">{signed == null ? 'Unknown' : sourceMoney(signed, true)}</td>
                   <td>{label}</td>
                 </tr>
               })}
@@ -234,7 +234,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
         onClose={() => setSheet(null)}
         onSave={(edit: LineEdit) => { void saveSheet({ event_id: sheet.line.eventId, decision: 'edited', edit }) }}
         onLeaveOut={() => { void saveSheet({ event_id: sheet.line.eventId, decision: 'leave_out' }) }} />}
-      {sheet?.kind === 'account' && data && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} names={names} busy={busy} error={mutation.error}
+      {sheet?.kind === 'account' && data && review && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} reviewed={review.accounts} names={names} busy={busy} error={mutation.error}
         onClose={() => setSheet(null)} onSave={(changes) => { void saveAccounts(changes) }} />}
     </section>
   )

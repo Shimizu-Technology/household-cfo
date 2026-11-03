@@ -15,7 +15,7 @@ afterEach(() => cleanup())
 beforeEach(() => {
   sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
   fetchReview.mockReset(); fetchReview.mockImplementation(async (_id, _revision, page, filter) => participantReviewFixture(page, filter))
-  mutate.mockReset(); mutate.mockResolvedValue({ record: {}, replayed: false })
+  mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
 })
 
 describe('statement review a participant can finish', () => {
@@ -77,6 +77,28 @@ describe('statement review a participant can finish', () => {
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4130, decision: 'edited', edit: { kind: 'spending', merchant: 'Payless', posted_on: '2026-09-16', amount_cents: 1250, category_id: 10 } }] })
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+
+  it('reopens the account sheet with the type she already approved when the file never said', async () => {
+    const data = participantReviewFixture(); data.accounts[0].account_basis = 'unknown'; data.revision.accounts[0].account_basis = 'unknown'
+    data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'liability'
+    fetchReview.mockResolvedValue(data)
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
+    const sheet = await screen.findByRole('dialog')
+    expect((within(sheet).getByLabelText(/bank account or a credit card|Type/i) as HTMLSelectElement).value).toBe('liability')
+  })
+
+  it('says Unknown, not Pending, for an amount that could not be read, in the list as in the questions', async () => {
+    mount()
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByText('See all 137 lines'))
+    fireEvent.click(screen.getByRole('button', { name: 'Later lines' }))
+    await screen.findByRole('button', { name: 'Fictional entry 51' })
+    fireEvent.click(screen.getByRole('button', { name: 'Later lines' }))
+    const row = (await screen.findByRole('button', { name: 'Fictional entry 131' })).closest('tr')!
+    expect(within(row).getByText('Unknown')).toBeTruthy()
+    expect(region().textContent).not.toContain('Pending')
   })
 
   it('refuses an amount that is not a number instead of saving it as zero', async () => {
@@ -210,12 +232,12 @@ describe('statement review a participant can finish', () => {
   it('says a long save can take a minute while it saves, then stops saying it', async () => {
     const data = participantReviewFixture(); data.participant_review!.plan.ready = Array.from({ length: 1_000 }, (_, index) => ({ event_id: 10_000 + index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
     fetchReview.mockResolvedValue(data)
-    let finish: (value: { record: object; replayed: boolean }) => void = () => {}
+    let finish: (value: { result: { approved: number; left_out: number; unchanged: number; complete: boolean } }) => void = () => {}
     mutate.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
     mount()
     fireEvent.click(await screen.findByRole('button', { name: 'Approve these 100' }))
     expect(await screen.findByText('Saving 100 lines. This can take a minute.')).toBeTruthy()
-    finish({ record: {}, replayed: false })
+    finish({ result: { approved: 0, left_out: 0, unchanged: 0, complete: false } })
     await waitFor(() => expect(screen.queryByText('Saving 100 lines. This can take a minute.')).toBeNull())
   })
 
