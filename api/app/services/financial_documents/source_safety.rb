@@ -99,7 +99,11 @@ module FinancialDocuments
     def pdf_text_pages(path, max_pages:, max_runs:)
       return if File.size(path) > UploadLimits::INLINE_SOURCE_MAX_BYTES
 
-      payload = pdf_sandbox.run(path, "pages", max_pages, max_runs)
+      # Pages serialize coordinates as well as text. Keep the small default
+      # for probes; allow 256 bytes per native run plus the default headroom.
+      # The pipe, CPU, memory and source-size limits still bound hostile text.
+      output_budget = ContentSources::PdfSandbox::DEFAULT_MAX_OUTPUT_BYTES + max_runs * 256
+      payload = pdf_sandbox(max_output_bytes: output_budget).run(path, "pages", max_pages, max_runs)
       pages = payload.fetch("pages").map(&:deep_symbolize_keys)
       return unless pages.length == payload.fetch("page_count")
       pages
@@ -117,9 +121,10 @@ module FinancialDocuments
       )
     end
 
-    def pdf_sandbox
+    def pdf_sandbox(max_output_bytes: ContentSources::PdfSandbox::DEFAULT_MAX_OUTPUT_BYTES)
       ContentSources::PdfSandbox.new(
         script_path: Rails.root.join(PDF_PROBE_SCRIPT),
+        max_output_bytes: max_output_bytes,
         timeout_seconds: PDF_PROBE_TIMEOUT_SECONDS,
         cpu_seconds: PDF_PROBE_CPU_SECONDS,
         load_paths: pdf_probe_load_paths

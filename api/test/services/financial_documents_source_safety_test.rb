@@ -7,6 +7,34 @@ class FinancialDocumentsSourceSafetyTest < ActiveJob::TestCase
   SourceSafety = FinancialDocuments::SourceSafety
   CONTENT_TYPES_XML = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'.freeze
 
+  test "near limit native runs survive the real sandbox output pipe" do
+    script = Tempfile.new([ "large-native-pages", ".rb" ])
+    script.write(<<~RUBY)
+      require "json"
+      count = Integer(ARGV.fetch(3))
+      runs = Array.new(count) { { text: "Sample merchant", x: 102.125, y: 690.125, finish: 180.125 } }
+      STDOUT.write(JSON.generate(ok: true, page_count: 1, pages: [{ number: 1, box: [0, 0, 612, 792], rotation: 0, crop: nil, runs: runs }]))
+    RUBY
+    script.close
+    singleton = ContentSources::PdfSandbox.singleton_class
+    original = singleton.instance_method(:new)
+    singleton.define_method(:new) do |**options|
+      original.bind_call(self, **options.merge(script_path: script.path))
+    end
+    begin
+      path = Rails.root.join("test/fixtures/files/documents/v2/running-balance.pdf")
+      count = FinancialDocuments::NativeStatementParser::MAX_RUNS
+      pages = SourceSafety.pdf_text_pages(path, max_pages: 60, max_runs: count)
+      assert pages, "Allowed run count must fit the bounded JSON pipe"
+      assert_equal count, pages.sole[:runs].length
+      assert_equal "Sample merchant", pages.sole[:runs].last[:text]
+    ensure
+      singleton.define_method(:new, original)
+    end
+  ensure
+    script&.close!
+  end
+
   test "native text pages are bounded and rotated or cropped pages stay on the model route" do
     root = Rails.root.join("test/fixtures/files/documents/v2")
     assert_equal 3, SourceSafety.pdf_text_pages(root.join("continued-pages.pdf"), max_pages: 60, max_runs: 60_000).length

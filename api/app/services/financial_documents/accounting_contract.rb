@@ -32,6 +32,17 @@ module FinancialDocuments
       new(payload, coverage: coverage).call
     end
 
+    # Native arithmetic is only valid for the same kinds and amounts after
+    # normalization. Informational amounts remain evidence, never movements.
+    def self.preserves_printed_rows?(accounting, rows)
+      events = accounting[:events]
+      events.length == rows.length && events.zip(rows).all? do |event, row|
+        expected_amount = row[:row_kind] == "informational" ? nil : row[:signed_amount_cents]
+        event[:row_kind] == row[:row_kind] && event[:signed_amount_cents] == expected_amount &&
+          (row[:row_kind] != "informational" || event.dig(:evidence, :displayed_amount_cents) == row[:signed_amount_cents])
+      end
+    end
+
     def self.legacy(drafts, coverage: {})
       rows = Array(drafts).map.with_index do |draft, index|
         draft = draft.is_a?(Hash) ? draft.deep_symbolize_keys : {}

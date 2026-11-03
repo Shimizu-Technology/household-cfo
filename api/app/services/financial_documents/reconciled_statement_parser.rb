@@ -49,12 +49,16 @@ module FinancialDocuments
 
       finish
     rescue Invalid, ArgumentError
+      # Later pages were not read; earlier row failures cannot be repaired.
+      @aborted = true
+      @failed_pages = []
       rejected("statement_evidence_incomplete")
     end
 
     # Only failed pages may be supplied by the model. Recheck the original
     # physical row census and ALL statement arithmetic before publishing a result.
     def recover(page_accounting)
+      raise Invalid if @aborted
       raise Invalid unless page_accounting.keys.sort == failed_pages.sort
       page_accounting.each do |page, accounting|
         raise Invalid unless accounting.is_a?(Hash)
@@ -261,7 +265,7 @@ module FinancialDocuments
         valid = false unless key && key != :date
         values[key] << run[:text]
       end
-      body = values.delete(:description).join(" ")
+      body = values.delete(:description).to_a.join(" ")
       valid = false if body.blank?
       amounts = values.transform_values do |texts|
         texts.one? ? money(texts.sole) : nil
@@ -305,12 +309,7 @@ module FinancialDocuments
       @account[:header_evidence] += "; printed posted row count: #{@posted_count}; physical informational rows: #{@rows.length - posted.length}"
       accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: [ @account ], events: @rows, reported_row_count: @rows.length },
         coverage: { expected_page_count: @pages.length, processed_pages: (1..@pages.length).to_a })
-      raise Invalid unless accounting[:events].length == @rows.length
-      accounting[:events].zip(@rows).each do |event, row|
-        expected_amount = row[:row_kind] == "informational" ? nil : row[:signed_amount_cents]
-        raise Invalid unless event[:row_kind] == row[:row_kind] && event[:signed_amount_cents] == expected_amount
-        raise Invalid if row[:row_kind] == "informational" && event.dig(:evidence, :displayed_amount_cents) != row[:signed_amount_cents]
-      end
+      raise Invalid unless AccountingContract.preserves_printed_rows?(accounting, @rows)
       Result.new(success: true, error: nil,
         data: { document_kind: "statement", document_date: @finish, period_start_on: @start, period_end_on: @finish,
           summary: "Read #{@rows.length} rows from every statement page. Review the purchases before approval.", confidence: "high",

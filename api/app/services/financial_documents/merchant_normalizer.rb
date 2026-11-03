@@ -7,7 +7,7 @@ module FinancialDocuments
   module MerchantNormalizer
     REGION = /(?:A[KLRSZ]|C[AOT]|D[CE]|FL|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEHINOPST]|N[CDEHJMVY]|O[HKR]|P[ARW]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY]|AS|FM|MP)/i
     GUAM_LOCATION = /(?:Agana Heights|Agat|Asan(?:-Maina)?|Barrigada|Chalan Pago(?:-Ordot)?|Dededo|Hagatna|Hagåtña|Inalahan|Inarajan|Mangilao|Merizo|Mongmong(?:-Toto-Maite)?|Piti|Santa Rita(?:-Sumai)?|Sinajana|Talofofo|Tamuning|Umatac|Yigo|Yona|Guam)/i
-    LOCATION = /(?:#{GUAM_LOCATION}(?:\s+GU)?|[[:alpha:]][[:alpha:].'’-]*(?:\s+[[:alpha:]][[:alpha:].'’-]*){0,4}\s+#{REGION})/i
+    LOCATION = /(?:#{GUAM_LOCATION}(?:\s+GU)?|[[:alpha:]][[:alpha:].'’-]*\s+#{REGION})/i
     module_function
 
     def call(value)

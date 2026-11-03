@@ -73,6 +73,7 @@ module FinancialDocuments
       verify_region_census!(pages)
       accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: @accounts, events: @events },
         coverage: { expected_page_count: pages.length, processed_pages: (1..pages.length).to_a })
+      reject!("printed_arithmetic") unless AccountingContract.preserves_printed_rows?(accounting, @events)
       Result.new(success: true, error: nil,
         data: { document_kind: "statement", document_date: @accounts.last[:period_end_on],
           period_start_on: @accounts.first[:period_start_on], period_end_on: @accounts.last[:period_end_on],
@@ -340,7 +341,7 @@ module FinancialDocuments
       reject!("date_order") if @last_date && @last_date > date
       @last_date = date
       @financial_count += 1
-      attributes = { account_key: account[:account_key], row_kind: "posted", event_type: type, signed_amount_cents: signed,
+      attributes = { account_key: account[:account_key], row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: signed,
         amount_column_cents: signed, posted_on: date.iso8601, authorized_on: authorized&.iso8601,
         locator: { page: page[:number], row: row }, merchant: body, raw_description: body, evidence: body, funding_components: funding }
       @events << attributes

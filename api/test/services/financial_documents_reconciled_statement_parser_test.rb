@@ -8,6 +8,54 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     doc["kind"] == "statement" && doc["format"] == "pdf" && !doc["filename"].include?("scanned")
   end.freeze
 
+  test "a later invalid date aborts repair eligibility and never calls the provider" do
+    [ "08/31", "09/31/2026" ].each do |invalid_date|
+      pages = pages_for("continued-pages.pdf")
+      pages.first[:rotation] = 90
+      pages.last[:runs].find { |run| run[:text].match?(FinancialDocuments::ReconciledStatementParser::DATE) }[:text] = invalid_date
+      subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+      result = subject.call
+      refute result.success?
+      assert_nil result.data
+      assert_empty subject.failed_pages
+      refute subject.recover({}).success?
+
+      source = FinancialDocuments::SourceSafety.singleton_class
+      original = source.instance_method(:pdf_text_pages)
+      source.define_method(:pdf_text_pages) { |*args, **kwargs| pages }
+      begin
+        extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+        extractor.define_singleton_method(:extract_openrouter_document) { |*args, **kwargs| flunk "Invalid statements must never enter page repair" }
+        document = FinancialDocumentImport.new(document_kind: "statement", filename: "continued-pages.pdf", content_type: "application/pdf")
+        rejected = extractor.send(:native_statement_result, document, ROOT.join("continued-pages.pdf"))
+        refute rejected.success?
+        assert_nil rejected.data
+      ensure
+        source.define_method(:pdf_text_pages, original)
+      end
+    end
+  end
+
+  test "a dated row without description requires repair and preserves printed monetary evidence" do
+    filename = "review-1/merchant-locations-numeric-name.pdf"
+    pages = pages_for(filename)
+    pages.first[:runs].reject! { |run| run[:y] == 690 && run[:x].between?(100, 450) }
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    result = subject.call
+    refute result.success?
+    assert_nil result.data
+    assert_equal [ 1 ], subject.failed_pages
+    bad = accounting_for(filename, page: 1)
+    bad[:events].first[:signed_amount_cents] += 1
+    refute subject.recover(1 => bad).success?
+
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    subject.call
+    recovered = subject.recover(1 => accounting_for(filename, page: 1))
+    assert recovered.success?, recovered.error
+    assert_accounting(fixture(filename), recovered.data[:source_accounting])
+  end
+
   ORIGINAL.each do |expected|
     test "original #{expected['filename']} reaches native extraction and exactly matches independent expected accounting" do
       filename = expected.fetch("filename")

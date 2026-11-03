@@ -4,9 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen.canvas import Canvas
+import generate as v1
 
 ROOT = Path(__file__).resolve().parents[2] / 'api/test/fixtures/files/documents/v2'
 OUT = ROOT / 'review-1'
@@ -46,7 +47,7 @@ def make(name, rows, *, native=True, failed=None, merged=False, supporting=False
         if scanned and number == 1:
             image = Image.new('RGB', (1440, 1300), 'white')
             draw = ImageDraw.Draw(image)
-            font = ImageFont.truetype('/System/Library/Fonts/Supplemental/Arial.ttf', 26)
+            font = v1.font(26)
             for i, line in enumerate(['Tasi Demo Checking Account - transaction detail',
                                      'Date      Description                           Debit     Credit    Balance',
                                      '11/06     Tasi Demo groceries                     25.00              1,075.00',

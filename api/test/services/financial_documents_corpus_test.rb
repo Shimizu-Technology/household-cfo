@@ -43,8 +43,12 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
     end
   end
 
-  MANIFEST["documents"].each do |doc|
-    test "extract corpus #{doc['filename']} with offline recorded provider responses" do
+  # Native extraction must leave any loaded recording count untouched,
+  # including an absent recording and recordings with multiple sections.
+  native_doc = MANIFEST["documents"].find { |doc| doc["filename"] == "bank-of-guam-2026-09.pdf" }
+  cases = MANIFEST["documents"].map { |doc| [ doc, nil ] } + [ 0, 2 ].map { |count| [ native_doc, count ] }
+  cases.each do |doc, recording_count|
+    test "extract corpus #{doc['filename']} with offline recorded provider responses #{recording_count}" do
       path = ROOT.join(doc["filename"])
       mime = Marcel::MimeType.for(path, name: doc["filename"])
       kind = { "budget" => "spreadsheet", "statement_screenshot" => "statement", "retirement_statement" => "statement" }.fetch(doc["kind"], doc["kind"])
@@ -53,6 +57,8 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
       document = FinancialDocumentImport.new(household: household, uploaded_by_user: user, document_kind: kind, filename: doc["filename"], content_type: mime, s3_key: "synthetic-only/#{doc['filename']}")
       recording = ROOT.join("recorded_responses", doc["filename"] + ".json")
       responses = recording.exist? ? JSON.parse(recording.read).fetch("responses").dup : []
+      responses = Array.new(recording_count) { responses.first.deep_dup } if recording_count
+      loaded_recording_count = responses.length
       extractor = FinancialDocuments::Extractor.new(api_key: "offline-fixture")
       assertions = self
       requested_label = nil
@@ -82,7 +88,7 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
         assert result.success?, "#{doc['filename']}: #{result.error}; #{result.metadata[:error_detail]}"
         native = result.metadata[:extraction_mode] == "native_statement"
         if native
-          assert_equal 1, responses.length, "Reconciled text PDFs must not call the provider"
+          assert_equal loaded_recording_count, responses.length, "Reconciled text PDFs must not call the provider"
         else
           assert_empty responses, "Every recorded provider section must be consumed"
         end
