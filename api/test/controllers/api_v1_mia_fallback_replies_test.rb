@@ -65,7 +65,7 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :created
-    assert_equal HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER, content
+    assert_equal "Glad to help. I’m here whenever you want to look at the next thing.", content
     assert_equal 0, calls, "a thank-you needs neither the intent model nor the reply model"
   end
 
