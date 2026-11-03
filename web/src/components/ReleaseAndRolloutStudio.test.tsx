@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 
-vi.mock('./CohortReleaseStudio', () => ({ CohortReleaseStudio: ({ beforeReleaseAction, onReleaseChange }: { beforeReleaseAction?: () => boolean; onReleaseChange?: () => void }) => <div>Release content<button type="button" onClick={() => { if (beforeReleaseAction?.() !== false) onReleaseChange?.() }}>Simulate saved version</button></div> }))
+vi.mock('./CohortReleaseStudio', () => ({ CohortReleaseStudio: ({ beforeReleaseAction, onReleaseChange }: { beforeReleaseAction?: () => boolean | Promise<boolean>; onReleaseChange?: () => void }) => <div>Release content<button type="button" onClick={async () => { if ((await beforeReleaseAction?.()) !== false) onReleaseChange?.() }}>Simulate saved version</button></div> }))
 vi.mock('./InitialCohortLaunch', () => ({ InitialCohortLaunch: () => <div>First launch review</div> }))
 vi.mock('./CohortRolloutStudio', () => ({ CohortRolloutStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => <label>Plan note<input aria-label="Plan note" onChange={(event) => onDirtyChange(Boolean(event.target.value))} /></label> }))
 
@@ -70,7 +70,7 @@ describe('ReleaseAndRolloutStudio', () => {
     confirm.mockReturnValue(true)
     await user.click(screen.getByRole('button', { name: 'Simulate saved version' }))
     await user.click(screen.getByRole('tab', { name: /Update group Choose who goes first/ }))
-    expect((screen.getByLabelText('Plan note') as HTMLInputElement).value).toBe('')
+    await waitFor(() => expect((screen.getByLabelText('Plan note') as HTMLInputElement).value).toBe(''))
     expect(onDirtyChange).toHaveBeenLastCalledWith(false)
   })
 })

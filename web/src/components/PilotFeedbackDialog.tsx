@@ -147,7 +147,7 @@ export function PilotFeedbackDialog({
       <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
       <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
         <header>
-          <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
+          <div><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">

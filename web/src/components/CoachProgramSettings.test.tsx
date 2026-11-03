@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { NEUTRAL_BRAND } from '../contexts/brandContextValue'
-import { CoachProgramSettings, CreateCoachProgram } from './CoachProgramSettings'
+import { BrandWelcomePreview, CoachProgramSettings, CreateCoachProgram } from './CoachProgramSettings'
 import type { CurrentUser, WorkspaceBrandConfiguration, CoachWorkspaceSettings } from '../api'
 
 vi.mock('../api', async (importOriginal) => ({
@@ -296,4 +296,26 @@ describe('program settings', () => {
     expect(api.saveWorkspaceBrand).not.toHaveBeenCalled()
   })
 
+})
+
+describe('welcome screen preview', () => {
+  afterEach(cleanup)
+  it('shows what a signed-out visitor sees: the name, the promise, both ways in and the invitation hint', () => {
+    render(<BrandWelcomePreview config={{ ...draft, organization_name: 'Mel Island Money', welcome_heading: 'Welcome to your money', welcome_description: 'One clear step at a time.' }} />)
+    const preview = document.querySelector('.program-preview')!
+    expect(preview.querySelector('header')!.textContent).toContain('Mel Island Money')
+    expect(preview.querySelector('h4')!.textContent).toBe('Welcome to your money')
+    expect(screen.getByText('One clear step at a time.')).toBeTruthy()
+    expect(Array.from(preview.querySelectorAll('.program-preview-action')).map(action => action.textContent)).toEqual(['Sign in', 'Create invited account'])
+    expect(screen.getByText('Use the email your invitation was sent to.')).toBeTruthy()
+    expect(screen.queryByText('Get started')).toBeNull()
+  })
+
+  it('falls back the way the real landing page does when the coach has not written a welcome', () => {
+    render(<BrandWelcomePreview config={{ ...draft, organization_name: '', product_name: 'Island Money', welcome_heading: null, welcome_description: null, tagline: 'Run your home well' }} />)
+    const preview = document.querySelector('.program-preview')!
+    expect(preview.querySelector('header')!.textContent).toContain('Island Money')
+    expect(preview.querySelector('h4')!.textContent).toBe('Welcome to Island Money.')
+    expect(screen.getByText('Run your home well')).toBeTruthy()
+  })
 })

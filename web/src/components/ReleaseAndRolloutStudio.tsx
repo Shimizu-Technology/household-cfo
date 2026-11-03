@@ -5,6 +5,7 @@ import { InitialCohortLaunch } from './InitialCohortLaunch'
 import { CohortRolloutStudio } from './CohortRolloutStudio'
 import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { confirmDiscard } from '../lib/confirmAction'
 
 type View = 'release' | 'rollout'
 
@@ -31,8 +32,8 @@ export function ReleaseAndRolloutStudio({
     setRolloutDirty(dirty)
     onDirtyChange(dirty)
   }, [onDirtyChange])
-  const allowReleaseAction = useCallback(() => (
-    !rolloutDirty || window.confirm('Preparing a new version will reset the update plan you have not saved. Continue and discard that plan after the version is saved?')
+  const allowReleaseAction = useCallback(async () => (
+    !rolloutDirty || confirmDiscard('Preparing a new version will reset the update plan you have not saved. Continue and discard that plan after the version is saved?', { title: 'Reset the update plan?', confirmLabel: 'Continue' })
   ), [rolloutDirty])
   const handleReleaseChange = useCallback(() => {
     setRolloutDirty(false)
@@ -53,9 +54,9 @@ export function ReleaseAndRolloutStudio({
     return <article className="panel coach-empty coach-empty-main"><h3>No groups available yet.</h3><p>Assign this coach to a group before preparing a version or planning an update.</p></article>
   }
 
-  const chooseCohort = (cohortId: number) => {
+  const chooseCohort = async (cohortId: number) => {
     if (cohortId === selectedCohortId || mutationLifecycle.pending) return
-    if (rolloutDirty && !window.confirm('Discard the update plan you have not saved and switch groups?')) return
+    if (rolloutDirty && !(await confirmDiscard('Discard the update plan you have not saved and switch groups?'))) return
     onSelectedCohortIdChange(cohortId)
     setRolloutDirty(false)
     onDirtyChange(false)
@@ -96,7 +97,7 @@ export function ReleaseAndRolloutStudio({
         cohortId={selectedCohortId}
         mutationLifecycle={mutationLifecycle}
         onLaunch={handleLaunchChange}
-        beforeLaunchAction={() => !rolloutDirty || window.confirm('Launching will discard the update plan you have not saved. Continue?')}
+        beforeLaunchAction={async () => !rolloutDirty || confirmDiscard('Launching will discard the update plan you have not saved. Continue?', { title: 'Discard the update plan?', confirmLabel: 'Launch anyway', cancelLabel: 'Go back' })}
       />
 
       <div className="release-rollout-tabs" role="tablist" aria-label="Version and update steps">

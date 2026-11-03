@@ -3,7 +3,7 @@
 .participant-program-picker p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .participant-program-picker label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; font-weight: var(--weight-semibold); }
 .participant-program-picker select { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; height: 44px; min-height: 44px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; font-size: var(--text-md); color: var(--ink); background: var(--paper); text-overflow: ellipsis; overflow: hidden; }
-.participant-program-picker button { justify-self: start; min-height: 44px; max-width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--emerald); color: var(--brand-on-primary); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.participant-program-picker button { justify-self: start; min-height: 44px; max-width: 100%; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--emerald); color: var(--brand-on-primary); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; overflow-wrap: anywhere; }
 .participant-program-picker button:disabled, .participant-program-picker select:disabled { opacity: .65; cursor: default; }
 .participant-program-picker button:focus-visible, .participant-program-picker select:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 3px; }
 .program-picker-note { color: var(--muted); font-size: var(--text-xs); }

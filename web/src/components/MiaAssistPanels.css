@@ -6,7 +6,6 @@
 .mia-assist-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px; border-bottom: 1px solid var(--line, #dfdad1); background: var(--paper, #fffdf7); }
 .mia-assist-header > div { min-width: 0; }
 .mia-assist-header h2 { margin: 4px 0 0; font-size: var(--text-xl); line-height: 1.2; overflow-wrap: anywhere; }
-.mia-assist-header .eyebrow { font-size: var(--text-xs); }
 .mia-assist-header > button { flex-shrink: 0; min-width: 64px; min-height: 44px; padding: 10px 12px; }
 .mia-assist-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 16px; scrollbar-gutter: stable; }
 .mia-assist-body p { margin: 0; color: var(--muted, #61665e); font-size: var(--text-md); line-height: 1.5; }

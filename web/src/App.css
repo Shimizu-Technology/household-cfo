@@ -5,8 +5,8 @@
   --paper-warm: #fbf7ef;
   --paper-deep: #fbf7ef;
   --ink: #1f2421;
-  --ink-soft: #706d66;
-  --muted: #706d66;
+  --ink-soft: #66625b;
+  --muted: #66625b;
   --line: #e2d9cb;
   --emerald: #7b4a58;
   --mauve: #7b4a58;
@@ -20,8 +20,8 @@
   /* Pending money keeps a flat hatch, distinct from confirmed spending, without a gradient. */
   --pending-hatch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath fill='%23f2c9ac' d='M0 0h8v8H0z'/%3E%3Cpath stroke='%23b57352' stroke-width='4' d='M-2 2L2-2M0 8L8 0M6 10l4-4'/%3E%3C/svg%3E");
   --font-body: Montserrat, ui-sans-serif, system-ui, sans-serif;
-  --status-green: #5f7d61;
-  --status-yellow: #a86b34;
+  --status-green: #4f6d53;
+  --status-yellow: #8f5a28;
   --status-red: #9d4b45;
   --number-font: Montserrat, ui-sans-serif, system-ui, sans-serif;
   --font-display: "Cormorant Garamond", Georgia, serif;
@@ -381,7 +381,7 @@
 @media (hover: hover) and (pointer: fine) {
   .income-schedule-submit:hover:not(:disabled) {
     translate: none;
-    background: var(--plum);
+    background: var(--brand-primary-hover);
     box-shadow: none;
   }
 }
@@ -789,7 +789,6 @@
 .mia-memory-policy,
 .mia-memory-empty p { margin: 0; color: var(--muted); }
 .mia-memory-empty { padding: 8px 0; }
-.chat-memory-button { white-space: nowrap; }
 .mia-memory-item-actions .danger-button {
   border-color: rgba(157, 75, 69, 0.34);
   background: transparent;
@@ -808,7 +807,6 @@
   .mia-memory-form-grid { grid-template-columns: 1fr; }
   .mia-memory-panel { gap: 16px; }
   .mia-memory-form { padding: 14px; }
-  .chat-memory-button { font-size: var(--text-xs); }
 }
 
 * {
@@ -828,12 +826,45 @@ button,
 input,
 select,
 textarea {
+  font: inherit; font-weight: var(--weight-semibold);
+}
+
+/* Native controls take the palette, not the browser's blue and grey. Long names
+   shorten with an ellipsis instead of widening the page. */
+:where(input[type='checkbox'], input[type='radio']) {
+  accent-color: var(--emerald);
+}
+
+:where(input[type='file']) {
+  max-width: 100%;
+  color: var(--ink-soft);
+  font-size: var(--text-sm);
+}
+
+:where(input[type='file'])::file-selector-button {
+  min-height: 44px;
+  margin-right: var(--space-3);
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--paper);
+  color: var(--emerald);
   font: inherit;
+  font-weight: var(--weight-bold);
+  cursor: pointer;
+}
+
+:where(select) {
+  max-width: 100%;
+  min-width: 0;
+  text-overflow: ellipsis;
 }
 
 button {
   border: 0;
   cursor: pointer;
+  /* One weight for every button, staff or participant, unless its own class sets one. */
+  font-weight: var(--weight-semibold);
   /* Frequent actions respond immediately; the shared :active rule supplies press feedback. */
   transition: none;
 }
@@ -1065,8 +1096,8 @@ summary:focus-visible,
 .challenge-personal-export { margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); }
 .challenge-personal-export label { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0; }
 .challenge-personal-export input { width: 22px; height: 22px; flex: 0 0 auto; }
-.challenge-personal-export button { min-height: 44px; padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--paper-warm); color: var(--ink); font: inherit; }
-.participant-private-access > button { min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.challenge-personal-export button { min-height: 44px; padding: 8px 12px; border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--paper-warm); color: var(--ink); font: inherit; font-weight: var(--weight-semibold); }
+.participant-private-access > button { min-height: 44px; border: 1px solid var(--line); border-radius: var(--radius-md); padding: 8px 12px; background: var(--paper); color: var(--ink); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; }
 .participant-private-access > p { position: absolute; right: 0; top: 100%; width: min(280px, 85vw); padding: 12px; border-radius: var(--radius-md); background: var(--paper); box-shadow: var(--shadow-sm); z-index: 5; }
 @media (max-width: 600px) { .shell-actions .participant-private-access > button { max-width: 80px; font-size: var(--text-xs); padding: 6px 8px; line-height: 1.2; } }
 
@@ -1219,7 +1250,7 @@ h3 {
 .ask-row button {
   width: fit-content;
   border-radius: var(--radius-pill);
-  background: var(--ink);
+  background: var(--emerald);
   color: white;
   font-weight: var(--weight-bold);
   padding: 12px 16px;
@@ -1297,7 +1328,6 @@ h3 {
   border: 1px solid rgba(31, 36, 33, 0.08);
   border-radius: var(--radius-pill);
   background: rgba(255, 253, 248, 0.86);
-  backdrop-filter: none;
   scrollbar-width: none;
 }
 
@@ -1484,18 +1514,7 @@ h3 {
   z-index: 40;
   padding-block: 1px;
   background: color-mix(in srgb, var(--cream) 92%, transparent);
-  backdrop-filter: none;
   box-shadow: none;
-}
-
-@keyframes tools-enter {
-  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes tools-backdrop-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 .home-welcome-panel {
@@ -1586,16 +1605,6 @@ h3 {
 .screen-grid {
   display: grid;
   gap: 18px;
-}
-
-@keyframes screen-enter {
-  from {
-    opacity: 0.2;
-  }
-
-  to {
-    opacity: 1;
-  }
 }
 
 .screen-heading {
@@ -2207,12 +2216,12 @@ h3 {
 
 .message.user {
   justify-self: end;
-  background: var(--ink);
-  color: white;
+  background: var(--emerald-soft);
+  color: var(--ink);
 }
 
 .message.user p {
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--ink);
 }
 
 .message.assistant {
@@ -2261,18 +2270,6 @@ h3 {
   overflow: hidden;
 }
 
-.auth-panel::after {
-  content: "";
-  position: absolute;
-  right: -80px;
-  bottom: -120px;
-  width: 280px;
-  height: 280px;
-  border-radius: 50%;
-  background: var(--paper);
-  pointer-events: none;
-}
-
 .auth-panel > * {
   position: relative;
   z-index: 1;
@@ -2282,12 +2279,6 @@ h3 {
   max-width: min(220px, 60vw);
   max-height: 72px;
   margin-bottom: 20px;
-}
-
-.auth-invitation-copy {
-  margin-top: 20px;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
 }
 
 .auth-state > .brand-footer {
@@ -3250,7 +3241,6 @@ h3 {
   height: 100%;
   border-radius: 0;
   background: rgba(31, 36, 33, 0.58);
-  backdrop-filter: none;
 }
 
 .pilot-dialog {
@@ -3617,10 +3607,6 @@ h3 {
   color: var(--brand-on-primary);
   font-size: var(--text-sm);
   font-weight: var(--weight-bold);
-}
-
-.admin-refresh {
-  background: var(--ink);
 }
 
 .admin-field {
@@ -4326,7 +4312,7 @@ h3 {
     border-radius: var(--radius-lg);
     background: rgba(255, 253, 248, 0.99);
     box-shadow: var(--shadow-overlay);
-    animation-name: tools-sheet-enter;
+    animation: tools-sheet-enter 220ms var(--ease-drawer) both;
   }
 
   .tabs-more-toggle {
@@ -4344,6 +4330,7 @@ h3 {
   .tabs-tools-backdrop {
     z-index: 61;
     background: rgba(31, 36, 33, 0.34);
+    animation: tools-backdrop-fade 160ms ease-out both;
   }
 
   .tabs-tools-close {
@@ -4368,8 +4355,12 @@ h3 {
   }
 
   @keyframes tools-sheet-enter {
-    from { opacity: 0; transform: translateY(18px) scale(0.98); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: none; }
+  }
+
+  @keyframes tools-backdrop-fade {
+    from { opacity: 0; }
   }
 
   .home-action-center {
@@ -5385,7 +5376,6 @@ h3 {
   padding: 14px 16px;
   border-top: 1px solid rgba(226, 217, 203, 0.9);
   background: rgba(255, 253, 248, 0.96);
-  backdrop-filter: none;
 }
 
 .document-apply-bar div {
@@ -5543,7 +5533,6 @@ h3 {
   width: 100%;
   border-radius: 0;
   background: rgba(24, 27, 24, 0.66);
-  backdrop-filter: none;
 }
 
 .document-preview-modal {
@@ -5978,7 +5967,7 @@ h3 {
   gap: 2px;
 }
 
-.first-session-progress-heading .eyebrow {
+.first-session-progress-heading .group-label {
   margin: 0;
 }
 
@@ -6078,12 +6067,6 @@ h3 {
   align-content: start;
 }
 
-.mia-update-guide .eyebrow {
-  margin: 0;
-  color: var(--emerald);
-  font-size: var(--text-xs);
-}
-
 .mia-update-guide strong {
   line-height: 1.3;
 }
@@ -6125,8 +6108,6 @@ h3 {
   background: white;
 }
 
-.chat-memory-button,
-.chat-clear-button,
 .chat-suggestions-button,
 .chat-expand-button,
 .chat-context-pill {
@@ -6141,21 +6122,11 @@ h3 {
   text-transform: none;
 }
 
-.chat-memory-button,
-.chat-clear-button,
 .chat-suggestions-button,
 .chat-expand-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.chat-memory-button,
-.chat-clear-button {
-  min-height: 38px;
-  padding: 7px 10px;
-  background: white;
-  color: var(--muted);
 }
 
 .chat-suggestions-button {
@@ -6193,7 +6164,6 @@ h3 {
   border: 0;
   border-radius: 0;
   background: rgba(24, 27, 24, 0.64);
-  backdrop-filter: none;
 }
 
 .clear-chat-dialog {
@@ -6217,7 +6187,7 @@ h3 {
   color: var(--ink);
 }
 
-.clear-chat-dialog #clear-chat-copy {
+.clear-chat-dialog h3 + p {
   margin-top: 10px;
   color: var(--muted);
   line-height: 1.62;
@@ -6247,9 +6217,18 @@ h3 {
   color: var(--emerald);
 }
 
-.clear-chat-dialog-actions .danger {
-  background: #7b4a58;
-  color: white;
+.clear-chat-dialog-actions .danger,
+.clear-chat-dialog-actions .primary {
+  background: var(--emerald);
+  color: var(--brand-on-primary);
+}
+
+/* A confirmation sits above whatever dialog opened it. */
+.confirm-overlay { z-index: 200; }
+
+@media (max-width: 640px) {
+  .clear-chat-dialog-actions { flex-direction: column-reverse; }
+  .clear-chat-dialog-actions button { width: 100%; min-height: 48px; font-size: var(--text-sm); }
 }
 
 .message-avatar {
@@ -6378,8 +6357,8 @@ h3 {
 
 .message-row.user .message {
   border-top-right-radius: 6px;
-  background: var(--ink);
-  color: white;
+  background: var(--emerald-soft);
+  color: var(--ink);
 }
 
 .message-row .message strong {
@@ -6614,7 +6593,7 @@ h3 {
 }
 
 .message-row.user .message p {
-  color: rgba(255, 255, 255, 0.84);
+  color: var(--ink);
 }
 
 .mia-chat-shell.is-expanded .chat-card-wrap,
@@ -6642,7 +6621,6 @@ h3 {
   letter-spacing: 0;
   text-transform: none;
   box-shadow: var(--shadow-md);
-  backdrop-filter: none;
   transition: none;
 }
 
@@ -6860,7 +6838,7 @@ h3 {
   gap: 8px;
   min-width: 0;
   color: inherit;
-  font: inherit;
+  font: inherit; font-weight: var(--weight-semibold);
 }
 
 .attachment-preview-button img,
@@ -6926,9 +6904,9 @@ h3 {
 }
 
 .message.user .message-attachment-card:not(.is-image) {
-  border-color: rgba(255, 253, 248, 0.18);
-  background: rgba(255, 253, 248, 0.1);
-  color: rgba(255, 253, 248, 0.92);
+  border-color: var(--line);
+  background: var(--paper);
+  color: var(--ink);
 }
 
 .message-attachment-card.is-image {
@@ -7212,14 +7190,6 @@ h3 {
 
   .chat-shell-header .chat-actions {
     gap: 6px;
-  }
-
-  .chat-memory-button {
-    min-height: 44px;
-  }
-
-  .chat-clear-button {
-    display: none;
   }
 
   .chat-suggestions-button {
@@ -7521,13 +7491,18 @@ h3 {
     scroll-behavior: auto;
   }
 
+  /* Motion is removed, not shortened. A 0.01ms animation or transition still
+     starts on the next frame, so a sheet would rest off-screen, the tab bar
+     would stay hidden, and padding would lag a frame behind the layout it
+     belongs to. Every keyframe in the app only describes an entry from the
+     resting style, so with no animation the element is already in its final
+     state. */
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -8769,7 +8744,6 @@ h3 {
   border-radius: var(--radius-lg);
   background: rgba(255, 250, 242, 0.94);
   box-shadow: none;
-  backdrop-filter: none;
 }
 
 .budget-detail-disclosure {
@@ -10163,7 +10137,7 @@ h3 {
   padding: 10px 14px;
 }
 .first-session-progress-heading { grid-column: 1; grid-row: 1; align-items: center; }
-.first-session-progress-heading .eyebrow,
+.first-session-progress-heading .group-label,
 .first-session-progress-heading > span { display: none; }
 .first-session-progress-heading strong { font-size: var(--text-xs); }
 .first-session-progress-bar { grid-column: 1 / -1; grid-row: 2; }
@@ -10287,7 +10261,7 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 @media (max-width: 350px) {
   .is-chat-page .chat-shell-copy h3 { white-space: nowrap; font-size: var(--text-md); }
   .is-chat-page .chat-shell-header .chat-actions { gap: 5px; }
-  .is-chat-page .chat-memory-button, .is-chat-page .chat-suggestions-button { padding: 7px 6px; font-size: var(--text-xs); }
+  .is-chat-page .chat-suggestions-button { padding: 7px 6px; font-size: var(--text-xs); }
 }
 @media (max-width: 350px) {
   /* With files on the smallest phone, scroll the message rather than sacrifice history. */

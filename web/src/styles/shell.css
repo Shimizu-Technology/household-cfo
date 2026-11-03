@@ -56,7 +56,6 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  backdrop-filter: none;
 }
 
 .app .tabs-shell .tabs :where(button, a) {
@@ -165,7 +164,6 @@
     border-top: 1px solid var(--line);
     border-bottom: 0;
     background: var(--paper);
-    backdrop-filter: none;
   }
 
   .app .tabs-shell .tabs,

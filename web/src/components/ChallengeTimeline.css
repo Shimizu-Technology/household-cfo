@@ -1,7 +1,7 @@
 .challenge-timeline { min-width: 0; margin: 16px 0; }
 .challenge-days { list-style: none; margin: 0; display: flex; gap: 4px; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 0 10px; scrollbar-width: thin; }
 .challenge-days > li { flex: 0 0 44px; }
-.challenge-days button { display: grid; place-items: center; gap: 2px; width: 44px; min-height: 52px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; transition: transform 140ms var(--ease-out); }
+.challenge-days button { display: grid; place-items: center; gap: 2px; width: 44px; min-height: 52px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font: inherit; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; cursor: pointer; transition: transform 140ms var(--ease-out); }
 .challenge-days button[data-state=spending], .challenge-days button[data-state=no_spend] { background: var(--surface-muted); color: var(--ink); }
 .challenge-days button[data-deposit=true] { border-color: var(--action-primary); color: var(--action-primary); }
 .challenge-days button:disabled { opacity: .55; cursor: default; }

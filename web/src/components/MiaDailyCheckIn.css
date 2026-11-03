@@ -13,10 +13,10 @@
   background: var(--paper, #fffdf8); color: var(--ink, #1f2421);
 }
 .mia-daily-card h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--text-lg, 1.125rem); line-height: 1.3; }
-.mia-daily-card.is-saved h3 { color: var(--status-green, #5f7d61); }
+.mia-daily-card.is-saved h3 { color: var(--status-green, #4f6d53); }
 .mia-daily-card p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
-.mia-daily-check-icon { flex: 0 0 auto; color: var(--status-green, #5f7d61); }
-.mia-daily-nospend { color: var(--muted, #706d66); }
+.mia-daily-check-icon { flex: 0 0 auto; color: var(--status-green, #4f6d53); }
+.mia-daily-nospend { color: var(--muted, #66625b); }
 
 .mia-daily-rows { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .mia-daily-row {
@@ -33,14 +33,14 @@
 .mia-daily-row input[aria-invalid='true'] { border-color: var(--status-red, #9d4b45); }
 .mia-daily-amount { gap: 4px; font-weight: var(--weight-bold, 700); }
 .mia-daily-amount input { font-variant-numeric: tabular-nums; }
-.mia-daily-day { color: var(--muted, #706d66); font-size: var(--text-sm, 0.875rem); white-space: nowrap; }
+.mia-daily-day { color: var(--muted, #66625b); font-size: var(--text-sm, 0.875rem); white-space: nowrap; }
 .mia-daily-remove {
-  width: 44px; height: 44px; border-radius: var(--radius-pill, 999px); background: transparent; color: var(--muted, #706d66); font-size: 1.4rem; line-height: 1;
+  width: 44px; height: 44px; border-radius: var(--radius-pill, 999px); background: transparent; color: var(--muted, #66625b); font-size: 1.4rem; line-height: 1;
 }
 .mia-daily-remove:active:not(:disabled) { transform: scale(0.97); }
 .mia-daily-row-note { grid-column: 1 / -1; color: var(--status-red, #9d4b45); font-size: var(--text-sm, 0.875rem); }
 .mia-daily-saved-row { display: flex; align-items: center; gap: 8px; }
-.mia-daily-empty { color: var(--muted, #706d66); }
+.mia-daily-empty { color: var(--muted, #66625b); }
 
 .mia-daily-feelings { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mia-daily-feelings summary { min-height: 44px; align-content: center; cursor: pointer; color: var(--emerald, #7b4a58); font-weight: var(--weight-semibold, 600); }
@@ -48,7 +48,7 @@
 .mia-daily-feelings fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .mia-daily-feelings label { display: grid; gap: 6px; margin: 8px 0 0; font-size: var(--text-sm, 0.875rem); }
 
-.mia-daily-hint, .mia-daily-footnote { color: var(--muted, #706d66); font-size: var(--text-sm, 0.875rem); }
+.mia-daily-hint, .mia-daily-footnote { color: var(--muted, #66625b); font-size: var(--text-sm, 0.875rem); }
 .mia-daily-status { font-weight: var(--weight-semibold, 600); }
 
 .mia-daily-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -59,7 +59,7 @@
 }
 .mia-daily-save:active:not(:disabled), .mia-daily-actions .secondary-button:active:not(:disabled) { transform: scale(0.97); }
 .mia-daily-save:disabled { opacity: 0.55; cursor: default; }
-.mia-daily-dismiss { min-height: 44px; padding: 10px 12px; background: transparent; color: var(--muted, #706d66); font-weight: var(--weight-semibold, 600); text-decoration: underline; text-underline-offset: 3px; }
+.mia-daily-dismiss { min-height: 44px; padding: 10px 12px; background: transparent; color: var(--muted, #66625b); font-weight: var(--weight-semibold, 600); text-decoration: underline; text-underline-offset: 3px; }
 
 /* The floating "Latest" pill moves to the top of the chat while a card waits
    to be saved, so it never covers the card's Save button. */

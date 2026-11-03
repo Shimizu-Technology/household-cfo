@@ -8,6 +8,7 @@ import { shareableSignInUrl } from '../lib/signInLink'
 import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './WorkspaceCollaborators.css'
+import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 const roles: WorkspaceCollaboratorRole[] = ['viewer', 'editor', 'reviewer', 'owner']
 const roleDescriptions: Record<WorkspaceCollaboratorRole, string> = {
@@ -112,10 +113,10 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     })
   }
 
-  function saveRole(member: WorkspaceCollaborator) {
+  async function saveRole(member: WorkspaceCollaborator) {
     const nextRole = draftRoles[member.id]
     if (!nextRole || nextRole === member.role) return
-    if (!window.confirm(`Change ${member.email} from ${member.role} to ${nextRole}? ${roleDescriptions[nextRole]}`)) return
+    if (!(await confirmAction(roleDescriptions[nextRole], { title: `Change ${member.email} from ${member.role} to ${nextRole}?`, confirmLabel: 'Change role', cancelLabel: 'Keep current role' }))) return
     void mutate(`role:${member.id}`, async (isCurrent) => {
       const result = await changeWorkspaceCollaborator(workspaceId, member, nextRole)
       if (!isCurrent()) return
@@ -124,8 +125,8 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     })
   }
 
-  function remove(member: WorkspaceCollaborator) {
-    if (!window.confirm(`Remove ${member.email} from this program and its staff group assignments? Their participant enrollments and access to other programs will stay intact.${member.platform_admin ? ' Platform administrators retain platform access.' : ''}`)) return
+  async function remove(member: WorkspaceCollaborator) {
+    if (!(await confirmAction(`Their participant enrollments and access to other programs will stay intact.${member.platform_admin ? ' Platform administrators retain platform access.' : ''}`, { title: `Remove ${member.email} from this program?`, confirmLabel: 'Remove', cancelLabel: 'Keep them', caution: true }))) return
     void mutate(`remove:${member.id}`, async (isCurrent) => {
       const result = await removeWorkspaceCollaborator(workspaceId, member)
       if (!isCurrent()) return
@@ -141,8 +142,8 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     })
   }
 
-  function refresh() {
-    if (dirty && !window.confirm('Discard unsaved team changes and load the current access list?')) return
+  async function refresh() {
+    if (dirty && !(await confirmDiscard('Discard unsaved team changes and load the current access list?'))) return
     setEmail('')
     setDraftRoles({})
     setData(null)

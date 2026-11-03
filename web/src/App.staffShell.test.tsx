@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useState } from 'react'
 import type { CurrentUser } from './api'
@@ -48,7 +48,7 @@ it('denies household and unauthorized Admin hashes while preserving the staff sc
   expect(screen.queryByText('Program operations')).toBeNull()
 })
 
-it('keeps dirty Studio edits when staff cancels navigation and allows an approved transition', () => {
+it('keeps dirty Studio edits when staff cancels navigation and allows an approved transition', async () => {
   state.auth.currentUser = user(true)
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
   render(<App />)
@@ -58,7 +58,7 @@ it('keeps dirty Studio edits when staff cancels navigation and allows an approve
   expect(screen.getByText('Daily coaching')).toBeTruthy()
   confirm.mockReturnValue(true)
   fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
-  expect(window.location.hash).toBe('#Admin')
+  await waitFor(() => expect(window.location.hash).toBe('#Admin'))
   expect(screen.getByRole('heading', { name: 'Program operations' })).toBeTruthy()
 })
 

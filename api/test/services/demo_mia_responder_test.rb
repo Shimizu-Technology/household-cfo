@@ -906,7 +906,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     [ "thanks mia si yu'os ma'ase", "Thank you so much!", "ty mia", "ok thanks" ].each do |message|
       responder = stubbed_model_responder("You're welcome! Put the $700 toward runway.")
 
-      assert_equal HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER, responder.call(message, context: QA_CONTEXT), message
+      assert_equal "Glad to help. I’m here whenever you want to look at the next thing.", responder.call(message, context: QA_CONTEXT), message
     end
   end
 

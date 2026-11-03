@@ -10,7 +10,7 @@
 @media(max-width:600px){.evidence-dialog header{top:-16px}.evidence-proposal h3{scroll-margin-top:120px}}
 .evidence-dialog h2{font-size:clamp(1.3rem,2.5vw,1.9rem);line-height:1.2}.evidence-legs{font-size:var(--text-sm);color:var(--muted,#51665e);padding-left:10px;border-left:2px solid var(--line,#cad6d2)}
 .evidence-contribution{scroll-margin-top:110px}
-.evidence-dialog .eyebrow{font-size:var(--text-xs);line-height:1.4;margin:0 0 6px;letter-spacing:.12em}
+
 
 .evidence-dialog button { border-radius: var(--control-radius, 999px); }
 

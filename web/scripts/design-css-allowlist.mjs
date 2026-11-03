@@ -78,20 +78,12 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/App.css\",\"side-border\",[],\".document-processing-state span\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
   // Intentional floating surface or focus ring: .document-preview-spinner.
   "[\"src/App.css\",\"side-border\",[],\".document-preview-spinner\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .coach-source-snapshot-note.
-  "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-snapshot-note\",\"border-left: 0.2rem solid var(--mauve)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .coach-source-safety.
-  "[\"src/components/CoachContentSources.css\",\"side-border\",[],\".coach-source-safety\",\"border-left: 0.25rem solid var(--status-red)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .savings-home .savings-secondary, .savings-home .savings-action.
   "[\"src/components/SavingsChallengeHome.css\",\"side-border\",[],\".savings-home .savings-secondary, .savings-home .savings-action\",\"border: 1.5px solid var(--emerald)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .evidence-legs.
   "[\"src/components/SavingsEvidenceDialog.css\",\"side-border\",[],\".evidence-legs\",\"border-left: 2px solid var(--line,#cad6d2)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .source-event-unresolved.
-  "[\"src/components/StatementSourceReview.css\",\"side-border\",[],\".source-event-unresolved\",\"border-left-width: 4px\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .opening-progress-indicator.
   "[\"src/components/WorkspaceOpening.css\",\"side-border\",[],\".opening-progress-indicator\",\"border: 2px solid currentColor\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before.
   "[\"src/styles/charts.css\",\"side-border\",[],\".expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before\",\"border: 2px solid var(--group-color)\"]",
-  // Existing component-owned glass; outside W7 stylesheet ownership: .workos-sign-in-backdrop.
-  "[\"src/components/WorkosSignInDialog.css\",\"glass\",[],\".workos-sign-in-backdrop\",\"backdrop-filter: blur(7px)\"]",
 ])

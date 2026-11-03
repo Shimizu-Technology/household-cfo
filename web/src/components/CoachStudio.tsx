@@ -10,6 +10,7 @@ import { PersonaSetupChat } from './PersonaSetupChat'
 import { CoachGoLive } from './CoachGoLive'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
+import { confirmDiscard } from '../lib/confirmAction'
 
 type Area = 'people' | 'assistant' | 'live'
 type Task = 'voice' | 'branding' | 'tools' | 'teaching' | 'advanced'
@@ -25,8 +26,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [advancedDirty, setAdvancedDirty] = useState(false)
   const [advancedBusy, setAdvancedBusy] = useState(false)
   const trackAdvancedDirty = useCallback((value: boolean) => { setAdvancedDirty(value); onDirtyChange(value) }, [onDirtyChange])
-  if (advanced) return <><Button variant="secondary" disabled={advancedBusy} onClick={() => {
-    if (advancedDirty && !window.confirm('Leave without saving these changes?')) return
+  if (advanced) return <><Button variant="secondary" disabled={advancedBusy} onClick={async () => {
+    if (advancedDirty && !(await confirmDiscard('Leave without saving these changes?'))) return
     try { window.sessionStorage.removeItem(modeKey) } catch { /* A mode preference never blocks authoring. */ }
     onDirtyChange(false); setAdvanced(null)
   }}>Back to simple setup</Button><CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackAdvancedDirty} onPendingChange={setAdvancedBusy} initialSection={advanced.section} proposedState={advanced.proposal} /></>
@@ -81,9 +82,9 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     return () => { cancelled = true }
   }, [workspaceId, attempt])
 
-  function leave(action: () => void) {
+  async function leave(action: () => void) {
     if (busy || lifecycle.pending) return
-    if (dirty && !window.confirm('Leave without saving these changes?')) return
+    if (dirty && !(await confirmDiscard('Leave without saving these changes?'))) return
     trackDirty(false)
     setName('Mia')
     action()

@@ -55,6 +55,7 @@ import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 import '../styles/participantNavigation.css'
+import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 const guidedSteps = [
   { id: 'identity', label: 'Identity' },
@@ -306,10 +307,10 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     return () => window.removeEventListener('beforeunload', protectUnsavedDraft)
   }, [studioDirty])
 
-  function chooseStudioSection(next: StudioSection): boolean {
+  async function chooseStudioSection(next: StudioSection): Promise<boolean> {
     if (next === studioSection) return true
     if (pendingAction || workspaceMutations.pending) return false
-    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return false
+    if (studioDirty && !(await confirmDiscard('Discard unsaved Coach Studio changes and switch views?'))) return false
     if (dirty && selectedPersona) {
       setDraft(selectedPersona.draft ?? null)
       setDescription(selectedPersona.description)
@@ -331,9 +332,9 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     return true
   }
 
-  function chooseWorkspace(nextId: number | null) {
+  async function chooseWorkspace(nextId: number | null) {
     if (nextId === activeWorkspaceId || pendingAction || workspaceMutations.pending) return
-    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
+    if (studioDirty && !(await confirmDiscard('Discard unsaved Coach Studio changes and switch workspaces?'))) return
 
     setGroupsNotice(null)
     setGroupsAccessVisited(false)
@@ -379,7 +380,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     event.preventDefault()
     const nextTab = tabs[nextIndex]
     const nextSection = nextTab?.dataset.studioSection as StudioSection | undefined
-    if (nextTab && nextSection && chooseStudioSection(nextSection)) nextTab.focus()
+    if (nextTab && nextSection) void chooseStudioSection(nextSection).then((switched) => { if (switched) nextTab.focus() })
   }
 
   function replaceDraft(next: PersonaConfiguration) {
@@ -522,9 +523,10 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setError('Run an exact preview of the saved draft before publishing.')
       return
     }
-    if (selectedPersona.assignments.length > 0 && !window.confirm(
-      `Publish this assistant version? Groups with a saved version keep their current voice until you launch or update their group. Assigned groups without a saved version use the published voice for future messages.`,
-    )) return
+    if (selectedPersona.assignments.length > 0 && !(await confirmAction(
+      `Groups with a saved version keep their current voice until you launch or update their group. Assigned groups without a saved version use the published voice for future messages.`,
+      { title: 'Publish this assistant version?', confirmLabel: 'Publish', cancelLabel: 'Not yet' },
+    ))) return
     const mutation = beginMutation('publish')
     setError(null)
     setConflict(null)
@@ -560,7 +562,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setConflict('Save or discard your unsaved changes before archiving this assistant.')
       return
     }
-    if (!window.confirm(`Archive ${selectedPersona.name}? Its published history will remain available.`)) return
+    if (!(await confirmAction('Its published history will remain available.', { title: `Archive ${selectedPersona.name}?`, confirmLabel: 'Archive', cancelLabel: 'Keep it', caution: true }))) return
     const mutation = beginMutation('archive')
     setError(null)
     try {
@@ -597,7 +599,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setConflict('Save or discard your unsaved changes before restoring an earlier version to the draft.')
       return
     }
-    if (!window.confirm(`Restore version ${versionNumber} into the editable draft? The published assistant stays live. You must preview, run checks, approve, and publish the restored draft before participants see it.`)) return
+    if (!(await confirmAction('The published assistant stays live. You must preview, run checks, approve, and publish the restored draft before participants see it.', { title: `Restore version ${versionNumber} into the draft?`, confirmLabel: 'Restore to draft', cancelLabel: 'Not yet' }))) return
     const mutation = beginMutation('draft_restore')
     setError(null)
     try {
@@ -652,7 +654,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
-    if (!window.confirm(`Remove the assistant assignment from ${cohort.name}? Participants with a saved group version keep its voice until you launch or update their group. Groups without a saved version use the neutral voice.`)) return
+    if (!(await confirmAction('Participants with a saved group version keep its voice until you launch or update their group. Groups without a saved version use the neutral voice.', { title: `Remove the assistant from ${cohort.name}?`, confirmLabel: 'Remove', cancelLabel: 'Keep it', caution: true }))) return
     const mutation = beginMutation('assignment')
     setError(null)
     try {
@@ -724,9 +726,9 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     }
   }
 
-  function chooseEditorMode(nextMode: EditorMode) {
+  async function chooseEditorMode(nextMode: EditorMode) {
     if (nextMode === mode || pendingAction === 'phrase_restore') return
-    if (mode === 'setup' && setupDirty && !window.confirm('Discard the message you have not sent and switch editing modes?')) return
+    if (mode === 'setup' && setupDirty && !(await confirmDiscard('Discard the message you have not sent and switch editing modes?', { title: 'Discard your message?' }))) return
     setSetupDirty(false)
     setMode(nextMode)
   }
@@ -820,7 +822,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
         </div>
       ) : studioSection === 'groups' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-groups" aria-labelledby="coach-studio-tab-groups" tabIndex={0}>
-          {cohorts.length > 0 && <label className="coach-group-context"><span>Who needs me today?</span><span className="sr-only">Choose a group</span><select value={selectedCohortId ?? ''} disabled={pendingAction !== null || workspaceMutations.pending || cohortsLoading} onChange={(event) => { if (groupsDirty && !window.confirm('Discard unsaved group or invitation changes?')) return; setGroupsDirty(false); setGroupsNotice(null); setSelectedCohortId(Number(event.target.value)) }}>{cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
+          {cohorts.length > 0 && <label className="coach-group-context"><span>Who needs me today?</span><span className="sr-only">Choose a group</span><select value={selectedCohortId ?? ''} disabled={pendingAction !== null || workspaceMutations.pending || cohortsLoading} onChange={async (event) => { const nextId = Number(event.target.value); if (groupsDirty && !(await confirmDiscard('Discard unsaved group or invitation changes?'))) return; setGroupsDirty(false); setGroupsNotice(null); setSelectedCohortId(nextId) }}>{cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
           {groupsNotice && <p className="coach-studio-alert is-success" role="status">{groupsNotice}</p>}
           {activeWorkspaceId !== null && <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeWorkspaceId} cohorts={cohorts} selectedCohortId={selectedCohortId} />}
           <div className="setup-support-disclosure">
@@ -874,7 +876,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
         <aside className="coach-library panel" aria-label="Coaching assistants">
           <div className="coach-library-heading">
             <div>
-              <p className="eyebrow">Assistant library</p>
+              
               <h3 ref={libraryHeadingRef} tabIndex={-1}>{personas.length} coaching assistant{personas.length === 1 ? '' : 's'}</h3>
             </div>
             <Button size="compact" disabled={createDisabled} onClick={openCreateForm}>Create</Button>
@@ -942,7 +944,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
             <article className="panel coach-loading" role="status">Loading the selected assistant…</article>
           ) : !selectedPersona ? (
             <article className="panel coach-empty coach-empty-main">
-              <p className="eyebrow">Start here</p>
+              
               <h3>Create a safe draft, then shape it with the guided questions.</h3>
               <p>You can preview and publish only after the exact saved revision has passed the fixed system guardrails.</p>
               <Button disabled={createDisabled} onClick={openCreateForm}>Create coaching assistant</Button>
@@ -956,7 +958,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
                 <header className="coach-editor-header">
                   <div>
                     <button type="button" className="coach-mobile-back" disabled={pendingAction !== null} onClick={requestLibraryReturn}>← All assistants</button>
-                    <p className="eyebrow">{selectedPersona.owner?.full_name ? `${selectedPersona.owner.full_name}'s assistant` : 'Coaching assistant'}</p>
+                    
                     <h3 ref={editorHeadingRef} tabIndex={-1}>{selectedPersona.name}</h3>
                     <p>{selectedPersona.description || (draft ? 'Add an internal description so other staff understand where this voice belongs.' : 'Published assistant assigned to a cohort you manage.')}</p>
                   </div>
@@ -1298,7 +1300,7 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft
   return (
     <article className="panel coach-lifecycle">
       <header>
-        <div><p className="eyebrow">Published history</p><h3>Versions and assistant access.</h3></div>
+        <div><h3>Versions and assistant access.</h3></div>
         <StatusBadge status={persona.status} />
       </header>
 
@@ -1357,7 +1359,7 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
 }) {
   return (
     <article className="panel coach-assignments">
-      <header><div><p className="eyebrow">Cohort assignments</p><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next group version. Participants with a saved group version keep its assistant until you launch or update their group. Groups without a saved version use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
+      <header><div><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next group version. Participants with a saved group version keep its assistant until you launch or update their group. Groups without a saved version use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
       {!persona.published_version ? (
         <p className="coach-empty">Publish the first version before assigning this assistant to a cohort.</p>
       ) : cohorts.length === 0 ? (

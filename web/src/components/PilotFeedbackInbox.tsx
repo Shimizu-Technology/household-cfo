@@ -11,6 +11,7 @@ import {
   type PilotFeedbackStatus,
   type PilotFeedbackWorkflow,
 } from '../api'
+import { formatFileSize } from '../lib/fileSize'
 import './PilotFeedbackInbox.css'
 
 type FeedbackFilter = PilotFeedbackStatus | 'all'
@@ -157,7 +158,7 @@ export function PilotFeedbackInbox({ onPendingChange }: { onPendingChange?: (pen
       <div className="admin-card-heading row-between pilot-feedback-heading">
         <div className="pilot-feedback-title-group">
                     <div>
-            <h3 id="pilot-feedback-title">Review what testers reported</h3>
+            <h3 id="pilot-feedback-title">Review what people reported</h3>
             <p>Participant reports are private to admins. Screenshot links expire after five minutes.</p>
           </div>
         </div>
@@ -240,7 +241,7 @@ export function PilotFeedbackInbox({ onPendingChange }: { onPendingChange?: (pen
                 <div className="pilot-feedback-screenshot">
                   <div>
                     <strong>{detail.screenshot.filename}</strong>
-                    <span>{formatBytes(detail.screenshot.byte_size)} · private attachment</span>
+                    <span>{formatFileSize(detail.screenshot.byte_size)} · private attachment</span>
                   </div>
                   {screenshotLink ? (
                     <div className="pilot-feedback-link-actions">
@@ -292,8 +293,3 @@ function formatFeedbackDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(date)
 }
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}

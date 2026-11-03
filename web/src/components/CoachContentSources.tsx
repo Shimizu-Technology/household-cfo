@@ -13,6 +13,7 @@ import {
   uploadAdminContentSource,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
+import { formatFileSize } from '../lib/fileSize'
 import type {
   AdminContentItem,
   AdminContentItemKind,
@@ -464,7 +465,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
           <Button type="submit" disabled={!file || !listReady || loading || controlsBusy}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
           <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file stays private. Its text is sent to the configured AI provider to suggest teaching for your review. Approval is required before any teaching can reach Mia.</p>
           <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
-          {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatBytes(file.size)}</p>}
+          {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatFileSize(file.size)}</p>}
         </form></section> : <p className="coach-content-note">You can review private sources here. Editors manage uploads and candidate wording.</p>}
         <CoachUrlSourceIntake
           key={`${activeCoachWorkspaceId ?? 'platform'}:${currentUser.is_admin ? scope : 'coach'}`}
@@ -486,7 +487,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
           <header><h4>Private sources</h4><small>Showing {sources.length} current</small></header>
           {loading && sources.length === 0 && <p role="status">Loading private sources…</p>}
           {!loading && sources.length === 0 && !error && <p>No private sources yet. Add a file or link here, or write your own in Teaching items.</p>}
-          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}{source.ingestion_method === 'url_snapshot' ? ' · Fixed web snapshot' : ''}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
+          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatFileSize(source.byte_size)}{source.ingestion_method === 'url_snapshot' ? ' · Fixed web snapshot' : ''}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
         </section>
 
         <section className="coach-source-detail" aria-label="Selected source details">
@@ -556,7 +557,7 @@ function validateFile(file: File) {
   if (!acceptedExtensions.includes(extension)) return 'Choose a PDF, DOCX, TXT, MD, VTT, or SRT file.'
   if (file.size === 0) return 'Choose a source file that contains text. Empty files cannot be read.'
   const limit = extension === 'pdf' ? 12 * 1024 * 1024 : extension === 'docx' ? 10 * 1024 * 1024 : 2 * 1024 * 1024
-  if (file.size > limit) return `${extension.toUpperCase()} files must be ${formatBytes(limit)} or smaller. The source was not truncated.`
+  if (file.size > limit) return `${extension.toUpperCase()} files must be ${formatFileSize(limit)} or smaller. The source was not truncated.`
   return null
 }
 
@@ -588,11 +589,6 @@ function locatorLabel(locator: Record<string, string | number>) {
   return Object.entries(locator).filter(([key]) => key !== 'excerpt_digest').map(([key, value]) => `${label(key)} ${value}`).join(' · ') || 'Location recorded'
 }
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`
-}
 
 function formatTimestamp(value: string | null) {
   if (!value) return 'recently'
