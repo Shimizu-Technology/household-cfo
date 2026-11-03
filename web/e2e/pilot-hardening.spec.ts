@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../src/test/savingsFixtures'
 import type { SavingsChallenge, SavingsEntry, SavingsEntryDraft, SavingsPlanDraft } from '../src/lib/savingsChallenge'
 import { guamTodayIso } from '../src/lib/householdDate'
-import { participantReviewFixture, sourceReviewFixture } from './sourceReviewFixtures'
+import { participantReviewFixture } from './sourceReviewFixtures'
 import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
@@ -3260,6 +3260,7 @@ test('manual first-session upload returns from Statements to focused numeric ent
   await openSection(page, 'Statements')
   await expect(page.getByRole('heading', { name: 'Statements' })).toBeVisible()
   await expect(page).toHaveURL(/#Statements$/)
+  await openDetails(page, 'Other files and options')
   await page.getByRole('button', { name: 'Return to starting numbers' }).click()
   await expect(page).toHaveURL(/#My%20Profile$/)
   await expect(page.getByLabel('Primary monthly income')).toBeFocused()
@@ -4862,6 +4863,7 @@ test('first-run setup leaves blank money unknown, accepts cents, and explains pr
   page.on('request', (request) => { if (request.url().endsWith('/api/v1/workspace/setup')) setupRequests += 1 })
   await page.goto('/?pilot_e2e_role=participant#Home')
   await openSection(page, 'Statements')
+  await openDetails(page, 'Other files and options')
   await page.getByRole('button', { name: 'Return to starting numbers' }).click()
   const form = page.locator('.first-session-setup-form')
   await page.getByLabel('Household name').fill('Cents Household')
@@ -8593,7 +8595,7 @@ test('Auth recovery failed receipt upload retains the selected file for retry', 
   await openSection(page, 'Statements')
   await expect(page.getByRole('heading', { name: 'Statements' })).toBeVisible()
   await expect(page).toHaveURL(/#Statements$/)
-  await openDetails(page, 'Upload a receipt, pay stub or budget file')
+  await openDetails(page, 'Other files and options')
 
   const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
   await receiptCard.locator('input[type="file"]').setInputFiles({
@@ -8623,7 +8625,7 @@ test('an empty Statements upload is rejected before private upload work begins',
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Statements')
   await expect(page).toHaveURL(/#Statements$/)
-  await openDetails(page, 'Upload a receipt, pay stub or budget file')
+  await openDetails(page, 'Other files and options')
   const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
   await receiptCard.locator('input[type="file"]').setInputFiles({
     name: 'empty-receipt.png',
@@ -9313,14 +9315,18 @@ test('BOG UI removing an original file or deleting an upload asks first and send
   await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source', '/api/v1/document_imports/1201'])
 })
 
-async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview) {
+async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
   }
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    const workspace = realWorkspaceData(true)
+    if (coachName) workspace.profile.coach.name = coachName
+    return route.fulfill({ json: workspace })
+  })
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: source } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { authenticated_content: true, url: '/api/v1/document_imports/1203/source_content', download_url: '/api/v1/document_imports/1203/source_content?download=1', expires_in: 0, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
@@ -9330,70 +9336,118 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
     expect(query.get('per_page')).toBe('50')
     const currentPage = Number(query.get('page'))
     if (failSecondPage && currentPage === 2) return route.fulfill({ status: 409, json: { error: 'Extraction revision changed. Refresh the import.' } })
-    return route.fulfill({ json: { source_review: participant ? participant(participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)) : sourceReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
+    return route.fulfill({ json: { source_review: participant ? participant(participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)) : participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
-  return page.getByRole('region', { name: 'Statement source accounting', exact: true })
+  return page.getByRole('region', { name: 'Statement review', exact: true })
 }
 
-test('BOG UI typed statements keep 137 source rows paginated and account coverage explicit', async ({ page }) => {
+test('BOG UI typed statement opens with one summary, the lines that need an answer, and every line in pages', async ({ page }) => {
   const review = await openTypedStatementReview(page)
-  await expect(review).toContainText('137 statement lines · 125 posted · 5 informational · 7 unresolved')
-  await expect(review.locator('.source-event')).toHaveCount(50)
-  await expect(review).toContainText('Refund · inflow')
-  await expect(review).toContainText('+$30')
-  await expect(review).toContainText('Card / debt payment · outflow')
-  await review.getByText('Account balances, period & extraction coverage', { exact: true }).click()
-  await expect(review).toContainText('Incomplete page coverage')
-  await expect(review).toContainText('Asset account · outflows reduce this balance; inflows increase it.')
-  await expect(review).toContainText('Tue, Sep 1, 2026 — Wed, Sep 30, 2026')
-  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
-  await expect(review).toContainText('Rows 51–100 of 137')
-  await expect(review.getByText('Fictional entry 1', { exact: true })).toHaveCount(0)
+  await expect(review.getByRole('heading', { level: 5 })).toHaveText('137 lines from Fictional checking, Sep 1–30.')
+  await expect(review).toContainText('127 look right. 10 need a quick look. We’ll approve them 100 at a time.')
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeVisible()
+  const questions = review.getByRole('list', { name: 'Lines that need a quick look' }).getByRole('listitem')
+  await expect(questions).toHaveCount(10)
+  await expect(questions.first()).toContainText('Is this a refund?')
+  await expect(questions.nth(1)).toContainText('Did this move between your own accounts?')
+  await review.getByText('See all 137 lines', { exact: true }).click()
+  await expect(review.getByRole('row')).toHaveCount(51)
+  await expect(review.getByRole('row').nth(1)).toContainText('Fictional entry 1')
+  await review.getByRole('button', { name: 'Later lines', exact: true }).click()
+  await expect(review).toContainText('Page 2 of 3')
+  await expect(review.getByRole('button', { name: 'Fictional entry 51', exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Fictional entry 1', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Preview original', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Preview Fictional-137-row-statement.pdf', exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(review).toContainText('Rows 51–100 of 137')
-  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
-  await expect(review).toContainText('Rows 101–137 of 137')
-  await expect(review.locator('.source-event')).toHaveCount(37)
-  await expect(review.getByRole('button', { name: 'Next rows' })).toBeDisabled()
-  const overflow = await review.evaluate((element) => element.scrollWidth > element.clientWidth + 1)
-  expect(overflow).toBe(false)
+  await expect(review).toContainText('Page 2 of 3')
+  await review.getByRole('button', { name: 'Later lines', exact: true }).click()
+  await expect(review.getByRole('row')).toHaveCount(38)
+  await expect(review.getByRole('button', { name: 'Later lines' })).toBeDisabled()
+  expect(await review.evaluate((element) => element.scrollWidth > element.clientWidth + 1)).toBe(false)
 })
 
-test('BOG UI typed statement filters preserve total census and distinguish unresolved from informational amounts', async ({ page }) => {
+test('BOG UI typed statement shows unreadable lines as questions and unknown money as unknown, never zero', async ({ page }) => {
   const review = await openTypedStatementReview(page)
-  await expect(review.locator('.source-event')).toHaveCount(50)
-  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('unresolved')
-  await expect(review.locator('.source-event')).toHaveCount(7)
-  await expect(review).toContainText('137 statement lines')
-  await expect(review).toContainText('Rows 1–7 of 7')
-  await expect(review).toContainText('Posted date unknown')
-  await expect(review).toContainText('amount unknown · date unknown')
-  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('informational')
-  await expect(review.locator('.source-event')).toHaveCount(5)
-  await expect(review).toContainText('$50 (information)')
-  await expect(review).toContainText('excluded from movements')
-  await review.getByRole('button', { name: 'Inspect statement line 126', exact: true }).click()
-  await expect(review).toContainText('This row does not propose an expense.')
-  await expect(review.getByRole('button', { name: /Confirm|Approve/ })).toHaveCount(0)
-  await expect(review).toContainText('Movements, transfers and card payments are not savings.')
+  const unreadable = review.getByRole('listitem').filter({ hasText: 'Fictional entry 131' })
+  await expect(unreadable).toContainText('We couldn’t read this line clearly.')
+  await expect(unreadable).toContainText('Unknown')
+  await expect(unreadable).toContainText('Date unknown')
+  await expect(unreadable).not.toContainText('$0')
+  await expect(unreadable.getByRole('button', { name: /^Leave it out/ })).toBeVisible()
+  await unreadable.getByRole('button', { name: /^Fix it/ }).click()
+  const sheet = page.getByRole('dialog', { name: 'Fictional entry 131', exact: true })
+  await expect(sheet.getByLabel('Amount')).toHaveValue('')
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(review).not.toContainText(/statement line \d|explicit batch|participant review|coverage|projection|reconcil|proposal/i)
 })
 
-test('BOG UI typed statement revision conflicts hide stale rows and retain a retry path', async ({ page }) => {
+test('BOG UI typed statement page conflicts hide stale lines and offer a way back', async ({ page }) => {
   const review = await openTypedStatementReview(page, true)
-  await expect(review.locator('.source-event')).toHaveCount(50)
-  await review.getByRole('button', { name: 'Next rows', exact: true }).click()
+  await review.getByText('See all 137 lines', { exact: true }).click()
+  await review.getByRole('button', { name: 'Later lines', exact: true }).click()
   await expect(review.getByRole('alert')).toContainText('Extraction revision changed. Refresh the import.')
-  await expect(review.locator('.source-event')).toHaveCount(0)
-  await expect(review.getByRole('button', { name: 'Retry statement page' })).toBeEnabled()
-  await review.getByRole('combobox', { name: 'Filter statement rows' }).selectOption('unresolved')
-  await expect(review.locator('.source-event')).toHaveCount(7)
+  await expect(review.getByRole('table')).toHaveCount(0)
+  await expect(review.getByRole('button', { name: 'Try again' })).toBeEnabled()
+  await review.getByRole('button', { name: 'Back to the first lines' }).click()
+  await expect(review.getByRole('heading', { level: 5 })).toBeVisible()
 })
 
+test('BOG UI approving the rest sends one request that names exactly those lines', async ({ page }) => {
+  const requests: Array<{ key: string; body: { revision_id: number; input: { expect_ready_ids: number[]; lines: Array<{ event_id: number; decision: string }> } } }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    requests.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() })
+    return route.fulfill({ json: { result: { approved: 127, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page)
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0].key).toBeTruthy()
+  expect(requests[0].body.revision_id).toBe(88)
+  expect(requests[0].body.input.lines).toHaveLength(100)
+  expect(requests[0].body.input.lines.every((line) => line.decision === 'as_read')).toBe(true)
+  // Each line carries the category she was shown for it.
+  expect(requests[0].body.input.lines.every((line) => (line as { shown?: { category_id: number | null } }).shown !== undefined)).toBe(true)
+  expect(requests[0].body.input.lines.map((line) => line.event_id)).toEqual(requests[0].body.input.expect_ready_ids)
+  expect(requests[0].body.input.expect_ready_ids).not.toContain(4000)
+})
+
+test('BOG UI a statement that cannot prove nothing is missing asks her, and a category from her history is shown before she approves it', async ({ page }) => {
+  const requests: Array<{ input: { coverage_answer?: string; lines: Array<{ event_id: number; shown?: { category_id: number | null } }> } }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    requests.push(route.request().postDataJSON())
+    return route.fulfill({ json: { result: { approved: 100, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.coverage = { question: 'Your statement shows 138 lines and we found 137. Is anything missing?', answer: null }
+    plan.ready[3] = { ...plan.ready[3], category_id: 31, category_name: 'Dining out', as_before: true }
+    data.participant_review!.categories = [{ id: 10, name: 'Groceries' }, { id: 31, name: 'Dining out' }]
+    return data
+  })
+  await expect(review).toContainText('Your statement shows 138 lines and we found 137. Is anything missing?')
+  await expect(review).toContainText('1 uses a category you chose before: Dining out.')
+  await review.getByText('See all 137 lines', { exact: true }).click()
+  const historyRow = review.getByRole('row').filter({ hasText: 'Dining out · as before' })
+  await expect(historyRow).toHaveCount(1)
+  // The line opens on the category the list shows for it.
+  await historyRow.getByRole('button').click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByLabel('Category')).toHaveValue('31')
+  await sheet.getByRole('button', { name: 'Close', exact: true }).click()
+  await review.getByRole('button', { name: 'Something’s missing', exact: true }).click()
+  await expect(review.getByRole('button', { name: 'Something’s missing', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // It is only called recorded once a save has recorded it.
+  await expect(review).not.toContainText('We’ll keep this statement marked as not finished')
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0].input.coverage_answer).toBe('something_missing')
+  expect(requests[0].input.lines.find((line) => line.event_id === 4006)?.shown?.category_id).toBe(31)
+})
 
 async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settings: { metadataRevoked?: () => boolean; contentRevoked?: () => boolean; delayContent?: Promise<void>; filename?: string } = {}) {
   const mime = type === 'image' ? 'image/png' : 'application/pdf'
@@ -10106,134 +10160,104 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
 })
 
 
-test('BOG UI participant purchase duplicate keeps exact source facts and review focus on phones', async ({ page }) => {
-  const canonical = { id: 401, digest: 'fictional-canonical', version_number: 1, reason: 'Checked original', projection: { action: 'none' }, actual: null,
-    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -1_000, purchase_amount_cents: 1_000, posted_on: '2026-09-15', authorized_on: '2026-09-14', external_reference: 'fictional-ref', merchant: 'Fictional canonical purchase', budget_category_id: 10, overlap_disposition: 'canonical' },
-    source: { document_import_id: 1202, filename: 'Fictional-original.pdf', locator: { page: 2, row: 7 }, source_available: true } }
-  let pending: import('../src/lib/participantSourceReview').PendingSourceDraft | null = null
-  const requests: Array<{ key: string; input: Record<string, unknown> }> = []
-  await page.route('http://api.test/api/v1/document_imports/1203/review_candidates?*', (route) => route.fulfill({ json: { records: [canonical], next_cursor: null } }))
-  await page.route('http://api.test/api/v1/document_imports/1203/review/stage', async (route) => {
-    const body = route.request().postDataJSON(); requests.push({ key: route.request().headers()['idempotency-key'], input: body.input })
-    pending = { id: 900, digest: 'fictional-saved', lock_version: 1, status: 'pending', reason: body.input.reason, projection: body.input.projection, facts: body.input.facts }
-    await route.fulfill({ json: { record: pending, replayed: false } })
+test('BOG UI a finished statement leads to what Mia notices, with the snapshot as the quieter step', async ({ page }) => {
+  const sent: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent.push(route.request().postDataJSON().content ?? route.request().postDataJSON().message)
+    return route.fulfill({ status: 201, json: { user_message: { id: 701, role: 'user', author: 'You', content: 'What spending patterns do you see?', attachments: [] },
+      assistant_message: { id: 702, role: 'assistant', author: 'Mia', content: 'Dining out is your steadiest pattern.', attachments: [] }, transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null } })
   })
-  const review = await openTypedStatementReview(page, false, (data) => { data.participant_review!.rows[4003].pending = pending; return data })
-  await review.getByRole('button', { name: 'Inspect statement line 4', exact: true }).click()
-  await review.getByLabel('How to use this row').selectOption('match')
-  await review.getByRole('radio', { name: /Fictional canonical purchase.*Fictional-original.pdf.*Page 2.*row 7/ }).check()
-  await review.locator('.source-event-details').getByLabel('Review note', { exact: true }).fill('Compared physical original and statement account.')
-  await review.getByRole('button', { name: 'Save proposal for review', exact: true }).click()
-  await expect(review).toContainText('Review the saved proposal')
-  expect(requests).toHaveLength(1); expect(requests[0].key).toBeTruthy()
-  expect(requests[0].input).toMatchObject({ projection: { action: 'none' }, facts: { disposition: 'match', purchase_amount_cents: 1_000, signed_amount_cents: -1_000, matched_version_id: 401 } })
-  await expect(review.locator('#source-event-details-4003')).toBeFocused()
-  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
-  await expect(review.getByRole('button', { name: 'Approve saved row proposal' })).toBeDisabled()
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
+    return data
+  })
+  await expect(review).toContainText('All 137 lines are saved.')
+  await expect(review.getByRole('button', { name: 'See what Mia notices', exact: true })).toHaveClass(/button--primary/)
+  await expect(review.getByRole('button', { name: 'Open your spending snapshot', exact: true })).toHaveClass(/button--secondary/)
+  await review.getByRole('button', { name: 'See what Mia notices', exact: true }).click()
+  await expect.poll(() => sent).toHaveLength(1)
+  expect(sent[0]).toBe('What spending patterns do you see?')
+  await expect(page.getByText('Dining out is your steadiest pattern.')).toBeVisible()
+})
+
+test('BOG UI asking what Mia notices never sends or wipes a message she already has waiting', async ({ page }) => {
+  const sent: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent.push('sent')
+    return route.fulfill({ status: 500, json: { error: 'must not be sent' } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
+    return data
+  })
+  await openSection(page, 'Ask Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('Can we talk about my car insurance?')
+  await openSection(page, 'Statements')
+  await review.getByRole('button', { name: 'See what Mia notices', exact: true }).click()
+  await expect(page.getByText('Your message and files are still waiting here.')).toBeVisible()
+  await expect(composer).toHaveValue('Can we talk about my car insurance?')
+  expect(sent).toHaveLength(0)
+})
+
+test('BOG UI the waiting-message note names her own assistant', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
+    return data
+  }, 'Nina for Mrs. Mel')
+  await openSection(page, 'Ask Nina')
+  await page.getByRole('textbox', { name: /^Ask / }).fill('Can we talk about my car insurance?')
+  await openSection(page, 'Statements')
+  await review.getByRole('button', { name: /^See what .* notices$/ }).click()
+  await expect(page.getByText('Send or clear them, then ask what Nina notices.')).toBeVisible()
+})
+
+test('BOG UI a long statement is approved 100 lines at a time', async ({ page }) => {
+  const bodies: Array<{ input: { expect_ready_ids: number[]; paged?: boolean; lines: unknown[] } }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ json: { result: { approved: 100, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.total = 1000; plan.ready_event_ids = Array.from({ length: 1000 }, (_, index) => 20_000 + index); plan.attention = []
+    plan.ready = plan.ready_event_ids.map((id) => ({ event_id: id, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
+    return data
+  })
+  await expect(review).toContainText('All 1,000 look right. We’ll approve them 100 at a time.')
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect.poll(() => bodies).toHaveLength(1)
+  expect(bodies[0].input.paged).toBe(true)
+  expect(bodies[0].input.lines).toHaveLength(100)
+  expect(bodies[0].input.expect_ready_ids).toEqual(Array.from({ length: 100 }, (_, index) => 20_000 + index))
 })
 
 test('BOG UI statement uncertain request survives section navigation with identical replay', async ({ page }) => {
-  let attempts = 0; let pending: import('../src/lib/participantSourceReview').PendingSourceDraft | null = null
+  let attempts = 0
   const requests: Array<{ key: string; body: unknown }> = []
-  await page.route('http://api.test/api/v1/document_imports/1203/review/stage', async (route) => {
-    const body = route.request().postDataJSON(); requests.push({ key: route.request().headers()['idempotency-key'], body }); attempts += 1
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', async (route) => {
+    requests.push({ key: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() }); attempts += 1
     if (attempts === 1) return route.fulfill({ status: 503, json: { error: 'Fictional connection interruption' } })
-    pending = { id: 901, digest: 'replayed-proposal', lock_version: 1, status: 'pending', reason: body.input.reason, projection: body.input.projection, facts: body.input.facts }
-    return route.fulfill({ json: { record: pending, replayed: true } })
+    return route.fulfill({ json: { result: { approved: 127, left_out: 0, unchanged: 0, complete: false } } })
   })
-  const review = await openTypedStatementReview(page, false, (data) => { data.participant_review!.rows[4003].pending = pending; return data })
-  await review.getByRole('button', { name: 'Inspect statement line 4', exact: true }).click(); await review.locator('.source-event-details').getByLabel('Review note', { exact: true }).fill('Checked this source row.')
-  await review.getByRole('button', { name: 'Save proposal for review', exact: true }).click()
-  await expect(review.getByRole('button', { name: 'Retry the same review request' })).toBeVisible()
+  const review = await openTypedStatementReview(page)
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect(review.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  await expect(review).toContainText('We’re not sure your last change saved.')
   await openSection(page, 'Home'); await openSection(page, 'Statements')
-  await expect(review.getByRole('button', { name: 'Retry the same review request' })).toBeVisible()
-  await expect(review.getByRole('button', { name: 'Refresh statement review' })).toBeDisabled()
+  await expect(review.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeDisabled()
   const metadata = await page.evaluate(() => sessionStorage.getItem('statement-review-request-identities-v1'))
-  expect(metadata).not.toContain('Checked this source row'); expect(metadata).not.toContain('signed_amount_cents')
-  await review.getByRole('button', { name: 'Retry the same review request' }).click()
-  await expect(review.getByText(/An earlier statement request/)).toHaveCount(0)
+  expect(metadata).not.toContain('signed_amount_cents')
+  await review.getByRole('button', { name: 'Try again', exact: true }).click()
+  await expect(review.getByText(/not sure your last change saved/)).toHaveCount(0)
   expect(requests).toHaveLength(2); expect(requests[1]).toEqual(requests[0])
 })
-
-test('BOG UI participant split purchase links bank funding then explicitly approves one full spending entry', async ({ page }) => {
-  const recognized = { identity_version_id: 100, tracked_account_id: 2, label: 'Fictional wallet', account_basis: 'asset' as const, account_id: null, current: true }
-  const wallet: import('../src/lib/participantSourceReview').ReviewedRow = { id: 401, digest: 'wallet-approved', version_number: 1, reason: 'Checked complete purchase.', projection: { action: 'none' }, actual: null, current: true, recognized_account: recognized,
-    facts: { source_account_identity_version_id: 100, disposition: 'include', event_type: 'purchase', signed_amount_cents: -2_159, purchase_amount_cents: 100_000, posted_on: '2026-09-15', merchant: 'Fictional full purchase', budget_category_id: 10, overlap_disposition: 'canonical' }, source: { document_import_id: 1203, filename: 'Fictional-wallet.pdf', locator: { page: 1, row: 4 }, source_available: true } }
-  const bank: import('../src/lib/participantSourceReview').ReviewedRow = { ...wallet, id: 402, digest: 'bank-approved', recognized_account: { ...recognized, identity_version_id: 101, tracked_account_id: 3, label: 'Fictional bank' }, facts: { ...wallet.facts, source_account_identity_version_id: 101, event_type: 'transfer', signed_amount_cents: -97_841, purchase_amount_cents: null, merchant: 'Fictional bank funding' }, source: { document_import_id: 1204, filename: 'Fictional-bank.pdf', locator: { page: 2, row: 7 }, source_available: true } }
-  let linked = false; let projected = false
-  const actions: Array<{ action: string; input: Record<string, unknown> }> = []
-  await page.route('http://api.test/api/v1/document_imports/1203/review_candidates?*', (route) => route.fulfill({ json: { records: [bank], next_cursor: null } }))
-  await page.route('http://api.test/api/v1/document_imports/1203/review/economic_link', (route) => { actions.push({ action: 'economic_link', input: route.request().postDataJSON().input }); linked = true; return route.fulfill({ json: { record: { id: 701 }, replayed: false } }) })
-  await page.route('http://api.test/api/v1/document_imports/1203/review/project', (route) => { actions.push({ action: 'project', input: route.request().postDataJSON().input }); projected = true; return route.fulfill({ json: { record: { id: 801 }, replayed: false } }) })
-  const review = await openTypedStatementReview(page, false, (data) => {
-    const context = data.participant_review!
-    context.rows[4003] = { head: { id: 5_003, approved_version_id: 401, lock_version: 1 }, approved: { ...wallet, actual: projected ? { id: 801, digest: 'actual-current', amount_cents: 100_000 } : null }, pending: null }
-    context.coverage.approved_rows = 1
-    context.economic_groups = linked ? [{ id: 70, head: { id: 70, approved_version_id: 701, lock_version: 1 }, approved: { id: 701, digest: 'link-approved', version_number: 1, kind: 'purchase_funding', reason: 'Compared physical funding legs', current: true, members: [{ role: 'purchase', allocation_cents: 2_159, record: wallet }, { role: 'funding', allocation_cents: 97_841, record: bank }] } }] : []
-    return data
-  })
-  await page.evaluate(() => document.fonts.ready)
-  const inspect = review.getByRole('button', { name: 'Inspect statement line 4', exact: true })
-  await inspect.scrollIntoViewIfNeeded()
-  await inspect.click()
-  await expect(review.getByRole('button', { name: 'Hide statement line 4', exact: true })).toHaveAttribute('aria-expanded', 'true')
-  await review.getByText('Review spending effect separately', { exact: true }).click()
-  await expect(review.getByRole('button', { name: 'Approve spending creation', exact: true })).toBeDisabled()
-  await review.getByText('Create a related-movement link', { exact: true }).click(); await review.getByLabel('Link type').selectOption('purchase_funding'); await review.getByText('Choose another approved physical row', { exact: true }).click()
-  await review.getByRole('checkbox', { name: /Fictional bank funding.*Fictional-bank.pdf/ }).check()
-  await review.getByLabel('Link review note', { exact: true }).fill('Compared wallet purchase and actual bank funding row.'); await review.getByRole('checkbox', { name: /I checked every selected source/ }).check()
-  await review.getByRole('button', { name: 'Approve reviewed link', exact: true }).click()
-  await expect(review).toContainText('purchase funding · version 1 · Current')
-  // The reload keeps the panel the participant already opened (it no longer collapses), so do not toggle it closed.
-  await expect(review.getByLabel('Spending review note', { exact: true })).toBeVisible()
-  await review.getByLabel('Spending review note', { exact: true }).fill('Approve one full purchase with reviewed funding.'); await review.getByRole('checkbox', { name: /I approve this exact spending effect/ }).check()
-  await review.getByRole('button', { name: 'Approve spending creation', exact: true }).click()
-  await expect(review).toContainText('Existing spending: $1,000.')
-  expect(actions).toEqual([{ action: 'economic_link', input: { group_id: null, base_version_id: null, base_lock_version: 0, kind: 'purchase_funding', members: [{ source_review_version_id: 401, role: 'purchase', allocation_cents: 2_159 }, { source_review_version_id: 402, role: 'funding', allocation_cents: 97_841 }], reason: 'Compared wallet purchase and actual bank funding row.' } }, { action: 'project', input: { version_id: 401, expected_version_digest: 'wallet-approved', projection: { action: 'create' }, reason: 'Approve one full purchase with reviewed funding.' } }])
-  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
-})
-
-
-test('BOG UI participant selected batch stages and approves only explicitly displayed source rows', async ({ page }) => {
-  type Draft = import('../src/lib/participantSourceReview').PendingSourceDraft
-  const pending = new Map<number, Draft>(); const approved = new Map<number, import('../src/lib/participantSourceReview').ReviewedRow>()
-  const requests: Array<{ action: string; input: Record<string, unknown>; key: string }> = []
-  await page.route('http://api.test/api/v1/document_imports/1203/review/*', (route) => {
-    const action = route.request().url().split('/').at(-1)!; const body = route.request().postDataJSON()
-    requests.push({ action, input: body.input, key: route.request().headers()['idempotency-key'] })
-    if (action === 'stage') pending.set(body.input.event_id, { id: body.input.event_id + 10_000, digest: `proposal-${body.input.event_id}`, lock_version: 1, status: 'pending', reason: body.input.reason, facts: body.input.facts, projection: body.input.projection })
-    if (action === 'approve') {
-      const entry = [...pending].find(([,draft]) => draft.id === body.input.draft_id)!; const [eventId,draft] = entry
-      approved.set(eventId, { id: eventId + 20_000, digest: `approved-${eventId}`, version_number: 1, reason: draft.reason, facts: draft.facts, projection: draft.projection, actual: null, current: true }); pending.delete(eventId)
-    }
-    return route.fulfill({ json: { record: {}, replayed: false } })
-  })
-  const review = await openTypedStatementReview(page, false, (data) => {
-    for (const event of data.events) { const row = data.participant_review!.rows[event.id]; row.pending = pending.get(event.id) ?? null; row.approved = approved.get(event.id) ?? null; row.head = { ...row.head, approved_version_id: row.approved?.id ?? null, lock_version: row.approved ? 1 : 0 } }
-    return data
-  })
-  await review.getByRole('checkbox', { name: 'Select statement line 4 for explicit batch review', exact: true }).check()
-  await review.getByRole('checkbox', { name: 'Select statement line 6 for explicit batch review', exact: true }).check()
-  const batch = review.getByRole('region', { name: 'Review explicitly selected rows', exact: true })
-  await expect(batch).toContainText('2 explicitly selected rows')
-  await batch.getByLabel('Spending category for selected purchase proposals').selectOption('10')
-  await batch.getByLabel('Selected-row review note').fill('Checked these two fictional physical rows individually.')
-  await batch.getByRole('checkbox', { name: /I checked every displayed account/ }).check()
-  await batch.getByRole('button', { name: 'Save selected row proposals', exact: true }).click()
-  await expect.poll(() => requests.filter((request) => request.action === 'stage').length).toBe(2)
-  await expect(batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true })).toBeDisabled()
-  await expect(batch).toContainText('Saved review note: Checked these two fictional physical rows individually.')
-  await batch.getByRole('checkbox', { name: /I checked every displayed account/ }).check()
-  await batch.getByRole('button', { name: 'Approve selected saved proposals', exact: true }).click()
-  await expect.poll(() => requests.filter((request) => request.action === 'approve').length).toBe(2)
-  expect(requests.map((request) => request.action)).toEqual(['stage','stage','approve','approve'])
-  expect(requests.slice(0,2).map((request) => request.input.event_id)).toEqual([4003,4005])
-  for (const request of requests.slice(0,2)) expect(request.input).toMatchObject({ projection: { action: 'none' }, facts: { budget_category_id: 10, signed_amount_cents: -1_000, purchase_amount_cents: 1_000 } })
-  expect(requests.slice(2).map((request) => request.input)).toEqual([{ draft_id: 14003, draft_digest: 'proposal-4003', draft_lock_version: 1 },{ draft_id: 14005, draft_digest: 'proposal-4005', draft_lock_version: 1 }])
-  expect(new Set(requests.map((request) => request.key)).size).toBe(4)
-  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
-})
-
 
 async function openBaseline(page: Page, options: { approved?: boolean; home?: boolean; uncertain?: boolean; stale?: boolean } = {}) {
   type Approval = import('../src/lib/financialBaseline').BaselineApproval
@@ -10256,6 +10280,7 @@ async function openBaseline(page: Page, options: { approved?: boolean; home?: bo
   if(options.home)await openSavingsHome(page,{enrolled:false})
   else {await page.route('http://api.test/api/v1/workspace',(route)=>route.fulfill({json:realWorkspaceData(true)}));await page.goto('/?pilot_e2e_role=participant#Statements')}
   if(options.home)await openDetails(page, /^Statements & spending snapshot/)
+  else await openDetails(page, 'Other files and options')
   const trigger=page.getByRole('button',{name:'Open your spending snapshot',exact:true});await expect(trigger).toBeVisible();await page.evaluate(()=>document.fonts.ready);await trigger.click()
   const dialog=page.getByRole('dialog',{name:'Your spending snapshot',exact:true});await expect(dialog.getByLabel('Period begins')).toBeVisible()
   return {dialog,trigger,calls,previews,revoke:()=>{revoked=true}}
@@ -11711,6 +11736,7 @@ for (const delayedPath of ['', '/context']) {
     })
     await page.goto('/?pilot_e2e_role=participant#Statements')
     await page.evaluate(() => document.fonts.ready)
+    await openDetails(page, 'Other files and options')
     await page.getByRole('button', { name: 'Open your spending snapshot', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Your spending snapshot', exact: true })
     await expect(dialog).toBeVisible()
@@ -11725,6 +11751,7 @@ for (const delayedPath of ['', '/context']) {
     await assertRestartUnknownMoney(page)
     await openSection(page, 'Statements')
     delayed = false
+    await openDetails(page, 'Other files and options')
     await page.getByRole('button', { name: 'Open your spending snapshot', exact: true }).click()
     await expect(dialog.getByLabel('Period begins')).not.toHaveValue('2026-08-01')
     await expect(dialog.getByLabel('Missing account history')).toHaveValue('')
@@ -12815,7 +12842,7 @@ test('BOG UI final acceptance phone targets cover Review Statements and My Money
   await assertTargets()
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await openSection(page, 'Statements'); await assertTargets()
-  await openDetails(page, 'Upload a receipt, pay stub or budget file'); await assertTargets()
+  await openDetails(page, 'Other files and options'); await assertTargets()
   await openDetails(page, 'Find an upload'); await assertTargets()
   await openSection(page, 'My Money'); await assertTargets()
   for (const topic of ['Spending', 'Debt', 'Accounts', 'Goals', 'Income']) {
@@ -12988,12 +13015,17 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
   })
 }
 
-test('BOG UI statement source rows have plain dates and 44px controls at 320px', async ({ page }) => {
+test('BOG UI statement review has plain dates and 44px controls at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 664 })
   const review = await openTypedStatementReview(page)
-  await expect(review.locator('.source-event').first()).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeVisible()
   await expectPhoneTargets(page)
-  await review.getByRole('button', { name: 'Inspect statement line 1', exact: true }).click()
+  await review.getByText('See all 137 lines', { exact: true }).click()
+  await expect(review.getByRole('table')).toBeVisible()
+  await expect(review.getByRole('table')).toContainText('Sep 15')
+  expect(await review.evaluate((node) => node.scrollWidth > node.clientWidth + 1)).toBe(false)
+  await expectPhoneTargets(page)
+  await review.getByRole('button', { name: 'Fictional entry 4', exact: true }).click()
   await expectPhoneTargets(page)
 })
 

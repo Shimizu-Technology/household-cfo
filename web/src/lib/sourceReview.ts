@@ -56,10 +56,6 @@ export function sourceReviewMode(document: FinancialDocumentImport): 'typed' | '
   return 'unsupported'
 }
 
-export function sourceAccountLabel(account: SourceAccount | undefined, id: number): string {
-  return [account?.evidence?.label, account?.evidence?.masked_identifier].filter(Boolean).join(' · ') || `Account ${id}`
-}
-
 export function sourceMoney(cents: number | null | undefined, signed = false): string {
   if (cents == null || !Number.isSafeInteger(cents)) return 'Unknown'
   return `${signed && cents > 0 ? '+' : ''}${formatReviewMoney(cents)}`
@@ -73,38 +69,9 @@ export function sourceTypeLabel(type: SourceEvent['event_type']): string {
   }[type]
 }
 
-export function sourceOverlapLabel(value: string): string {
-  return ({ new: 'No known overlap', distinct: 'Checked as a separate movement', canonical: 'Use this copy', match: 'Matches an approved copy', excluded: 'Excluded' } as Record<string, string>)[value] ?? value.replaceAll('_', ' ')
-}
-
-export function sourceDispositionLabel(value: string): string {
-  return ({ include: 'Include movement', match: 'Match approved duplicate', exclude: 'Exclude movement', informational: 'Information only' } as Record<string, string>)[value] ?? value.replaceAll('_', ' ')
-}
-
-export function sourceBasisLabel(value: string | undefined): string {
-  return value === 'asset' ? 'Bank / wallet' : value === 'liability' ? 'Card / debt' : 'Account type unknown'
-}
-
-export function sourceEventLabel(event: SourceEvent): string {
-  if (event.row_kind === 'informational') return 'Informational · excluded from movements'
-  if (event.row_kind === 'unresolved') return 'Unresolved · needs clarification'
-  const names: Record<SourceEvent['event_type'], string> = {
-    purchase: 'Purchase', fee: 'Fee', refund: 'Refund', income: 'Income', transfer: 'Transfer', debt_payment: 'Card / debt payment',
-    cash_withdrawal: 'Cash withdrawal', interest: 'Interest', adjustment: 'Adjustment', unknown: 'Unknown type',
-  }
-  const direction = event.signed_amount_cents == null ? 'unknown amount' : event.signed_amount_cents < 0 ? 'outflow' : event.signed_amount_cents > 0 ? 'inflow' : 'zero movement'
-  const notSpending = event.event_type === 'transfer' || event.event_type === 'debt_payment' ? ' · not counted as spending' : ''
-  return `${names[event.event_type]} · ${direction}${notSpending}`
-}
-
 /** The row's own words: merchant, else the statement description. */
 export function sourceEventTitle(event: Pick<SourceEvent, 'position' | 'evidence'>): string {
-  return event.evidence?.merchant?.trim() || event.evidence?.raw_description?.trim() || `Source row ${event.position + 1}`
-}
-
-export function sourceLocator(event: SourceEvent): string {
-  const parts = [event.locator.page != null ? `Page ${event.locator.page}` : '', event.locator.sheet_index != null ? `Sheet ${event.locator.sheet_index}` : '', event.locator.row != null ? `row ${event.locator.row}` : ''].filter(Boolean)
-  return parts.join(' · ') || 'Source location unavailable'
+  return event.evidence?.merchant?.trim() || event.evidence?.raw_description?.trim() || `Line ${event.position + 1}`
 }
 
 // Fail closed instead of displaying another revision or treating missing rows as zero.

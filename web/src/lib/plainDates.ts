@@ -64,6 +64,31 @@ export function formatRange(start: string | null | undefined, end: string | null
   return `${formatDay(start)} – ${formatDay(end, { year: true })}`
 }
 
+const monthDay = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' })
+const monthDayYear = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })
+
+// Short form for dense lists: formatMonthDay('2026-09-03') -> 'Sep 3'; with { year: true } -> 'Sep 3, 2026'.
+export function formatMonthDay(iso: string | null | undefined, options: { year?: boolean } = {}): string {
+  if (!iso) return ''
+  const date = dayDate(iso)
+  if (!date) return iso
+  return (options.year ? monthDayYear : monthDay).format(date)
+}
+
+// formatMonthRange('2026-09-01', '2026-09-30') -> 'Sep 1–30'; across months 'Aug 15 – Sep 14'.
+// The year appears only when the range is not in the current year or crosses a year end.
+export function formatMonthRange(start: string | null | undefined, end: string | null | undefined): string {
+  const from = start && dayDate(start)
+  const to = end && dayDate(end)
+  if (!from || !to) return formatMonthDay(start ?? end)
+  const thisYear = new Date().getUTCFullYear()
+  const crossesYear = from.getUTCFullYear() !== to.getUTCFullYear()
+  const year = crossesYear || to.getUTCFullYear() !== thisYear
+  if (start === end) return formatMonthDay(start, { year })
+  if (!crossesYear && from.getUTCMonth() === to.getUTCMonth()) return `${monthDay.format(from)}–${to.getUTCDate()}${year ? `, ${to.getUTCFullYear()}` : ''}`
+  return `${formatMonthDay(start, { year: crossesYear })} – ${formatMonthDay(end, { year })}`
+}
+
 // 'Pacific/Guam' -> 'Guam time'; 'America/Los_Angeles' -> 'Los Angeles time'.
 export function timeZoneLabel(zone: string | null | undefined): string {
   if (!zone) return ''

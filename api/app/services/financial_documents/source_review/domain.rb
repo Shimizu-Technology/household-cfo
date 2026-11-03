@@ -5,6 +5,8 @@ module FinancialDocuments
     class Domain
       StaleReview = Class.new(ArgumentError)
       attr_reader :household, :user
+      # A bulk save sets one so every line is checked against the same read of the household's events; it refreshes it after each write.
+      attr_accessor :overlap_context
 
       def initialize(household, user: nil)
         @household, @user = household, user
@@ -226,7 +228,7 @@ module FinancialDocuments
         event = head.financial_source_event
         facts = reviewed_facts(event, draft.facts)
         identity = current_identity!(event, facts[:source_account_identity_version_id])
-        overlaps = OverlapDetector.new(household, event, facts).call
+        overlaps = OverlapDetector.new(household, event, facts, context: overlap_context || OverlapDetector::Context.new(household)).call
         validate_overlaps!(facts, overlaps)
         category = household.budget_categories.find(facts[:budget_category_id]) if facts[:budget_category_id]
         raise ArgumentError, "Choose an active category" if category && !category.active?
@@ -381,7 +383,7 @@ module FinancialDocuments
         identity = account_heads.find_by(financial_source_account_id: event.financial_source_account_id)
         { event_id: event.id, source_revision_digest: event.financial_extraction_revision.payload_digest, head: head_state(head),
           pending: head&.source_review_drafts&.pending&.map { |draft| draft_state(draft) }, account: head_state(identity),
-          overlaps: OverlapDetector.new(household, event, facts).call,
+          overlaps: OverlapDetector.new(household, event, facts, context: overlap_context || OverlapDetector::Context.new(household)).call,
           projection_digest: projection[:transaction_id] && ProjectionCorrector.snapshot_digest(household.household_transactions.find(projection[:transaction_id])) }
       end
 

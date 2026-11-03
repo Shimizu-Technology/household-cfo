@@ -36,7 +36,7 @@ export function bindStatementReviewActor(scope: StatementReviewActorScope): bool
     actor = scope; pending = null
     try {
       const saved = storedIdentities()[scopeKey(scope)]
-      if (saved && same(saved.scope, scope) && Number.isSafeInteger(saved.importId) && Number.isSafeInteger(saved.revisionId) && typeof saved.key === 'string' && ['account_link','stage','approve','cancel','coverage','economic_link','project'].includes(saved.action)) pending = { scope, importId: saved.importId, revisionId: saved.revisionId, action: saved.action, key: saved.key, working: false, error: 'An earlier statement request needs its result checked before further changes.' }
+      if (saved && same(saved.scope, scope) && Number.isSafeInteger(saved.importId) && Number.isSafeInteger(saved.revisionId) && typeof saved.key === 'string' && saved.action === 'approve_lines') pending = { scope, importId: saved.importId, revisionId: saved.revisionId, action: saved.action, key: saved.key, working: false, error: 'An earlier statement request needs its result checked before further changes.' }
       else remember()
     } catch { remember() }
     changed()

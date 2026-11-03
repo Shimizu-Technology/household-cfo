@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { applyMiaActionDraft, confirmTransactionDraft, fetchDocumentSourceReview, fetchTrackedSourceAccounts, fetchFinancialBaseline, captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
+import { applyMiaActionDraft, confirmTransactionDraft, fetchDocumentSourceReview, fetchFinancialBaseline, captureApiOperation, createIncomeSource, fetchAppData, fetchBudget, fetchFinancialRestartStatus, setActiveParticipantCohortId, setApiActorIdentity, setApiFinancialGeneration, setAuthTokenGetter, subscribeFinancialPictureChanges } from './api'
 
 function json(value: unknown, generation?: number) {
   return new Response(JSON.stringify(value), { status: 200, headers: { 'Content-Type': 'application/json', ...(generation == null ? {} : { 'X-Financial-Generation': String(generation) }) } })
@@ -11,7 +11,6 @@ describe('financial picture request boundaries', () => {
   it.each([
     ['baseline', () => fetchFinancialBaseline()],
     ['source review', () => fetchDocumentSourceReview(1, 2, 1, 'all')],
-    ['source accounts', () => fetchTrackedSourceAccounts(null)],
     ['Mia apply', () => applyMiaActionDraft(1, 'qa-review')],
     ['transaction apply', () => confirmTransactionDraft(1, {}, 'qa-transaction')],
   ])('refreshes the complete picture when a %s reply belongs to a newer generation', async (_name, operation) => {

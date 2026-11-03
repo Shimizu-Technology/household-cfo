@@ -34,15 +34,7 @@ module Api
         operation = ACTIONS.fetch(action) { raise ArgumentError, "Unknown statement review action" }
         key = request.headers["Idempotency-Key"].to_s.strip
         raise ArgumentError, "Idempotency-Key is required" if key.empty?
-        result = ApplicationRecord.transaction do
-          current_household.lock!
-          domain.authorize!
-          document = current_household.financial_document_imports.lock.find(params[:document_import_id])
-          HouseholdFinance::FinancialGenerationGuard.source!(document)
-          revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
-          unless revision && revision.id.to_s == body[:revision_id].to_s
-            raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
-          end
+        result = with_locked_revision(body) do |revision|
           require_revision_subject!(action, input, revision)
           execution = HouseholdFinance::Operations::Runner.new(current_household, user: current_user, cohort_membership: current_cohort_membership).run(
             operation_key: operation, input: input, idempotency_key: key)
@@ -51,6 +43,24 @@ module Api
         end
         response.set_header("Cache-Control", "no-store")
         render json: result
+      rescue KeyError, TypeError
+        render json: { errors: [ "Statement review request is missing required fields" ] }, status: :unprocessable_entity
+      end
+
+      # Approve many lines at once, all or none. A repeat of a request that already saved is a no-op, so a retry is always safe.
+      def approve_lines
+        body = request.request_parameters.to_h.deep_symbolize_keys
+        raise ArgumentError, "Review request contains unsupported fields" unless (body.keys - %i[revision_id input]).empty?
+        input = body.fetch(:input).to_h.deep_symbolize_keys
+        raise ArgumentError, "Idempotency-Key is required" if request.headers["Idempotency-Key"].to_s.strip.empty?
+        result = with_locked_revision(body, bounded_wait: true) do |revision|
+          FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input, cohort_membership: current_cohort_membership).call
+        end
+        response.set_header("Cache-Control", "no-store")
+        render json: { result: result }
+      rescue ActiveRecord::LockWaitTimeout
+        # A page holds the household lock while it saves; another request waits only briefly, saves nothing, and can be repeated.
+        render json: { errors: [ "Your statement is being saved by another request. Nothing was saved. Try again in a moment." ] }, status: :conflict
       rescue KeyError, TypeError
         render json: { errors: [ "Statement review request is missing required fields" ] }, status: :unprocessable_entity
       end
@@ -100,6 +110,11 @@ module Api
       end
 
       def request_status
+        if params[:review_action].to_s == "approve_lines"
+          # Nothing is stored per request: a bulk approval is all or none, and repeating it is a no-op.
+          response.set_header("Cache-Control", "no-store")
+          return render json: { state: "unknown", can_retry: true }
+        end
         operation = ACTIONS.fetch(params[:review_action].to_s) { raise ArgumentError, "Unknown review action" }
         result = ApplicationRecord.transaction do
           ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '2s'")
@@ -134,6 +149,21 @@ module Api
       end
 
       private
+
+      def with_locked_revision(body, bounded_wait: false)
+        ApplicationRecord.transaction do
+          ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '5s'") if bounded_wait
+          current_household.lock!
+          domain.authorize!
+          document = current_household.financial_document_imports.lock.find(params[:document_import_id])
+          HouseholdFinance::FinancialGenerationGuard.source!(document)
+          revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
+          unless revision && revision.id.to_s == body[:revision_id].to_s
+            raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
+          end
+          yield revision
+        end
+      end
 
       def domain
         @domain ||= FinancialDocuments::SourceReview::Domain.new(current_household, user: current_user)

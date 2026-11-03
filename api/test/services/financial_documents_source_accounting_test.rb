@@ -44,8 +44,10 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     source = result[:events].sole
     view = FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: true).event(source)
     assert_equal "Ross", view.dig(:evidence, "merchant")
-    assert_equal descriptor, view.dig(:evidence, "raw_description")
+    # What a participant reads hides account numbers; the stored evidence is exactly what the statement said.
+    assert_equal "POS DEBIT 1234 ROSS STORES #567 ····1234", view.dig(:evidence, "raw_description")
     assert_equal descriptor, source.financial_source_evidence.reload.payload["merchant"]
+    assert_equal descriptor, source.financial_source_evidence.payload["raw_description"]
     refute FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: false).event(source).key?(:evidence)
   end
 

@@ -50,6 +50,13 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal({ "Ross" => 60_000, "Kmart" => 36_000 }, merchants)
   end
 
+  test "a long account number in a merchant never reaches what Mia quotes, while the stored wording stays" do
+    stored = purchase(Date.new(2026, 10, 5), "Coast360 payment 00009900", 4500)
+    labels = analyze[:merchants].pluck(:label)
+    assert_equal [ "Coast360 payment ····9900" ], labels
+    assert_equal "Coast360 payment 00009900", stored.reload.merchant
+  end
+
   test "grouping normalizes locations without rewriting participant merchant wording or numeric names" do
     [ "Ross Dress for Less", "ROSS DRESS FOR LESS #123 DEDEDO GU", "ROSS STORES #456 HAGATNA GU", "ROSS DRESS FOR LESS #123 HONOLULU HI" ].each do |merchant|
       purchase(Date.new(2026, 10, 5), merchant, 1000)
