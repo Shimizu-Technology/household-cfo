@@ -23,7 +23,8 @@ module FinancialDocuments
           end,
           accounts: revision.financial_source_accounts.order(:id).map do |account|
             head = account_heads[account.id]
-            { source_account_id: account.id, head: head_state(head), approved: head&.approved_version && record(head.approved_version) }
+            { source_account_id: account.id, head: head_state(head), approved: head&.approved_version && record(head.approved_version),
+              **account_name(account, head&.approved_version&.source_tracked_account) }
           end,
           coverage: state,
           approved_coverage: approval && { id: approval.id, digest: approval.digest, status: approval.coverage_status,
@@ -80,7 +81,8 @@ module FinancialDocuments
         event = line.event
         # A copy of a row she already approved can only be left out; it cannot be counted twice.
         answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
-        { event_id: event.id, kind: line.kind, event_type: event.event_type, question: ParticipantPlan::QUESTIONS.fetch(line.kind), answers: answers,
+        question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
+        { event_id: event.id, kind: line.kind, event_type: event.event_type, question: question, answers: answers,
           merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] }
       end
@@ -94,6 +96,13 @@ module FinancialDocuments
         return "mismatch" if report.dig("page_coverage", "all_processed") == false || residuals.any? { |value| value != 0 }
         return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
+      end
+
+      # One name and last four for every sentence that names the account, so none of them shows a system label.
+      def account_name(account, tracked)
+        payload = account.financial_source_evidence&.payload || {}
+        label = tracked&.label.presence || payload["label"]
+        AccountName.parts(label, payload["masked_identifier"])
       end
 
       def head_state(head)

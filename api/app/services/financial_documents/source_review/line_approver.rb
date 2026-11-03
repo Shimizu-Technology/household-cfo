@@ -22,7 +22,7 @@ module FinancialDocuments
         TOOLS.each { |key| CohortReleases::OperationAccess.require!(household: household, user: domain.user, key: key, membership: @cohort_membership) }
         entries = Array(input[:lines]).map { |entry| entry.to_h.deep_symbolize_keys }
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank?
-        raise ArgumentError, "This statement is too long to approve in one go. Approve a smaller file." if entries.length > MAX_LINES
+        raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         link_accounts!
         plan = ParticipantPlan.new(household, revision)
         check_expected!(plan)
@@ -40,12 +40,15 @@ module FinancialDocuments
       def household = domain.household
 
       # "Approve the rest" must cover exactly the lines that were on screen as looking right.
+      # A long statement is approved a page at a time (paged: true): every line on the page must still look right,
+      # and only those lines are saved. A page that already saved is a no-op, so a retry changes nothing.
       def check_expected!(plan)
         return unless input.key?(:expect_ready_ids)
         expected = Array(input[:expect_ready_ids]).map(&:to_i).uniq.sort
         ready = plan.lines.select(&:ready?)
         open = ready.reject(&:done).map { |line| line.event.id }.sort
-        unless (expected - ready.map { |line| line.event.id }).empty? && (open - expected).empty?
+        covered = (expected - ready.map { |line| line.event.id }).empty? && (input[:paged] == true || (open - expected).empty?)
+        unless covered
           raise Domain::StaleReview, "This statement changed while you were reviewing it. Nothing was saved. Refresh and try again."
         end
       end
@@ -59,7 +62,7 @@ module FinancialDocuments
           tracked = current&.source_tracked_account
           basis = change[:account_basis].presence || tracked&.account_basis || (account.account_basis unless account.account_basis == "unknown")
           raise ArgumentError, "Choose whether this is a bank account or a credit card." unless basis.in?(%w[asset liability])
-          label = change[:label].presence || tracked&.label || account_label(account)
+          label = change[:label].presence || tracked&.label || account_label(account, basis)
           facts = statement_facts(account, current, change)
           # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
           next if current && tracked.label == label && tracked.account_basis == basis && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
@@ -70,9 +73,9 @@ module FinancialDocuments
         end
       end
 
-      def account_label(account)
+      def account_label(account, basis)
         payload = account.financial_source_evidence&.payload || {}
-        [ payload["label"], payload["masked_identifier"] ].compact_blank.join(" · ").presence || "Statement account"
+        AccountName.default_label(payload["label"], payload["masked_identifier"], basis)
       end
 
       def statement_facts(account, current, change)
