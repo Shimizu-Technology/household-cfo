@@ -356,10 +356,10 @@
     }
   ],
   "totals_cents": {
-    "opening_balance_cents": 245000,
+    "opening_balance_cents": null,
     "printed_credit_cents": 751299,
     "printed_debit_cents": 279965,
-    "closing_balance_cents": 716334,
+    "closing_balance_cents": null,
     "spending_draft_total_cents": 224965,
     "pending_display_total_cents": 650
   },

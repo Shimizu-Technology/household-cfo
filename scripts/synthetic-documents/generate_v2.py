@@ -113,6 +113,11 @@ screen.save(ROOT / 'wide-phone-capture.png')
 wide = [v1.event('screen-1234',9,i+1,day,desc,cents,kind) for i,(day,desc,cents,kind) in enumerate([(13,'POS DEBIT 1234 ROSS STORES #567',-6000,'purchase'),(18,'POS DEBIT 1234 KMART #101',-3600,'purchase'),(25,'ACH CREDIT PAYROLL',50000,'income')])]
 docs.append(dict(filename='wide-phone-capture.png', kind='statement', format='png', expected_events=wide, totals_cents=v1.totals(wide), period_start_on='2026-09-01', period_end_on='2026-09-30', account_basis='unknown'))
 for doc in docs:
+    if doc.get('account_basis') == 'unknown' and 'totals_cents' in doc:
+        # These exports/crops do not print a balance. Net activity is not an
+        # opening or closing balance, even when the underlying fixture is known.
+        doc['totals_cents']['opening_balance_cents'] = None
+        doc['totals_cents']['closing_balance_cents'] = None
     path = ROOT / doc['filename']
     doc.update(synthetic=True, sha256=hashlib.sha256(path.read_bytes()).hexdigest(), size_bytes=path.stat().st_size)
     (ROOT / (doc['filename'] + '.expected.json')).write_text(json.dumps(doc, indent=2) + '\n')

@@ -52,6 +52,8 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     assert result.success?, result.error
     assert_accounting(fixture(filename), result.data[:source_accounting], balances: false, merchants: false)
     assert_equal 6, result.data[:source_accounting][:events].first[:locator][:row]
+    assert_nil result.data[:source_accounting][:accounts].sole[:opening_balance_cents]
+    assert_nil result.data[:source_accounting][:accounts].sole[:closing_balance_cents]
   end
 
   %w[angled-creased-receipt.jpg wide-phone-capture.png].each do |filename|
@@ -84,6 +86,8 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
           assert_equal receipt["items_cents"], draft[:splits].pluck(:amount_cents)
         else
           assert_accounting(expected, result.data[:source_accounting], balances: false, merchants: false)
+          assert_nil result.data[:source_accounting][:accounts].sole[:opening_balance_cents]
+          assert_nil result.data[:source_accounting][:accounts].sole[:closing_balance_cents]
         end
       ensure
         originals.each { |name, method| singleton.define_method(name, method) }

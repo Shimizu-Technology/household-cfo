@@ -41,10 +41,10 @@
     }
   ],
   "totals_cents": {
-    "opening_balance_cents": 0,
+    "opening_balance_cents": null,
     "printed_credit_cents": 50000,
     "printed_debit_cents": 9600,
-    "closing_balance_cents": 40400,
+    "closing_balance_cents": null,
     "spending_draft_total_cents": 9600,
     "pending_display_total_cents": 0
   },
