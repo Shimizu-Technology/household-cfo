@@ -52,7 +52,8 @@ describe('statement review wording', () => {
     expect(asBeforeNote(plan({ ready: [before, { ...before, event_id: 10 }, { ...ready(1)[0], event_id: 11 }] }))).toBe('2 use a category you chose before: Dining out.')
     expect(asBeforeNote(plan({ ready: [before] }))).toBe('1 uses a category you chose before: Dining out.')
     const names = ['A', 'B', 'C', 'D'].map((name, index) => ({ ...before, event_id: index, category_name: name }))
-    expect(asBeforeNote(plan({ ready: names }))).toBe('4 use a category you chose before.')
+    expect(asBeforeNote(plan({ ready: names }))).toBe('4 lines use categories you chose before.')
+    expect(asBeforeNote(plan({ ready: names.slice(0, 3) }))).toBe('3 use a category you chose before: A, B, C.')
   })
 })
 

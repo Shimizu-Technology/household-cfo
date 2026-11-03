@@ -91,7 +91,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "one line that cannot be saved rolls the whole request back" do
     ready = review_plan.fetch("ready_event_ids")
-    lines = ready.map { |id| { event_id: id, decision: "as_read" } } + [ { event_id: @events.fetch("Ross").id, decision: "as_read" } ]
+    lines = as_read(ready) + [ { event_id: @events.fetch("Ross").id, decision: "as_read", shown: { category_id: nil, event_type: "purchase" } } ]
     approve_lines({ lines: lines })
     assert_response :conflict
     assert_equal 0, SourceReviewVersion.where(household: @household).count
@@ -123,8 +123,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   test "the statement is finished once every line is answered, and the uncertainty stays on the record" do
     ready = review_plan.fetch("ready_event_ids")
     ross, savings = @events.fetch("Ross"), @events.fetch("Own savings")
-    approve_lines({ lines: ready.map { |id| { event_id: id, decision: "as_read" } } + [
-      { event_id: savings.id, decision: "as_read" },
+    approve_lines({ lines: as_read(ready + [ savings.id ]) + [
       { event_id: @events.fetch("Unreadable").id, decision: "leave_out" },
       { event_id: ross.id, decision: "edited", edit: { kind: "spending", merchant: "Ross", posted_on: "2026-07-04", amount_cents: 500, category_id: @groceries.id } }
     ], coverage_answer: "nothing_missing" })
@@ -168,7 +167,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "a merchant she already categorized keeps that category on the next statement" do
     ready = review_plan.fetch("ready_event_ids")
-    approve_lines({ lines: ready.map { |id| { event_id: id, decision: "as_read" } } })
+    approve_lines({ lines: as_read(ready) })
     later = build_source(rows: [ [ "Payless", -700, "purchase", 1 ] ])
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, later[:revision])
     assert_equal [ @groceries.id ], plan.lines.map(&:category_id)
@@ -177,7 +176,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "a copy of a charge she already approved is flagged and can only be left out" do
     ready = review_plan.fetch("ready_event_ids")
-    approve_lines({ lines: ready.map { |id| { event_id: id, decision: "as_read" } } })
+    approve_lines({ lines: as_read(ready) })
     copy = build_source(rows: [ [ "Payless", -1_000, "purchase", 2 ] ])
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision])
     assert_equal [ :duplicate ], plan.attention.map(&:kind)
@@ -296,7 +295,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     lines = ->(shown) { ids.map { |id| { event_id: id, decision: "as_read" }.merge(shown.call(id)) } }
     # A request that does not say what she was shown saves nothing.
     approve_lines({ expect_ready_ids: ids, lines: lines.call(->(_id) { {} }) }, source: later)
-    assert_response :unprocessable_entity
+    assert_response :conflict
     # The old list showed "No category" for this line: approving on that basis is refused, not saved as Dining out.
     approve_lines({ expect_ready_ids: ids, lines: lines.call(->(id) { { shown: { category_id: nil, event_type: plan.fetch("ready").find { |row| row["event_id"] == id }["event_type"] } } }) }, source: later)
     assert_response :conflict
@@ -457,16 +456,112 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 3, SourceTrackedAccount.where(household: @household).count
   end
 
+  # LockWaitSwitch stands in for Postgres timing out on the lock; the SQL assertion below checks the bounded wait is really asked for.
   test "a page that waits too long for the household lock saves nothing and says so" do
     LockWaitSwitch.on = true
+    statements = []
+    watcher = ActiveSupport::Notifications.subscribe("sql.active_record") { |*, payload| statements << payload[:sql] }
     begin
-      approve_lines({ lines: [ { event_id: @events.fetch("Payroll").id, decision: "as_read" } ] })
+      approve_lines({ lines: as_read([ @events.fetch("Payroll").id ]) })
     ensure
       LockWaitSwitch.on = false
+      ActiveSupport::Notifications.unsubscribe(watcher)
     end
     assert_response :conflict
     assert_match(/Nothing was saved\. Try again/, response.parsed_body.fetch("errors").first)
     assert_equal 0, SourceReviewVersion.where(household: @household).count
+    assert_includes statements, "SET LOCAL lock_timeout = '5s'"
+  end
+
+  test "every answer that saves a line as the statement reads it must say what she was shown, whether or not the request names the lines it expects" do
+    payroll, payless = @events.fetch("Payroll"), @events.fetch("Payless")
+    shown = as_read([ payroll.id, payless.id ])
+    [ shown.map { |entry| entry.except(:shown) }, [ shown.first, shown.last.except(:shown) ], [ shown.first.merge(shown: { category_id: nil }) ],
+      [ shown.first, shown.last.merge(shown: { category_id: nil, event_type: "purchase" }) ] ].each do |lines|
+      approve_lines({ lines: lines })
+      assert_response :conflict
+      assert_match(/look again/i, response.parsed_body.fetch("errors").first)
+    end
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    approve_lines({ lines: shown })
+    assert_response :success
+    assert_equal [ nil, @groceries.id ], [ payroll, payless ].map { |event| SourceReviewHead.find_by!(financial_source_event_id: event.id).approved_version.budget_category_id }
+  end
+
+  test "different charge must also say what she was shown" do
+    approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
+    copy = build_source(rows: [ [ "Payless", -1_000, "purchase", 2 ] ], account: { period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    line = plan_for(copy).fetch("attention").sole
+    assert_equal "duplicate", line.fetch("kind")
+    event_id = line.fetch("event_id")
+    approve_lines({ lines: [ { event_id: event_id, decision: "different" } ] }, source: copy)
+    assert_response :conflict
+    approve_lines({ lines: [ { event_id: event_id, decision: "different", shown: { category_id: nil, event_type: "refund" } } ] }, source: copy)
+    assert_response :conflict
+    assert_equal 0, SourceReviewHead.where(financial_source_event_id: event_id).count
+    approve_lines({ lines: [ { event_id: event_id, decision: "different", shown: line.slice("category_id", "event_type").symbolize_keys } ] }, source: copy)
+    assert_response :success
+    assert_equal "distinct", SourceReviewHead.find_by!(financial_source_event_id: event_id).approved_version.overlap_disposition
+  end
+
+  test "saying something is missing is recorded even when the totals no longer disagree with the lines she has saved, and saving again does not fail" do
+    statement = { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
+    source = build_source(rows: [ [ "Pay 1", 9_000, "income", 1 ] ], account: statement)
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
+    event_id = source[:revision].financial_source_events.sole.id
+    fixed = { event_id: event_id, decision: "edited", edit: { kind: "money_in", merchant: "Pay 1", posted_on: "2026-07-02", amount_cents: 10_000 } }
+    approve_lines({ lines: [ fixed ], coverage_answer: "something_missing" }, source: source)
+    assert_response :success
+    approval = SourceRevisionApproval.where(household: @household).sole
+    assert_equal [ "qualified", false ], [ approval.coverage_status, approval.coverage_attestation.fetch("all_document_rows_accounted") ]
+    assert_empty approval.deficiencies - %w[document_rows_not_attested account_period_or_row_coverage_not_attested]
+    # Saying it again, or changing her mind, never fails.
+    approve_lines({ lines: [], coverage_answer: "something_missing" }, source: source)
+    assert_response :success
+    approve_lines({ lines: [], coverage_answer: "nothing_missing" }, source: source)
+    assert_response :success
+    assert_equal "complete", SourceRevisionApproval.where(household: @household).order(:version_number).last.coverage_status
+  end
+
+  test "the same account on the next statement is the same account, so an overlapping charge is still asked about" do
+    first = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    approve_lines({ lines: as_read(first[:revision].financial_source_events.ids, source: first) }, source: first)
+    assert_response :success, response.body
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "bog  everyday checking")
+    duplicate = plan_for(second).fetch("attention").find { |row| row["kind"] == "duplicate" }
+    assert duplicate, "the copy is asked about before she answers"
+    # Answering it is not refused by the account linking: the question is the same one before and after.
+    approve_lines({ lines: [ { event_id: duplicate.fetch("event_id"), decision: "different", shown: duplicate.slice("category_id", "event_type").symbolize_keys } ] }, source: second)
+    assert_response :success, response.body
+    assert_equal 1, SourceTrackedAccount.where(household: @household).count
+    assert_equal "BOG Everyday Checking", SourceTrackedAccount.where(household: @household).sole.label
+    assert_equal 2, SourceAccountIdentityVersion.where(household: @household).count
+  end
+
+  test "linking a statement's account while she answers a copy question never makes her answer stale" do
+    first = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    approve_lines({ lines: as_read(first[:revision].financial_source_events.ids, source: first) }, source: first)
+    assert_response :success, response.body
+    # A different, named account has the same charge on the same day. She is asked, as before the link; "Different charge" is honoured
+    # even though linking leaves this a different account, instead of a refusal she can never get past.
+    second = build_source(rows: [ [ "Payroll", 5_000, "income", 2 ] ], label: "BOG Savings")
+    question = plan_for(second).fetch("attention").sole
+    assert_equal "duplicate", question.fetch("kind")
+    2.times do
+      approve_lines({ lines: [ { event_id: question.fetch("event_id"), decision: "different", shown: question.slice("category_id", "event_type").symbolize_keys } ] }, source: second)
+      assert_response :success, response.body
+    end
+    assert_equal 2, SourceTrackedAccount.where(household: @household).count
+  end
+
+  test "two files that only say bank account stay two accounts" do
+    one = build_source(rows: [ [ "Payless", -1_000, "purchase", 2 ] ], label: "Bank account")
+    two = build_source(rows: [ [ "Payless", -1_000, "purchase", 2 ] ], label: "Bank account")
+    [ one, two ].each do |source|
+      approve_lines({ lines: source[:revision].financial_source_events.ids.map { |id| { event_id: id, decision: "leave_out" } } }, source: source)
+      assert_response :success
+    end
+    assert_equal 2, SourceTrackedAccount.where(household: @household).count
   end
 
   test "a name or a saved description with a raw account number reads masked, even when it was approved before" do
@@ -474,7 +569,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal({ name: "Bank of Guam checking ····5678", last4: nil }, names.call("Bank of Guam checking 000012345678"))
     assert_equal({ name: "Statement.pdf ····5678", last4: "1234" }, names.call("Statement.pdf 12345678 · ****1234"))
     event = @events.fetch("Payless")
-    approve_lines({ lines: [ { event_id: event.id, decision: "as_read" } ] })
+    approve_lines({ lines: as_read([ event.id ]) })
     version = SourceReviewHead.find_by!(financial_source_event_id: event.id).approved_version
     # Rows approved before descriptions were masked hold the statement's words; the table normally refuses edits, so lift that for this one setup.
     SourceReviewVersion.connection.execute("ALTER TABLE source_review_versions DISABLE TRIGGER USER")
@@ -541,7 +636,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   # The lines exactly as her screen sent them: what she was shown for each, taken from the plan.
   def as_read(ids, source: @source)
-    shown = plan_for(source).fetch("ready").index_by { |row| row["event_id"] }
+    plan = plan_for(source)
+    shown = (plan.fetch("ready") + plan.fetch("attention")).index_by { |row| row["event_id"] }
     ids.map { |id| { event_id: id, decision: "as_read" }.merge(shown[id] ? { shown: shown[id].slice("category_id", "event_type").symbolize_keys } : {}) }
   end
 

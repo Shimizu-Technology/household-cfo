@@ -133,8 +133,8 @@ export function asBeforeNote(plan: StatementPlan): string | null {
   const before = plan.ready.filter((line) => line.as_before && line.category_name)
   if (before.length === 0) return null
   const names = [...new Set(before.map((line) => line.category_name as string))]
-  const listed = names.length <= 3 ? `: ${names.join(', ')}` : ''
-  return `${before.length} ${before.length === 1 ? 'uses' : 'use'} a category you chose before${listed}.`
+  if (names.length > 3) return `${before.length} lines use categories you chose before.`
+  return `${before.length} ${before.length === 1 ? 'uses' : 'use'} a category you chose before: ${names.join(', ')}.`
 }
 
 export function coverageMissingNote(): string {

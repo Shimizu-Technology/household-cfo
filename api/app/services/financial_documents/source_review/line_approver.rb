@@ -26,7 +26,7 @@ module FinancialDocuments
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         link_accounts!
-        plan = ParticipantPlan.new(household, revision)
+        plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now)
         check_expected!(plan, entries)
         counts = Hash.new(0)
         entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each { |entry| apply!(plan, entry, counts) }
@@ -53,21 +53,20 @@ module FinancialDocuments
         unless covered
           raise Domain::StaleReview, "This statement changed while you were reviewing it. Nothing was saved. Refresh and try again."
         end
-        entries.each { |entry| check_shown!(plan.line_for(entry.fetch(:event_id).to_i), entry, required: true) if entry[:decision].to_s == "as_read" }
       end
 
       # What is saved must be exactly what she was shown: the line's kind and category as they were on her screen.
-      # A request that does not say what she saw, or saw something else, saves nothing.
-      def check_shown!(line, entry, required:)
-        raise ArgumentError, "Statement review request is missing required fields" if line.nil? || (required && !entry[:shown].is_a?(Hash))
-        return unless entry[:shown].is_a?(Hash)
+      # Every answer that saves a line as the statement reads it carries that, whether or not the request names the lines
+      # it expects; a request that does not say what she saw, or saw something else, saves nothing.
+      def check_shown!(line, entry)
         shown = entry[:shown]
-        raise ArgumentError, "Statement review request is missing required fields" unless shown.key?(:category_id) && shown.key?(:event_type)
-        return if shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
-        raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again."
+        looked = shown.is_a?(Hash) && shown.key?(:category_id) && shown.key?(:event_type) &&
+          shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
+        raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again." unless looked
       end
 
       def link_accounts!
+        @linked_now = []
         revision.financial_source_accounts.order(:id).each do |account|
           head = domain.account_heads.find_by(financial_source_account_id: account.id)
           change = Array(input[:accounts]).map { |row| row.to_h.deep_symbolize_keys }.find { |row| row[:source_account_id].to_i == account.id } || {}
@@ -76,23 +75,17 @@ module FinancialDocuments
           tracked = current&.source_tracked_account
           basis = change[:account_basis].presence || tracked&.account_basis || (account.account_basis unless account.account_basis == "unknown")
           raise ArgumentError, "Choose whether this is a bank account or a credit card." unless basis.in?(%w[asset liability])
-          label = change[:label].presence || tracked&.label || account_label(account, basis)
+          label = change[:label].presence || tracked&.label || AccountMatch.default_label(account, basis)
           facts = statement_facts(account, current, change)
           # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
           next if current && tracked.label == label && tracked.account_basis == basis && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
-          # A generic fallback name ("Bank account") says nothing about which account it is: two unnamed accounts must stay two,
-          # or a charge in one would be offered as a duplicate of the same charge in the other.
-          named = change[:label].present? || tracked.present? || label.include?("····")
-          existing = named ? SourceTrackedAccount.current_picture.where(household: household, label: label, account_basis: basis).order(:id).first : nil
+          named = change[:label].present? || tracked.present? || AccountMatch.named?(label)
+          existing = named ? AccountMatch.existing(household, label, basis) : nil
           raw = { source_account_id: account.id, tracked_account_id: existing&.id, label: label, account_basis: basis,
             base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, statement_facts: facts, reason: REASON }
           domain.execute("account_link", domain.normalize("account_link", raw))
+          @linked_now << account.id unless head
         end
-      end
-
-      def account_label(account, basis)
-        payload = account.financial_source_evidence&.payload || {}
-        AccountName.default_label(payload["label"], payload["masked_identifier"], basis)
       end
 
       def statement_facts(account, current, change)
@@ -130,10 +123,11 @@ module FinancialDocuments
         when "as_read"
           raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category]))
           # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
-          check_shown!(line, entry, required: true) if line.kind == :still_category
+          check_shown!(line, entry)
         when "different"
           raise stale unless line.kind == :duplicate
           raise ArgumentError, "That line is already in your numbers, so it can only be left out." if line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
+          check_shown!(line, entry)
         end
       end
 
@@ -210,7 +204,7 @@ module FinancialDocuments
           { source_account_id: account.id, identity_version_id: identity.id, period_start_on: identity.statement_facts["period_start_on"],
             period_end_on: identity.statement_facts["period_end_on"], all_rows_accounted: accounted }
         end
-        raw = { revision_id: revision.id, requested_status: state[:deficiencies].empty? ? "complete" : "qualified", expected_digest: state[:content_digest],
+        raw = { revision_id: revision.id, requested_status: state[:deficiencies].empty? && accounted ? "complete" : "qualified", expected_digest: state[:content_digest],
           reason: REASON, coverage_attestation: { all_document_rows_accounted: accounted, accounts: accounts } }
         domain.execute("revision_approve", domain.normalize("revision_approve", raw))
         true

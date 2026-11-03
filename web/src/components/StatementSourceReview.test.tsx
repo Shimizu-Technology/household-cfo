@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fetchDocumentSourceReview, mutateStatementReview } from '../api'
+import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview } from '../api'
 import { participantReviewFixture, sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
 import type { SourceReview } from '../lib/sourceReview'
 import { bindStatementReviewActor, setStatementReviewExpectedUser } from '../lib/statementReviewRecovery'
@@ -60,7 +60,23 @@ describe('statement review a participant can finish', () => {
     expect(within(items[3]).getByText('We couldn’t read this line clearly.')).toBeTruthy()
     fireEvent.click(within(items[1]).getByRole('button', { name: 'Yes: Fictional entry 2' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
-    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4001, decision: 'as_read' }] })
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4001, decision: 'as_read', shown: { event_type: 'transfer', category_id: null } }] })
+  })
+
+  it('says what she was shown when she calls a possible copy a different charge, and says nothing for leaving it out', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.attention = [{ event_id: 4007, kind: 'duplicate', event_type: 'purchase', question: 'Is this the same charge as one you already have?', answers: [{ id: 'leave_out', label: 'Same charge' }, { id: 'different', label: 'Different charge' }],
+      merchant: 'Island Table', posted_on: '2026-09-05', signed_amount_cents: -6720, category_id: 31, category_name: 'Dining out' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const item = (await screen.findByRole('list', { name: 'Lines that need a quick look' })).querySelector('li')!
+    fireEvent.click(within(item).getByRole('button', { name: 'Different charge: Island Table' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'different', shown: { event_type: 'purchase', category_id: 31 } }] })
+    await waitFor(() => expect((within(item).getByRole('button', { name: 'Same charge: Island Table' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(within(item).getByRole('button', { name: 'Same charge: Island Table' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [{ event_id: 4007, decision: 'leave_out' }] })
   })
 
   it('opens a line in a sheet to fix it and sends the corrected facts', async () => {
@@ -151,15 +167,17 @@ describe('statement review a participant can finish', () => {
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).not.toHaveProperty('coverage_answer')
     await waitFor(() => expect((screen.getByRole('button', { name: 'Nothing’s missing' }) as HTMLButtonElement).disabled).toBe(false))
-    // Her answer rides with the next save, as hers.
+    // Her answer rides with the next save, as hers. It is only said to be recorded once the server says so.
     fireEvent.click(screen.getByRole('button', { name: 'Something’s missing' }))
     expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
-    expect(screen.getByText(/We’ll keep this statement marked as not finished/)).toBeTruthy()
+    expect(screen.queryByText(/We’ll keep this statement marked as not finished/)).toBeNull()
     expect(mutate).toHaveBeenCalledTimes(1)
     const list = screen.getByRole('list', { name: 'Lines that need a quick look' })
+    fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...data.participant_review!.plan, coverage: { ...data.participant_review!.plan.coverage, answer: 'something_missing' } } } })
     fireEvent.click(within(list).getAllByRole('button', { name: /^Yes: / })[0])
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
     expect(mutate.mock.calls[1][3]).toMatchObject({ coverage_answer: 'something_missing' })
+    expect(await screen.findByText(/We’ll keep this statement marked as not finished/)).toBeTruthy()
   })
 
   it('saves her answer straight away when every line is already saved, and holds the next step until she answers', async () => {
@@ -172,7 +190,27 @@ describe('statement review a participant can finish', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing' })
+    // The server has not said it recorded the answer yet, so nothing moves on.
+    expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
+  })
+
+  it('opens the next step only after the save that records her answer, and keeps her answer with a retry when saving fails', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
+    plan.coverage = { question: 'The totals on your statement don’t add up with the lines we found. Is anything missing?', answer: null }
+    fetchReview.mockResolvedValue(data)
+    mutate.mockRejectedValueOnce(new ApiRequestError('This source is incomplete', { status: 422 }))
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="retry" next={[{ label: 'See what Mia notices', run: vi.fn() }]} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Something’s missing' }))
+    expect(await screen.findByText('We couldn’t save your answer yet. Please try again.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
+    fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...plan, coverage: { ...plan.coverage, answer: 'something_missing' } } } })
+    fireEvent.click(within(screen.getByText('We couldn’t save your answer yet. Please try again.').closest('div')!).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [], coverage_answer: 'something_missing' })
     expect(await screen.findByRole('button', { name: 'See what Mia notices' })).toBeTruthy()
+    expect(screen.queryByText('We couldn’t save your answer yet. Please try again.')).toBeNull()
   })
 
   it('asks nothing when the statement reconciles', async () => {
@@ -182,6 +220,18 @@ describe('statement review a participant can finish', () => {
     await screen.findByRole('heading', { level: 5 })
     expect(screen.queryByRole('button', { name: 'Nothing’s missing' })).toBeNull()
     expect(screen.queryByText(/Is anything missing/)).toBeNull()
+  })
+
+  it('opens a line that looks right on the category the list shows for it, and a line that needs a look on the plan’s kind', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.ready[3] = { ...plan.ready[3], category_id: 31, category_name: 'Dining out', as_before: true }
+    data.participant_review!.categories = [{ id: 10, name: 'Groceries' }, { id: 31, name: 'Dining out' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByText('1 uses a category you chose before: Dining out.')
+    fireEvent.click(screen.getByRole('button', { name: `Fictional entry ${plan.ready[3].event_id - 4000 + 1}` }))
+    const sheet = await screen.findByRole('dialog')
+    expect((within(sheet).getByLabelText('Category') as HTMLSelectElement).value).toBe('31')
   })
 
   it('shows the category a line will be saved with, including one that comes only from her history', async () => {

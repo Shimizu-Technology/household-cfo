@@ -31,8 +31,9 @@ module FinancialDocuments
         still_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ]
       }.freeze
 
-      def initialize(household, revision)
-        @household, @revision = household, revision
+      # unlinked_account_ids: accounts linked by the save in progress. Their copies are read as she saw them before the link.
+      def initialize(household, revision, unlinked_account_ids: [])
+        @household, @revision, @unlinked_account_ids = household, revision, unlinked_account_ids
       end
 
       def lines
@@ -75,7 +76,7 @@ module FinancialDocuments
 
       private
 
-      attr_reader :household, :revision
+      attr_reader :household, :revision, :unlinked_account_ids
 
       def build
         events = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
@@ -186,7 +187,7 @@ module FinancialDocuments
       def overlaps_for(event, merchant, category_id)
         identity = overlap_context.accounts[event.financial_source_account_id]&.approved_version_id
         facts = self.class.facts_as_read(event, identity_id: identity, merchant: merchant, category_id: category_id)
-        OverlapDetector.new(household, event, facts, context: overlap_context).call
+        OverlapDetector.new(household, event, facts, context: overlap_context, unlinked: unlinked_account_ids.include?(event.financial_source_account_id)).call
       end
     end
   end

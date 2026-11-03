@@ -10,7 +10,7 @@ module FinancialDocuments
     MASKED = /(?<!\w)(?:\*{2,}|X{2,})\s*(\d{4})\b/i
     # Stored statement text: any run of 8+ digits, whatever sits beside it ("ACCT.123456789012", "ANN,6715551234"),
     # unless it is part of a money amount with a decimal point ("12345678.90").
-    STORED = /(?<!\d[.,])\d{8,}(?![.,]\d)/
+    STORED = /(?<!\d[.,])\d{8,}(?!\d|[.,]\d)/
     # Eight digits that read as a calendar date near today are a date, not an account number.
     DATE_RUN = /\A\d{8}\z/
     module_function

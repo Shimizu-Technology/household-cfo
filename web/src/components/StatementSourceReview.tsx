@@ -27,6 +27,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const [savingLines, setSavingLines] = useState(0)
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
+  // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
+  const [coverageFailed, setCoverageFailed] = useState(false)
   const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
@@ -73,6 +75,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const needBasis = data && review ? accountsNeedingBasis(data.accounts, review.accounts) : []
   const counts = plan ? statementCounts(plan) : null
   const said = coverageAnswer ?? plan?.coverage.answer ?? null
+  // Only what the server recorded counts as answered: the next step opens after the save that records it.
+  const recorded = plan?.coverage.answer ?? null
   const askCoverage = Boolean(plan?.coverage.question) && plan?.total !== 0
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
@@ -96,7 +100,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
     setCoverageAnswer(value)
-    if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value })
+    setCoverageFailed(false)
+    if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
   }
   function chooseBasis(account: number, basis: 'asset' | 'liability') {
     void save({ lines: [], accounts: [{ source_account_id: account, account_basis: basis }] })
@@ -108,7 +113,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
       ? { event_id: item.event_id, decision: 'as_read', shown: { event_type: item.event_type, category_id: item.category_id } }
       : id === 'edit'
         ? { event_id: item.event_id, decision: 'edited', edit: { ...sheetEdit(sheetFromAttention(item)), category_id: categoryId ?? item.category_id } }
-        : { event_id: item.event_id, decision: id }
+        : id === 'leave_out'
+          ? { event_id: item.event_id, decision: id }
+          // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
+          : { event_id: item.event_id, decision: id, shown: { event_type: item.event_type, category_id: item.category_id } }
     void save({ lines: [entry] }, index)
   }
   async function saveSheet(entry: LineDecision) {
@@ -126,6 +134,14 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   function sheetFromEvent(event: SourceEvent): SheetLine {
     const row = review?.rows[event.id]
     const facts = row?.approved && row.approved.current !== false ? row.approved.facts : null
+    // A line that is not saved yet opens on the kind and category the list shows for it (the plan's), not the reader's first guess.
+    const planned = !facts ? plan?.attention.find((item) => item.event_id === event.id) : undefined
+    if (planned) return sheetFromAttention(planned)
+    const ready = !facts ? readyById.get(event.id) : undefined
+    if (ready) {
+      return { eventId: event.id, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+        kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
+    }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
     return { eventId: event.id, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
@@ -163,7 +179,9 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
               <Button variant={said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={said === 'nothing_missing'} disabled={busy} onClick={() => answerCoverage('nothing_missing')}>Nothing’s missing</Button>
               <Button variant={said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={said === 'something_missing'} disabled={busy} onClick={() => answerCoverage('something_missing')}>Something’s missing</Button>
             </div>
-            {said === 'something_missing' && <p className="statement-muted" role="status">{coverageMissingNote()}</p>}
+            {coverageFailed && !mutation.pendingRequest && <div className="statement-notice" role="alert"><p>We couldn’t save your answer yet. Please try again.</p>
+              <div className="statement-answers"><Button variant="secondary" disabled={busy} onClick={() => { if (coverageAnswer) answerCoverage(coverageAnswer) }}>Try again</Button></div></div>}
+            {recorded === 'something_missing' && <p className="statement-muted" role="status">{coverageMissingNote()}</p>}
           </div>}
           {needBasis.length === 1 && <div className="statement-question-row">
             <p className="statement-question">Is {accountSentence(names[needBasis[0].id]) || 'this'} a bank account or a credit card?</p>
@@ -174,7 +192,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
           </div>}
           {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
           {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={approveRest}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
-          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!askCoverage || said) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
+          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!askCoverage || recorded) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
 
         {plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">

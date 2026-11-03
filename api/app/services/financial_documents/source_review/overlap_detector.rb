@@ -15,13 +15,15 @@ module FinancialDocuments
         def tracked_account_for(identity_id) = (@tracked ||= {}).fetch(identity_id) { @tracked[identity_id] = SourceAccountIdentityVersion.find_by(household: @household, id: identity_id)&.source_tracked_account_id }
       end
 
-      def initialize(household, event, facts, context: Context.new(household))
-        @household, @event, @facts, @context = household, event, facts.deep_symbolize_keys, context
+      # unlinked: read the line as when its account was not linked yet, which is how she saw it. Linking an account during a save
+      # must not turn a copy she was asked about into a line that no longer matches her screen.
+      def initialize(household, event, facts, context: Context.new(household), unlinked: false)
+        @household, @event, @facts, @context, @unlinked = household, event, facts.deep_symbolize_keys, context, unlinked
       end
 
       def call
         heads, pending, accounts = context.heads, context.pending, context.accounts
-        own_account = context.tracked_account_for(facts[:source_account_identity_version_id])
+        own_account = @unlinked ? nil : context.tracked_account_for(facts[:source_account_identity_version_id])
         artifact = event.financial_extraction_revision.financial_document_import&.checksum_sha256
         context.events.reject { |other| other.id == event.id }.filter_map do |other|
           head = heads[other.id]
