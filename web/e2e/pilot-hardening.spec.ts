@@ -10121,6 +10121,47 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
 })
 
 
+test('BOG UI a finished statement leads to what Mia notices, with the snapshot as the quieter step', async ({ page }) => {
+  const sent: string[] = []
+  await page.route('http://api.test/api/v1/mia/messages', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent.push(route.request().postDataJSON().content ?? route.request().postDataJSON().message)
+    return route.fulfill({ status: 201, json: { user_message: { id: 701, role: 'user', author: 'You', content: 'What spending patterns do you see?', attachments: [] },
+      assistant_message: { id: 702, role: 'assistant', author: 'Mia', content: 'Dining out is your steadiest pattern.', attachments: [] }, transaction_draft: null, mia_action_draft: null, budget: null, spending_report: null } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.attention = []
+    return data
+  })
+  await expect(review).toContainText('All 137 lines are saved.')
+  await expect(review.getByRole('button', { name: 'See what Mia notices', exact: true })).toHaveClass(/button--primary/)
+  await expect(review.getByRole('button', { name: 'Open your spending snapshot', exact: true })).toHaveClass(/button--secondary/)
+  await review.getByRole('button', { name: 'See what Mia notices', exact: true }).click()
+  await expect.poll(() => sent).toHaveLength(1)
+  expect(sent[0]).toBe('What spending patterns do you see?')
+  await expect(page.getByText('Dining out is your steadiest pattern.')).toBeVisible()
+})
+
+test('BOG UI a long statement is approved 400 lines at a time', async ({ page }) => {
+  const bodies: Array<{ input: { expect_ready_ids: number[]; paged?: boolean; lines: unknown[] } }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    bodies.push(route.request().postDataJSON())
+    return route.fulfill({ json: { result: { approved: 400, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.total = 1000; plan.ready_event_ids = Array.from({ length: 1000 }, (_, index) => 20_000 + index); plan.attention = []
+    return data
+  })
+  await expect(review).toContainText('All 1,000 look right. We’ll approve them 400 at a time.')
+  await review.getByRole('button', { name: 'Approve these 400', exact: true }).click()
+  await expect.poll(() => bodies).toHaveLength(1)
+  expect(bodies[0].input.paged).toBe(true)
+  expect(bodies[0].input.lines).toHaveLength(400)
+  expect(bodies[0].input.expect_ready_ids).toEqual(Array.from({ length: 400 }, (_, index) => 20_000 + index))
+})
+
 test('BOG UI statement uncertain request survives section navigation with identical replay', async ({ page }) => {
   let attempts = 0
   const requests: Array<{ key: string; body: unknown }> = []
