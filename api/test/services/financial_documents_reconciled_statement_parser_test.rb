@@ -184,11 +184,135 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     assert_accounting(fixture("wrapped-page.pdf"), result.data[:source_accounting])
   end
 
+  test "review corpus bytes and every native expected row are independently verified" do
+    names = JSON.parse(ROOT.join("review-1/manifest.json").read).fetch("documents")
+    assert_equal 7, names.length
+    names.each do |name|
+      filename = "review-1/#{name}"
+      expected = fixture(filename)
+      assert expected["synthetic"]
+      assert_equal expected["sha256"], Digest::SHA256.file(ROOT.join(filename)).hexdigest
+      assert_equal expected["size_bytes"], ROOT.join(filename).size
+      subject = parser(filename)
+      result = subject.call
+      assert_equal expected["native"], result.success?, "#{name}: #{result.error}"
+      assert_equal expected["failed_pages"], subject.failed_pages
+      next unless result.success?
+
+      assert_accounting(expected, result.data[:source_accounting])
+      assert_equal expected["masked_identifier"], result.data[:source_accounting][:accounts].sole.dig(:evidence, :masked_identifier)
+      assert_equal expected["expected_events"].pluck("expected_merchant"), result.data[:source_accounting][:events].map { |event| event.dig(:evidence, :merchant) }
+      assert result.metadata[:printed_arithmetic_verified]
+    end
+  end
+
+  test "returned unpaid fee is posted spending but a relabelled summary cannot claim reconciliation" do
+    result = parser("review-1/nsf-return-fee.pdf").call
+    assert result.success?, result.error
+    fee = result.data[:source_accounting][:events].sole
+    assert_equal "posted", fee[:row_kind]
+    assert_equal "fee", fee[:event_type]
+    assert_equal(-3500, fee[:signed_amount_cents])
+    assert_equal 3500, fee[:expense_amount_cents]
+
+    result = parser("review-1/relabelled-summary.pdf").call
+    refute result.success?, "Post-normalization rows must still be exactly the rows whose arithmetic was checked"
+    assert_nil result.data
+    refute result.metadata[:printed_arithmetic_verified]
+  end
+
+  test "classification repair cannot swap readable credits even when totals and closing still agree" do
+    filename = "review-1/classification-repair.pdf"
+    subject = parser(filename)
+    refute subject.call.success?
+    repaired = review_accounting(filename, page: 1)
+    assert subject.recover(1 => repaired).success?
+
+    subject = parser(filename)
+    subject.call
+    repaired[:events][0][:signed_amount_cents], repaired[:events][1][:signed_amount_cents] = repaired[:events][1][:signed_amount_cents], repaired[:events][0][:signed_amount_cents]
+    result = subject.recover(1 => repaired)
+    refute result.success?
+    assert_nil result.data
+  end
+
+  test "readable running balance survives an unreadable amount on the same repaired row" do
+    filename = "review-1/classification-repair.pdf"
+    pages = pages_for(filename)
+    pages.first[:runs].find { |run| run[:text] == "50.00" }[:text] = "?"
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    subject.call
+    assert subject.recover(1 => review_accounting(filename, page: 1)).success?
+
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    subject.call
+    repaired = review_accounting(filename, page: 1)
+    repaired[:events][0][:signed_amount_cents] += 1000
+    # Leave the second amount unreadable too: the net change still reconciles,
+    # but the first printed running balance proves the repair wrong.
+    pages.first[:runs].find { |run| run[:text] == "75.00" }[:text] = "?"
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    subject.call
+    repaired[:events][1][:signed_amount_cents] -= 1000
+    refute subject.recover(1 => repaired).success?
+  end
+
+  test "summary and disclosure dates do not create transactions or model calls" do
+    filename = "review-1/summary-and-disclosure.pdf"
+    subject = parser(filename)
+    result = subject.call
+    assert result.success?, result.error
+    assert_equal({ 1 => :non_transaction, 2 => :transaction, 3 => :non_transaction }, subject.page_types)
+    assert_equal [ 1, 2, 3 ], result.data[:source_accounting].dig(:coverage, :processed_pages)
+    assert_equal [ 2 ], result.data[:source_accounting][:events].map { |event| event.dig(:locator, :page) }.uniq
+
+    extractor = FinancialDocuments::Extractor.new(api_key: "offline")
+    extractor.define_singleton_method(:extract_openrouter_document) { |*| flunk "Supporting pages must not call the model" }
+    doc = FinancialDocumentImport.new(document_kind: "statement", filename: filename, content_type: "application/pdf")
+    assert extractor.send(:native_statement_result, doc, ROOT.join(filename)).success?
+
+    pages = pages_for(filename)
+    pages.first[:runs] += [ { text: "11/05", x: 36, y: 600 }, { text: "Store", x: 102, y: 600 }, { text: "35.00", x: 490, y: 600 } ]
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    refute subject.call.success?
+    assert_equal :unreadable, subject.page_types[1], "A summary heading cannot hide printed transaction rows"
+  end
+
+  test "scan with a dated text footer repairs its page without treating the footer as a row census" do
+    filename = "review-1/scanned-text-footer.pdf"
+    subject = parser(filename)
+    refute subject.call.success?
+    assert_equal :unreadable, subject.page_types[2]
+    assert_equal [ 2 ], subject.failed_pages
+    result = subject.recover(2 => review_accounting(filename, page: 2))
+    assert result.success?, result.error
+    assert_accounting(fixture(filename), result.data[:source_accounting])
+    assert_equal "reconciled_statement_hybrid", result.metadata[:extraction_mode]
+
+    pages = pages_for(filename)
+    pages.last[:runs] = pages.last[:runs].reject { |run| run[:text].match?(FinancialDocuments::ReconciledStatementParser::DATE) }
+    subject = FinancialDocuments::ReconciledStatementParser.new(pages: pages)
+    refute subject.call.success?
+    assert subject.recover(2 => review_accounting(filename, page: 2)).success?, "A footer without dates must not create an empty native census either"
+  end
+
   private
 
   def fixture(filename) = JSON.parse(ROOT.join("#{filename}.expected.json").read)
   def pages_for(filename) = FinancialDocuments::SourceSafety.pdf_text_pages(ROOT.join(filename), max_pages: 60, max_runs: 60_000)
   def parser(filename) = FinancialDocuments::ReconciledStatementParser.new(pages: pages_for(filename))
+
+  def review_accounting(filename, page:)
+    expected = fixture(filename)
+    rows = expected.fetch("expected_events")
+    rows = rows.drop(1) if filename.end_with?("scanned-text-footer.pdf")
+    events = rows.map.with_index do |row, index|
+      row.slice("posted_on", "signed_amount_cents", "row_kind", "event_type").symbolize_keys.merge(account_key: "fixture", merchant: row["description"], raw_description: row["description"], locator: { page: page, row: index + 1 })
+    end
+    FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "fixture", account_basis: "asset", period_start_on: expected["period_start_on"], period_end_on: expected["period_end_on"] } ], events: events },
+      coverage: { expected_page_count: expected["page_count"], processed_pages: [ page ] })
+  end
 
   def accounting_for(filename, page:)
     expected = fixture(filename)

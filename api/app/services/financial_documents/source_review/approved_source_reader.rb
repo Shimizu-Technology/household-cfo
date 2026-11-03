@@ -60,7 +60,7 @@ module FinancialDocuments
           revision_id: version.financial_source_event.financial_extraction_revision_id, digest: version.digest,
           disposition: version.disposition, event_type: version.event_type, signed_amount_cents: version.signed_amount_cents,
           purchase_amount_cents: version.purchase_amount_cents, posted_on: version.posted_on&.iso8601, authorized_on: version.authorized_on&.iso8601,
-          merchant: MerchantNormalizer.call(version.merchant), category: version.category_snapshot, matched_version_id: version.matched_version_id,
+          merchant: version.merchant, category: version.category_snapshot, matched_version_id: version.matched_version_id,
           account_identity_version_id: identity.id, tracked_account_id: identity.source_tracked_account_id,
           account_basis: identity.source_tracked_account.account_basis, account_identity_current: current_identity,
           spending_eligible: current_identity && version.expense? && (version.purchase_amount_cents == version.signed_amount_cents.abs || funded),

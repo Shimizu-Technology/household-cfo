@@ -119,7 +119,10 @@ module FinancialDocuments
       description = [ raw[:merchant], raw[:raw_description], raw[:evidence] ].compact.join(" ")
       # Non-posted principal and summary rows must not become purchases even if
       # an extractor mistakenly emits their embedded dollar amount as a debit.
-      if description.match?(/returned\s+unpaid|not\s+paid\s+because|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
+      summary = description.match?(/total\s+(?:fees?|charges?)\s+(?:for\s+(?:(?:the|this)\s+)?|this\s+)(?:statement\s+)?period/i)
+      returned_principal = description.match?(/returned\s+unpaid|not\s+paid\s+because/i)
+      posted_return_fee = type == "fee" && amount&.negative? && description.match?(/\bfee\b/i)
+      if summary || (returned_principal && !posted_return_fee)
         kind = "informational"
       end
       if kind != "informational"

@@ -50,6 +50,17 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     assert_equal({ "Ross" => 60_000, "Kmart" => 36_000 }, merchants)
   end
 
+  test "grouping normalizes locations without rewriting participant merchant wording or numeric names" do
+    [ "Ross Dress for Less", "ROSS DRESS FOR LESS #123 DEDEDO GU", "ROSS STORES #456 HAGATNA GU", "ROSS DRESS FOR LESS #123 HONOLULU HI" ].each do |merchant|
+      purchase(Date.new(2026, 10, 5), merchant, 1000)
+    end
+    coffee = purchase(Date.new(2026, 10, 6), "CARD PURCHASE 1776 COFFEE", 500)
+    merchants = analyze[:merchants].to_h { |row| [ row[:label], row[:total_cents] ] }
+    assert_equal({ "Ross" => 4000, "1776 COFFEE" => 500 }, merchants)
+    assert_equal "CARD PURCHASE 1776 COFFEE", coffee.reload.merchant
+    assert @household.household_transactions.exists?(merchant: "Ross Dress for Less")
+  end
+
   test "a selected window loads only the transactions it analyzes" do
     purchase(Date.new(2025, 1, 5), "Old purchase", 90_000)
     purchase(Date.new(2026, 10, 5), "Ross", 20_000)

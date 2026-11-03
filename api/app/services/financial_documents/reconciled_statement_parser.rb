@@ -13,7 +13,7 @@ module FinancialDocuments
     Invalid = Class.new(StandardError)
     RowError = Class.new(Invalid)
     Result = NativeStatementParser::Result
-    attr_reader :failed_pages, :recognized
+    attr_reader :failed_pages, :recognized, :page_types
 
     def initialize(pages:)
       @pages = pages.map do |page|
@@ -26,6 +26,7 @@ module FinancialDocuments
       @failed_pages = []
       @page_dates = {}
       @page_rows = {}
+      @page_types = {}
     end
 
     def call
@@ -33,8 +34,13 @@ module FinancialDocuments
       @recognized = true
       @pages.each do |page|
         yield(page[:number], @pages.length) if block_given?
-        @page_dates[page[:number]] = page[:runs].empty? ? nil : page[:runs].select { |run| run[:text].match?(DATE) }.sort_by { |run| -run[:y] }.map { |run| date(run[:text]) }
+        @page_types[page[:number]] = page_type(page)
+        next if @page_types[page[:number]] == :non_transaction
+        # Only a transaction table supplies a native date census. A scan with
+        # a text footer (even a dated one) supplies no trustworthy row count.
+        @page_dates[page[:number]] = @page_types[page[:number]] == :transaction ? page[:runs].select { |run| run[:text].match?(DATE) }.sort_by { |run| -run[:y] }.map { |run| date(run[:text]) } : nil
         @page_rows[page[:number]] = recovery_evidence(page)
+        raise RowError if @page_types[page[:number]] == :unreadable
         @rows.concat(read_page(page))
       rescue RowError
         @failed_pages << page[:number]
@@ -70,7 +76,8 @@ module FinancialDocuments
           raise Invalid unless amount.is_a?(Integer)
           printed = @page_rows.fetch(page)[index]
           if printed
-            raise Invalid unless amount == printed[:signed_amount_cents] && event[:row_kind] == printed[:row_kind]
+            raise Invalid if printed[:signed_amount_cents] && amount != printed[:signed_amount_cents]
+            raise Invalid if printed[:row_kind] && event[:row_kind] != printed[:row_kind]
           end
           @rows << { account_key: @account[:account_key], row_kind: event[:row_kind], event_type: event[:event_type],
             signed_amount_cents: amount, amount_column_cents: amount, posted_on: event[:posted_on],
@@ -92,15 +99,16 @@ module FinancialDocuments
     def recovery_evidence(page)
       header = nil
       lines(page).filter_map do |line|
-        if line.pluck(:text).include?("Date")
+        if table_header?(line)
           header = columns(line)
           next
         end
+        next unless header
         run = line.find { |item| item[:text].match?(DATE) }
         next unless run
         [ run, line ]
       end.map.with_index do |(run, line), index|
-        read_row(line, header || {}, run, page[:number], index + 1)
+        printed_row(line, header, run, page[:number], index + 1)
       rescue RowError
         nil
       end
@@ -126,7 +134,7 @@ module FinancialDocuments
         "liability"
       end
       raise Invalid unless basis
-      identifiers = text.scan(/Account:\s*([^|\n]+)/i).flatten.map(&:strip).uniq
+      identifiers = text.scan(/\bAccount:[ \t]*((?:X{2,}|\*{2,})?\d{4,})(?=[ \t|\n]|$)/i).flatten.uniq
       raise Invalid unless identifiers.one?
       identifier = identifiers.sole.gsub(/\D/, "").last(4)
       raise Invalid unless identifier.length == 4
@@ -158,7 +166,7 @@ module FinancialDocuments
       consumed_dates = []
       lines(page).each do |line|
         texts = line.pluck(:text)
-        if texts.include?("Date") && texts.any? { |text| text.match?(/\A(?:Description|Payee|Details)\z/i) }
+        if table_header?(line)
           raise RowError if in_table
           header = columns(line)
           in_table = true
@@ -185,6 +193,26 @@ module FinancialDocuments
       rows
     end
 
+    def table_header?(line)
+      texts = line.pluck(:text)
+      texts.include?("Date") && texts.any? { |text| text.match?(/\A(?:Description|Payee|Details)\z/i) }
+    end
+
+    def page_type(page)
+      page_lines = lines(page)
+      return :transaction if page_lines.any? { |line| table_header?(line) }
+
+      text = page_lines.map { |line| line.pluck(:text).join(" ") }.join("\n")
+      # Positively identify supporting pages; unknown pages are never assumed
+      # empty. A dated monetary line still requires repair even under a summary
+      # heading, so printed rows cannot disappear with the supporting text.
+      supporting = text.match?(/\b(?:account summary|statement summary|important disclosures|disclosure statement)\b/i)
+      dated_movement = page_lines.any? do |line|
+        line.any? { |run| run[:text].match?(DATE) } && line.any? { |run| run[:text].match?(MONEY) }
+      end
+      supporting && !dated_movement ? :non_transaction : :unreadable
+    end
+
     def columns(line)
       header = {}
       line.each do |run|
@@ -205,27 +233,43 @@ module FinancialDocuments
     end
 
     def read_row(line, header, date_run, page, row)
+      printed = printed_row(line, header, date_run, page, row)
+      raise RowError unless printed.delete(:valid)
+      type = event_type(printed[:raw_description], printed[:signed_amount_cents])
+      raise RowError if type == "unknown" && printed[:row_kind] != "informational"
+      printed.merge(event_type: type)
+    end
+
+    # Monetary evidence must survive classification failures and independently
+    # unreadable cells. In particular a readable balance is retained even when
+    # the amount or descriptor needs repair.
+    def printed_row(line, header, date_run, page, row)
       fields = header.sort_by { |_key, run| run[:x] }
       values = Hash.new { |hash, key| hash[key] = [] }
+      valid = true
       line.reject { |run| run == date_run }.each do |run|
         key = fields.reverse.find { |_name, label| run[:x] >= label[:x] - 32 }&.first
-        raise RowError unless key && key != :date
+        valid = false unless key && key != :date
         values[key] << run[:text]
       end
-      body = values.delete(:description).join(" ").presence || raise(RowError)
-      amounts = values.transform_values { |texts| raise RowError unless texts.one?; money(texts.sole) }
-      if header[:amount]
-        printed = amounts.fetch(:amount) { raise RowError }
-        signed = -printed
-      else
-        raise RowError unless amounts.key?(:debit) ^ amounts.key?(:credit)
-        raise RowError if amounts.values_at(:debit, :credit).compact.any?(&:negative?)
-        signed = amounts.key?(:debit) ? -amounts[:debit] : amounts[:credit]
+      body = values.delete(:description).join(" ")
+      valid = false if body.blank?
+      amounts = values.transform_values do |texts|
+        texts.one? ? money(texts.sole) : nil
+      rescue Invalid
+        nil
       end
+      valid = false if amounts.values.any?(&:nil?)
+      if header[:amount]
+        signed = -amounts[:amount] if amounts[:amount]
+      else
+        if (amounts.key?(:debit) ^ amounts.key?(:credit)) && amounts.values_at(:debit, :credit).compact.none?(&:negative?)
+          signed = amounts.key?(:debit) ? amounts[:debit]&.-@ : amounts[:credit]
+        end
+      end
+      valid = false unless signed
       pending = body.match?(/\[PENDING\]/i)
-      type = event_type(body, signed)
-      raise RowError if type == "unknown" && !pending
-      { account_key: @account[:account_key], row_kind: pending ? "informational" : "posted", event_type: type,
+      { valid: valid, account_key: @account[:account_key], row_kind: pending ? "informational" : "posted",
         signed_amount_cents: signed, amount_column_cents: signed, posted_on: date(date_run[:text]),
         locator: { page: page, row: row }, merchant: MerchantNormalizer.call(mask(body)), raw_description: mask(body), evidence: mask(body),
         running_balance_cents: amounts[:balance] }
@@ -252,7 +296,12 @@ module FinancialDocuments
       @account[:header_evidence] += "; printed posted row count: #{@posted_count}; physical informational rows: #{@rows.length - posted.length}"
       accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: [ @account ], events: @rows, reported_row_count: @rows.length },
         coverage: { expected_page_count: @pages.length, processed_pages: (1..@pages.length).to_a })
-      raise Invalid if accounting[:events].any? { |event| event[:row_kind] == "unresolved" }
+      raise Invalid unless accounting[:events].length == @rows.length
+      accounting[:events].zip(@rows).each do |event, row|
+        expected_amount = row[:row_kind] == "informational" ? nil : row[:signed_amount_cents]
+        raise Invalid unless event[:row_kind] == row[:row_kind] && event[:signed_amount_cents] == expected_amount
+        raise Invalid if row[:row_kind] == "informational" && event.dig(:evidence, :displayed_amount_cents) != row[:signed_amount_cents]
+      end
       Result.new(success: true, error: nil,
         data: { document_kind: "statement", document_date: @finish, period_start_on: @start, period_end_on: @finish,
           summary: "Read #{@rows.length} rows from every statement page. Review the purchases before approval.", confidence: "high",

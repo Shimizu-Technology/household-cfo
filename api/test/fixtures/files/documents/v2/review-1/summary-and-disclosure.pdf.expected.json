@@ -1,0 +1,293 @@
+{
+  "filename": "summary-and-disclosure.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 3,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": true,
+  "failed_pages": [],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-01",
+      "description": "Tasi Demo shop 1",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 1",
+      "running_balance_cents": 99900
+    },
+    {
+      "posted_on": "2025-11-02",
+      "description": "Tasi Demo shop 2",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 2",
+      "running_balance_cents": 99800
+    },
+    {
+      "posted_on": "2025-11-03",
+      "description": "Tasi Demo shop 3",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 3",
+      "running_balance_cents": 99700
+    },
+    {
+      "posted_on": "2025-11-04",
+      "description": "Tasi Demo shop 4",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 4",
+      "running_balance_cents": 99600
+    },
+    {
+      "posted_on": "2025-11-05",
+      "description": "Tasi Demo shop 5",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 5",
+      "running_balance_cents": 99500
+    },
+    {
+      "posted_on": "2025-11-06",
+      "description": "Tasi Demo shop 6",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 6",
+      "running_balance_cents": 99400
+    },
+    {
+      "posted_on": "2025-11-07",
+      "description": "Tasi Demo shop 7",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 7",
+      "running_balance_cents": 99300
+    },
+    {
+      "posted_on": "2025-11-08",
+      "description": "Tasi Demo shop 8",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 8",
+      "running_balance_cents": 99200
+    },
+    {
+      "posted_on": "2025-11-09",
+      "description": "Tasi Demo shop 9",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 9",
+      "running_balance_cents": 99100
+    },
+    {
+      "posted_on": "2025-11-10",
+      "description": "Tasi Demo shop 10",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 10",
+      "running_balance_cents": 99000
+    },
+    {
+      "posted_on": "2025-11-11",
+      "description": "Tasi Demo shop 11",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 11",
+      "running_balance_cents": 98900
+    },
+    {
+      "posted_on": "2025-11-12",
+      "description": "Tasi Demo shop 12",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 12",
+      "running_balance_cents": 98800
+    },
+    {
+      "posted_on": "2025-11-13",
+      "description": "Tasi Demo shop 13",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 13",
+      "running_balance_cents": 98700
+    },
+    {
+      "posted_on": "2025-11-14",
+      "description": "Tasi Demo shop 14",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 14",
+      "running_balance_cents": 98600
+    },
+    {
+      "posted_on": "2025-11-15",
+      "description": "Tasi Demo shop 15",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 15",
+      "running_balance_cents": 98500
+    },
+    {
+      "posted_on": "2025-11-16",
+      "description": "Tasi Demo shop 16",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 16",
+      "running_balance_cents": 98400
+    },
+    {
+      "posted_on": "2025-11-17",
+      "description": "Tasi Demo shop 17",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 17",
+      "running_balance_cents": 98300
+    },
+    {
+      "posted_on": "2025-11-18",
+      "description": "Tasi Demo shop 18",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 18",
+      "running_balance_cents": 98200
+    },
+    {
+      "posted_on": "2025-11-19",
+      "description": "Tasi Demo shop 19",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 19",
+      "running_balance_cents": 98100
+    },
+    {
+      "posted_on": "2025-11-20",
+      "description": "Tasi Demo shop 20",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 20",
+      "running_balance_cents": 98000
+    },
+    {
+      "posted_on": "2025-11-21",
+      "description": "Tasi Demo shop 21",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 21",
+      "running_balance_cents": 97900
+    },
+    {
+      "posted_on": "2025-11-22",
+      "description": "Tasi Demo shop 22",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 22",
+      "running_balance_cents": 97800
+    },
+    {
+      "posted_on": "2025-11-23",
+      "description": "Tasi Demo shop 23",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 23",
+      "running_balance_cents": 97700
+    },
+    {
+      "posted_on": "2025-11-24",
+      "description": "Tasi Demo shop 24",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 24",
+      "running_balance_cents": 97600
+    },
+    {
+      "posted_on": "2025-11-25",
+      "description": "Tasi Demo shop 25",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 25",
+      "running_balance_cents": 97500
+    },
+    {
+      "posted_on": "2025-11-26",
+      "description": "Tasi Demo shop 26",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 26",
+      "running_balance_cents": 97400
+    },
+    {
+      "posted_on": "2025-11-27",
+      "description": "Tasi Demo shop 27",
+      "signed_amount_cents": -100,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo shop 27",
+      "running_balance_cents": 97300
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 97300,
+    "printed_credit_cents": 0,
+    "printed_debit_cents": 2700
+  },
+  "sha256": "1aab1020b0fa817edb1697a77985735bceba0a8f54c63310e52c43a449a213cb",
+  "size_bytes": 3797
+}

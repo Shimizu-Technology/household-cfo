@@ -119,6 +119,17 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal 1_500, result[:reconciliation][:accounts].first[:debit_cents]
   end
 
+  test "posted NSF fees are spending while returned principal and fee summaries remain informational" do
+    rows = [ event(-3500, type: "fee", merchant: "NSF RETURNED UNPAID ITEM FEE"),
+      event(-10000, row: 2, merchant: "Returned unpaid principal"),
+      event(-3500, type: "fee", row: 3, merchant: "Total fees for this period") ]
+    result = persist(normalized(rows))
+    assert_equal %w[posted informational informational], result[:events].pluck(:row_kind)
+    assert_equal [ -3500, nil, nil ], result[:events].pluck(:signed_amount_cents)
+    assert_equal 3500, result[:events].first.expense_amount_cents
+    assert_equal [ 3500 ], result[:transaction_drafts].pluck(:total_amount_cents)
+  end
+
   test "an embedded overdraft cause amount cannot override a disagreeing printed amount column" do
     result = persist(normalized([ event(-98_765, type: "fee", amount_column_cents: 3_500, merchant: "Overdraft fee caused by a larger unpaid item") ]))
 

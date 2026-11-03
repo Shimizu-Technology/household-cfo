@@ -314,7 +314,7 @@ module FinancialDocuments
         amount = input[:signed_amount_cents].nil? ? nil : cents!(input[:signed_amount_cents])
         posted = input[:posted_on].nil? ? nil : date!(input[:posted_on])
         authorized = input[:authorized_on].nil? ? nil : date!(input[:authorized_on])
-        merchant = MerchantNormalizer.call(text(input[:merchant], 120))
+        merchant = text(input[:merchant], 120)
         category = input[:budget_category_id] && household.budget_categories.find(input[:budget_category_id])
         purchase = input[:purchase_amount_cents].nil? ? nil : cents!(input[:purchase_amount_cents], positive: true)
         if disposition.in?(%w[include match])
@@ -327,7 +327,7 @@ module FinancialDocuments
           raise ArgumentError, "Purchases and fees must be outflows" if type.in?(%w[purchase fee]) && !amount.negative?
           raise ArgumentError, "Refunds and income must be inflows" if type.in?(%w[refund income]) && !amount.positive?
           if amount.negative? && type.in?(%w[purchase fee interest])
-            merchant = MerchantNormalizer.call(required_text(input[:merchant], 120))
+            merchant = required_text(input[:merchant], 120)
             raise ArgumentError, "Explicitly review the category, including uncategorized" unless input.key?(:budget_category_id)
             purchase ||= amount.abs unless type == "purchase"
             raise ArgumentError, "Review the complete economic purchase amount" unless purchase && purchase >= amount.abs

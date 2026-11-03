@@ -1,0 +1,33 @@
+{
+  "filename": "relabelled-summary.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": false,
+  "failed_pages": [],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "TOTAL FEES FOR THIS PERIOD",
+      "signed_amount_cents": -3500,
+      "event_type": "fee",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "TOTAL FEES FOR THIS PERIOD",
+      "running_balance_cents": 96500
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 96500,
+    "printed_credit_cents": 0,
+    "printed_debit_cents": 3500
+  },
+  "sha256": "aeeeb8e164f5bc5a6ecd445ec3c9785ab59349e11120238e319a896440ef1282",
+  "size_bytes": 1895
+}
