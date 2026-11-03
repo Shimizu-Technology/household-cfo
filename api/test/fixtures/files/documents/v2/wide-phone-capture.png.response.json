@@ -1,0 +1,65 @@
+{
+  "document_kind": "statement",
+  "items": [],
+  "transaction_drafts": [],
+  "confidence": "high",
+  "warnings": [],
+  "summary": "Fictional offline provider contract",
+  "period_start_on": "2026-09-01",
+  "period_end_on": "2026-09-30",
+  "source_accounting": {
+    "contract_version": "source_accounting_v1",
+    "accounts": [
+      {
+        "account_key": "fixture",
+        "account_basis": "unknown",
+        "period_start_on": "2026-09-01",
+        "period_end_on": "2026-09-30"
+      }
+    ],
+    "events": [
+      {
+        "account_key": "fixture",
+        "posted_on": "2026-09-13",
+        "signed_amount_cents": -6000,
+        "amount_column_cents": -6000,
+        "row_kind": "posted",
+        "event_type": "purchase",
+        "merchant": "POS DEBIT 1234 ROSS STORES #567",
+        "raw_description": "POS DEBIT 1234 ROSS STORES #567",
+        "locator": {
+          "page": 1,
+          "row": 1
+        }
+      },
+      {
+        "account_key": "fixture",
+        "posted_on": "2026-09-18",
+        "signed_amount_cents": -3600,
+        "amount_column_cents": -3600,
+        "row_kind": "posted",
+        "event_type": "purchase",
+        "merchant": "POS DEBIT 1234 KMART #101",
+        "raw_description": "POS DEBIT 1234 KMART #101",
+        "locator": {
+          "page": 1,
+          "row": 2
+        }
+      },
+      {
+        "account_key": "fixture",
+        "posted_on": "2026-09-25",
+        "signed_amount_cents": 50000,
+        "amount_column_cents": 50000,
+        "row_kind": "posted",
+        "event_type": "income",
+        "merchant": "ACH CREDIT PAYROLL",
+        "raw_description": "ACH CREDIT PAYROLL",
+        "locator": {
+          "page": 1,
+          "row": 3
+        }
+      }
+    ]
+  }
+}

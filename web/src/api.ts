@@ -330,6 +330,7 @@ export type FinancialDocumentImport = {
   applied_by: DocumentImportUserReference | null
   source_deleted_by: DocumentImportUserReference | null
   metadata: {
+    extraction_progress?: { stage?: string; page?: number; page_count?: number }
     confidence?: DocumentImportConfidence
     warnings?: string[]
     original_filename?: string

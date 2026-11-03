@@ -1,0 +1,33 @@
+{
+  "filename": "nsf-return-fee.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": true,
+  "failed_pages": [],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "NSF RETURNED UNPAID ITEM FEE",
+      "signed_amount_cents": -3500,
+      "event_type": "fee",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "NSF RETURNED UNPAID ITEM FEE",
+      "running_balance_cents": 96500
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 96500,
+    "printed_credit_cents": 0,
+    "printed_debit_cents": 3500
+  },
+  "sha256": "b3d039af738e3c34eefdbe39c4902128c9ad1b7aa17417f7fcd8a81ff4158ee5",
+  "size_bytes": 1898
+}

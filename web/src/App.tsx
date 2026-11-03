@@ -1,3 +1,4 @@
+import { DocumentReadingProgress } from './components/DocumentReadingProgress'
 import { IncomeForms } from './components/IncomeForms'
 import { IncomeSourceManager } from './components/IncomeSourceManager'
 import { AnnualIncomePlanner } from './components/AnnualIncomePlanner'
@@ -5507,8 +5508,7 @@ export function DocumentReviewPanel({
 
       {processing && (
         <div className="document-processing-state" role="status">
-          <span />
-          <p>{assistantName} is reading the accounts and purchases. This panel refreshes automatically.</p>
+          <DocumentReadingProgress progress={documentImport.metadata.extraction_progress} />
         </div>
       )}
 

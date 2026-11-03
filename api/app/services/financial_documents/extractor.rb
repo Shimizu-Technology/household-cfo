@@ -72,7 +72,7 @@ module FinancialDocuments
       return failure(STORAGE_FAILURE_MESSAGE, metadata: { error_detail: "AWS S3 storage is not configured" }) unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
-        progress!
+        progress!(stage: "checking")
         check_source_safety!(document_import, tempfile.path)
         progress!
         structured_result = structured_spreadsheet_result(document_import, tempfile.path)
@@ -82,6 +82,7 @@ module FinancialDocuments
         return failure(structured_result.error) if terminal_structured_spreadsheet_error?(structured_result)
 
         native = native_statement_result(document_import, tempfile.path)
+        return native if native.is_a?(Result)
         return Result.new(success: true, data: native.data, error: nil, metadata: native.metadata) if native&.success?
 
         return failure(TEMPORARY_FAILURE_MESSAGE, metadata: { error_detail: "OpenRouter API key is not configured" }) if api_key.blank?
@@ -95,6 +96,7 @@ module FinancialDocuments
         payload_size_error = inline_payload_size_error(document_import, tempfile.path)
         return failure(payload_size_error) if payload_size_error
 
+        progress!(stage: "reading", page: document_import.pdf? ? 1 : nil, page_count: @pdf_page_count)
         extract_openrouter_document(document_import, tempfile.path)
       end
     rescue SourceSafety::Unreadable => e
@@ -115,8 +117,8 @@ module FinancialDocuments
 
     # Optional job-owned heartbeat. A superseded generation must stop before the
     # next provider batch, while ordinary synchronous callers need no callback.
-    def progress!
-      raise "Extraction attempt no longer has source access" if @progress && @progress.call == false
+    def progress!(**state)
+      raise "Extraction attempt no longer has source access" if @progress && @progress.call(state) == false
     end
 
     def with_source_tempfile(document_import)
@@ -167,11 +169,48 @@ module FinancialDocuments
 
     def native_statement_result(document_import, file_path)
       return unless document_import.pdf? && document_import.document_kind == "statement"
-      # The native parser is an optional fast path; a PDF whose text cannot
-      # be read within the sandbox limits goes to the regular route instead.
-      return unless SourceSafety.pdf_text_readable?(file_path, max_pages: NativeStatementParser::MAX_PAGES, max_runs: NativeStatementParser::MAX_RUNS)
+      pages = SourceSafety.pdf_text_pages(file_path, max_pages: NativeStatementParser::MAX_PAGES, max_runs: NativeStatementParser::MAX_RUNS)
+      return unless pages
 
-      NativeStatementParser.new(file_path: file_path).call
+      progress!(stage: "reading", page: 0, page_count: pages.length)
+      qualified = NativeStatementParser.new(file_path: file_path, pages: pages).call
+      return qualified if qualified.success?
+
+      parser = ReconciledStatementParser.new(pages: pages)
+      result = parser.call { |page, count| progress!(stage: "reading", page: page, page_count: count) }
+      return result if result.success?
+      return unless parser.recognized
+      return failure("We couldn’t match every statement row to the printed totals. Nothing changed. Upload a CSV export or a clearer copy.") if parser.failed_pages.empty?
+      return failure(UNREADABLE_RESULT_MESSAGE) if api_key.blank?
+
+      source = CombinePDF.load(file_path)
+      repairs = {}
+      metadata = []
+      repair_data = []
+      parser.failed_pages.each do |page_number|
+        progress!(stage: "reading", page: page_number, page_count: pages.length)
+        chunk = Tempfile.new([ "statement_page", ".pdf" ])
+        chunk.close
+        begin
+          write_pdf_chunk([ source.pages.fetch(page_number - 1) ], chunk.path)
+          repaired = extract_openrouter_document(document_import, chunk.path, batch_label: "pages #{page_number}-#{page_number} of #{pages.length}")
+          return repaired unless repaired.success?
+
+          repairs[page_number] = repaired.data[:source_accounting]
+          metadata << repaired.metadata
+          repair_data << repaired.data
+        ensure
+          chunk.close!
+        end
+      end
+      recovered = parser.recover(repairs)
+      return failure("We couldn’t match every statement row to the printed totals. Nothing changed. Upload a CSV export or a clearer copy.") unless recovered.success?
+
+      data = recovered.data.merge(confidence: merged_confidence([ recovered.data, *repair_data ]),
+        warnings: (recovered.data[:warnings] + repair_data.flat_map { |page| Array(page[:warnings]) })
+          .reject { |warning| batch_scope_warning?(warning) }.uniq.first(MAX_WARNINGS))
+      Result.new(success: true, data: data, error: nil,
+        metadata: recovered.metadata.merge(usage: merged_usage(metadata), batch_count: repairs.length))
     end
 
     # Only unrecognized workbooks reach the model. Keep physical row/sheet
@@ -273,6 +312,7 @@ module FinancialDocuments
         progress!
         first_page = index * pages_per_batch + 1
         last_page = first_page + pages.length - 1
+        progress!(stage: "reading", page: first_page, page_count: page_count)
         chunk = Tempfile.new([ "financial_document_import_#{document_import.id}_pages_#{first_page}_#{last_page}", ".pdf" ])
         chunk.close
         write_pdf_chunk(pages, chunk.path)

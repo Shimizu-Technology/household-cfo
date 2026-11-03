@@ -1,0 +1,55 @@
+{
+  "filename": "classification-repair.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": false,
+  "failed_pages": [
+    1
+  ],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "Zelle from A",
+      "signed_amount_cents": 5000,
+      "event_type": "income",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Zelle from A",
+      "running_balance_cents": 105000
+    },
+    {
+      "posted_on": "2025-11-06",
+      "description": "Mobile check deposit",
+      "signed_amount_cents": 7500,
+      "event_type": "income",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Mobile check deposit",
+      "running_balance_cents": 112500
+    },
+    {
+      "posted_on": "2025-11-07",
+      "description": "Tasi Demo groceries",
+      "signed_amount_cents": -2500,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo groceries",
+      "running_balance_cents": 110000
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 110000,
+    "printed_credit_cents": 12500,
+    "printed_debit_cents": 2500
+  },
+  "sha256": "467bfeedfaac113a071185833183c19fa571e27b28b5cc79306a9f7d08fab2cc",
+  "size_bytes": 1979
+}

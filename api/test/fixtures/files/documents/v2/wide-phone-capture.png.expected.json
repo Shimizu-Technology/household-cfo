@@ -1,0 +1,57 @@
+{
+  "filename": "wide-phone-capture.png",
+  "kind": "statement",
+  "format": "png",
+  "expected_events": [
+    {
+      "event_id": "screen-1234-202609-0001",
+      "account_key": "screen-1234",
+      "posted_on": "2026-09-13",
+      "description": "POS DEBIT 1234 ROSS STORES #567",
+      "signed_amount_cents": -6000,
+      "event_type": "purchase",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": null
+    },
+    {
+      "event_id": "screen-1234-202609-0002",
+      "account_key": "screen-1234",
+      "posted_on": "2026-09-18",
+      "description": "POS DEBIT 1234 KMART #101",
+      "signed_amount_cents": -3600,
+      "event_type": "purchase",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": null
+    },
+    {
+      "event_id": "screen-1234-202609-0003",
+      "account_key": "screen-1234",
+      "posted_on": "2026-09-25",
+      "description": "ACH CREDIT PAYROLL",
+      "signed_amount_cents": 50000,
+      "event_type": "income",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": false,
+      "category": null
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": null,
+    "printed_credit_cents": 50000,
+    "printed_debit_cents": 9600,
+    "closing_balance_cents": null,
+    "spending_draft_total_cents": 9600,
+    "pending_display_total_cents": 0
+  },
+  "period_start_on": "2026-09-01",
+  "period_end_on": "2026-09-30",
+  "account_basis": "unknown",
+  "synthetic": true,
+  "sha256": "2a1e82dbc5fd4d7542d61ac1a9c950a576a36bfc589afd9131ae243290c97cc8",
+  "size_bytes": 60297
+}

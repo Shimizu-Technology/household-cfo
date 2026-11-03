@@ -1,0 +1,32 @@
+Tasi Demo Bank — fictional export
+Account,XXXX1234
+Exported,2026-10-01
+
+Date,Description,Debit,Credit,Status
+2026-09-01,ACH CREDIT PAYROLL Government of Guam DEMO,,"2,100.00",posted
+2026-09-02,Rent - Talun family home,"1,250.00",,posted
+2026-09-03,Payless Supermarkets - Mangilao,103.42,,posted
+2026-09-04,Shell - Upper Tumon,48.75,,posted
+2026-09-05,Island Table - Tamuning (includes tip),67.20,,posted
+2026-09-06,Guam Power Authority GPA,186.45,,posted
+2026-09-07,Guam Waterworks Authority GWA,56.78,,posted
+2026-09-08,GTA - home internet,85.00,,posted
+2026-09-09,Docomo Pacific - mobile,65.00,,posted
+2026-09-10,Coast360 transfer to own savings 00002468,200.00,,posted
+2026-09-11,ATM withdrawal Mangilao,100.00,,posted
+2026-09-12,Visa card payment 00009900,250.00,,posted
+2026-09-13,POS DEBIT 1234 ROSS STORES #567 XXXX1234,55.25,,posted
+2026-09-14,Amazon Marketplace,38.99,,posted
+2026-09-15,Government of Guam DEMO payroll Lina,,"2,100.00",posted
+2026-09-16,Tasi Services DEMO payroll Mateo,,"1,650.00",posted
+2026-09-17,Cost-U-Less - Harmon,157.82,,posted
+2026-09-18,POS DEBIT 1234 KMART #101 XXXX1234,31.75,,posted
+2026-09-19,Mobil - Dededo,52.00,,posted
+2026-09-20,Jamba Juice - Micronesia Mall,9.75,,posted
+2026-09-21,Port of Mocha - Hagatna,6.25,,posted
+2026-09-22,McDonald's - Tamuning,14.75,,posted
+2026-09-23,Netflix monthly subscription,15.49,,posted
+2026-09-24,Amazon refund order DEMO-8001,,12.99,posted
+2026-09-25,Monthly service fee,5.00,,posted
+2026-09-28,Tasi Services DEMO payroll Mateo,,"1,650.00",posted
+2026-09-30,Port of Mocha - card authorization,6.50,,pending

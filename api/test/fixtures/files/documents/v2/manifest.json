@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "documents": [
+    "bank-descriptors.pdf",
+    "running-balance.pdf",
+    "continued-pages.pdf",
+    "cross-month-cycle.pdf",
+    "credit-card-signed.pdf",
+    "wrapped-page.pdf",
+    "metadata-before-header.csv",
+    "angled-creased-receipt.jpg",
+    "wide-phone-capture.png"
+  ]
+}

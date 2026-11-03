@@ -57,7 +57,7 @@ module FinancialDocuments
         {
           financial_source_event_id: event.id,
           occurred_on: event.posted_on.iso8601,
-          merchant: evidence[:merchant].presence || evidence[:raw_description].presence || "Source transaction",
+          merchant: MerchantNormalizer.call(evidence[:merchant].presence || evidence[:raw_description].presence || "Source transaction"),
           total_amount_cents: event.expense_amount_cents,
           total_amount: HouseholdFinance::Money.dollars(event.expense_amount_cents),
           category_name: evidence[:category_name], stack_key: evidence[:stack_key],

@@ -64,12 +64,12 @@ module SpendingPatterns
     private
 
     def source_row(row)
-      { source_version_id: row.id, date: row.posted_on, merchant: row.merchant.presence || "Unnamed purchase", amount_cents: row.purchase_amount_cents || -row.signed_amount_cents,
+      { source_version_id: row.id, date: row.posted_on, merchant: FinancialDocuments::MerchantNormalizer.call(row.merchant.presence || "Unnamed purchase"), amount_cents: row.purchase_amount_cents || -row.signed_amount_cents,
         splits: [ split(row.budget_category, row.purchase_amount_cents || -row.signed_amount_cents) ] }
     end
 
     def actual_row(row)
-      { date: row.occurred_on, merchant: row.merchant, amount_cents: row.total_amount_cents,
+      { date: row.occurred_on, merchant: FinancialDocuments::MerchantNormalizer.call(row.merchant), amount_cents: row.total_amount_cents,
         splits: row.transaction_splits.map { |value| split(value.budget_category, value.amount_cents) } }
     end
 

@@ -28,7 +28,10 @@ module FinancialDocuments
       result = record.attributes.symbolize_keys.slice(:id, :financial_source_account_id, :financial_extraction_revision_id, :position, :row_identity, :row_kind, :event_type, :signed_amount_cents, :expense_amount_cents, :locator, :funding_components, :limitations)
       result.merge!(posted_on: record.posted_on&.iso8601, authorized_on: record.authorized_on&.iso8601,
         review_state: "unreviewed", expense_projection_eligible: record.expense_projection_eligible?, evidence_available: record.financial_source_evidence.present?)
-      result[:evidence] = record.financial_source_evidence&.payload if include_evidence
+      if include_evidence
+        evidence = record.financial_source_evidence&.payload
+        result[:evidence] = evidence&.key?("merchant") ? evidence.merge("merchant" => MerchantNormalizer.call(evidence["merchant"])) : evidence
+      end
       result
     end
 
