@@ -35,7 +35,9 @@
   .transaction-review-facts { grid-template-columns: minmax(0, 1fr) auto; }
   .transaction-review-facts span { grid-column: 1 / -1; }
 }
-.document-workspace-heading .text-button { background: transparent; color: var(--action-primary, #7b4a58); border: 0; padding: 8px 0; text-align: left; text-decoration: underline; box-shadow: none; }
+.document-import-guide a { display: inline-flex; align-items: center; min-height: 44px; }
+.document-other-links { display: grid; justify-items: start; gap: 4px; margin-top: 12px; }
+.document-other-links .text-button { min-height: 44px; background: transparent; color: var(--action-primary, #7b4a58); border: 0; padding: 8px 0; text-align: left; text-decoration: underline; box-shadow: none; }
 @media (max-width: 600px) {
   .income-source-form-actions, .income-schedule-form-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
   .income-source-form-actions button, .income-schedule-form-actions button { width: 100%; min-height: 44px; white-space: normal; }
@@ -56,7 +58,6 @@
 .staff-app[hidden] { display: none; }
 @media (max-width: 600px) {
   .shell-account-panel button, .shell-account-panel a, .app .pilot-support-bar a.button { min-height: 44px; }
-  .statements-screen .document-workspace-heading .text-button { min-height: 44px; }
   .transaction-draft-bulk-actions button, .transaction-draft-bulk-actions summary { min-height: 44px; align-content: center; }
   .transaction-draft-editor input:not([type='checkbox']), .transaction-draft-editor select { min-height: 44px; height: 44px; }
   .transaction-draft-editor button { min-height: 44px; }

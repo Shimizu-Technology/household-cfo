@@ -1,6 +1,6 @@
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
 import type { SavingsChallenge, SavingsEnrollment, SavingsPlanVersion, SavingsPlanDraft, SavingsEntry, SavingsEntryDraft, SavingsEntryVersion, SavingsPage, SavingsMutation, SavingsPlanInput, SavingsPlanApproval, SavingsEntryInput, SavingsEntryApproval } from './lib/savingsChallenge'
-import type { SourceReviewAction, TrackedSourceAccount, ReviewedRow } from './lib/participantSourceReview'
+import type { SourceReviewAction, ReviewedRow } from './lib/participantSourceReview'
 import type { SourceEvent, SourceReview, SourceReviewFilter } from './lib/sourceReview'
 export type WorkspaceSetupValues = {
   household_name: string
@@ -4696,17 +4696,6 @@ export async function mutateStatementReview<T>(importId: number, revisionId: num
   return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
 }
-export function fetchTrackedSourceAccounts(cursor: number | null, signal?: AbortSignal): Promise<{ records: TrackedSourceAccount[]; next_cursor: number | null }> {
-  return fetchJson(`/api/v1/source_review_accounts?cursor=${cursor ?? 0}`, { signal, cache: 'no-store' })
-}
-
-export function fetchSourceDuplicateCandidates(importId: number, eventId: number, cursor: number | null, signal?: AbortSignal, options: { filter?: 'duplicate' | 'link'; signed_amount_cents?: number; posted_on?: string } = {}): Promise<{ records: ReviewedRow[]; next_cursor: number | null }> {
-  const query = new URLSearchParams({ event_id: String(eventId), cursor: String(cursor ?? 0), filter: options.filter ?? 'duplicate' })
-  if (options.signed_amount_cents !== undefined) query.set('signed_amount_cents', String(options.signed_amount_cents))
-  if (options.posted_on) query.set('posted_on', options.posted_on)
-  return fetchJson(`/api/v1/document_imports/${importId}/review_candidates?${query}`, { signal, cache: 'no-store' })
-}
-
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
   const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${id}`)
   return payload.document_import

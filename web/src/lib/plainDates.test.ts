@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { formatDay, formatGuamTimestamp, formatRange, timeZoneLabel } from './plainDates'
+import { formatDay, formatGuamTimestamp, formatMonthDay, formatMonthRange, formatRange, timeZoneLabel } from './plainDates'
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -20,6 +20,19 @@ describe('plain dates', () => {
     expect(formatRange('2026-10-17', '2027-01-14')).toBe('Sat, Oct 17 – Thu, Jan 14, 2027')
     expect(formatRange('2026-10-01', '2026-12-29')).toBe('Thu, Oct 1 – Tue, Dec 29, 2026')
     expect(formatRange('2026-10-01', null)).toBe('Thu, Oct 1, 2026')
+  })
+  it('writes short dates for dense lists and keeps the year only when it is needed', () => {
+    vi.useFakeTimers({ now: new Date('2026-10-05T12:00:00Z'), toFake: ['Date'] })
+    expect(formatMonthDay('2026-09-03')).toBe('Sep 3')
+    expect(formatMonthDay('2025-09-03', { year: true })).toBe('Sep 3, 2025')
+    expect(formatMonthDay('soon')).toBe('soon')
+    expect(formatMonthRange('2026-09-01', '2026-09-30')).toBe('Sep 1–30')
+    expect(formatMonthRange('2026-08-15', '2026-09-14')).toBe('Aug 15 – Sep 14')
+    expect(formatMonthRange('2026-12-20', '2027-01-19')).toBe('Dec 20, 2026 – Jan 19, 2027')
+    expect(formatMonthRange('2025-09-01', '2025-09-30')).toBe('Sep 1–30, 2025')
+    expect(formatMonthRange('2026-09-12', '2026-09-12')).toBe('Sep 12')
+    expect(formatMonthRange(null, null)).toBe('')
+    vi.useRealTimers()
   })
   it('converts UTC and offset approval instants to the Guam calendar day', () => {
     expect(formatGuamTimestamp('2026-10-05T23:00:00Z')).toBe('Tue, Oct 6')

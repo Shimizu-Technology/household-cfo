@@ -1,8 +1,9 @@
 import type { SourceEvent, SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
+import type { StatementPlan } from '../src/lib/statementReview'
 
 // Fictional accounting only; no real statement content or imported private data.
-export function sourceReviewFixture(page = 1, filter: SourceReviewFilter = 'all'): SourceReview {
-  const events: SourceEvent[] = Array.from({ length: 137 }, (_, index) => ({
+export function fixtureEvents(): SourceEvent[] {
+  return Array.from({ length: 137 }, (_, index) => ({
     id: 4000 + index, financial_source_account_id: 501, financial_extraction_revision_id: 88, position: index, row_identity: `synthetic-row-${index}`,
     row_kind: index < 125 ? 'posted' : index < 130 ? 'informational' : 'unresolved',
     event_type: index === 0 ? 'refund' : index === 1 ? 'transfer' : index === 2 ? 'debt_payment' : index === 3 ? 'fee' : index < 125 ? 'purchase' : 'unknown',
@@ -11,6 +12,10 @@ export function sourceReviewFixture(page = 1, filter: SourceReviewFilter = 'all'
     funding_components: [], limitations: index >= 130 ? ['amount_unknown', 'date_unknown'] : [], review_state: 'unreviewed', expense_projection_eligible: index >= 3 && index < 125,
     evidence_available: index !== 4, evidence: index === 4 ? null : { merchant: `Fictional entry ${index + 1}`, raw_description: `Synthetic source description ${index + 1}`, ...(index >= 125 && index < 130 ? { displayed_amount_cents: 5000 } : {}) }, transaction_draft: null,
   }))
+}
+
+export function sourceReviewFixture(page = 1, filter: SourceReviewFilter = 'all'): SourceReview {
+  const events = fixtureEvents()
   const filtered = filter === 'all' ? events : events.filter((event) => event.row_kind === filter)
   const account = { id: 501, source_key: 'synthetic-account', account_basis: 'asset' as const, period_start_on: '2026-09-01', period_end_on: '2026-09-30', opening_balance_cents: 500000, closing_balance_cents: 379000, printed_debit_cents: 124000, printed_credit_cents: 3000, printed_row_count: 137, limitations: [], evidence_available: true, evidence: { label: 'Fictional checking', masked_identifier: '••1234' } }
   return {
@@ -25,9 +30,19 @@ export function sourceReviewFixture(page = 1, filter: SourceReviewFilter = 'all'
 
 export function participantReviewFixture(page = 1, filter: SourceReviewFilter = 'all'): SourceReview {
   const data = sourceReviewFixture(page, filter)
+  const everyone = fixtureEvents()
+  // The server decides what looks right: the refund, transfer and card payment need a yes, the seven unreadable lines a fix.
+  const attention: StatementPlan['attention'] = everyone.filter((event) => event.row_kind === 'unresolved' || event.event_type === 'refund' || event.event_type === 'transfer' || event.event_type === 'debt_payment').map((event) => ({
+    event_id: event.id, event_type: event.event_type, merchant: event.evidence?.merchant ?? null, posted_on: event.posted_on, signed_amount_cents: event.signed_amount_cents, category_id: null, category_name: null,
+    kind: event.row_kind === 'unresolved' ? 'unclear' as const : event.event_type === 'refund' ? 'refund' as const : event.event_type === 'transfer' ? 'transfer' as const : 'card_payment' as const,
+    question: event.row_kind === 'unresolved' ? 'We couldn’t read this line clearly.' : event.event_type === 'refund' ? 'Is this a refund?' : event.event_type === 'transfer' ? 'Did this move between your own accounts?' : 'Is this a payment on your own card or loan?',
+    answers: event.row_kind === 'unresolved' ? [{ id: 'edit' as const, label: 'Fix it' }, { id: 'leave_out' as const, label: 'Leave it out' }] : [{ id: 'as_read' as const, label: 'Yes' }, { id: 'edit' as const, label: 'No' }],
+  }))
+  const flagged = new Set(attention.map((item) => item.event_id))
   data.participant_review = { schema_version: 1, actor_scope: { user_id: 901, household_id: 77 }, economic_groups: [], categories: [{ id: 10, name: 'Groceries' }],
     rows: Object.fromEntries(data.events.map((event) => [event.id, { head: { id: event.id + 1_000, approved_version_id: null, lock_version: 0 }, approved: null, pending: null }])),
     accounts: [{ source_account_id: 501, head: { id: 80, approved_version_id: 100, lock_version: 1 }, approved: { id: 100, digest: 'fictional-account', version_number: 1, tracked_account: { id: 2, label: 'Fictional checking', account_basis: 'asset', account_id: null }, statement_facts: { period_start_on: '2026-09-01', period_end_on: '2026-09-30', opening_balance_cents: 500_000, closing_balance_cents: 379_000, printed_debit_cents: 124_000, printed_credit_cents: 3_000, printed_row_count: 137 } } }],
-    coverage: { revision_id: 88, represented_rows: 137, approved_rows: 0, pending_corrections: 0, content_digest: 'fictional-coverage', deficiencies: ['unreviewed_source_rows','document_page_or_sheet_coverage_unverified'] }, approved_coverage: null }
+    coverage: { revision_id: 88, represented_rows: 137, approved_rows: 0, pending_corrections: 0, content_digest: 'fictional-coverage', deficiencies: ['unreviewed_source_rows','document_page_or_sheet_coverage_unverified'] }, approved_coverage: null,
+    plan: { total: 137, done: 0, ready_event_ids: everyone.filter((event) => !flagged.has(event.id)).map((event) => event.id), totals_check: 'unchecked', first_on: '2026-09-15', last_on: '2026-09-15', attention } }
   return data
 }

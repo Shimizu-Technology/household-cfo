@@ -1,149 +1,213 @@
-import { formatDay } from '../lib/plainDates'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { fetchDocumentSourceReview, type TransactionDraft } from '../api'
-import { sourceAccountLabel, sourceEventLabel, sourceEventTitle, sourceLocator, sourceMoney, validateSourceReview, type SourceReview, type SourceReviewFilter } from '../lib/sourceReview'
-import { StatementBatchReview } from './StatementBatchReview'
-import { StatementAccountReview, StatementCoverageReview, StatementRowEditor } from './StatementReviewControls'
+import { useEffect, useRef, useState } from 'react'
+import { fetchDocumentSourceReview } from '../api'
+import { formatMonthDay } from '../lib/plainDates'
+import { sourceEventTitle, sourceMoney, validateSourceReview, type SourceEvent, type SourceReview } from '../lib/sourceReview'
+import {
+  LINE_KIND_OPTIONS, accountNames, accountsNeedingBasis, lineKindFor, statementCounts, statementHeadline, totalsNote,
+  type AccountChange, type ApproveLinesInput, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention,
+} from '../lib/statementReview'
 import { isStatementReviewActor } from '../lib/statementReviewRecovery'
 import { useStatementReviewMutation } from '../lib/useStatementReviewMutation'
-import './StatementSourceReview.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
+import { Button } from './Button'
+import { StatementAccountSheet, StatementLineSheet, type SheetLine } from './StatementSheets'
+import './StatementSourceReview.css'
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, renderExpenseDraft }: {
+type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
+
+export function StatementSourceReview({ importId, revisionId, refreshKey, onDone }: {
   importId: number; revisionId: number; refreshKey: string
-  renderExpenseDraft: (draft: TransactionDraft) => ReactNode
+  /** Where she goes once every line is saved, e.g. her spending snapshot. */
+  onDone?: { label: string; run: () => void }
 }) {
-  const [batchSelected, setBatchSelected] = useState<number[]>([])
-  const batchRunning = useRef(false)
-  const refreshAfterBatch = useRef(false)
-  const [filter, setFilter] = useState<SourceReviewFilter>('all')
   const [page, setPage] = useState(1)
   const [attempt, setAttempt] = useState(0)
-  const [selectedRow, setSelectedRow] = useState<number | null>(null)
-  const [result, setResult] = useState<{ key: string; view: string; data?: SourceReview; error?: string } | null>(null)
-  const restoreFocus = useRef(false)
+  const [sheet, setSheet] = useState<Sheet>(null)
+  const [listOpen, setListOpen] = useState(false)
+  const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
-  const viewKey = `${importId}:${revisionId}:${page}:${filter}`
-  const requestKey = `${importId}:${revisionId}:${page}:${filter}:${attempt}:${refreshKey}`
-  const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => { restoreFocus.current = true; if (batchRunning.current) refreshAfterBatch.current = true; else setAttempt((value) => value + 1) } })
+  const exceptions = useRef<HTMLUListElement>(null)
+  const focusAfter = useRef<number | null | undefined>(undefined)
+  const viewKey = `${importId}:${revisionId}:${page}`
+  const requestKey = `${viewKey}:${attempt}:${refreshKey}`
+  const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => setAttempt((value) => value + 1) })
   const scoped = result?.data?.participant_review
   const actorReady = !scoped || Boolean(scoped.actor_scope && isStatementReviewActor(scoped.actor_scope))
-  // Stale-while-revalidate: a refetch of the SAME page/filter keeps the previous rows on screen, so the
-  // batch review (category, note, confirmation, status) is not unmounted while it reloads.
-  const data = !mutation.accessDenied && actorReady && (result?.key === requestKey || result?.view === viewKey) ? result.data : undefined
+  // The summary and the questions belong to the whole statement, so they stay on screen while another page of lines loads
+  // or a saved answer is read back. This component is keyed by upload and revision, so nothing here can be another statement's.
+  const data = !mutation.accessDenied && actorReady ? result?.data : undefined
+  const pageData = data && data.pagination.page === page ? data : undefined
   const error = result?.key === requestKey ? result.error : undefined
+
   useEffect(() => {
     const controller = new AbortController()
     let live = true
-    fetchDocumentSourceReview(importId, revisionId, page, filter, controller.signal).then((payload) => {
-      validateSourceReview(payload, importId, revisionId, page, filter)
-      if (payload.participant_review && (!payload.participant_review.actor_scope || !Number.isSafeInteger(payload.participant_review.actor_scope.user_id) || !Number.isSafeInteger(payload.participant_review.actor_scope.household_id))) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) setResult({ key: requestKey, view: viewKey, data: payload })
+    fetchDocumentSourceReview(importId, revisionId, page, 'all', controller.signal).then((payload) => {
+      validateSourceReview(payload, importId, revisionId, page, 'all')
+      const review = payload.participant_review
+      if (!review?.plan || !review.actor_scope || !Number.isSafeInteger(review.actor_scope.user_id) || !Number.isSafeInteger(review.actor_scope.household_id)) throw new Error('This statement review isn’t available right now. Refresh to continue.')
+      if (live) setResult({ key: requestKey, data: payload })
     }).catch((failure: unknown) => {
-      if (live) setResult((previous) => ({ key: requestKey, view: viewKey, data: previous?.view === viewKey ? previous.data : undefined, error: participantErrorMessage(failure, 'Could not load statement rows.') }))
+      if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
     })
     return () => { live = false; controller.abort() }
-  }, [importId, revisionId, page, filter, requestKey, viewKey])
+  }, [importId, revisionId, page, requestKey, viewKey])
 
+  // After an answer is saved the row disappears; keyboard focus moves to the next question, or back to the summary.
   useEffect(() => {
-    if (data && restoreFocus.current) { restoreFocus.current = false; const target = document.getElementById(`source-event-details-${selectedRow}`); (target ?? heading.current)?.focus() }
-  }, [data, selectedRow])
+    if (!data || focusAfter.current === undefined) return
+    const index = focusAfter.current
+    focusAfter.current = undefined
+    const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('select, button:not([disabled])')
+    ;(next ?? heading.current)?.focus()
+  }, [data])
 
-  function navigate(nextPage: number) {
-    setPage(nextPage)
-    setSelectedRow(null)
-    setBatchSelected([])
-    heading.current?.focus()
+  const review = data?.participant_review
+  const plan = review?.plan
+  const busy = mutation.busy
+  const categories = review?.categories ?? []
+  const names = data && review ? accountNames(data.accounts, review.accounts) : {}
+  const needBasis = data && review ? accountsNeedingBasis(data.accounts, review.accounts) : []
+  const counts = plan ? statementCounts(plan) : null
+
+  async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
+    focusAfter.current = focusIndex
+    const saved = await mutation.mutate('approve_lines', input)
+    if (!saved) focusAfter.current = undefined
+    return saved
   }
-  const accounting = data?.revision.reconciliation
-  const pages = accounting?.page_coverage
-  const census = accounting?.row_census
-  return (
-    <section className="statement-source-review" aria-label="Statement source accounting">
-      <div className="source-review-heading">
-        <h5 ref={heading} tabIndex={-1}>Statement rows & coverage</h5>
-        <span>Revision {data?.revision.revision_number ?? 'loading'}</span>
-      </div>
-      <p className="source-review-boundary">{data?.participant_review?.approved_coverage?.current ? `Statement coverage approved with ${data.participant_review.approved_coverage.status} status.` : 'Check the account, then review its rows and coverage.'} Viewing rows or balanced arithmetic does not approve this source. Movements, transfers and card payments are not savings.</p>
-      {mutation.pendingRequest && <div role="status">An earlier statement review must be resolved before further changes. <details className="source-review-technical"><summary>Earlier request details</summary>Action: {mutation.pendingRequest.action} · Upload {mutation.pendingRequest.importId} · Reference number: {mutation.pendingRequest.key}</details></div>}
-      {mutation.checkStatus && <button type="button" disabled={mutation.pendingRequest?.working} onClick={() => { void mutation.checkStatus?.() }}>Check earlier review result</button>}
-      {mutation.error && <div role="alert"><p>{mutation.error}</p>{mutation.retry && <><p>We couldn’t confirm whether that saved. Try again before making another change.</p><button type="button" onClick={() => { void mutation.retry?.() }}>Retry the same review request</button></>}</div>}
-      {!mutation.accessDenied && <button type="button" disabled={mutation.busy} onClick={() => setAttempt((value) => value + 1)}>Refresh statement review</button>}
-      {data && <>
-        {data.participant_review && <StatementAccountReview context={data.participant_review} accounts={data.accounts} mutate={mutation.mutate} disabled={mutation.busy} />}
+  function approveRest() {
+    if (!plan) return
+    void save({ expect_ready_ids: plan.ready_event_ids, lines: plan.ready_event_ids.map((id): LineDecision => ({ event_id: id, decision: 'as_read' })) })
+  }
+  function chooseBasis(account: number, basis: 'asset' | 'liability') {
+    void save({ lines: [], accounts: [{ source_account_id: account, account_basis: basis }] })
+  }
+  function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
+    if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: sheetFromAttention(item) })
+    const entry: LineDecision = id === 'edit'
+      ? { event_id: item.event_id, decision: 'edited', edit: { ...sheetEdit(sheetFromAttention(item)), kind: 'spending', category_id: categoryId ?? null } }
+      : { event_id: item.event_id, decision: id }
+    void save({ lines: [entry] }, index)
+  }
+  async function saveSheet(entry: LineDecision) {
+    if (await save({ lines: [entry] })) setSheet(null)
+  }
+  async function saveAccounts(changes: AccountChange[]) {
+    if (await save({ lines: [], accounts: changes })) setSheet(null)
+  }
 
-        <p className="source-review-counts" role="status">{data.counts.all} statement lines · {data.counts.posted} posted · {data.counts.informational} informational · {data.counts.unresolved} unresolved. {data.counts.pending_transaction_drafts} expense reviews remaining · {data.counts.resolved_transaction_drafts} resolved.</p>
-        <p className="source-review-source-state">{data.revision.source_available ? 'Original file available via Preview original above.' : 'Original file removed or unavailable. Extracted accounting remains; source evidence may be unavailable.'}</p>
-        <details className="source-coverage-details">
-          <summary>Account balances, period & extraction coverage</summary>
-          <dl className="source-coverage-facts">
-            <div><dt>PDF pages</dt><dd>{pages?.processed?.length ?? 0} processed / {pages?.expected ?? 'unknown'} expected · {pages?.all_processed === true ? 'All expected pages processed' : pages?.all_processed === false ? 'Incomplete page coverage' : 'Page completeness unknown'}</dd></div>
-            <div><dt>Row census</dt><dd>{census?.represented ?? 'Unknown'} represented / {census?.reported ?? 'unknown'} reported · {census?.matches_reported === true ? 'Counts match' : census?.matches_reported === false ? 'Counts differ' : 'Printed row total unknown'}</dd></div>
-            <div><dt>Sheets</dt><dd>{accounting?.sheet_coverage?.processed?.length ?? 0} processed / {accounting?.sheet_coverage?.expected ?? 'unknown'} expected</dd></div>
-          </dl>
-          {data.accounts.length === 0 && <p>No account header was identified. Account basis and balances are unknown.</p>}
-          {data.accounts.map((account) => {
-            const check = accounting?.accounts.find((entry) => entry.source_key === account.source_key)
-            return <article className="source-account" key={account.id}>
-              <h6>{sourceAccountLabel(account, account.id)}</h6>
-              <p>{account.account_basis === 'asset' ? 'Asset account · outflows reduce this balance; inflows increase it.' : account.account_basis === 'liability' ? 'Liability account · outflows increase the amount owed; inflows reduce it.' : 'Account basis unknown · balance direction cannot be verified.'}</p>
-              <dl className="source-coverage-facts">
-                <div><dt>Statement period</dt><dd>{account.period_start_on ? formatDay(account.period_start_on, { year: true }) : 'Unknown start'} — {account.period_end_on ? formatDay(account.period_end_on, { year: true }) : 'unknown end'}</dd></div>
-                <div><dt>Opening / closing</dt><dd>{sourceMoney(account.opening_balance_cents)} / {sourceMoney(account.closing_balance_cents)}</dd></div>
-                <div><dt>Balance residual</dt><dd>{sourceMoney(check?.balance_residual_cents)} · {check?.arithmetic_balanced === true ? 'Arithmetic balanced; classification review still pending' : 'Not verified as balanced'}</dd></div>
-                <div><dt>Printed debits / credits</dt><dd>{sourceMoney(account.printed_debit_cents)} / {sourceMoney(account.printed_credit_cents)}</dd></div>
-                <div><dt>Debit / credit residual</dt><dd>{sourceMoney(check?.debit_residual_cents)} / {sourceMoney(check?.credit_residual_cents)}</dd></div>
-                <div><dt>Account row count</dt><dd>{check?.represented_rows ?? 'Unknown'} represented / {account.printed_row_count ?? 'unknown'} printed · {check?.row_count_matches === true ? 'Counts match' : check?.row_count_matches === false ? 'Counts differ' : 'Not verified'}</dd></div>
-              </dl>
-              {!account.evidence_available && <p>Account header evidence unavailable.</p>}
-              {Array.from(new Set([...account.limitations, ...(check?.limitations ?? [])])).map((limitation) => <p className="source-review-limitation" key={limitation}>{limitation.replaceAll('_', ' ')}</p>)}
-            </article>
-          })}
-          {accounting?.limitations.map((limitation) => <p className="source-review-limitation" key={limitation}>{limitation.replaceAll('_', ' ')}</p>)}
+  const money = (cents: number | null) => (cents == null ? 'Unknown' : sourceMoney(Math.abs(cents)))
+  function sheetFromAttention(item: PlanAttention): SheetLine {
+    return { eventId: item.event_id, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? null : Math.abs(item.signed_amount_cents),
+      kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
+  }
+  function sheetFromEvent(event: SourceEvent): SheetLine {
+    const row = review?.rows[event.id]
+    const facts = row?.approved && row.approved.current !== false ? row.approved.facts : null
+    const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
+    return { eventId: event.id, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+      amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
+      categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
+  }
+
+  if (!mutation.accessDenied && !data && !error) return <section className="statement-source-review" aria-label="Statement review"><p role="status">Opening your statement…</p></section>
+  return (
+    <section className="statement-source-review" aria-label="Statement review">
+      {mutation.pendingRequest && !mutation.pendingRequest.working && <div className="statement-notice" role="status">
+        <p>We’re not sure your last change saved.</p>
+        <div className="statement-answers">
+          {mutation.checkStatus && <Button variant="secondary" disabled={mutation.pendingRequest.working} onClick={() => { void mutation.checkStatus?.() }}>Check again</Button>}
+          {mutation.retry && <Button disabled={mutation.pendingRequest.working} onClick={() => { void mutation.retry?.() }}>Try again</Button>}
+        </div>
+        <details><summary>Details for support</summary><p>Reference: {mutation.pendingRequest.key}</p></details>
+      </div>}
+      {mutation.error && !sheet && !mutation.pendingRequest && <p className="statement-notice" role="alert">{mutation.error}</p>}
+      {error && <div className="statement-notice" role="alert"><p>{error}</p><div className="statement-answers">
+        <Button variant="secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</Button>
+        {page > 1 && <Button variant="secondary" onClick={() => setPage(1)}>Back to the first lines</Button>}
+      </div></div>}
+      {data && review && plan && counts && <>
+        <header className="statement-summary">
+          <div className="statement-summary-line">
+            <h5 ref={heading} tabIndex={-1}>{statementHeadline(data.accounts, names, plan)}</h5>
+            <Button variant="secondary" size="compact" disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Change</Button>
+          </div>
+          <p role="status">{counts.sentence}</p>
+          {totalsNote(plan.totals_check) && <p className="statement-muted">{totalsNote(plan.totals_check)}</p>}
+          {needBasis.length === 1 && <div className="statement-question-row">
+            <p className="statement-question">Is {names[needBasis[0].id]} a bank account or a credit card?</p>
+            <div className="statement-answers">
+              <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
+              <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
+            </div>
+          </div>}
+          {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
+          {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={approveRest}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
+          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && onDone && <Button onClick={onDone.run}>{onDone.label}</Button>}
+        </header>
+
+        {plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
+          {plan.attention.map((item, index) => <li key={item.event_id} className="statement-exception">
+            <button type="button" className="statement-line" disabled={busy} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: sheetFromAttention(item) })}>
+              <span className="statement-line-name">{item.merchant ?? 'Unreadable line'}</span>
+              <span className="statement-line-amount">{money(item.signed_amount_cents)}</span>
+              <span className="statement-line-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
+            </button>
+            <p className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
+            <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
+              {item.answers.map((choice) => item.kind === 'no_category' && choice.id === 'edit'
+                ? <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value="" disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>
+                  <option value="">{choice.label}</option>
+                  {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                </select>
+                : <Button key={choice.id} variant="secondary" disabled={busy || needBasis.length > 0} aria-label={`${choice.label}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, choice.id)}>{choice.label}</Button>)}
+            </div>
+          </li>)}
+        </ul>}
+
+        <details className="statement-all" open={listOpen} onToggle={(event) => setListOpen(event.currentTarget.open)}>
+          <summary>See all {plan.total} {plan.total === 1 ? 'line' : 'lines'}</summary>
+          {!pageData && !error && <p role="status" className="statement-muted">Loading lines…</p>}
+          {pageData && <table className="statement-table">
+            <caption className="sr-only">Every line in this statement</caption>
+            <thead><tr><th scope="col">Line</th><th scope="col" className="statement-date-cell">Date</th><th scope="col" className="statement-num">Amount</th><th scope="col">Category</th></tr></thead>
+            <tbody>
+              {pageData.events.map((event) => {
+                const row = review.rows[event.id]
+                const facts = row?.approved && row.approved.current !== false ? row.approved.facts : null
+                const attention = plan.attention.some((item) => item.event_id === event.id)
+                const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
+                const kind = lineKindFor(facts?.event_type ?? event.event_type, signed)
+                const category = facts ? categories.find((entry) => entry.id === facts.budget_category_id)?.name : event.transaction_draft?.category_name
+                const label = facts?.disposition === 'exclude' ? 'Left out' : attention ? 'Needs a look' : kind === 'spending' ? category ?? 'No category' : LINE_KIND_OPTIONS.find((option) => option.value === kind)?.label.replace('Moved between my accounts', 'Moved') ?? ''
+                return <tr key={event.id} data-needs-look={attention || undefined}>
+                  <td><button type="button" className="statement-link" disabled={busy} onClick={() => setSheet({ kind: 'line', line: sheetFromEvent(event) })}>{facts?.merchant ?? sourceEventTitle(event)}</button><span className="statement-date-inline" aria-hidden="true">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</span></td>
+                  <td className="statement-date-cell">{formatMonthDay(facts ? facts.posted_on : event.posted_on) || '—'}</td>
+                  <td className="statement-num">{signed == null ? 'Pending' : sourceMoney(signed, true)}</td>
+                  <td>{label}</td>
+                </tr>
+              })}
+            </tbody>
+          </table>}
+          {data.pagination.total_pages > 1 && <nav className="statement-pager" aria-label="More lines">
+            <Button variant="secondary" disabled={busy || page <= 1} onClick={() => setPage(page - 1)}>Earlier lines</Button>
+            <span>Page {page} of {data.pagination.total_pages}</span>
+            <Button variant="secondary" disabled={busy || page >= data.pagination.total_pages} onClick={() => setPage(page + 1)}>Later lines</Button>
+          </nav>}
         </details>
       </>}
-      {data?.participant_review && <h6>2. Review statement rows</h6>}
-      <div className="source-review-toolbar">
-        <label>Show statement lines<select aria-label="Filter statement rows" value={filter} disabled={mutation.busy} onChange={(event) => { setFilter(event.target.value as SourceReviewFilter); setPage(1); setSelectedRow(null); setBatchSelected([]) }}>
-          <option value="all">All rows</option><option value="posted">Posted movements</option><option value="unresolved">Extraction unresolved rows</option><option value="informational">Informational rows</option>
-        </select></label>
-        <span>50 rows per page</span>
-      </div>
-      {!mutation.accessDenied && !data && !error && <p role="status">Loading statement rows. Totals are unavailable until this page loads.</p>}
-      {error && <div className="source-review-error" role="alert"><p>{error}</p><p>No rows from a different page or revision are shown.</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry statement page</button></div>}
-      {data && <>
-        <p className="source-review-page-status" role="status">{data.pagination.total_count === 0 ? '0 rows match this filter' : `Rows ${(page - 1) * 50 + 1}–${(page - 1) * 50 + data.events.length} of ${data.pagination.total_count}`} · Page {page} of {data.pagination.total_pages}</p>
-        <p>Filters describe the original extraction. Reviewed corrections and pending proposals are labeled separately below.</p>
-        <ol className="source-event-list" aria-label="Statement lines" start={(page - 1) * 50 + 1}>
-          {data.events.map((event) => {
-            const account = data.accounts.find((candidate) => candidate.id === event.financial_source_account_id)
-            const reviewed = data.participant_review?.rows[event.id]
-            const linkedDraft = event.expense_projection_eligible ? event.transaction_draft : null
-            return <li key={event.id} className={`source-event source-event-${event.row_kind}`}>
-              {event.row_kind === 'unresolved' && <p className="source-row-status">Not read clearly. Check this line against your statement.</p>}
-              {reviewed && <label className="source-review-check"><input type="checkbox" disabled={mutation.busy} checked={batchSelected.includes(event.id)} onChange={(change) => setBatchSelected(change.target.checked ? [...batchSelected, event.id] : batchSelected.filter((id) => id !== event.id))} />Select statement line {event.position + 1} for explicit batch review</label>}
-              {reviewed && <p className="source-row-review-status">{reviewed.pending ? 'Pending proposal' : reviewed.approved ? `Approved${reviewed.approved.current === false ? ' · account changed; review needed' : ''}` : 'Needs participant review'}{reviewed.approved && ` · Current reviewed facts: ${reviewed.approved.facts.merchant ?? 'No merchant'} · ${reviewed.approved.facts.event_type.replaceAll('_', ' ')} · ${sourceMoney(reviewed.approved.facts.signed_amount_cents, true)} · ${reviewed.approved.facts.posted_on ? formatDay(reviewed.approved.facts.posted_on, { year: true }) : 'Date unknown'}`}</p>}
-              <div className="source-event-main" aria-label="Original extracted facts"><div><strong>{sourceEventTitle(event)}</strong><span>{sourceEventLabel(event)}</span></div><strong className="source-event-amount">{event.row_kind === 'informational' ? `${sourceMoney(event.evidence?.displayed_amount_cents)} (information)` : sourceMoney(event.signed_amount_cents, true)}</strong></div>
-              <p>{event.posted_on ? formatDay(event.posted_on, { year: true }) : 'Posted date unknown'} · {sourceAccountLabel(account, event.financial_source_account_id)} · {sourceLocator(event)}</p>
-              {event.authorized_on && event.authorized_on !== event.posted_on && <p>Authorized {formatDay(event.authorized_on, { year: true })}</p>}
-              {!event.evidence_available && <p>Row description evidence unavailable.</p>}
-              {event.limitations.length > 0 && <p className="source-review-limitation">{event.limitations.map((item) => item.replaceAll('_', ' ')).join(' · ')}</p>}
-              {event.funding_components.length > 0 && <p>Funding split: {event.funding_components.map((part) => `${data.accounts.some((candidate) => candidate.source_key === part.source_key) ? sourceAccountLabel(data.accounts.find((candidate) => candidate.source_key === part.source_key), event.financial_source_account_id) : 'Unidentified funding account'} ${sourceMoney(part.amount_cents)}`).join(' + ')}. Funding is not additional spending.</p>}
-              <button type="button" className="source-event-details-toggle" aria-expanded={selectedRow === event.id} aria-controls={`source-event-details-${event.id}`} disabled={mutation.busy} onClick={() => setSelectedRow(selectedRow === event.id ? null : event.id)}>{selectedRow === event.id ? 'Hide' : 'Inspect'} statement line {event.position + 1}{linkedDraft ? ' & expense review' : ''}</button>
-              {selectedRow === event.id && <div id={`source-event-details-${event.id}`} className="source-event-details" tabIndex={-1}>
-                {event.evidence?.raw_description && <p>{event.evidence.raw_description}</p>}
-                {event.evidence?.evidence && <p>{event.evidence.evidence}</p>}
-                {(event.evidence?.extraction_limitations ?? []).map((note) => <p key={note}>Reader note: {note}</p>)}
-                <p>Original extraction classification: {event.event_type.replaceAll('_', ' ')}. Original source review: {event.review_state}. {event.expense_projection_eligible ? 'This row can propose an expense; approval below is separate from source accounting.' : 'This row does not propose an expense.'}</p>
-                {data.participant_review ? <StatementRowEditor importId={importId} context={data.participant_review} event={event} mutate={mutation.mutate} disabled={mutation.busy} /> : linkedDraft ? renderExpenseDraft(linkedDraft) : <p>No expense review is attached to this statement line.</p>}
-              </div>}
-            </li>
-          })}
-        </ol>
-        {data.participant_review && <StatementBatchReview key={batchSelected.join(',')} events={data.events} selected={batchSelected} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} onRunning={(running) => { batchRunning.current = running; if (!running && refreshAfterBatch.current) { refreshAfterBatch.current = false; setAttempt((value) => value + 1) } }} />}
-        {data.participant_review && <StatementCoverageReview key={data.participant_review.coverage.content_digest} context={data.participant_review} mutate={mutation.mutate} disabled={mutation.busy} />}
-        {data.pagination.total_pages > 1 && <nav className="source-review-pagination" aria-label="Statement row pagination"><span>Page {page} of {data.pagination.total_pages}</span><div><button type="button" disabled={mutation.busy || !data.pagination.has_previous} onClick={() => navigate(page - 1)}>Previous rows</button><button type="button" disabled={mutation.busy || !data.pagination.has_next} onClick={() => navigate(page + 1)}>Next rows</button></div></nav>}
-      </>}
+
+      {sheet?.kind === 'line' && <StatementLineSheet key={sheet.line.eventId} line={sheet.line} categories={categories} busy={busy} error={mutation.error}
+        onClose={() => setSheet(null)}
+        onSave={(edit: LineEdit) => { void saveSheet({ event_id: sheet.line.eventId, decision: 'edited', edit }) }}
+        onLeaveOut={() => { void saveSheet({ event_id: sheet.line.eventId, decision: 'leave_out' }) }} />}
+      {sheet?.kind === 'account' && data && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} names={names} busy={busy} error={mutation.error}
+        onClose={() => setSheet(null)} onSave={(changes) => { void saveAccounts(changes) }} />}
     </section>
   )
+}
+
+function sheetEdit(line: SheetLine): LineEdit {
+  return { kind: line.kind, merchant: line.merchant, posted_on: line.postedOn, amount_cents: line.amountCents ?? 0, category_id: line.categoryId }
 }

@@ -1,4 +1,5 @@
 import type { SourceEvent } from './sourceReview'
+import type { StatementPlan } from './statementReview'
 export type ReviewedFacts = {
   source_account_identity_version_id: number; disposition: 'include' | 'match' | 'exclude' | 'informational'
   event_type: SourceEvent['event_type']; signed_amount_cents: number | null; purchase_amount_cents: number | null
@@ -17,8 +18,9 @@ export type ParticipantSourceReview = {
   accounts: ReviewedSourceAccount[]; categories: Array<{ id: number; name: string }>
   coverage: { revision_id: number; represented_rows: number; approved_rows: number; pending_corrections: number; content_digest: string; deficiencies: string[] }
   approved_coverage: { id: number; digest: string; status: 'complete' | 'qualified'; current: boolean; deficiencies: string[] } | null
+  plan: StatementPlan
 }
-export type SourceReviewAction = 'account_link' | 'stage' | 'approve' | 'cancel' | 'coverage' | 'economic_link' | 'project'
+export type SourceReviewAction = 'approve_lines'
 export function statementCents(value: string, nullable = true): number | null {
   if (!value.trim() && nullable) return null
   if (!/^-?\d+(?:\.\d{1,2})?$/.test(value.trim())) throw new Error('Use an amount with no more than two decimal places.')

@@ -36,7 +36,7 @@ it.each(failures)('baseline approval/revision is not dispatched when identity st
 })
 it.each(failures)('statement approval is not dispatched when identity storage is %s', async mode => {
   const hook = renderHook(() => useStatementReviewMutation({ scope: actor, importId: 5, revisionId: 6, refresh: vi.fn() })); const storage = block(mode)
-  await act(async () => { expect(await hook.result.current.mutate('approve', { accepted: true })).toBe(false) })
+  await act(async () => { expect(await hook.result.current.mutate('approve_lines', { lines: [] })).toBe(false) })
   expect(mutateStatementReview).not.toHaveBeenCalled(); expect(hook.result.current.error).toContain('No change was submitted'); expect(hook.result.current.pendingRequest).toBeNull(); storage.mockRestore()
 })
 it.each(failures)('comfortable plan is not dispatched when identity storage is %s', async mode => {

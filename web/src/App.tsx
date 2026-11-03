@@ -4408,11 +4408,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       )}
 
       {activeSection === 'Statements' && <section className="screen-grid statements-screen">
-        <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement and check each account and line. Your numbers change only after you approve." />
-        {isFirstSessionSetup && <div className="first-session-upload-return"><Button variant="secondary" onClick={startManualFirstSession}>Return to starting numbers</Button></div>}
+        <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement, then approve what looks right. Your numbers change only after you approve." />
         <DocumentImportWorkspace
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -5016,6 +5016,7 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 function DocumentImportWorkspace({
   uploadScope,
   onReviewBaseline,
+  onReturnToStart,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5050,6 +5051,7 @@ function DocumentImportWorkspace({
 }: {
   uploadScope: string
   onReviewBaseline?: () => void
+  onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
@@ -5111,23 +5113,12 @@ function DocumentImportWorkspace({
 
   return (
     <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
-        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : 'Upload a statement'}</h3>{onReviewBaseline && <button type="button" className="text-button" onClick={onReviewBaseline}>Open your spending snapshot</button>}</div>
-      <details className="document-upload-secondary"><summary>Other files &amp; budget template</summary><div className="document-import-guide">
-        <div>
-          <strong>Not sure what to upload?</strong>
-          <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
-          <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
-        </div>
-        <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
-      </div></details>
+        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : 'Upload a statement'}</h3></div>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
       <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
-      <details className="document-upload-secondary"><summary>Upload a receipt, pay stub or budget file</summary>
-        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
-      </details>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -5160,8 +5151,25 @@ function DocumentImportWorkspace({
           onOpenSource={onOpenSource}
           onUpload={onUpload}
           uploading={Boolean(uploadingKind)}
+          onReviewBaseline={onReviewBaseline}
         />}
       </div>
+
+      <details className="document-upload-secondary"><summary>Other files and options</summary>
+        <div className="document-import-guide">
+          <div>
+            <strong>Not sure what to upload?</strong>
+            <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
+            <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
+          </div>
+          <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
+        </div>
+        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+        {(onReviewBaseline || onReturnToStart) && <div className="document-other-links">
+          {onReviewBaseline && <button type="button" className="text-button" onClick={onReviewBaseline}>Open your spending snapshot</button>}
+          {onReturnToStart && <button type="button" className="text-button" onClick={onReturnToStart}>Return to starting numbers</button>}
+        </div>}
+      </details>
     </section>
   )
 }
@@ -5386,6 +5394,7 @@ export function DocumentReviewPanel({
   onOpenSource,
   onUpload,
   uploading,
+  onReviewBaseline,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5410,6 +5419,7 @@ export function DocumentReviewPanel({
   onOpenSource: (documentImport: FinancialDocumentImport) => void
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   uploading: boolean
+  onReviewBaseline?: () => void
 }) {
   const { assistantName } = useBrand()
   if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
@@ -5450,41 +5460,45 @@ export function DocumentReviewPanel({
       ? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
       : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
+  const fileHeader = (
+        <div className="document-review-header">
+          <div>
+            <h4>Review details</h4>
+            <p>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
+          </div>
+          <div className="document-review-controls">
+            <div className="document-review-actions">
+              <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
+                {actionForImport('source-url') ? 'Opening' : 'Preview original'}
+              </button>
+            </div>
+            <details className="document-file-options"><summary>File options</summary>
+            <div className="document-review-actions">
+              {fullyApplied ? (
+                <span className="document-action-hint">Upload a new copy to reprocess</span>
+              ) : (
+                <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
+                  {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+                </button>
+              )}
+              <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
+                {actionForImport('source') ? 'Removing' : 'Remove original file'}
+              </button>
+              <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={importHasSavedValues || actionForImport('delete')}>
+                {actionForImport('delete') ? 'Deleting' : 'Delete upload & record'}
+              </button>
+            </div>
+            <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
+            </details>
+          </div>
+        </div>
+  )
+
   return (
     <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
-      <div className="document-review-header">
-        <div>
-          <h4>Review details</h4>
-          <p>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
-        </div>
-        <div className="document-review-controls">
-          <div className="document-review-actions">
-            <button type="button" className="secondary-button" onClick={(event) => { event.currentTarget.focus(); onOpenSource(documentImport) }} disabled={!documentImport.source_available || actionForImport('source-url')}>
-              {actionForImport('source-url') ? 'Opening' : 'Preview original'}
-            </button>
-          </div>
-          <details className="document-file-options"><summary>File options</summary>
-          <div className="document-review-actions">
-            {fullyApplied ? (
-              <span className="document-action-hint">Upload a new copy to reprocess</span>
-            ) : (
-              <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-                {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
-              </button>
-            )}
-            <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
-              {actionForImport('source') ? 'Removing' : 'Remove original file'}
-            </button>
-            <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={importHasSavedValues || actionForImport('delete')}>
-              {actionForImport('delete') ? 'Deleting' : 'Delete upload & record'}
-            </button>
-          </div>
-          <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
-          </details>
-        </div>
-      </div>
+      {sourceMode !== 'typed' && fileHeader}
 
-      {(documentImport.extracted_summary || documentImport.extraction_error) && <div className="document-summary-box">
+      {sourceMode === 'typed' ? documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p> : (documentImport.extracted_summary || documentImport.extraction_error) && <div className="document-summary-box">
         <strong>{assistantName} read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
         {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
@@ -5497,9 +5511,9 @@ export function DocumentReviewPanel({
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
       </div>}
 
-      {documentImport.metadata.routing_requires_confirmation ? <DocumentRoutingSummary documentImport={documentImport} /> : documentImport.metadata.routing_source && <details className="document-reading-details"><summary>How this file was read</summary><DocumentRoutingSummary documentImport={documentImport} /></details>}
+      {documentImport.metadata.routing_requires_confirmation ? <DocumentRoutingSummary documentImport={documentImport} /> : sourceMode !== 'typed' && documentImport.metadata.routing_source && <details className="document-reading-details"><summary>How this file was read</summary><DocumentRoutingSummary documentImport={documentImport} /></details>}
 
-      {warnings.length > 0 && (
+      {warnings.length > 0 && sourceMode !== 'typed' && (
         <div className="document-warning-list" role="note" aria-label="Extraction warnings">
           {warnings.map((warning) => <span key={warning}>{warning}</span>)}
         </div>
@@ -5518,12 +5532,10 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
-          renderExpenseDraft={(draft) => <TransactionDraftReviewStack
-            drafts={[draft]} isRealWorkspace action={draftAction} compact selectionEnabled={false} categories={categories} plan={annualPlan}
-            title="Review this proposed expense" onUpdate={onUpdateDraft} onMatch={onMatchDraft} onConfirm={onConfirmDraft} onIgnore={onIgnoreDraft} onReopen={onReopenDraft}
-          />}
+          onDone={onReviewBaseline ? { label: 'Open your spending snapshot', run: onReviewBaseline } : undefined}
         />
       )}
+      {sourceMode === 'typed' && fileHeader}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
         <section className="document-transaction-drafts" aria-label="Purchases from this upload">
