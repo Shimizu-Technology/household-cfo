@@ -1767,7 +1767,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           if (!discard) return
           coachDiscardConfirmedRef.current = true
           setHasUnsavedCoachChanges(false)
-          try { switchSection(section, options) } finally { coachDiscardConfirmedRef.current = false }
+          // Back already moved the address bar and the guard then put the old screen's
+          // entry back on top, so a confirmed leave rewrites that entry. Otherwise a
+          // reload would open the screen the person just left.
+          const confirmed = options.source === 'history' ? { ...options, historyMode: 'replace' as const } : options
+          try { switchSection(section, confirmed) } finally { coachDiscardConfirmedRef.current = false }
         })
         return false
       }

@@ -451,8 +451,13 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
 
   const runItemAction = async (item: PlaidItem, action: 'sync' | 'disconnect') => {
     if (action === 'sync' && item.context_paused_by_restart) return
-    if (action === 'disconnect' && !(await confirmAction('Bank access and imported bank data you have not approved will be removed. Approved actuals stay in your household record.', { title: `Disconnect ${item.institution_name}?`, confirmLabel: 'Disconnect', cancelLabel: 'Keep connected', caution: true }))) return
+    // Capture the context before asking. If the person, group or financial picture changes
+    // while the question is open, the answer belongs to a bank they are no longer looking at.
     const assertCurrent = captureCurrentOperation()
+    if (action === 'disconnect') {
+      const confirmed = await confirmAction('Bank access and imported bank data you have not approved will be removed. Approved actuals stay in your household record.', { title: `Disconnect ${item.institution_name}?`, confirmLabel: 'Disconnect', cancelLabel: 'Keep connected', caution: true })
+      if (!confirmed || !operationIsCurrent(assertCurrent)) return
+    }
     setBusy(`${action}-${item.id}`)
     setError(null)
     try {

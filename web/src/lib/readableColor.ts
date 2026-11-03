@@ -25,17 +25,31 @@ function toHex([r, g, b]: [number, number, number]) {
   return `#${[r, g, b].map((value) => Math.round(value).toString(16).padStart(2, '0')).join('')}`
 }
 
-/** Returns `foreground` darkened in small steps until it has `minimum`:1 on every background. */
+type Rgb = [number, number, number]
+
+/** The first colour on the way from `start` to `target` that reads on every surface, or null. */
+function nudgeToward(start: Rgb, target: Rgb, surfaces: Rgb[], minimum: number) {
+  for (let step = 1; step <= 20; step += 1) {
+    const amount = step / 20
+    const color = start.map((channel, index) => channel + (target[index] - channel) * amount) as Rgb
+    if (surfaces.every((surface) => contrast(color, surface) >= minimum)) return color
+  }
+  return null
+}
+
+/**
+ * Returns `foreground` moved in small steps until it has `minimum`:1 on every background.
+ * It moves toward `toward` first (black by default, the usual fix for muted text on
+ * light surfaces). If that cannot reach the minimum, for example light text on a dark
+ * or mid-tone surface, it tries the opposite extreme before giving up.
+ */
 export function readableOn(foreground: string, backgrounds: string[], minimum = 4.5, toward = '#000000') {
   const start = parse(foreground)
   const target = parse(toward)
-  const surfaces = backgrounds.map(parse).filter((surface): surface is [number, number, number] => surface !== null)
+  const surfaces = backgrounds.map(parse).filter((surface): surface is Rgb => surface !== null)
   if (!start || !target || surfaces.length === 0) return foreground
-  const reads = (color: [number, number, number]) => surfaces.every((surface) => contrast(color, surface) >= minimum)
-  for (let step = 0; step <= 20; step += 1) {
-    const amount = step / 20
-    const color = start.map((channel, index) => channel + (target[index] - channel) * amount) as [number, number, number]
-    if (reads(color)) return step === 0 ? foreground : toHex(color)
-  }
-  return foreground
+  if (surfaces.every((surface) => contrast(start, surface) >= minimum)) return foreground
+  const opposite = target.map((channel) => 255 - channel) as Rgb
+  const color = nudgeToward(start, target, surfaces, minimum) ?? nudgeToward(start, opposite, surfaces, minimum)
+  return color ? toHex(color) : foreground
 }

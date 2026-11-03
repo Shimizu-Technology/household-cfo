@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { PlaidConnections } from './PlaidConnections'
+import { ConfirmHost } from './ConfirmHost'
+import { askedConfirm } from '../test/confirmDialog'
 import * as api from '../api'
 import { savePlaidOAuthSession } from '../lib/plaidOAuthSession'
 const mocks = vi.hoisted(() => ({ epoch: 0, financialGeneration: 1, open: vi.fn(), link: null as null | { onSuccess: (token: string, metadata: object) => Promise<void> } }))
@@ -37,6 +39,43 @@ test('retained connection is paused, hides old balances, disables sync and autom
   expect(screen.getByRole('switch')).toHaveProperty('disabled', true)
   expect(screen.getByRole('button', { name: 'Disconnect' })).toHaveProperty('disabled', false)
   expect(screen.getByText(/Paused after starting over/)).toBeTruthy()
+})
+const disconnectQuestion = {
+  title: 'Disconnect QA Bank?',
+  message: 'Bank access and imported bank data you have not approved will be removed. Approved actuals stay in your household record.',
+  confirmLabel: 'Disconnect', cancelLabel: 'Keep connected', caution: true,
+}
+function renderWithConfirm() { return render(<><ConfirmHost /><PlaidConnections userId="42" householdId={12} onDraftsCreated={vi.fn()} /></>) }
+test('disconnecting a bank asks first, and keeping it sends nothing', async () => {
+  renderWithConfirm()
+  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+  const question = await askedConfirm(disconnectQuestion)
+  expect(api.disconnectPlaidItem).not.toHaveBeenCalled()
+  question.cancel()
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(api.disconnectPlaidItem).not.toHaveBeenCalled()
+  expect(screen.queryByText('Bank disconnected and Plaid source data removed.')).toBeNull()
+})
+test('confirming a disconnect removes the bank exactly once and refreshes', async () => {
+  vi.mocked(api.disconnectPlaidItem).mockResolvedValue(undefined as never)
+  renderWithConfirm()
+  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+  const question = await askedConfirm(disconnectQuestion)
+  question.confirm()
+  await screen.findByText('Bank disconnected and Plaid source data removed.')
+  expect(api.disconnectPlaidItem).toHaveBeenCalledTimes(1)
+  expect(api.disconnectPlaidItem).toHaveBeenCalledWith(3)
+  expect(screen.queryByRole('alertdialog')).toBeNull()
+})
+test('a disconnect confirmed after the household context changed sends nothing', async () => {
+  renderWithConfirm()
+  fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }))
+  const question = await askedConfirm(disconnectQuestion)
+  // The person switches household or restarts their picture while the question is open.
+  mocks.epoch += 1; mocks.financialGeneration += 1
+  question.confirm()
+  await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+  expect(api.disconnectPlaidItem).not.toHaveBeenCalled()
 })
 test('cancel changes nothing; explicit accepted resume uses reviewed old generation and starts fresh sync with automation off', async () => {
   const resumed = { ...overview, items: [{ ...item, financial_generation: 1, context_paused_by_restart: false, financial_resumed_at: '2026-10-06T00:00:00Z' }] }

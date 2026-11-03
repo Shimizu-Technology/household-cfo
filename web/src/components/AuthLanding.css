@@ -7,7 +7,12 @@
   min-height: 100vh;
   min-height: 100svh;
   margin: 0 auto;
-  padding: clamp(1.25rem, 4vw, 3rem);
+  /* viewport-fit=cover puts the page under the notch and home indicator. */
+  --landing-pad: clamp(1.25rem, 4vw, 3rem);
+  padding-top: max(var(--landing-pad), env(safe-area-inset-top));
+  padding-right: max(var(--landing-pad), env(safe-area-inset-right));
+  padding-bottom: max(var(--landing-pad), env(safe-area-inset-bottom));
+  padding-left: max(var(--landing-pad), env(safe-area-inset-left));
 }
 
 .auth-landing-mark {

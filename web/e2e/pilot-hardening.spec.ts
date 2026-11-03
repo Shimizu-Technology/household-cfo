@@ -7069,6 +7069,39 @@ test('Coach Studio protects unsaved work across mobile back and section navigati
   expect(filterHeight).toBeGreaterThanOrEqual(44)
 })
 
+test('Coach Studio leaves the address bar on the screen a confirmed browser Back opens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await mockStaffWithParticipantSeat(page, 'coach')
+  const persona = personaDetailFixture()
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/admin/personas', route => route.fulfill({ json: { personas: [persona] } }))
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/81$/, route => route.fulfill({ json: { persona } }))
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => route.fulfill({ json: { cohorts: [] } }))
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Budget')
+  await openSection(page, 'Review')
+  await openSection(page, 'Coach Studio')
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await openCoachAdvanced(page)
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await showAssistantStage(page, 'Draft')
+  await page.getByLabel('Assistant name').fill('Coach Lani with unsaved work')
+
+  // Keeping the edits leaves everything where it was.
+  await page.goBack()
+  await answerConfirm(page, 'dismiss', 'Discard your unsaved Coach Studio changes')
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
+
+  // Discarding follows Back, and the address bar now names the screen that is open.
+  await page.goBack()
+  await answerConfirm(page, 'accept')
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.reload()
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
 test('Coach Studio keeps publishing locked when the behavioral preview is unavailable', async ({ page }) => {
   await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
     const detail = personaDetailFixture()
@@ -8822,6 +8855,7 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await page.getByLabel('App name', { exact: true }).fill('Mel Island Money')
   await openDetails(page, 'More names and text')
   await page.getByLabel('Short name', { exact: true }).fill('Mel Island Money')
+  await page.getByLabel('Organization', { exact: true }).fill('Mel Island Money')
   await openDetails(page, 'Fonts and support details')
   await page.getByLabel('Support label', { exact: true }).fill('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeDisabled()
@@ -8835,6 +8869,10 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await page.getByRole('button', { name: 'Preview welcome screen' }).click()
   await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
   await expect(page.locator('.program-preview')).toContainText('Mel Island Money')
+  // It shows what a signed-out visitor sees: both ways in and the invitation hint.
+  await expect(page.locator('.program-preview')).toContainText('Sign in')
+  await expect(page.locator('.program-preview')).toContainText('Create invited account')
+  await expect(page.locator('.program-preview')).toContainText('Use the email your invitation was sent to.')
   await assertProgramFits(page)
   await page.getByRole('button', { name: 'Publish branding' }).click()
   await answerConfirm(page, 'accept', 'Participants keep the appearance saved for their group')
@@ -9236,6 +9274,43 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.getByRole('article', { name: 'Review QA-partial.pdf', exact: true }).getByRole('heading', { name: 'Review details', exact: true })).toBeVisible()
+})
+
+test('BOG UI removing an original file or deleting an upload asks first and sends nothing until confirmed', async ({ page }) => {
+  const source = {
+    id: 1201, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'October-household-statement.pdf', content_type: 'application/pdf', byte_size: 50,
+    document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Two extracted purchases.', extraction_error: null,
+    processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
+    transaction_drafts: ['pending', 'pending'].map((status, index) => ({ id: 1210 + index, occurred_on: `${currentYear}-01-03`, merchant: `QA purchase ${index + 1}`, amount: 10, amount_cents: 1000, status, source_type: 'statement', category_id: 2, category_name: 'Dining out', splits: [] })),
+  }
+  const deletes: string[] = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
+  await page.route(/http:\/\/api\.test\/api\/v1\/document_imports\/1201(\/source)?$/, (route) => {
+    if (route.request().method() !== 'DELETE') return route.fallback()
+    deletes.push(new URL(route.request().url()).pathname)
+    return route.fulfill(route.request().url().endsWith('/source') ? { json: { document_import: { ...source, source_available: false, source_deleted_at: '2026-10-02T00:00:00Z' } } } : { status: 204, body: '' })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await openChatContext(page)
+  await page.getByRole('button', { name: 'Review files', exact: true }).click()
+  const review = page.locator('.document-review-panel')
+  await openDetails(page, 'File options')
+
+  await review.getByRole('button', { name: 'Remove original file', exact: true }).click()
+  await answerConfirm(page, 'dismiss', 'Remove the original file?', 'keeps the import history')
+  expect(deletes).toEqual([])
+  await review.getByRole('button', { name: 'Remove original file', exact: true }).click()
+  await answerConfirm(page, 'accept')
+  await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source'])
+
+  await review.getByRole('button', { name: 'Delete upload & record', exact: true }).click()
+  await answerConfirm(page, 'dismiss', 'Delete this upload?', 'It cannot be undone')
+  expect(deletes).toHaveLength(1)
+  await review.getByRole('button', { name: 'Delete upload & record', exact: true }).click()
+  await answerConfirm(page, 'accept')
+  await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source', '/api/v1/document_imports/1201'])
 })
 
 async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview) {
@@ -12603,6 +12678,94 @@ for (const width of [1366, 320]) {
   })
 }
 
+test('BOG UI setting aside the selected pending purchases asks first and changes nothing until confirmed', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_transaction_drafts = [9101, 9102].map(id => ({ id, occurred_on: `${currentYear}-10-21`, merchant: `Focus Market ${id}`, amount: 12.34, amount_cents: 1234, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Dining out', splits: [], matches: [] }))
+  const bulkIgnores: unknown[] = []
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/bulk_ignore', route => {
+    bulkIgnores.push(route.request().postDataJSON())
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await page.getByRole('checkbox', { name: 'Select this page' }).check()
+  const ignoreSelected = page.getByRole('button', { name: 'Ignore selected', exact: true })
+
+  await ignoreSelected.click()
+  await answerConfirm(page, 'dismiss', 'Ignore these purchases?', '2 pending transaction reviews totaling $24.68 will be set aside. Your actuals will not change.')
+  expect(bulkIgnores).toEqual([])
+  await expect(page.getByRole('button', { name: /^Confirm Focus Market 9101/ })).toBeVisible()
+
+  await ignoreSelected.click()
+  await answerConfirm(page, 'accept')
+  await expect.poll(() => bulkIgnores).toEqual([{ transaction_draft_ids: [9101, 9102], year: currentYear }])
+  await expect(page.getByRole('button', { name: /^Confirm Focus Market/ })).toHaveCount(0)
+})
+
+test('BOG UI archiving a budget category asks first, and keeping it sends nothing', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const archives: string[] = []
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route(/http:\/\/api\.test\/api\/v1\/budget_categories\/\d+(\?.*)?$/, route => {
+    if (route.request().method() !== 'DELETE') return route.fallback()
+    archives.push(new URL(route.request().url()).pathname)
+    return route.fulfill({ json: { budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await page.getByRole('button', { name: 'Manage manually', exact: true }).click()
+  await page.getByRole('button', { name: 'Edit monthly plan', exact: true }).click()
+  // Categories with purchases waiting for review cannot be archived, so use the first one that can.
+  const archive = page.locator('button.archive-category-button:enabled').first()
+  await expect(archive).toBeVisible()
+  const name = (await archive.getAttribute('aria-label'))!.replace(/^Archive /, '')
+
+  await archive.click()
+  await answerConfirm(page, 'dismiss', `Archive ${name}?`, `${name} will leave active planning. Your confirmed transaction history is not deleted.`)
+  expect(archives).toEqual([])
+  await expect(archive).toBeVisible()
+
+  await archive.click()
+  await answerConfirm(page, 'accept')
+  await expect.poll(() => archives.length).toBe(1)
+})
+
+test('BOG UI reopening or restoring a purchase asks first, and keeping it changes nothing', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const month = String(new Date().getMonth() + 1).padStart(2, '0')
+  let state: 'confirmed' | 'ignored' | 'pending' = 'pending'
+  const writes: string[] = []
+  const report = () => ({
+    period_label: `${currentMonth} ${currentYear}`, start_on: `${currentYear}-${month}-01`, end_on: `${currentYear}-${month}-28`,
+    totals: { planned: 100, actual: state === 'confirmed' ? 75 : 0, pending: state === 'pending' ? 75 : 0, remaining: 100 }, categories: [],
+    transactions: state === 'confirmed' ? [{ id: 901, transaction_draft_id: draft.id, occurred_on: draft.occurred_on, merchant: draft.merchant, amount: 75, amount_cents: 7500, categories: ['Dining out'], category_name: 'Dining out', source_type: 'manual_ui', splits: [] }] : [],
+    pending_drafts: [], ignored_drafts: state === 'ignored' ? [{ ...draft, status: 'ignored' }] : [],
+  })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: report() } }))
+  await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/*`, route => {
+    const operation = new URL(route.request().url()).pathname.split('/').at(-1)!
+    writes.push(operation)
+    state = operation === 'confirm' ? 'confirmed' : operation === 'ignore' ? 'ignored' : 'pending'
+    workspace.budget.annual_plan.pending_transaction_drafts = state === 'pending' ? [draft] : []
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await page.getByRole('button', { name: /^Confirm Dinner with friends/ }).click()
+  const reopen = page.getByRole('button', { name: /^Reopen Dinner with friends/ })
+  await expect(reopen).toBeVisible()
+
+  await reopen.click()
+  await answerConfirm(page, 'dismiss', 'Reopen this transaction?')
+  expect(writes).toEqual(['confirm'])
+  await expect(reopen).toBeVisible()
+
+  await reopen.click()
+  await answerConfirm(page, 'accept')
+  await expect.poll(() => writes).toEqual(['confirm', 'reopen'])
+})
+
 test('BOG UI final acceptance duplicate income date keeps values and gives a dated next step', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   const guidance = `You already have a pay change starting Nov 1, ${currentYear}. Edit that change instead.`
@@ -12848,6 +13011,42 @@ test('BOG UI bank activity dates and selection targets fit 320px', async ({ page
   await page.getByRole('checkbox', { name: 'Select QA Island Market' }).check()
   await expect(page.getByRole('button', { name: 'Prepare 1 for review' })).toBeVisible()
   await expectPhoneTargets(page)
+})
+
+test('BOG UI dialogs rise into place with motion on and are already in place with motion off', async ({ page }) => {
+  // The suite runs with reduced motion, so this is the one place that checks the entry itself.
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/#Ask%20Mia')
+  await openChatContext(page)
+  const clearButton = page.getByRole('button', { name: 'Clear chat', exact: true })
+  const clear = page.getByRole('dialog', { name: 'Clear this chat?', exact: true })
+  // Open and measure inside one task, before any frame can advance an animation.
+  const openAndMeasure = () => clearButton.evaluate(async button => {
+    ;(button as HTMLElement).click()
+    // React commits the click in a microtask; no frame, so no animation tick, runs before this resumes.
+    for (let turn = 0; turn < 20 && !document.querySelector('.clear-chat-dialog'); turn += 1) await Promise.resolve()
+    const dialog = document.querySelector('.clear-chat-dialog')!
+    const box = dialog.getBoundingClientRect()
+    return { top: box.top, bottom: box.bottom, viewport: innerHeight, phone: innerWidth <= 640, names: dialog.getAnimations().map(animation => (animation as CSSAnimation).animationName) }
+  })
+
+  const withMotion = await openAndMeasure()
+  expect(withMotion.names).toEqual([withMotion.phone ? 'dialog-sheet-in' : 'dialog-panel-in'])
+  if (withMotion.phone) expect(withMotion.top, 'a phone sheet starts below the screen edge').toBeGreaterThanOrEqual(withMotion.viewport - 1)
+  await clear.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)))
+  await assertDialogVisibleHeight(clear)
+  await page.keyboard.press('Escape')
+  await expect(clear).toHaveCount(0)
+
+  // With motion off the resting position is the style itself, so no animation has to run.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  if (!(await clearButton.isVisible())) await openChatContext(page)
+  const withoutMotion = await openAndMeasure()
+  expect(withoutMotion.names).toEqual([])
+  expect(withoutMotion.top).toBeGreaterThanOrEqual(0)
+  expect(withoutMotion.bottom).toBeLessThanOrEqual(withoutMotion.viewport)
+  await page.keyboard.press('Escape')
+  await expect(clear).toHaveCount(0)
 })
 
 test('mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {

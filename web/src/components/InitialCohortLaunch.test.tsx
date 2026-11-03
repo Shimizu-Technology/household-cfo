@@ -121,6 +121,40 @@ describe('InitialCohortLaunch', () => {
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Review first launch' }))
   })
 
+  describe('before-launch guard', () => {
+    it('opens the review once the guard allows it', async () => {
+      const user = userEvent.setup()
+      const beforeLaunchAction = vi.fn().mockResolvedValue(true)
+      render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} beforeLaunchAction={beforeLaunchAction} />)
+      await user.click(await screen.findByRole('button', { name: 'Review first launch' }))
+      expect(beforeLaunchAction).toHaveBeenCalledTimes(1)
+      expect(await screen.findByRole('heading', { name: 'Review first group launch' })).toBeTruthy()
+    })
+
+    it('keeps the review closed when the guard says no', async () => {
+      const user = userEvent.setup()
+      const beforeLaunchAction = vi.fn().mockResolvedValue(false)
+      render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} beforeLaunchAction={beforeLaunchAction} />)
+      await user.click(await screen.findByRole('button', { name: 'Review first launch' }))
+      await waitFor(() => expect(beforeLaunchAction).toHaveBeenCalledTimes(1))
+      expect(screen.queryByRole('heading', { name: 'Review first group launch' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Review first launch' })).toBeTruthy()
+      expect(apiMocks.launchCohortRelease).not.toHaveBeenCalled()
+    })
+
+    it('waits for a slow answer before opening anything', async () => {
+      const user = userEvent.setup()
+      let answer!: (allowed: boolean) => void
+      const beforeLaunchAction = vi.fn(() => new Promise<boolean>((resolve) => { answer = resolve }))
+      render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} beforeLaunchAction={beforeLaunchAction} />)
+      await user.click(await screen.findByRole('button', { name: 'Review first launch' }))
+      expect(beforeLaunchAction).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('heading', { name: 'Review first group launch' })).toBeNull()
+      await act(async () => answer(true))
+      expect(await screen.findByRole('heading', { name: 'Review first group launch' })).toBeTruthy()
+    })
+  })
+
   it('rejects a mismatched cohort response without exposing launch controls', async () => {
     apiMocks.fetchCohortInitialLaunch.mockResolvedValue({ ...ready, cohort: { ...ready.cohort, id: 99 } })
     render(<InitialCohortLaunch cohortId={12} mutationLifecycle={lifecycle()} onLaunch={vi.fn()} />)

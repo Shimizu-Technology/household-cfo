@@ -161,7 +161,9 @@ body :is(
     width: 100%;
     max-width: none;
     margin: 0;
-    border-bottom: 0;
+    /* A transparent border shows the sheet's own background, so the last button
+       clears the home indicator and the sheet still reaches the screen edge. */
+    border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     max-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top));
     animation: dialog-sheet-in 240ms var(--ease-drawer) both;

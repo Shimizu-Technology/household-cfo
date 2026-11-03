@@ -4,6 +4,9 @@ import { revealDialogControl } from './dialogFocus'
 // A confirmation can open over another dialog; only the topmost one traps focus
 // and answers Escape, so the one underneath waits until it closes.
 const openDialogs: symbol[] = []
+// The page scrolls again only when the last dialog closes. Each dialog restoring
+// its own saved value would unlock the page while a confirmation is still open.
+let overflowBeforeFirstDialog = ''
 
 export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
@@ -15,10 +18,10 @@ export function usePilotDialog(onClose: () => void) {
 
   useEffect(() => {
     const token = Symbol('pilot-dialog')
+    if (openDialogs.length === 0) overflowBeforeFirstDialog = document.body.style.overflow
     openDialogs.push(token)
     const isTopmost = () => openDialogs[openDialogs.length - 1] === token
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const previousBodyOverflow = document.body.style.overflow
     const dialog = dialogRef.current
     const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
@@ -99,7 +102,7 @@ export function usePilotDialog(onClose: () => void) {
       if (position >= 0) openDialogs.splice(position, 1)
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
-      document.body.style.overflow = previousBodyOverflow
+      if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeFirstDialog
       previousFocus?.focus({ preventScroll: true })
     }
   }, [])
