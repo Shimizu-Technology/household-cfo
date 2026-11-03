@@ -2176,7 +2176,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     ? () => {
         if (!switchSection('Ask Mia', { focusHeading: false })) return
         // A message or files she already has waiting are hers: asking for patterns must not send them or wipe them.
-        if (question.trim() || pendingMiaAttachments.length > 0) setMiaError('Your message and files are still waiting here. Send or clear them, then ask what Mia notices.')
+        if (question.trim() || pendingMiaAttachments.length > 0) setMiaError(`Your message and files are still waiting here. Send or clear them, then ask what ${assistantName} notices.`)
         else void handleAskMia(SPENDING_PATTERNS_PROMPT)
       }
     : undefined

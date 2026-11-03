@@ -25,14 +25,20 @@ module FinancialDocuments
         raise ArgumentError, "Choose whether anything is missing from this statement" if answer && !answer.in?(CoverageQuestion::ANSWERS)
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
+        domain.overlap_context = OverlapDetector::Context.new(household)
         link_accounts!
         plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now)
         check_expected!(plan, entries)
         counts = Hash.new(0)
-        entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each { |entry| apply!(plan, entry, counts) }
+        entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each do |entry|
+          apply!(plan, entry, counts)
+          domain.overlap_context.refresh!
+        end
         { approved: counts[:approved], left_out: counts[:left_out], unchanged: counts[:unchanged], complete: finish_coverage!(answer) }
       rescue KeyError, TypeError
         raise ArgumentError, "Statement review request is missing required fields"
+      ensure
+        domain.overlap_context = nil
       end
 
       private
@@ -78,12 +84,17 @@ module FinancialDocuments
           label = change[:label].presence || tracked&.label || AccountMatch.default_label(account, basis)
           facts = statement_facts(account, current, change)
           # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
-          next if current && tracked.label == label && tracked.account_basis == basis && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
-          named = change[:label].present? || tracked.present? || AccountMatch.named?(label)
-          existing = named ? AccountMatch.existing(household, label, basis) : nil
+          # Changing only the dates keeps the account it already is. Looking it up again by a generic name such as "Bank account"
+          # would find another account that says the same thing and merge the two.
+          kept = current && tracked.label == label && tracked.account_basis == basis
+          next if kept && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
+          existing = if kept then tracked
+          elsif change[:label].present? || AccountMatch.named?(label) then AccountMatch.existing(household, label, basis)
+          end
           raw = { source_account_id: account.id, tracked_account_id: existing&.id, label: label, account_basis: basis,
             base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, statement_facts: facts, reason: REASON }
           domain.execute("account_link", domain.normalize("account_link", raw))
+          domain.overlap_context.refresh!
           @linked_now << account.id unless head
         end
       end

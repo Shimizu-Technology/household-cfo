@@ -564,6 +564,52 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 2, SourceTrackedAccount.where(household: @household).count
   end
 
+  test "changing only the dates of one of two generic accounts never merges it into the other, so their charges are not offered as copies of each other" do
+    one = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    approve_lines({ lines: as_read(one[:revision].financial_source_events.ids, source: one) }, source: one)
+    assert_response :success, response.body
+    two = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "Bank account")
+    question = plan_for(two).fetch("attention").sole
+    approve_lines({ lines: [ { event_id: question.fetch("event_id"), decision: "different", shown: question.slice("category_id", "event_type").symbolize_keys } ] }, source: two)
+    assert_response :success, response.body
+    assert_equal 2, SourceTrackedAccount.where(household: @household).count
+    account = two[:revision].financial_source_accounts.sole
+    approve_lines({ lines: [], accounts: [ { source_account_id: account.id, period_start_on: "2026-07-01", period_end_on: "2026-07-31" } ] }, source: two)
+    assert_response :success, response.body
+    tracked = SourceAccountReviewHead.where(household: @household).map { |head| head.approved_version.source_tracked_account_id }
+    assert_equal 2, tracked.uniq.length, "each account stays its own"
+    assert_equal 2, SourceTrackedAccount.where(household: @household).count
+    assert_empty plan_for(two).fetch("attention").select { |row| row["kind"] == "duplicate" }
+  end
+
+  test "an older line she edited is compared by what she approved, so a copy of the edited line is asked about and the rest can be approved" do
+    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    older = first[:revision].financial_source_events.sole
+    approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
+    assert_response :success, response.body
+    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking")
+    plan = plan_for(second)
+    copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
+    assert copy, "the copy of the edited line is asked about before she approves the rest"
+    bonus = second[:revision].financial_source_events.order(:position).last
+    assert_equal [ bonus.id ], plan.fetch("ready_event_ids")
+    approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), lines: as_read(plan.fetch("ready_event_ids"), source: second) }, source: second)
+    assert_response :success, response.body
+    approve_lines({ lines: [ { event_id: copy.fetch("event_id"), decision: "leave_out" } ] }, source: second)
+    assert_response :success, response.body
+  end
+
+  test "a copy of a line whose edit is still waiting as a draft is asked about too" do
+    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    older = first[:revision].financial_source_events.sole
+    # An edit she has not approved yet still says what that line will be.
+    head = SourceReviewHead.create!(household: @household, financial_source_event: older)
+    SourceReviewDraft.create!(household: @household, source_review_head: head, staged_by_user: @user, base_head_lock_version: head.lock_version, digest: SecureRandom.hex(32), reason: "test",
+      facts: { "signed_amount_cents" => 5_000, "posted_on" => older.posted_on.iso8601 })
+    second = build_source(rows: [ [ "Pay", 5_000, "income", 2 ] ], label: "BOG Everyday Checking")
+    assert_equal [ "duplicate" ], plan_for(second).fetch("attention").pluck("kind")
+  end
+
   test "a name or a saved description with a raw account number reads masked, even when it was approved before" do
     names = ->(label, masked = nil) { FinancialDocuments::SourceReview::AccountName.parts(label, masked) }
     assert_equal({ name: "Bank of Guam checking ····5678", last4: nil }, names.call("Bank of Guam checking 000012345678"))
@@ -610,6 +656,20 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     plan = ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision]).tap(&:lines) }
     assert_equal [ :duplicate ] * 40, plan.lines.map(&:kind)
     assert_operator queries, :<, 80, "#{queries} queries for 40 lines that all overlap an earlier statement"
+  end
+
+  test "a page reads the household's lines once, not once per line, and a repeat of the page still saves nothing new" do
+    rows = (1..20).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    long = build_source(rows: rows)
+    ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
+    reads = 0
+    counter = ->(*, payload) { reads += 1 if payload[:sql].match?(/\ASELECT "financial_source_events"\.\* FROM "financial_source_events" WHERE "financial_source_events"\."household_id" = \$1\z/) }
+    ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { approve_lines({ expect_ready_ids: ids, paged: true, lines: as_read(ids, source: long) }, source: long) }
+    assert_response :success, response.body
+    assert_equal 20, response.parsed_body.dig("result", "approved")
+    assert_operator reads, :<=, 4, "#{reads} reads of the household's lines for 20 lines"
+    approve_lines({ expect_ready_ids: ids, paged: true, lines: as_read(ids, source: long) }, source: long)
+    assert_equal({ "approved" => 0, "left_out" => 0, "unchanged" => 20, "complete" => false }, response.parsed_body.fetch("result"))
   end
 
   test "the approval page is 100 lines" do

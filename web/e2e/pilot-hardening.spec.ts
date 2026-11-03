@@ -9315,14 +9315,18 @@ test('BOG UI removing an original file or deleting an upload asks first and send
   await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source', '/api/v1/document_imports/1201'])
 })
 
-async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview) {
+async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
   }
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    const workspace = realWorkspaceData(true)
+    if (coachName) workspace.profile.coach.name = coachName
+    return route.fulfill({ json: workspace })
+  })
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
   await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: source } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { authenticated_content: true, url: '/api/v1/document_imports/1203/source_content', download_url: '/api/v1/document_imports/1203/source_content?download=1', expires_in: 0, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
@@ -10198,6 +10202,19 @@ test('BOG UI asking what Mia notices never sends or wipes a message she already 
   await expect(page.getByText('Your message and files are still waiting here.')).toBeVisible()
   await expect(composer).toHaveValue('Can we talk about my car insurance?')
   expect(sent).toHaveLength(0)
+})
+
+test('BOG UI the waiting-message note names her own assistant', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
+    return data
+  }, 'Nina for Mrs. Mel')
+  await openSection(page, 'Ask Nina')
+  await page.getByRole('textbox', { name: /^Ask / }).fill('Can we talk about my car insurance?')
+  await openSection(page, 'Statements')
+  await review.getByRole('button', { name: /^See what .* notices$/ }).click()
+  await expect(page.getByText('Send or clear them, then ask what Nina notices.')).toBeVisible()
 })
 
 test('BOG UI a long statement is approved 100 lines at a time', async ({ page }) => {

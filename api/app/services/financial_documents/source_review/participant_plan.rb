@@ -174,12 +174,21 @@ module FinancialDocuments
         words.all? ? words.uniq.map { |word| "%#{word}%" } : nil
       end
 
-      # Cheap pre-filter: only lines that share an amount and date with something
-      # outside this statement can overlap, so only those pay for the full check.
+      # Cheap pre-filter: only lines that share an amount and date with something outside this statement can overlap, so only
+      # those pay for the full check. OverlapDetector compares against what an earlier line is now (her approved version, else
+      # a pending edit, else the statement as read), so the keys here come from all three; a missed key would show a copy as
+      # "looks right" and then refuse it when she approves. Extra keys only cost a full check.
       def overlap_candidates(events)
-        keys = FinancialSourceEvent.where(household: household).where.not(financial_extraction_revision_id: revision.id)
-          .where(signed_amount_cents: events.filter_map(&:signed_amount_cents).uniq).pluck(:signed_amount_cents, :posted_on).to_set
-        events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on ]) }.map(&:id).to_set
+        amounts = events.filter_map(&:signed_amount_cents).uniq
+        return Set.new if amounts.empty?
+        others = FinancialSourceEvent.where(household: household).where.not(financial_extraction_revision_id: revision.id)
+        heads = SourceReviewHead.where(household: household, financial_source_event_id: others.select(:id))
+        keys = others.where(signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).to_set { |amount, day| [ amount, day.to_s ] }
+        SourceReviewVersion.where(id: heads.select(:approved_version_id), signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).each { |amount, day| keys << [ amount, day.to_s ] }
+        SourceReviewDraft.where(household: household, source_review_head_id: heads.select(:id)).pending.pluck(:facts).each do |facts|
+          keys << [ facts["signed_amount_cents"], facts["posted_on"].to_s ] if amounts.include?(facts["signed_amount_cents"])
+        end
+        events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on.to_s ]) }.map(&:id).to_set
       end
 
       def overlap_context = @overlap_context ||= OverlapDetector::Context.new(household)

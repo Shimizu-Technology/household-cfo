@@ -8,6 +8,12 @@ module FinancialDocuments
           @household = household
         end
 
+        # After a write. The lines of every statement stay as they are while a page is saved; what has been approved, drafted or linked does.
+        def refresh!
+          @heads = @pending = @accounts = @tracked = nil
+          self
+        end
+
         def heads = @heads ||= SourceReviewHead.where(household: @household).includes(:approved_version).index_by(&:financial_source_event_id)
         def pending = @pending ||= SourceReviewDraft.where(household: @household).pending.index_by(&:source_review_head_id)
         def accounts = @accounts ||= SourceAccountReviewHead.where(household: @household).includes(:approved_version).index_by(&:financial_source_account_id)
