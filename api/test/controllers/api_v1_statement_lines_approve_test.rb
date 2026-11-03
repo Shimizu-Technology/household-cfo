@@ -503,6 +503,20 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_empty(seen.grep(/Unrelated shop/))
   end
 
+  test "a statement uploaded twice is checked for copies with a fixed number of queries, not a handful per line" do
+    rows = (1..40).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    first = build_source(rows: rows)
+    ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, first[:revision]).ready_ids
+    ids.each_slice(20) { |slice| approve_lines({ expect_ready_ids: slice, paged: true, lines: as_read(slice, source: first) }, source: first) }
+    assert_response :success
+    copy = build_source(rows: rows)
+    queries = 0
+    counter = ->(*, payload) { queries += 1 unless payload[:name] == "SCHEMA" }
+    plan = ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { FinancialDocuments::SourceReview::ParticipantPlan.new(@household, copy[:revision]).tap(&:lines) }
+    assert_equal [ :duplicate ] * 40, plan.lines.map(&:kind)
+    assert_operator queries, :<, 80, "#{queries} queries for 40 lines that all overlap an earlier statement"
+  end
+
   test "the approval page is 100 lines" do
     assert_equal 100, FinancialDocuments::SourceReview::LineApprover::MAX_LINES
   end

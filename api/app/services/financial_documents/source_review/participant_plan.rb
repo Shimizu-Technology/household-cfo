@@ -181,10 +181,12 @@ module FinancialDocuments
         events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on ]) }.map(&:id).to_set
       end
 
+      def overlap_context = @overlap_context ||= OverlapDetector::Context.new(household)
+
       def overlaps_for(event, merchant, category_id)
-        identity = SourceAccountReviewHead.find_by(household: household, financial_source_account_id: event.financial_source_account_id)&.approved_version_id
+        identity = overlap_context.accounts[event.financial_source_account_id]&.approved_version_id
         facts = self.class.facts_as_read(event, identity_id: identity, merchant: merchant, category_id: category_id)
-        OverlapDetector.new(household, event, facts).call
+        OverlapDetector.new(household, event, facts, context: overlap_context).call
       end
     end
   end
