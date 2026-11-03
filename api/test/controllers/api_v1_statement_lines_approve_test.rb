@@ -51,7 +51,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 1, @household.household_transactions.where(status: "confirmed").count
     assert_equal 1_000, @household.household_transactions.sole.total_amount_cents
     assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
-    assert_equal "Spreadsheet account", SourceTrackedAccount.where(household: @household).sole.label
+    # A system label such as "Spreadsheet account" is never saved as her account's name.
+    assert_equal "Bank account", SourceTrackedAccount.where(household: @household).sole.label
     # Nothing she did not see is touched.
     assert_nil SourceReviewHead.find_by(financial_source_event_id: @events.fetch("Ross").id)&.approved_version_id
     assert_nil SourceReviewHead.find_by(financial_source_event_id: @events.fetch("Own savings").id)&.approved_version_id
@@ -175,12 +176,118 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal [ :duplicate ], plan.attention.map(&:kind)
   end
 
+  test "a long statement is approved a page at a time: exactly the lines on the page, all or none, and a retry changes nothing" do
+    rows = (1..5).map { |index| [ "Pay #{index}", 10_000 + index, "income", index ] }
+    long = build_source(rows: rows)
+    ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
+    assert_equal 5, ids.length
+    with_page_limit(2) do
+      page = ->(slice, **extra) { approve_lines({ expect_ready_ids: slice, paged: true, lines: slice.map { |id| { event_id: id, decision: "as_read" } } }.merge(extra), source: long) }
+      # More than a page in one request is refused outright, and saves nothing.
+      approve_lines({ expect_ready_ids: ids, lines: ids.map { |id| { event_id: id, decision: "as_read" } } }, source: long)
+      assert_response :unprocessable_entity
+      assert_equal 0, SourceReviewVersion.where(household: @household).count
+      # Without paged: true the request must cover every open line, as before.
+      approve_lines({ expect_ready_ids: ids.first(2), lines: ids.first(2).map { |id| { event_id: id, decision: "as_read" } } }, source: long)
+      assert_response :conflict
+      assert_equal 0, SourceReviewVersion.where(household: @household).count
+      page.call(ids.first(2))
+      assert_equal({ "approved" => 2, "left_out" => 0, "unchanged" => 0, "complete" => false }, response.parsed_body.fetch("result"))
+      page.call(ids.first(2))
+      assert_equal({ "approved" => 0, "left_out" => 0, "unchanged" => 2, "complete" => false }, response.parsed_body.fetch("result"))
+      assert_equal 2, SourceReviewVersion.where(household: @household).count
+      # A page that holds a line she was never shown as looking right saves nothing.
+      page.call(ids[2, 2] + [ -1 ])
+      assert_response :unprocessable_entity
+      assert_equal 2, SourceReviewVersion.where(household: @household).count
+      page.call(ids[2, 2])
+      page.call(ids.last(1))
+      assert_equal 5, SourceReviewVersion.where(household: @household).count
+      assert_equal 1, SourceAccountIdentityVersion.where(household: @household).count
+      assert_equal true, response.parsed_body.dig("result", "complete")
+    end
+  end
+
+  test "a page that holds a line that no longer looks right is refused and saves nothing" do
+    long = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ], [ "Pay 2", 10_001, "income", 2 ] ])
+    ids = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, long[:revision]).ready_ids
+    changed = build_source(rows: [ [ "Ross", -500, "purchase", 1 ] ])
+    approve_lines({ expect_ready_ids: ids + changed[:revision].financial_source_events.pluck(:id), paged: true, lines: ids.map { |id| { event_id: id, decision: "as_read" } } }, source: long)
+    assert_response :conflict
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+  end
+
+  test "account numbers are hidden in every description she reads, and the statement's own words stay stored" do
+    rows = [ [ "Coast360 transfer to own savings 00002468", -20_000, "transfer", 1 ], [ "Visa card payment 00009900", -25_000, "debt_payment", 2 ], [ "Ross #12345678 order $1234567.89", -500, "purchase", 3 ] ]
+    source = build_source(rows: rows)
+    event = source[:revision].financial_source_events.joins(:financial_source_evidence).first
+    assert_equal "Coast360 transfer to own savings 00002468", event.financial_source_evidence.payload["merchant"]
+    get "/api/v1/document_imports/#{source[:import].id}/source_review", params: { revision_id: source[:revision].id }, headers: headers
+    review = response.parsed_body.fetch("source_review")
+    shown = review.fetch("events").map { |row| row.dig("evidence", "merchant") }
+    assert_includes shown, "Coast360 transfer to own savings ····2468"
+    assert_includes shown, "Visa card payment ····9900"
+    assert_includes shown, "Ross #····5678 order $1234567.89"
+    plan_merchants = review.dig("participant_review", "plan", "attention").pluck("merchant")
+    assert_includes plan_merchants, "Coast360 transfer to own savings ····2468"
+    assert_includes plan_merchants, "Visa card payment ····9900"
+    %w[00002468 00009900 12345678].each { |number| refute_includes (plan_merchants + shown + review.fetch("events").pluck("evidence").flat_map(&:values).grep(String)).join(" "), number }
+  end
+
+  test "an account is named in plain words: the bank when the file says it, never a system label" do
+    names = ->(label, masked) { FinancialDocuments::SourceReview::AccountName.parts(label, masked) }
+    assert_equal({ name: nil, last4: nil }, names.call("Spreadsheet account 1", nil))
+    assert_equal({ name: nil, last4: "1234" }, names.call("Statement account ****1234", "****1234"))
+    assert_equal({ name: "Bank of Guam checking", last4: "1234" }, names.call("Bank of Guam checking", "****1234"))
+    assert_equal({ name: "Bank of Guam checking", last4: "1234" }, names.call("Bank of Guam checking · ****1234", nil))
+    assert_equal({ name: nil, last4: "1234" }, names.call("Bank account ····1234", nil))
+    assert_equal "Credit card ····1234", FinancialDocuments::SourceReview::AccountName.default_label("Spreadsheet account 1", "****1234", "liability")
+    account = @source[:revision].financial_source_accounts.sole
+    presenter = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, @source[:revision], user: @user)
+    assert_equal [ nil, nil ], presenter.context(event_ids: []).fetch(:accounts).first.values_at(:name, :last4)
+    approve_lines({ lines: [], accounts: [ { source_account_id: account.id, account_basis: "asset", label: "Bank of Guam checking" } ] })
+    assert_equal "Bank of Guam checking", presenter.context(event_ids: []).fetch(:accounts).first.fetch(:name)
+  end
+
+  test "a merchant she categorized before keeps that category under different bank wording, and a conflicting reader guess is a question" do
+    earlier = build_source(rows: [ [ "Ross Dededo GU", -1_000, "purchase", 1 ] ])
+    approve_lines({ lines: [ { event_id: earlier[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", merchant: "Ross Dededo GU", posted_on: "2026-07-02", amount_cents: 1_000, category_id: @groceries.id } } ] }, source: earlier)
+    assert_response :success
+    shopping = @household.budget_categories.create!(name: "Shopping", stack_key: "discretionary", sort_order: 1)
+    later = build_source(rows: [ [ "ROSS DRESS FOR LESS #123 HAGATNA GU", -700, "purchase", 3 ], [ "ROSS STORES #456 YIGO GU", -800, "purchase", 4 ], [ "Corner Cafe", -900, "purchase", 5 ] ])
+    events = later[:revision].financial_source_events.includes(:financial_source_evidence).order(:position).to_a
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, later[:revision])
+    # Her earlier answer arrives already chosen; an unfamiliar merchant is still a question.
+    assert_equal [ @groceries.id, @groceries.id, nil ], plan.lines.map(&:category_id)
+    assert_equal [ :no_category ], plan.attention.map(&:kind)
+    # The reader guessed something else for one of them: ask with her own category, never overrule it silently.
+    @household.transaction_drafts.create!(financial_document_import: later[:import], financial_source_event: events.second, occurred_on: events.second.posted_on, merchant: "Ross",
+      total_amount_cents: 800, budget_category: shopping, source_type: "statement", status: "pending")
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, later[:revision])
+    assert_equal [ :still_category, :no_category ].sort, plan.attention.map(&:kind).sort
+    row = FinancialDocuments::SourceReview::ParticipantPresenter.new(@household, later[:revision], user: @user).plan_summary.fetch(:attention).find { |item| item[:kind] == :still_category }
+    assert_equal "Still Groceries?", row.fetch(:question)
+    assert_equal %w[Yes Change], row.fetch(:answers).pluck(:label)
+    assert_equal @groceries.id, row.fetch(:category_id)
+    assert_empty plan.ready_ids - events.first(1).map(&:id)
+  end
+
   private
+
+  def with_page_limit(count)
+    approver = FinancialDocuments::SourceReview::LineApprover
+    approver.send(:remove_const, :MAX_LINES)
+    approver.const_set(:MAX_LINES, count)
+    yield
+  ensure
+    approver.send(:remove_const, :MAX_LINES)
+    approver.const_set(:MAX_LINES, 400)
+  end
 
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
 
-  def approve_lines(input, key: SecureRandom.uuid)
-    post "/api/v1/document_imports/#{@source[:import].id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: input }, headers: headers.merge("Idempotency-Key" => key), as: :json
+  def approve_lines(input, key: SecureRandom.uuid, source: @source)
+    post "/api/v1/document_imports/#{source[:import].id}/review/approve_lines", params: { revision_id: source[:revision].id, input: input }, headers: headers.merge("Idempotency-Key" => key), as: :json
   end
 
   def review_plan
@@ -198,14 +305,14 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS)
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account")
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: SecureRandom.hex(32))
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row|
-      { account_key: "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: "2026-07-0#{row + 1}", merchant: name, locator: { page: 1, row: row } }
+      { account_key: "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: [ { account_key: "synthetic-account", account_basis: basis, label: "Spreadsheet account" } ],
+      accounts: [ { account_key: "synthetic-account", account_basis: basis, label: label } ],
       events: events, reported_row_count: events.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
     result = FinancialDocuments::SourceAccountingPersister.new(document, attempt: attempt, accounting: accounting).call
     document.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })
