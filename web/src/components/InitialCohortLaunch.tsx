@@ -11,7 +11,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
   cohortId: number | null
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onLaunch: () => void
-  beforeLaunchAction?: () => boolean
+  beforeLaunchAction?: () => boolean | Promise<boolean>
 }) {
   const [state, setState] = useState<CohortInitialLaunch | null>(null)
   const [loading, setLoading] = useState(false)
@@ -123,8 +123,8 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
           <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch group now'}</Button>
           <Button variant="secondary" disabled={mutationLifecycle.pending} onClick={() => setReview(null)}>Cancel</Button>
         </div>
-      </section> : state.can_launch && state.release && <Button data-launch-review-trigger disabled={mutationLifecycle.pending || loading} onClick={() => {
-        if (beforeLaunchAction && !beforeLaunchAction()) return
+      </section> : state.can_launch && state.release && <Button data-launch-review-trigger disabled={mutationLifecycle.pending || loading} onClick={async () => {
+        if (beforeLaunchAction && !(await beforeLaunchAction())) return
         setReview({ input: { release_id: state.release!.id, preview_digest: state.preview_digest }, requestId: createCohortReleaseRequestId() })
       }}>Review first launch</Button>}
     </>}

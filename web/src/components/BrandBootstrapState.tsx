@@ -11,7 +11,7 @@ export function BrandBootstrapState() {
     <main className="brand-bootstrap-state">
       <section className="brand-bootstrap-panel" aria-busy={loading} aria-live="polite">
         <span className="brand-bootstrap-mark" aria-hidden="true">{Array.from(brand.short_name.trim())[0]?.toUpperCase()}</span>
-        <p className="eyebrow">{loading ? 'Opening your secure program' : brand.organization_name}</p>
+        <p className="eyebrow">{loading ? 'Opening your program' : brand.organization_name}</p>
         <h1>{loading ? 'Loading your coaching workspace…' : status === 'error' ? 'Your program could not load' : brand.welcome_heading}</h1>
         <p role={error ? 'alert' : undefined}>
           {loading ? 'Confirming this program link before sign-in.' : error ?? brand.welcome_description}

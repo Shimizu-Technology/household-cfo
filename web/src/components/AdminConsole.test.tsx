@@ -309,7 +309,7 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     expect(screen.getByLabelText(/Reason/)).toHaveProperty('value', 'Keep this review reason')
     vi.mocked(window.confirm).mockReturnValue(true)
     fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
-    expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', '')
+    await waitFor(() => expect(screen.getByLabelText('Cohort scope')).toHaveProperty('value', ''))
     expect(screen.queryByLabelText(/Reason/)).toBeNull()
   }, 15_000)
   it('discards the confirmed invitation and creation drafts when changing group', async () => {
@@ -321,7 +321,7 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     fireEvent.change(screen.getByLabelText('Cohort name'), { target: { value: 'Unfinished group' } })
     vi.mocked(window.confirm).mockReturnValue(true)
     fireEvent.change(screen.getByLabelText('Cohort scope'), { target: { value: '' } })
-    expect(screen.getByLabelText('Cohort name')).toHaveProperty('value', '')
+    await waitFor(() => expect(screen.getByLabelText('Cohort name')).toHaveProperty('value', ''))
     fireEvent.click(screen.getByRole('button', { name: 'Participants & access' }))
     expect(screen.getByLabelText('Email')).toHaveProperty('value', '')
   })

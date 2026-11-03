@@ -314,7 +314,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       end
       post "/api/v1/mia/messages", params: { message: "Picked up an extra shift and saved $50 today", request_id: "plain-contribution" }, headers: auth, as: :json
       assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
-      assert_equal "Got it: $50.00 set aside today. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.",
+      assert_equal "Got it: $50.00 set aside today. It's below for you to check. Nothing counts toward your challenge until you save it.",
         response.parsed_body.dig("assistant_message", "content")
     end
   end

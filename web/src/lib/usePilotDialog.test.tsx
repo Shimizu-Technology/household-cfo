@@ -59,3 +59,23 @@ test('unmount cancels pending opening focus and restores the opener and page scr
   expect(document.activeElement).toBe(opener)
   expect(document.body.style.overflow).toBe(previousOverflow)
 })
+test('page scrolling stays locked until the last stacked dialog closes, whichever closes first', () => {
+  document.body.style.overflow = 'scroll'
+  const underneath = render(<Probe />)
+  const confirmation = render(<Probe />)
+  expect(document.body.style.overflow).toBe('hidden')
+  // The dialog underneath goes away while the confirmation over it is still open.
+  underneath.unmount()
+  expect(document.body.style.overflow).toBe('hidden')
+  confirmation.unmount()
+  expect(document.body.style.overflow).toBe('scroll')
+  document.body.style.overflow = ''
+})
+test('closing the topmost dialog keeps the page locked for the one underneath', () => {
+  const underneath = render(<Probe />)
+  const confirmation = render(<Probe />)
+  confirmation.unmount()
+  expect(document.body.style.overflow).toBe('hidden')
+  underneath.unmount()
+  expect(document.body.style.overflow).toBe('')
+})

@@ -27,6 +27,8 @@ import { useClearRetainedDocumentFiles, useRetainedDocumentFile } from './compon
 import { PausedDocumentImportPanel } from './components/PausedDocumentImportPanel'
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
+import { formatFileSize } from './lib/fileSize'
+import { confirmAction, confirmDiscard } from './lib/confirmAction'
 import { useDialogViewport } from './lib/useDialogViewport'
 import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
@@ -583,17 +585,22 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
     // event must not erase the explanation after an unavailable route is fixed.
     if (browserNavigation && section === activeSection && window.location.hash === sectionHash(activeSection) && !hasPendingPlaidOAuthReturn()) return
     const target = sections.includes(section) ? section : defaultSection
-    if (target !== activeSection && dirty && !window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) {
+    const proceed = () => {
+      if (target !== activeSection) setDirty(false)
+      setActive(target)
+      const unavailable = Boolean(section && !sections.includes(section))
+      setNotice(unavailable ? 'Household money is not available in this staff workspace.' : `${target} screen loaded.`)
+      if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
+      else window.history.pushState({ section: target }, '', canonicalUrl(target))
+      focusHeading()
+    }
+    if (target !== activeSection && dirty) {
+      // Keep the address on the current screen while the question is open.
       window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
+      void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => { if (discard) proceed() })
       return
     }
-    if (target !== activeSection) setDirty(false)
-    setActive(target)
-    const unavailable = Boolean(section && !sections.includes(section))
-    setNotice(unavailable ? 'Household money is not available in this staff workspace.' : `${target} screen loaded.`)
-    if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
-    else window.history.pushState({ section: target }, '', canonicalUrl(target))
-    focusHeading()
+    proceed()
   }, [activeSection, canonicalUrl, defaultSection, dirty, focusHeading, sections])
   useLayoutEffect(() => {
     if (!ready) return
@@ -731,6 +738,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const hasUnsavedIncomeChanges = hasUnsavedIncomeSourceChanges || hasUnsavedIncomeScheduleChanges
   const incomeMutationPending = Boolean(budgetAction?.includes('income'))
   const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
+  const coachDiscardConfirmedRef = useRef(false)
   const [pendingBudgetView, setPendingBudgetView] = useState<{ requestId: number; scope: string; year: number } | null>(null)
   const budgetViewRequestRef = useRef(0)
   const budgetViewScopeRef = useRef('')
@@ -742,7 +750,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [assistPanel, setAssistPanel] = useState<'context' | 'prompts' | 'memory' | 'about' | null>(null)
   const showMiaSuggestions = assistPanel === 'prompts'
-  const chatContextTriggerRef = useRef<HTMLButtonElement | null>(null)
   const chatMoreTriggerRef = useRef<HTMLButtonElement | null>(null)
   // Opening a companion panel can narrow the chat so its inline trigger folds into
   // More and loses focus; remember it and hand focus back when the panel closes.
@@ -1755,7 +1762,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return false
     }
     if (activeSection === COACH_STUDIO_SECTION && targetSection !== COACH_STUDIO_SECTION && hasUnsavedCoachChanges) {
-      if (!window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) return false
+      if (!coachDiscardConfirmedRef.current) {
+        void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => {
+          if (!discard) return
+          coachDiscardConfirmedRef.current = true
+          setHasUnsavedCoachChanges(false)
+          // Back already moved the address bar and the guard then put the old screen's
+          // entry back on top, so a confirmed leave rewrites that entry. Otherwise a
+          // reload would open the screen the person just left.
+          const confirmed = options.source === 'history' ? { ...options, historyMode: 'replace' as const } : options
+          try { switchSection(section, confirmed) } finally { coachDiscardConfirmedRef.current = false }
+        })
+        return false
+      }
       setHasUnsavedCoachChanges(false)
     }
     if (canResumePlaidOAuthReturn && targetSection !== 'My Money') {
@@ -2788,7 +2807,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (budgetYearLoading) return
     if (!isRealWorkspace || !data) return
 
-    const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
+    const confirmed = await confirmAction(`${row.name} will leave active planning. Your confirmed transaction history is not deleted.`, { title: `Archive ${row.name}?`, confirmLabel: 'Archive category', cancelLabel: 'Keep it' })
     if (!confirmed) return
 
     if (!beginBudgetAction(`archive-category:${row.id}`)) return
@@ -3085,7 +3104,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       // Typed confirmation happens in an in-app dialog (BulkConfirmDialog); it re-enters below.
       setBulkConfirmRequest({ drafts: pendingDrafts, total })
       return
-    } else if (resolution === 'ignore' && !window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${formatReviewMoney(Math.round((total) * 100))}? Actuals will not change.`)) {
+    } else if (resolution === 'ignore' && !(await confirmAction(`${ids.length} pending transaction ${ids.length === 1 ? 'review' : 'reviews'} totaling ${formatReviewMoney(Math.round((total) * 100))} will be set aside. Your actuals will not change.`, { title: 'Ignore these purchases?', confirmLabel: 'Ignore them', cancelLabel: 'Keep reviewing' }))) {
       return
     }
 
@@ -3156,7 +3175,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (!isRealWorkspace) return
 
     const previousAction = document.activeElement
-    const confirmed = window.confirm(transactionReopenConfirmMessage(draft))
+    const confirmed = await confirmAction(transactionReopenConfirmMessage(draft), { title: 'Reopen this transaction?', confirmLabel: 'Reopen it', cancelLabel: 'Leave it' })
     if (!confirmed) return
 
     if (!beginBudgetAction(`reopen-draft:${draft.id}`)) return
@@ -3449,7 +3468,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleDeleteDocumentSource(documentImport: FinancialDocumentImport) {
-    if (!window.confirm("Remove the original private file? This keeps the import history, extracted results, and any saved household values. You won't be able to preview or reprocess this file.")) return
+    if (!(await confirmAction("This keeps the import history, extracted results, and any saved household values. You won't be able to preview or reprocess this file.", { title: 'Remove the original file?', confirmLabel: 'Remove file', cancelLabel: 'Keep file', caution: true }))) return
 
     setDocumentAction(`source:${documentImport.id}`)
     setDocumentsError(null)
@@ -3466,7 +3485,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function handleDeleteDocumentImport(documentImport: FinancialDocumentImport) {
-    if (!window.confirm('Delete this upload, its original file, and its import history? This cannot be undone and is only available before anything is applied or matched.')) return
+    if (!(await confirmAction('This removes the upload, its original file, and its import history. It cannot be undone and is only available before anything is applied or matched.', { title: 'Delete this upload?', confirmLabel: 'Delete upload', cancelLabel: 'Keep it', caution: true }))) return
 
     setDocumentAction(`delete:${documentImport.id}`)
     setDocumentsError(null)
@@ -3853,12 +3872,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
-                  {showMiaMemoryAction && <button type="button" className="chat-memory-button chat-inline-action" aria-expanded={assistPanel === 'memory'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'memory' ? null : 'memory') }}>Memory</button>}
-                  {currentMessages.length > 0 && (
-                    <button ref={clearChatTriggerRef} type="button" className="chat-clear-button chat-inline-action" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
-                      {miaClearing ? 'Clearing' : 'Clear'}
-                    </button>
-                  )}
                   <button
                     type="button"
                     className="chat-suggestions-button chat-inline-action"
@@ -3868,20 +3881,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   >
                     Prompts
                   </button>
-                  <button ref={chatContextTriggerRef} type="button" className="chat-context-button chat-inline-action" aria-expanded={assistPanel === 'context'} aria-controls="mia-assist-title" onClick={(event) => { assistTriggerRef.current = event.currentTarget; setAssistPanel(current => current === 'context' ? null : 'context') }}>Context &amp; help</button>
-                  <button
-                    type="button"
-                    className="chat-expand-button chat-inline-action"
-                    aria-label={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
-                    aria-pressed={isChatExpanded}
-                    title={isChatExpanded ? `Collapse Ask ${assistantName} chat` : `Expand Ask ${assistantName} chat`}
-                    onClick={() => {
-                      setAssistPanel(null)
-                      setIsChatExpanded((expanded) => !expanded)
-                    }}
-                  >
-                    {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
-                  </button>
+                  {isChatExpanded && (
+                    <button
+                      type="button"
+                      className="chat-expand-button"
+                      aria-label={`Collapse Ask ${assistantName} chat`}
+                      title={`Collapse Ask ${assistantName} chat`}
+                      onClick={() => {
+                        setAssistPanel(null)
+                        setIsChatExpanded(false)
+                      }}
+                    >
+                      <CollapseIcon />
+                    </button>
+                  )}
                   <ChatMoreMenu
                     triggerRef={chatMoreTriggerRef}
                     note={isFirstSessionSetup || isSavingsExperience ? undefined : miaPlanLabel}
@@ -3910,6 +3923,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                   onSetupHelp={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
                   onFinancialRestart={auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
                   starterPrompts={isFirstSessionSetup ? [] : isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
+                  emptyIntro={isSavingsExperience ? 'Tell me when you set money aside or how today went, or ask what to do next. Nothing is saved until you check it.' : undefined}
                   onChoosePrompt={prepareMiaUpdate}
                   freshReplyId={freshMiaReplyId}
                   messages={visibleMessages}
@@ -4076,7 +4090,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction) || challengeNotOpen}
               onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
-              onClearChat={() => { const trigger = visibleChatTrigger(chatContextTriggerRef.current, chatMoreTriggerRef.current); if (trigger) handleClearMessagesRequest({ currentTarget: trigger }) }}
+              onClearChat={() => { const trigger = visibleChatTrigger(chatMoreTriggerRef.current); if (trigger) handleClearMessagesRequest({ currentTarget: trigger }) }}
               onHistory={isRealWorkspace && historicalMessageCount > 0 ? () => setEarlierConversationsOpen(true) : undefined}
               onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
@@ -4247,7 +4261,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             )}
             {moneyTopic === 'spending' && (
               <article className="panel money-spending">
-                <div className="money-topic-heading"><div><p className="eyebrow">Spending · {selectedBudgetMonth?.label ?? 'Current month'} {selectedBudgetYear}</p><h3>Your categories and planned amounts</h3><p>Planned amounts and confirmed spending are separate. Your annual plan keeps future expenses visible.</p></div><Button variant="secondary" disabled={!visibleSections.includes('Budget')} onClick={() => switchSection('Budget')}>Open annual plan</Button></div>
+                <div className="money-topic-heading"><div><h3>Your {selectedBudgetMonth?.label ? `${selectedBudgetMonth.label} ` : ''}categories and planned amounts</h3><p>Planned amounts and confirmed spending are separate. Your annual plan keeps future expenses visible.</p></div><Button variant="secondary" disabled={!visibleSections.includes('Budget')} onClick={() => switchSection('Budget')}>Open annual plan</Button></div>
                 <div className="money-topic-actions">
                   <Button disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('category')}>Add category</Button>
                   <Button variant="secondary" disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly')}>Edit categories and amounts</Button>
@@ -4618,7 +4632,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           key={`${previewImport.id}:${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}`}
           documentImport={previewImport}
           title={documentImportDisplayName(previewImport)}
-          description={`${documentKindLabel(previewImport.document_kind)} · ${formatByteSize(previewImport.byte_size)}`}
+          description={`${documentKindLabel(previewImport.document_kind)} · ${formatFileSize(previewImport.byte_size)}`}
           onClose={() => setPreviewImport(null)}
           onFetchSourceUrl={fetchDocumentImportSourceUrl}
           onFetchSourcePreview={fetchDocumentImportSourcePreview}
@@ -4775,7 +4789,6 @@ export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count
       <button type="button" className="clear-chat-backdrop" aria-label="Cancel and go back" onClick={onCancel} />
       <section ref={dialogRef} className="clear-chat-dialog bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title" aria-describedby="bulk-confirm-copy" tabIndex={-1}>
         <form onSubmit={submit} noValidate>
-          <p className="eyebrow">Review before posting</p>
           <h3 id="bulk-confirm-title">Confirm {count} transaction{count === 1 ? '' : 's'}?</h3>
           <p id="bulk-confirm-copy">
             This posts {count} transaction{count === 1 ? '' : 's'} totaling {formatReviewMoney(Math.round((total) * 100))} to your actuals. It is all or nothing, so check possible matches first. To continue, type <strong>{phrase}</strong>.
@@ -4819,7 +4832,6 @@ function ClearChatConfirmDialog({
     <div className="clear-chat-overlay" role="presentation">
       <button type="button" className="clear-chat-backdrop" aria-label={`Keep ${assistantName} chat`} onClick={onCancel} />
       <section ref={dialogRef} className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
-        <p className="eyebrow">Ask {assistantName}</p>
         <h3 id="clear-chat-title">Clear this chat?</h3>
         <p id="clear-chat-copy">
           This removes the messages in this conversation and {assistantName} will not be able to pick up this thread later.
@@ -4894,7 +4906,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
         <div>
-          <span className="eyebrow">Starting picture</span>
+          <span className="group-label">Starting picture</span>
           <strong id="first-session-progress-title">{status.completed_count} of {status.required_count} answers saved</strong>
         </div>
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
@@ -4951,7 +4963,6 @@ function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false
       <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
-            <p className="eyebrow">Quick guide</p>
             <h2 id="pilot-guide-title">{staffOnly ? 'Your coaching workspace.' : savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
@@ -5079,7 +5090,6 @@ function DocumentImportWorkspace({
       <section ref={sectionRef} className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
         <div className="document-workspace-heading">
           <div>
-            <p className="eyebrow">Private document import</p>
             <h3>Upload review is enabled in signed-in real workspaces.</h3>
             <p>Demo mode keeps uploads disabled so no private files land in sample data.</p>
           </div>
@@ -5334,7 +5344,7 @@ function DocumentImportHistory({
                 <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
                 {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
-                <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
+                <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
                 <small>{importPeriodLabel(documentImport)}</small>
               </button>
             ))}
@@ -5445,7 +5455,7 @@ export function DocumentReviewPanel({
       <div className="document-review-header">
         <div>
           <h4>Review details</h4>
-          <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
+          <p>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
         <div className="document-review-controls">
           <div className="document-review-actions">
@@ -6207,13 +6217,6 @@ function importStatusTone(status: FinancialDocumentImport['status']) {
   return 'blue'
 }
 
-function formatByteSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
-
 function formatOptionalDate(value: string | null) {
   if (!value) return null
 
@@ -6810,7 +6813,6 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
     <article ref={sectionRef} className="panel debt-manager">
       <div className="row-between debt-manager-heading">
         <div>
-          <p className="eyebrow">Debt plan</p>
           <h3>Choose the amount of detail that works for your household.</h3>
           <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
         </div>
@@ -8070,7 +8072,6 @@ export function CurrentMonthActivityPanel({
     <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
       <div className="current-month-activity-heading">
         <div>
-          <p className="eyebrow">{month?.label ?? 'Current month'} operating view</p>
           <h4>Planned, actual, and pending review</h4>
         </div>
         {loading ? <span>Loading report</span> : totalPending > 0 && <span>{formatReviewMoney(Math.round((totalPending) * 100))} waiting for review</span>}
@@ -8159,7 +8160,7 @@ function TransactionLedger({
     <div className="recent-transaction-list transaction-ledger-list">
       <div className="transaction-ledger-heading">
         <div>
-          <p className="eyebrow">{title}</p>
+          <p className="group-label">{title}</p>
           {transactions.length > 0 && (
             <span>
               Showing {visibleTransactions.length === 0 ? 0 : pageStart + 1}–{pageStart + visibleTransactions.length} of {filteredTransactions.length} · {formatReviewMoney(Math.round((filteredTotal) * 100))} selected
@@ -8710,7 +8711,6 @@ export function AnnualBudgetPlanner({
             <div className="budget-manual-tool">
               <div className="annual-budget-editor-toolbar">
                 <div>
-                  <p className="eyebrow">Month-by-month plan</p>
                   <strong>Change category names, groups, or monthly amounts.</strong>
                   <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'On your phone, edit one month at a time or choose the full year.'}</span>
                 </div>
@@ -8950,17 +8950,6 @@ function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3.75 20.25 21 12 3.75 3.75v6.45L15.8 12 3.75 13.8v6.45Z" />
-    </svg>
-  )
-}
-
-function ExpandIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M8 4H4v4" className="icon-stroke" />
-      <path d="M4 4l6 6" className="icon-stroke" />
-      <path d="M16 20h4v-4" className="icon-stroke" />
-      <path d="m20 20-6-6" className="icon-stroke" />
     </svg>
   )
 }

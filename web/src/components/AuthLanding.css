@@ -1,0 +1,101 @@
+/* The signed-out front door: the coach's name or logo, the promise, and one way in. */
+.auth-landing {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  box-sizing: border-box;
+  width: min(100%, 72rem);
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0 auto;
+  /* viewport-fit=cover puts the page under the notch and home indicator. */
+  --landing-pad: clamp(1.25rem, 4vw, 3rem);
+  padding-top: max(var(--landing-pad), env(safe-area-inset-top));
+  padding-right: max(var(--landing-pad), env(safe-area-inset-right));
+  padding-bottom: max(var(--landing-pad), env(safe-area-inset-bottom));
+  padding-left: max(var(--landing-pad), env(safe-area-inset-left));
+}
+
+.auth-landing-mark {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.auth-landing-mark .shell-brand-logo {
+  max-width: min(200px, 50vw);
+  max-height: 44px;
+}
+
+.auth-landing-mark span {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.auth-landing-body {
+  align-self: center;
+  max-width: 34rem;
+  padding-block: var(--space-10);
+}
+
+.auth-landing-body h1 {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-3xl);
+  line-height: var(--leading-tight);
+}
+
+.auth-landing-body p {
+  max-width: 46ch;
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+}
+
+.auth-landing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.auth-landing-actions button {
+  min-height: 48px;
+  padding: 12px 24px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--emerald);
+  color: var(--brand-on-primary);
+  font-size: var(--text-md);
+  font-weight: var(--weight-bold);
+}
+
+.auth-landing-actions button.secondary {
+  background: var(--emerald-soft);
+  color: var(--emerald);
+}
+
+.auth-landing-body .auth-landing-note {
+  margin-top: var(--space-4);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.auth-landing > .brand-footer {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0;
+  padding-inline: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .auth-landing-actions button:hover { background: var(--brand-primary-hover); color: var(--brand-on-primary); }
+  .auth-landing-actions button.secondary:hover { background: var(--emerald-soft); color: var(--berry); }
+}
+
+@media (max-width: 520px) {
+  .auth-landing-mark span { font-size: var(--text-xl); }
+  .auth-landing-actions { flex-direction: column; }
+  .auth-landing-actions button { width: 100%; }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ComponentType } from 'react'
 import { AuthLanding } from './components/AuthLanding'
+import { ConfirmHost } from './components/ConfirmHost'
 import { WorkspaceOpening } from './components/WorkspaceOpening'
 import { useAuthContext } from './contexts/authContextValue'
 
@@ -42,7 +43,7 @@ export function AppEntry() {
   }, [App, signedOut])
 
   if (signedOut) return <AuthLanding />
-  if (App) return <App />
+  if (App) return <><App /><ConfirmHost /></>
   // A failed chunk download usually means a newer version was deployed; reloading fetches it.
   // Match the status the workspace shows next, so the panel doesn't change wording mid-load.
   const status = auth.isAuthEnabled && (auth.isLoading || auth.isVerifyingApi) ? 'Signing you in securely…' : 'Opening your workspace…'

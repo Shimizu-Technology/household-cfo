@@ -137,7 +137,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
 
   return <div className="pilot-dialog-overlay financial-restart-overlay" role="presentation">
     <section ref={dialogRef} className="pilot-dialog financial-restart-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-restart-title" tabIndex={-1}>
-      <header><div><p className="eyebrow">A fresh financial picture</p><h2 id="financial-restart-title">{title}</h2></div>
+      <header><div><h2 id="financial-restart-title">{title}</h2></div>
         <button type="button" className="secondary-button" disabled={busy} onClick={() => void close()}>Close</button></header>
       <div className="pilot-dialog-body">
         {blockedReason && <p role="status">{blockedReason}</p>}

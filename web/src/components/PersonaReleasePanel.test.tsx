@@ -242,7 +242,7 @@ describe('PersonaReleasePanel', () => {
     renderPanel()
     await userEvent.click(await screen.findByRole('button', { name: 'Retire scenario' }))
     await waitFor(() => expect(apiMocks.retireAdminPersonaEvaluationCase).toHaveBeenCalledWith(5, 22))
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Event decision'))
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('audit history'))
   })
 
   it('reconciles an active evaluation with GET and never posts a duplicate run', async () => {

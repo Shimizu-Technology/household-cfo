@@ -20,6 +20,7 @@ import type {
 import { Button } from './Button'
 import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 const coreModules = [
   ['Home', 'See the household status and next action.'],
@@ -174,9 +175,9 @@ export function CohortExperienceStudio({
     if (selectedCohortId) queueMicrotask(() => void loadConfiguration(selectedCohortId))
   }, [loadConfiguration, selectedCohortId])
 
-  function chooseCohort(value: number) {
+  async function chooseCohort(value: number) {
     if (value === selectedCohortId) return
-    if (dirty && !window.confirm('Discard the unsaved participant-tool changes and open another cohort?')) return
+    if (dirty && !(await confirmDiscard('Discard the unsaved participant-tool changes and open another cohort?'))) return
     prepareCohortSelection(value)
   }
 
@@ -264,9 +265,10 @@ export function CohortExperienceStudio({
   async function publishDraft() {
     if (!configuration || !preview || pendingAction || dirty || !configuration.permissions.publish) return
     const impact = configuration.cohort.participant_count
-    if (configuration.cohort.status === 'active' && !window.confirm(
-      `Publish these participant tools for ${configuration.cohort.name}? Its ${impact} participant${impact === 1 ? '' : 's'} will keep their group’s current tools until you launch or update their group. Participants without a saved group version will see the published tools after refresh.`,
-    )) return
+    if (configuration.cohort.status === 'active' && !(await confirmAction(
+      `${impact} participant${impact === 1 ? '' : 's'} will keep their group’s current tools until you launch or update their group. Participants without a saved group version will see the published tools after refresh.`,
+      { title: `Publish these participant tools for ${configuration.cohort.name}?`, confirmLabel: 'Publish', cancelLabel: 'Not yet' },
+    ))) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('publish')
     setError(null)
@@ -295,7 +297,7 @@ export function CohortExperienceStudio({
 
   async function rollback(versionId: number, versionNumber: number) {
     if (!configuration || dirty || pendingAction || !configuration.permissions.rollback) return
-    if (!window.confirm(`Restore version ${versionNumber} as a new published version?`)) return
+    if (!(await confirmAction('It is published as a new version. Nothing is deleted.', { title: `Restore version ${versionNumber}?`, confirmLabel: 'Restore', cancelLabel: 'Not yet' }))) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('rollback')
     setError(null)

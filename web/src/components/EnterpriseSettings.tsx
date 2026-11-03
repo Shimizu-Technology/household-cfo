@@ -100,7 +100,7 @@ export function EnterpriseSettings({ currentUser, onClose }: { currentUser: Curr
   const selectedOrganization = organizations.find(org => org.id === selectedId)
   return <div className="pilot-dialog-overlay" onClick={event => { if (event.target === event.currentTarget) onClose() }}>
     <section ref={dialog} className="pilot-dialog enterprise-settings" role="dialog" aria-modal="true" aria-labelledby="enterprise-settings-title" tabIndex={-1}>
-      <header className="pilot-dialog-header"><div><p className="eyebrow">Organization access</p><h2 id="enterprise-settings-title">Sign-in &amp; provisioning</h2></div><Button variant="secondary" size="compact" onClick={onClose}>Close</Button></header>
+      <header className="pilot-dialog-header"><div><h2 id="enterprise-settings-title">Sign-in &amp; provisioning</h2></div><Button variant="secondary" size="compact" onClick={onClose}>Close</Button></header>
       <div className="pilot-dialog-body enterprise-settings-body">
         <p>Connect company sign-in and manage assigned users. Household financial information stays in each person’s private workspace.</p>
         {error && <div className="document-alert" role="alert"><p>{error}</p><Button variant="secondary" size="compact" disabled={busy} onClick={() => void load(selectedId)}>Refresh status</Button>{organizationSignInRequired && selectedOrganization && signIn && <Button disabled={busy} onClick={() => void run(() => signIn({ organizationId: selectedOrganization.workos_organization_id, returnTo: '/organization-access' }))}>Sign in to {selectedOrganization.name}</Button>}</div>}

@@ -62,6 +62,7 @@ export function ChatMoreMenu({ items, note, triggerRef }: { items: ChatMoreItem[
             <button
               key={item.key}
               type="button"
+              data-item={item.key}
               disabled={item.disabled}
               onClick={() => {
                 const button = trigger.current

@@ -1,20 +1,21 @@
 import { useBrand } from '../contexts/brandContextValue'
-import { brandByline } from '../lib/brandByline'
 import { SignInButton, SignUpButton } from './AuthControls'
 import { BrandFooter, BrandLogo } from './BrandChrome'
+import './AuthLanding.css'
 
 // Kept outside App.tsx so signed-out visitors see it without downloading the workspace.
 export function AuthLanding() {
   const { brand } = useBrand()
   return (
-    <main className="app loading-state auth-state">
-      <section className="hero-panel auth-panel">
+    <main className="auth-landing">
+      <header className="auth-landing-mark">
         <BrandLogo brand={brand} />
-        <p className="eyebrow">{brandByline(brand)}</p>
-        <h1>{brand.welcome_heading || `Welcome to ${brand.product_name}.`}</h1>
-        <p>{brand.welcome_description || brand.tagline || 'Your secure coaching workspace is ready.'}</p>
-        <p className="auth-invitation-copy">Sign in with the email your program invited. Your secure seat determines which coaching experience opens.</p>
-        <div className="auth-actions">
+        <span>{brand.organization_name || brand.product_name}</span>
+      </header>
+      <section className="auth-landing-body" aria-labelledby="auth-landing-title">
+        <h1 id="auth-landing-title">{brand.welcome_heading || `Welcome to ${brand.product_name}.`}</h1>
+        <p>{brand.welcome_description || brand.tagline || 'Your coaching workspace is ready.'}</p>
+        <div className="auth-landing-actions">
           <SignInButton>
             <button type="button">Sign in</button>
           </SignInButton>
@@ -22,6 +23,7 @@ export function AuthLanding() {
             <button type="button" className="secondary">Create invited account</button>
           </SignUpButton>
         </div>
+        <p className="auth-landing-note">Use the email your invitation was sent to.</p>
       </section>
       <BrandFooter privacyFallback />
     </main>

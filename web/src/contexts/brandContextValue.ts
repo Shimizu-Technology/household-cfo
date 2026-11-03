@@ -16,7 +16,7 @@ export const NEUTRAL_BRAND: BrandConfig = {
   favicon_url: null,
   support: { label: null, email: null, url: null },
   colors: {
-    background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421', text_muted: '#706d66', border: '#e2d9cb',
+    background: '#f7f2ea', surface: '#fffdf8', surface_muted: '#fbf7ef', text: '#1f2421', text_muted: '#66625b', border: '#e2d9cb',
     primary: '#7b4a58', primary_hover: '#683d49', primary_soft: '#f1e2e3', accent: '#b97352', on_primary: '#ffffff', focus: '#7b4a58',
   },
   typography: { display: 'cormorant_garamond', body: 'montserrat' },

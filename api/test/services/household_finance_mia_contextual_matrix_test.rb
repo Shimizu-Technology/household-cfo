@@ -334,7 +334,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       result = HouseholdFinance::ConversationFollowupResolver.new(message, conversation_context: context).call
       assert_not result.follow_up?, message
       assert_equal message, result.message
-      assert_includes result.direct_answer, "approved household numbers", message
+      assert_equal "Glad to help. I’m here whenever you want to look at the next thing.", result.direct_answer, message
     end
 
     followups.length + recalls.length + empty_recalls.length + new_topics.length + conditional_income_topics.length + acknowledgments.length + 2

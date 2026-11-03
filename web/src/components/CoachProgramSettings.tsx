@@ -12,6 +12,7 @@ import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachProgramSettings.css'
 import './ProgramSettingsFlow.css'
+import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 const blankIdentity: CoachWorkspaceSettingsInput = { name: '', coach_profile: { display_name: '', title: 'Financial coach', bio: '' } }
 const releaseImpact = 'Publishing updates the program’s welcome screen. Participants keep the appearance saved for their group until you launch or update their group with this version.'
@@ -194,18 +195,18 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
       acceptBrand(result.brand_configuration); setPreview(result.preview); setNotice('This preview uses the exact saved brand draft.')
     })
   }
-  function publish() {
+  async function publish() {
     if (!brand?.permissions.publish || !preview || brandDirty) return
-    if (!window.confirm(`${releaseImpact} Publish this exact preview?`)) return
+    if (!(await confirmAction(releaseImpact, { title: 'Publish this preview?', confirmLabel: 'Publish', cancelLabel: 'Not yet' }))) return
     void mutate('publish', async (isCurrent) => {
       const result = await publishWorkspaceBrand({ draft_revision: brand.draft_revision, preview_digest: preview.digest, expected_published_version_id: brand.published_version?.id ?? null }, keyFor('publish'))
       if (!isCurrent()) return
       acceptBrand(result.brand_configuration); setPreview(null); setNotice(`Brand version ${result.published_version.number} published. ${releaseImpact}`)
     })
   }
-  function restore(id: number, number: number) {
+  async function restore(id: number, number: number) {
     if (!brand?.permissions.rollback || brandDirty) return
-    if (!window.confirm(`Restore brand version ${number} as a new published version? ${releaseImpact}`)) return
+    if (!(await confirmAction(releaseImpact, { title: `Restore brand version ${number}?`, confirmLabel: 'Restore', cancelLabel: 'Not yet' }))) return
     void mutate('restore', async (isCurrent) => {
       const result = await restoreWorkspaceBrandVersion(id, { draft_revision: brand.draft_revision, expected_published_version_id: brand.published_version?.id ?? null }, keyFor(`restore-${id}`))
       if (!isCurrent()) return
@@ -217,7 +218,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
     {!(simple && workspaceId === null) && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
     {currentUser.is_admin && <CreateCoachProgram autoOpen={simple && workspaceId === null} defaultCoachName={simple ? currentUser.full_name : ''} onCreated={simple ? (created) => selectCoachWorkspace(created.id) : undefined} embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
     {workspaceId === null ? !simple && <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
-      {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={() => { if (!dirty || window.confirm('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
+      {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={async () => { if (!dirty || await confirmDiscard('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {loading ? <p role="status">Loading program settings…</p> : workspace && brand && draft && <>
         <form className="panel" onSubmit={saveIdentity}>
@@ -323,10 +324,13 @@ function previewFont(name: string, display = false) {
   if (name === 'system_sans') return 'ui-sans-serif, system-ui, sans-serif'
   return `"${name.replaceAll('_', ' ')}", ${display ? 'Georgia, serif' : 'ui-sans-serif, system-ui, sans-serif'}`
 }
+// Mirrors AuthLanding: the name or logo, the promise, both ways in, and the footer.
 export function BrandWelcomePreview({ config }: { config: BrandConfig }) {
   return <article className="panel"><h3>Welcome screen preview</h3><p className="program-help">Preview only · the saved brand draft · desktop and phone widths</p><div className="program-preview" style={{ background: config.colors.background, color: config.colors.text, borderColor: config.colors.border, fontFamily: previewFont(config.typography.body) }}>
-    <header style={{ borderColor: config.colors.border }}><BrandLogo brand={config} /><strong>{config.short_name}</strong></header>
-    <div><p>{config.organization_name}</p><h4 style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.welcome_heading || config.product_name}</h4><p>{config.welcome_description}</p><span className="program-preview-action" style={{ background: config.colors.primary, color: config.colors.on_primary }}>Get started</span><small>{config.tagline}</small></div>
+    <header style={{ borderColor: config.colors.border }}><BrandLogo brand={config} /><strong style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.organization_name || config.product_name}</strong></header>
+    <div><h4 style={{ fontFamily: previewFont(config.typography.display, true) }}>{config.welcome_heading || `Welcome to ${config.product_name}.`}</h4><p>{config.welcome_description || config.tagline || 'Your coaching workspace is ready.'}</p>
+      <div className="program-preview-actions"><span className="program-preview-action" style={{ background: config.colors.primary, color: config.colors.on_primary }}>Sign in</span><span className="program-preview-action" style={{ background: config.colors.primary_soft, color: config.colors.primary }}>Create invited account</span></div>
+      <small>Use the email your invitation was sent to.</small></div>
     <footer style={{ color: config.colors.text_muted, borderColor: config.colors.border }}>{config.support.label && <p>{config.support.label}{config.support.email ? ` · ${config.support.email}` : ''}</p>}<p>{config.footer.text}</p></footer>
   </div></article>
 }

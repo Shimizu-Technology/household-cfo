@@ -52,6 +52,10 @@ describe('AuthLanding', () => {
     expect(screen.getByRole('link', { name: 'Support' }).getAttribute('href')).toBe('https://example.test/support')
     expect(screen.getByRole('link', { name: 'Privacy' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Terms' })).toBeTruthy()
+    // The coach's own name leads, and the page uses plain words for how to get in.
+    expect(screen.getByText('Mel Coaching')).toBeTruthy()
+    expect(screen.getByText('Use the email your invitation was sent to.')).toBeTruthy()
+    expect(screen.queryByText(/secure seat/i)).toBeNull()
     // The stored platform attribution is never shown to participants.
     expect(screen.queryByText(/VERA/)).toBeNull()
     expect(view.container.querySelector<HTMLImageElement>('.shell-brand-logo')?.src).toBe('https://assets.example.test/island.svg')

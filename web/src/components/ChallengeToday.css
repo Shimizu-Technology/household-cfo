@@ -27,11 +27,11 @@
 .daily-dialog article { padding: 12px 0; border-bottom: 1px solid var(--line,#d6dfdd); }
 .daily-dialog details { padding: 12px 0; border-top: 1px solid var(--line,#d6dfdd); }
 .daily-dialog summary { min-height: 44px; cursor: pointer; font-weight: var(--weight-semibold); align-content: center; overflow-wrap: anywhere; }
-.daily-subtitle { margin: 0 0 8px; color: var(--muted,#706d66); }
+.daily-subtitle { margin: 0 0 8px; color: var(--muted,#66625b); }
 .daily-figure { margin: 0 0 4px; font-size: clamp(1.5rem,4vw,2rem); font-weight: var(--weight-bold); line-height: 1.2; font-variant-numeric: tabular-nums; }
 .daily-overview p { margin: 0; }
 .daily-overview .daily-note { margin-top: 10px; }
-.daily-hint { color: var(--muted,#706d66); font-size: var(--text-sm); }
+.daily-hint { color: var(--muted,#66625b); font-size: var(--text-sm); }
 .daily-date .daily-hint { margin: 0; }
 .daily-dialog button.daily-primary { background: var(--action-primary, #7b4a58); border-color: var(--action-primary, #7b4a58); color: var(--action-on-primary, #fffdf8); }
 .daily-dialog button { transition: transform 140ms var(--ease-out); }
