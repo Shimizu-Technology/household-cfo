@@ -6,7 +6,7 @@ module FinancialDocuments
   # count, both movement totals and opening/closing arithmetic. Nothing inferred
   # from a running balance can fill a missing amount.
   class ReconciledStatementParser
-    VERSION = "reconciled_statement_v1"
+    VERSION = "reconciled_statement_v2"
     DATE = /\A\d{1,2}\/\d{1,2}(?:\/\d{4})?\z/
     PERIOD_DATE = /(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/
     MONEY = /\A([+-]?)(?:\$)?((?:\d{1,3}(?:,\d{3})+|\d+))\.(\d{2})\z/
@@ -130,11 +130,14 @@ module FinancialDocuments
       raise Invalid unless (@finish - @start).between?(0, 366)
       basis = if text.match?(/Beginning \+ credits - debits = ending|\b(?:checking|savings) account\b/i)
         "asset"
-      elsif text.match?(/Prior balance \+ charges - payments\/refunds = new balance|\bcredit card statement\b/i)
+      elsif text.match?(/Prior balance \+ charges - payments\/refunds = new balance|\bcredit card (?:billing )?statement\b/i)
         "liability"
       end
       raise Invalid unless basis
-      identifiers = text.scan(/\bAccount:[ \t]*((?:X{2,}|\*{2,})?\d{4,})(?=[ \t|\n]|$)/i).flatten.uniq
+      # Printed identifiers may have an alphabetic qualifier before the number.
+      # Stop at the identifier token: a period/year on the same line is never
+      # account evidence. No institution name or fixture-specific marker needed.
+      identifiers = text.scan(/\bAccount(?: number| no\.?)?:[ \t]*(?:[a-z][a-z .#-]*[ \t]+)?((?:X{2,}|\*{2,})?\d{4,})(?=[ \t|\n]|$)/i).flatten.uniq
       raise Invalid unless identifiers.one?
       identifier = identifiers.sole.gsub(/\D/, "").last(4)
       raise Invalid unless identifier.length == 4
@@ -145,6 +148,7 @@ module FinancialDocuments
         printed_credit_cents: header_money("Posted credits"), printed_debit_cents: header_money("Posted debits"),
         header_evidence: "Printed statement period, account, balances, movement totals and row count" }
       @signed_card = text.match?(/Purchases positive; payments and refunds negative/i)
+      @signed_asset = text.match?(/Credits positive; debits negative/i)
     end
 
     def one_value(pattern)
@@ -219,8 +223,8 @@ module FinancialDocuments
         key = case run[:text].downcase
         when "date" then :date
         when "description", "payee", "details" then :description
-        when "debit", "withdrawal", "charges" then :debit
-        when "credit", "deposit", "payments" then :credit
+        when "debit", "debits", "withdrawal", "withdrawals", "charge", "charges" then :debit
+        when "credit", "credits", "deposit", "deposits", "payment", "payments" then :credit
         when "amount" then :amount
         when "balance" then :balance
         end
@@ -228,7 +232,8 @@ module FinancialDocuments
         header[key] = run
       end
       raise RowError unless header[:date] && header[:description]
-      raise RowError unless (header[:debit] && header[:credit] && !header[:amount]) || (@signed_card && @account[:account_basis] == "liability" && header[:amount] && !header[:debit] && !header[:credit])
+      signed_amount = (@signed_card && @account[:account_basis] == "liability") || (@signed_asset && @account[:account_basis] == "asset")
+      raise RowError unless (header[:debit] && header[:credit] && !header[:amount]) || (signed_amount && header[:amount] && !header[:debit] && !header[:credit])
       header
     end
 
@@ -261,7 +266,7 @@ module FinancialDocuments
       end
       valid = false if amounts.values.any?(&:nil?)
       if header[:amount]
-        signed = -amounts[:amount] if amounts[:amount]
+        signed = amounts[:amount] * (@signed_card ? -1 : 1) if amounts[:amount]
       else
         if (amounts.key?(:debit) ^ amounts.key?(:credit)) && amounts.values_at(:debit, :credit).compact.none?(&:negative?)
           signed = amounts.key?(:debit) ? amounts[:debit]&.-@ : amounts[:credit]

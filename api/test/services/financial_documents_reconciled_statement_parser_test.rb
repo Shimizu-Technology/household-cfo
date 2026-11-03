@@ -4,6 +4,89 @@ require "digest"
 class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
   ROOT = Rails.root.join("test/fixtures/files/documents/v2")
   NATIVE = %w[bank-descriptors.pdf running-balance.pdf continued-pages.pdf cross-month-cycle.pdf credit-card-signed.pdf].freeze
+  ORIGINAL = JSON.parse(ROOT.join("../manifest.json").read).fetch("documents").select do |doc|
+    doc["kind"] == "statement" && doc["format"] == "pdf" && !doc["filename"].include?("scanned")
+  end.freeze
+
+  ORIGINAL.each do |expected|
+    test "original #{expected['filename']} reaches native extraction and exactly matches independent expected accounting" do
+      filename = expected.fetch("filename")
+      doc = FinancialDocumentImport.new(document_kind: "statement", filename: filename, content_type: "application/pdf")
+      extractor = FinancialDocuments::Extractor.new(api_key: "")
+      extractor.define_singleton_method(:extract_openrouter_document) { |*| flunk "Reconciled text must not request a model" }
+      result = extractor.send(:native_statement_result, doc, ROOT.join("..", filename))
+      assert result&.success?, result&.error || "No native result"
+      assert_equal "native_statement", result.metadata[:extraction_mode]
+      assert result.metadata[:printed_arithmetic_verified]
+      assert_accounting(expected, result.data[:source_accounting])
+      assert_equal expected.values_at("period_start_on", "period_end_on"), result.data.values_at(:period_start_on, :period_end_on).map(&:iso8601)
+      events = result.data[:source_accounting][:events]
+      assert_equal expected["expected_events"].map { |row| row["locator"].symbolize_keys }, events.pluck(:locator)
+      assert_equal expected["expected_events"].map { |row| row["status"] == "pending" ? row["signed_amount_cents"] : nil }, events.map { |row| row.dig(:evidence, :displayed_amount_cents) }
+    end
+  end
+
+  test "qualified account identifiers retain only their token and fail on conflicting identifiers" do
+    [ "Account: SAMPLE XXXX1234", "Account number: Everyday checking 00001234", "Account no.: Test ****1234" ].each do |identifier|
+      pages = pages_for("review-1/merged-account-period.pdf")
+      account = pages.first[:runs].find { |run| run[:text].start_with?("Account:") }
+      account[:text] = identifier
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      assert result.success?, result.error
+      assert_equal "****1234", result.data[:source_accounting][:accounts].sole.dig(:evidence, :masked_identifier)
+      account[:text] += " | Account: Other 00005678"
+      refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?
+    end
+  end
+
+  test "column words and explicit signed asset amounts work independently of institution or coordinates" do
+    pages = pages_for("running-balance.pdf")
+    pages.each do |page|
+      page[:runs].each do |run|
+        run[:text] = { "Debit" => "Withdrawals", "Credit" => "Deposits" }.fetch(run[:text], run[:text])
+        run[:x] += 17
+        run[:finish] += 17 if run[:finish]
+      end
+    end
+    result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+    assert result.success?, result.error
+    assert_accounting(fixture("running-balance.pdf"), result.data[:source_accounting])
+
+    pages.each do |page|
+      page[:runs].reject! { |run| run[:text] == "Deposits" }
+      page[:runs].each do |run|
+        if run[:text] == "Withdrawals"
+          run[:text] = "Amount"
+        elsif run[:text].match?(FinancialDocuments::ReconciledStatementParser::MONEY) && run[:x].between?(450, 600)
+          if run[:x] < 540
+            run[:text] = "-#{run[:text]}"
+          else
+            run[:x] -= 57
+          end
+        end
+      end
+    end
+    refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?, "Amount signs need a printed convention"
+    pages.first[:runs] << { text: "Credits positive; debits negative", x: 36, y: 880 }
+    result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+    assert result.success?, result.error
+    assert_accounting(fixture("running-balance.pdf"), result.data[:source_accounting])
+  end
+
+  test "original statements with missing evidence or corrupted totals never publish native accounting" do
+    ORIGINAL.each do |expected|
+      [ "Beginning balance:", "Ending balance:", "Posted credits:", "Posted rows:" ].each do |label|
+        pages = FinancialDocuments::SourceSafety.pdf_text_pages(ROOT.join("..", expected["filename"]), max_pages: 60, max_runs: 60_000)
+        pages.each { |page| page[:runs].reject! { |run| run[:text].include?(label) } }
+        refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?, "#{expected['filename']} missing #{label}"
+      end
+      pages = FinancialDocuments::SourceSafety.pdf_text_pages(ROOT.join("..", expected["filename"]), max_pages: 60, max_runs: 60_000)
+      pages.first[:runs].find { |run| run[:text].include?("Ending balance:") }[:text].sub!(/(Ending balance: \$[\d,]+\.)(\d\d)/) { "#{Regexp.last_match(1)}99" }
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      refute result.success?
+      assert_nil result.data
+    end
+  end
 
   NATIVE.each do |filename|
     test "#{filename} proves every row month and printed total without a model" do
