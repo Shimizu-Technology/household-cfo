@@ -136,8 +136,10 @@ module FinancialDocuments
       raise Invalid unless basis
       # Printed identifiers may have an alphabetic qualifier before the number.
       # Stop at the identifier token: a period/year on the same line is never
-      # account evidence. No institution name or fixture-specific marker needed.
-      identifiers = text.scan(/\bAccount(?: number| no\.?)?:[ \t]*(?:[a-z][a-z .#-]*[ \t]+)?((?:X{2,}|\*{2,})?\d{4,})(?=[ \t|\n]|$)/i).flatten.uniq
+      # account evidence. After a qualifier ("Member since 2014") a bare short
+      # number is not an account, so it must be masked or at least six digits.
+      identifiers = text.scan(/\bAccount(?: number| no\.?)?:[ \t]*([a-z][a-z .#-]*[ \t]+)?((?:X{2,}|\*{2,})?\d{4,})(?=[ \t|\n]|$)/i)
+        .filter_map { |qualifier, token| token if qualifier.nil? || token.match?(/\A(?:X{2,}|\*{2,})/i) || token.length >= 6 }.uniq
       raise Invalid unless identifiers.one?
       identifier = identifiers.sole.gsub(/\D/, "").last(4)
       raise Invalid unless identifier.length == 4
@@ -149,6 +151,8 @@ module FinancialDocuments
         header_evidence: "Printed statement period, account, balances, movement totals and row count" }
       @signed_card = text.match?(/Purchases positive; payments and refunds negative/i)
       @signed_asset = text.match?(/Credits positive; debits negative/i)
+      # Two printed sign conventions contradict each other; never guess which applies.
+      raise Invalid if @signed_card && @signed_asset
     end
 
     def one_value(pattern)

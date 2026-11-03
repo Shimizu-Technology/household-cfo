@@ -19,6 +19,7 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
       assert_equal "native_statement", result.metadata[:extraction_mode]
       assert result.metadata[:printed_arithmetic_verified]
       assert_accounting(expected, result.data[:source_accounting])
+      assert_equal "****#{expected.fetch('expected_events').first.fetch('account_key')[-4..]}", result.data[:source_accounting][:accounts].sole.dig(:evidence, :masked_identifier)
       assert_equal expected.values_at("period_start_on", "period_end_on"), result.data.values_at(:period_start_on, :period_end_on).map(&:iso8601)
       events = result.data[:source_accounting][:events]
       assert_equal expected["expected_events"].map { |row| row["locator"].symbolize_keys }, events.pluck(:locator)
@@ -37,6 +38,26 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
       account[:text] += " | Account: Other 00005678"
       refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?
     end
+  end
+
+  test "a year or short bare number after a qualifier is never an account identifier" do
+    [ "Account: Everyday Checking Member since 2014", "Account: Checking opened 1998", "Account number: Joint 4321" ].each do |identifier|
+      pages = pages_for("review-1/merged-account-period.pdf")
+      pages.first[:runs].find { |run| run[:text].start_with?("Account:") }[:text] = identifier
+      refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?, identifier
+    end
+  end
+
+  test "contradictory sign conventions and duplicate column sides never publish" do
+    pages = pages_for("running-balance.pdf")
+    pages.first[:runs] << { text: "Credits positive; debits negative", x: 36, y: 880 }
+    pages.first[:runs] << { text: "Purchases positive; payments and refunds negative", x: 36, y: 870 }
+    refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?, "both sign conventions"
+
+    pages = pages_for("running-balance.pdf")
+    pages.each { |page| page[:runs].each { |run| run[:text] = "Payments" if run[:text] == "Debit" } }
+    pages.each { |page| page[:runs].each { |run| run[:text] = "Deposits" if run[:text] == "Credit" } }
+    refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?, "two credit-side columns"
   end
 
   test "column words and explicit signed asset amounts work independently of institution or coordinates" do
