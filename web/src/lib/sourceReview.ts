@@ -1,3 +1,4 @@
+import { formatReviewMoney } from './reviewMoney'
 import type { ParticipantSourceReview } from './participantSourceReview'
 import type { FinancialDocumentImport, TransactionDraft } from '../api'
 
@@ -61,7 +62,7 @@ export function sourceAccountLabel(account: SourceAccount | undefined, id: numbe
 
 export function sourceMoney(cents: number | null | undefined, signed = false): string {
   if (cents == null || !Number.isSafeInteger(cents)) return 'Unknown'
-  return `${signed && cents > 0 ? '+' : ''}${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)}`
+  return `${signed && cents > 0 ? '+' : ''}${formatReviewMoney(cents)}`
 }
 
 export function sourceTypeLabel(type: SourceEvent['event_type']): string {

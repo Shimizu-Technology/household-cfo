@@ -439,7 +439,24 @@ export type ReadinessMilestone = {
   reached: boolean
 }
 
+export type MiaMonthAnswer = {
+  year: number
+  month: number
+  period_label: string
+  money_in_cents: number | null
+  planned_out_cents: number | null
+  spent_so_far_cents: number | null
+  plan_left_cents: number | null
+  pending_count: number | null
+  pending_cents: number | null
+  pending_list_truncated: boolean
+  readiness_tone: 'red' | 'yellow' | 'green' | null
+  readiness_guidance: string
+  runway_months: number | null
+}
+
 export type DashboardData = {
+  month_answer?: MiaMonthAnswer
   summary: {
     monthly_income: number
     fixed_expenses: number

@@ -9,7 +9,7 @@ function props() { return { documentImport: snapshot, uploading: false, opening:
 test('earlier snapshot is explicitly historical and provides no apply, edit, reprocess or transaction approval actions', () => {
   render(<PausedDocumentImportPanel {...props()} />)
   expect(screen.getByText('Previous financial picture')).toBeTruthy()
-  expect(screen.getByText('Amount: $0.00')).toBeTruthy()
+  expect(screen.getByText('Amount: $0')).toBeTruthy()
   expect(screen.getByText('Earlier grocery')).toBeTruthy()
   expect(screen.queryByRole('button', { name: /Apply|Edit|Reprocess|Confirm|Ignore|Match/ })).toBeNull()
   expect(screen.queryByRole('textbox')).toBeNull()

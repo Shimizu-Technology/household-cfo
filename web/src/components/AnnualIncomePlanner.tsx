@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { formatReviewMoney } from '../lib/reviewMoney'
+import { useLayoutEffect, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { AnnualBudgetPlan, IncomeScheduleEntry, IncomeScheduleEntryInput } from '../api'
 import { payloadHas, proposedText, proposedMoney, proposedChoice, proposedBoolean } from '../lib/miaManualPrefill'
 import { moneyInputProblem } from '../lib/workspaceSetupForm'
@@ -6,7 +7,7 @@ import { participantErrorMessage } from '../lib/participantErrorMessage'
 import { sumMoney } from '../lib/moneyMath'
 import { useBrand } from '../contexts/brandContextValue'
 import { useIncomeForm, type BudgetFocusRequest } from './incomeFormState'
-import { currency, titleize, formatMonthYear, guamCurrentMonthIso, cadenceOptions, incomeSourceEffectiveInMonth } from './incomeDisplay'
+import { titleize, formatMonthYear, guamCurrentMonthIso, cadenceOptions, incomeSourceEffectiveInMonth } from './incomeDisplay'
 import './IncomeForms.css'
 
 type IncomeScheduleDraft = {
@@ -82,7 +83,8 @@ export function AnnualIncomePlanner({
   const handledFocusKeyRef = useRef<number | null>(null)
 
   const hasUnsavedChanges = removingId !== null || Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof IncomeScheduleDraft] !== value)
-  useEffect(() => {
+  // Publish the guard before another control can receive the next interaction.
+  useLayoutEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges)
     return () => onUnsavedChangesChange?.(false)
   }, [hasUnsavedChanges, onUnsavedChangesChange])
@@ -263,10 +265,10 @@ export function AnnualIncomePlanner({
   const previewCopy = !selectedSource || !hasPreviewAmount
     ? 'Complete the fields above to preview how this changes the annual income plan.'
     : draft.entry_type === 'one_time'
-      ? `${selectedSource.label} will add ${currency.format(numericAmount)} once in ${previewMonth}.`
+      ? `${selectedSource.label} will add ${formatReviewMoney(Math.round((numericAmount) * 100))} once in ${previewMonth}.`
       : numericAmount === 0
         ? `${selectedSource.label} will end beginning ${previewMonth}.`
-        : `Starting ${previewMonth}, ${selectedSource.label} changes to ${currency.format(numericAmount)} ${titleize(draft.cadence).toLowerCase()}.`
+        : `Starting ${previewMonth}, ${selectedSource.label} changes to ${formatReviewMoney(Math.round((numericAmount) * 100))} ${titleize(draft.cadence).toLowerCase()}.`
   const submitLabel = saving
     ? 'Saving'
     : editingId !== null
@@ -282,7 +284,7 @@ export function AnnualIncomePlanner({
           <h4 id="annual-income-title">Pay changes</h4>
           <p>Set your pay once. It carries forward until you change it.</p>
         </div>
-        <span>{plan.income_sources.length === 0 ? 'Annual income not entered' : `${currency.format(sumMoney(Object.values(plan.monthly_income)))} annual income`}</span>
+        <span>{plan.income_sources.length === 0 ? 'Annual income not entered' : `${formatReviewMoney(Math.round((sumMoney(Object.values(plan.monthly_income))) * 100))} annual income`}</span>
       </div>
 
       {plan.income_sources.length === 0 ? (
@@ -302,7 +304,7 @@ export function AnnualIncomePlanner({
                       <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
                         <div>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'New pay amount'}</strong>
-                          <span>{formatMonthYear(entry.effective_on)} · {currency.format(entry.amount)}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
+                          <span>{formatMonthYear(entry.effective_on)} · {formatReviewMoney(Math.round((entry.amount) * 100))}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
                           {entry.retained_after_transition && <small>Confirmed to continue after transition</small>}
                           {entry.active === false && <small>Not counted because this income has not started or has already ended.</small>}
                         </div>

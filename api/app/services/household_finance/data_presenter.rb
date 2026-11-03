@@ -141,6 +141,7 @@ module HouseholdFinance
           readiness_tone: readiness_available? ? snapshot.fetch(:readiness_tone) : "red",
           readiness_label: readiness_label_for_dashboard
         },
+        month_answer: MiaMonthAnswer.new(household, annual_plan: annual_plan[:year] == Date.current.year ? annual_plan : AnnualBudgetManager.new(household, year: Date.current.year).read_only_plan_data).call,
         action_center: action_center,
         coach_read: coach_read,
         readiness_path: readiness_path,
@@ -445,7 +446,7 @@ module HouseholdFinance
     end
 
     def readiness_blocker_question
-      return "Complete the monthly debt minimums under My Profile first." unless snapshot.fetch(:debt_minimums_known)
+      return "Complete the monthly debt minimums in My Money first." unless snapshot.fetch(:debt_minimums_known)
       return "Add or update liquid account balances under Accounts & assets first." unless snapshot.fetch(:liquid_assets_known)
 
       "Finish the starting picture before modeling optionality."
@@ -822,7 +823,7 @@ module HouseholdFinance
     def milestones
       unless snapshot.fetch(:debt_balance_known) && snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
         label, unit = if !snapshot.fetch(:debt_balance_known) || !snapshot.fetch(:debt_minimums_known)
-          [ "Debt details needed", "Add debt balances and monthly minimums under My Profile" ]
+          [ "Debt details needed", "Add debt balances and monthly minimums in My Money" ]
         else
           [ "Liquid balances needed", "Add checking, savings, or emergency-fund balances under Accounts & assets" ]
         end

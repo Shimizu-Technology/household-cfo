@@ -15,8 +15,8 @@ describe('statement review accounting contract', () => {
   it('does not turn unknown, informational or refund values into positive expense amounts', () => {
     const data = sourceReviewFixture()
     expect(sourceMoney(null)).toBe('Unknown')
-    expect(sourceMoney(0)).toBe('$0.00')
-    expect(sourceMoney(3000, true)).toBe('+$30.00')
+    expect(sourceMoney(0)).toBe('$0')
+    expect(sourceMoney(3000, true)).toBe('+$30')
     expect(sourceEventLabel(data.events[0])).toBe('Refund · inflow')
     expect(sourceEventLabel(data.events[2])).toBe('Card / debt payment · outflow · not counted as spending')
     expect(sourceEventLabel(sourceReviewFixture(1, 'informational').events[0])).toContain('excluded')

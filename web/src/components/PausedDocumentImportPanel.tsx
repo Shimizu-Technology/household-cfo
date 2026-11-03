@@ -1,9 +1,9 @@
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { formatDay } from '../lib/plainDates'
 import { useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
 import './PausedDocumentImportPanel.css'
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 /** Earlier extraction snapshots remain readable, without any current-picture mutations. */
 type PanelProps = {
   documentImport: FinancialDocumentImport; uploading: boolean; opening: boolean; removing: boolean; acceptedFileTypes: string;
@@ -33,8 +33,8 @@ function PausedDocumentImportContent({ documentImport, uploading, opening, remov
     </section>
     <details className="document-paused-history"><summary>View earlier extracted information</summary>
       {documentImport.extracted_summary && <p>{documentImport.extracted_summary}</p>}
-      {documentImport.items.length > 0 && <ul aria-label="Earlier extracted values">{documentImport.items.map(item => <li key={item.id}><strong>{item.label}</strong><span>{[['Amount', item.amount], ['Balance', item.balance], ['Payment', item.payment]].filter(([, value]) => typeof value === 'number').map(([label, value]) => `${label}: ${money.format(value as number)}`).join(' · ') || 'Amount not entered'}</span>{item.evidence && <small>{item.evidence}</small>}</li>)}</ul>}
-      {documentImport.transaction_drafts.length > 0 && <ul aria-label="Earlier extracted transactions">{documentImport.transaction_drafts.map(draft => <li key={draft.id}><strong>{draft.merchant}</strong><span>{formatDay(draft.occurred_on, { year: true })} · {money.format(draft.amount)} · Earlier {draft.status.replaceAll('_', ' ')}</span></li>)}</ul>}
+      {documentImport.items.length > 0 && <ul aria-label="Earlier extracted values">{documentImport.items.map(item => <li key={item.id}><strong>{item.label}</strong><span>{[['Amount', item.amount], ['Balance', item.balance], ['Payment', item.payment]].filter(([, value]) => typeof value === 'number').map(([label, value]) => `${label}: ${formatReviewMoney(Math.round((value as number) * 100))}`).join(' · ') || 'Amount not entered'}</span>{item.evidence && <small>{item.evidence}</small>}</li>)}</ul>}
+      {documentImport.transaction_drafts.length > 0 && <ul aria-label="Earlier extracted transactions">{documentImport.transaction_drafts.map(draft => <li key={draft.id}><strong>{draft.merchant}</strong><span>{formatDay(draft.occurred_on, { year: true })} · {formatReviewMoney(Math.round((draft.amount) * 100))} · Earlier {draft.status.replaceAll('_', ' ')}</span></li>)}</ul>}
       {documentImport.items.length === 0 && documentImport.transaction_drafts.length === 0 && <p>No earlier extracted rows are available.</p>}
     </details>
   </article>

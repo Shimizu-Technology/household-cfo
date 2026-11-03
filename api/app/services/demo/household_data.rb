@@ -100,6 +100,15 @@ module Demo
           readiness_tone: facts.fetch(:readiness_tone),
           readiness_label: facts.fetch(:readiness_label)
         },
+        month_answer: {
+          year: Date.current.year, month: Date.current.month, period_label: Date.current.strftime("%B %Y"),
+          money_in_cents: (facts.fetch(:monthly_income) * 100).round,
+          planned_out_cents: (facts.fetch(:total_monthly_outflow) * 100).round,
+          spent_so_far_cents: nil, plan_left_cents: (facts.fetch(:baseline_surplus) * 100).round,
+          pending_count: 0, pending_cents: 0, pending_list_truncated: false,
+          readiness_tone: facts.fetch(:readiness_tone), runway_months: facts.fetch(:runway_months),
+          readiness_guidance: "You have some cushion; keep strengthening it before adding new commitments."
+        },
         budget_basis: facts.slice(:monthly_income, :category_plan, :debt_minimums, :total_monthly_outflow, :baseline_surplus),
         action_center: {
           transaction_review_count: 0,

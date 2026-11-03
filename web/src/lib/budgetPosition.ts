@@ -17,6 +17,7 @@ export type BudgetPosition = {
   pending: number
   remaining: number
   active: boolean
+  allocationMissing?: boolean
 }
 
 export type BudgetPositionTotals = {
@@ -59,6 +60,7 @@ export function budgetPositionsForMonth(
     const actual = reportCategory?.actual ?? cell?.actual ?? 0
     return {
       id: row.id,
+      allocationMissing: !cell || cell.allocation_missing === true,
       name: row.name,
       stackKey: row.stack_key,
       stackLabel: row.stack_label,

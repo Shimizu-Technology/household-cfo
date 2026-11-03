@@ -1,8 +1,8 @@
+import { formatReviewMoney } from '../lib/reviewMoney'
 import type { IgnoredTransactionDraft, RecentTransaction, SpendingReport, TransactionDraft } from '../api'
 import { transactionDraftFromIgnored, transactionDraftFromLedgerRow, transactionItemName } from '../lib/transactionReview'
 import './ReviewedTransactions.css'
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 function shortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
@@ -57,7 +57,7 @@ export function IgnoredTransactionList({
               <span>{shortDate(row.occurred_on)}</span>
               <strong>{row.merchant}</strong>
               <span>{row.category_name || 'Needs category'}</span>
-              <b>{currency.format(typeof row.amount_cents === 'number' ? row.amount_cents / 100 : row.amount)}</b>
+              <b>{formatReviewMoney(Math.round((typeof row.amount_cents === 'number' ? row.amount_cents / 100 : row.amount) * 100))}</b>
               <button
                 type="button"
                 className="secondary-button reviewed-transaction-action"
@@ -103,7 +103,7 @@ export function ReviewedTransactionsPanel({
                 <span>{shortDate(transaction.occurred_on)}</span>
                 <strong>{transaction.merchant}</strong>
                 <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
-                <b>{currency.format(transaction.amount)}</b>
+                <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
                 <TransactionReopenButton transaction={transaction} action={action} disabled={disabled} onReopen={onReopen} />
               </li>
             ))}
