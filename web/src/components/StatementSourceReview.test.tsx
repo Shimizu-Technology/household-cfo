@@ -88,10 +88,10 @@ describe('statement review a participant can finish', () => {
   it('asks what kind of account it is before anything is saved when the file does not say', async () => {
     const data = participantReviewFixture()
     data.accounts[0].account_basis = 'unknown'; data.revision.accounts[0].account_basis = 'unknown'
-    data.participant_review!.accounts[0].approved = null
+    data.participant_review!.accounts[0].approved = null; data.participant_review!.accounts[0].last4 = '1234'
     fetchReview.mockResolvedValue(data)
     mount()
-    expect(await screen.findByText('Is Fictional checking · ••1234 a bank account or a credit card?')).toBeTruthy()
+    expect(await screen.findByText('Is Fictional checking ····1234 a bank account or a credit card?')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Approve the other/ })).toBeNull()
     expect((screen.getAllByRole('button', { name: /^Yes: / })[0] as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Credit card' }))
@@ -129,12 +129,76 @@ describe('statement review a participant can finish', () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
     plan.done = 137; plan.ready_event_ids = []; plan.attention = []
     fetchReview.mockResolvedValue(data)
-    const next = vi.fn()
-    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" onDone={{ label: 'Open your spending snapshot', run: next }} />)
+    const snapshot = vi.fn(); const mia = vi.fn()
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} />)
     expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Open your spending snapshot' }))
-    expect(next).toHaveBeenCalled()
+    // What Mia notices is the main step; the snapshot is quieter.
+    expect(screen.getByRole('button', { name: 'See what Mia notices' }).className).toContain('button--primary')
+    expect(screen.getByRole('button', { name: 'Open your spending snapshot' }).className).toContain('button--secondary')
+    fireEvent.click(screen.getByRole('button', { name: 'See what Mia notices' }))
+    expect(mia).toHaveBeenCalled(); expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('approves a long statement 400 lines at a time, each request naming exactly the lines of its page', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.ready_event_ids = Array.from({ length: 1_000 }, (_, index) => 10_000 + index); plan.attention = []; plan.total = 1_000
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('All 1,000 look right. We’ll approve them 400 at a time.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 400' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    const sent = mutate.mock.calls[0][3] as { expect_ready_ids: number[]; paged?: boolean; lines: Array<{ event_id: number; decision: string }> }
+    expect(sent.paged).toBe(true)
+    expect(sent.lines).toHaveLength(400)
+    expect(sent.expect_ready_ids).toEqual(plan.ready_event_ids.slice(0, 400))
+    expect(sent.lines.map((line) => line.event_id)).toEqual(sent.expect_ready_ids)
+  })
+
+  it('says a long save can take a minute while it saves, then stops saying it', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.ready_event_ids = Array.from({ length: 1_000 }, (_, index) => 10_000 + index)
+    fetchReview.mockResolvedValue(data)
+    let finish: (value: { record: object; replayed: boolean }) => void = () => {}
+    mutate.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve these 400' }))
+    expect(await screen.findByText('Saving 400 lines. This can take a minute.')).toBeTruthy()
+    finish({ record: {}, replayed: false })
+    await waitFor(() => expect(screen.queryByText('Saving 400 lines. This can take a minute.')).toBeNull())
+  })
+
+  it('does not call a statement paged when it fits on one page', async () => {
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve the other 127' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).not.toHaveProperty('paged')
+  })
+
+  it('asks "Still Dining out?" with Yes and Change, and Yes saves it in that category', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.attention = [{ event_id: 4005, kind: 'still_category', event_type: 'purchase', question: 'Still Dining out?', answers: [{ id: 'keep', label: 'Yes' }, { id: 'edit', label: 'Change' }],
+      merchant: 'Island Table', posted_on: '2026-09-05', signed_amount_cents: -6720, category_id: 31, category_name: 'Dining out' }]
+    data.participant_review!.categories = [{ id: 31, name: 'Dining out' }, { id: 32, name: 'Groceries' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const item = (await screen.findByRole('list', { name: 'Lines that need a quick look' })).querySelector('li')!
+    expect(within(item).getByText('Still Dining out?')).toBeTruthy()
+    fireEvent.click(within(item).getByRole('button', { name: 'Yes: Island Table' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4005, decision: 'edited', edit: { kind: 'spending', merchant: 'Island Table', posted_on: '2026-09-05', amount_cents: 6720, category_id: 31 } }] })
+    fireEvent.click(within(item).getByRole('button', { name: 'Change: Island Table' }))
+    const sheet = await screen.findByRole('dialog')
+    expect((within(sheet).getByLabelText('Category') as HTMLSelectElement).value).toBe('31')
+  })
+
+  it('never names the account with a system label, and asks about an unnamed account plainly', async () => {
+    const data = participantReviewFixture(); data.accounts[0].account_basis = 'unknown'
+    data.participant_review!.accounts = [{ ...data.participant_review!.accounts[0], name: null, last4: null, approved: null }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByRole('heading', { name: '137 lines from your statement, Sep 1–30.' })).toBeTruthy()
+    expect(screen.getByText('Is this a bank account or a credit card?')).toBeTruthy()
+    expect(region().textContent).not.toMatch(/Spreadsheet account|Statement account|Account 501/)
   })
 
   it('uses plain words only', async () => {

@@ -12,7 +12,7 @@ export type ReviewedRow = { id: number; digest: string; version_number: number; 
 export type PendingSourceDraft = { id: number; digest: string; lock_version: number; status: string; facts: ReviewedFacts; projection: { action: string; transaction_id?: number | null; expected_digest?: string | null }; reason: string; recognized_account?: ReviewedRecognizedAccount; matched_target?: ReviewedRow | null }
 export type AccountStatementFacts = { period_start_on: string | null; period_end_on: string | null; opening_balance_cents: number | null; closing_balance_cents: number | null; printed_debit_cents: number | null; printed_credit_cents: number | null; printed_row_count: number | null; printed_row_count_basis?: 'posted' | 'all' }
 export type TrackedSourceAccount = { id: number; label: string; account_basis: 'asset' | 'liability'; account_id: number | null }
-export type ReviewedSourceAccount = { source_account_id: number; head: ReviewHead; approved: { id: number; digest: string; version_number: number; statement_facts: AccountStatementFacts; tracked_account: TrackedSourceAccount } | null }
+export type ReviewedSourceAccount = { source_account_id: number; name?: string | null; last4?: string | null; head: ReviewHead; approved: { id: number; digest: string; version_number: number; statement_facts: AccountStatementFacts; tracked_account: TrackedSourceAccount } | null }
 export type ParticipantSourceReview = {
   schema_version: 1; actor_scope?: StatementReviewActorScope; economic_groups?: ReviewedEconomicGroup[]; rows: Record<string, { head: ReviewHead; approved: ReviewedRow | null; pending: PendingSourceDraft | null }>
   accounts: ReviewedSourceAccount[]; categories: Array<{ id: number; name: string }>

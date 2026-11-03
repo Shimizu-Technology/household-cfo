@@ -223,6 +223,7 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+const SPENDING_PATTERNS_PROMPT = 'What spending patterns do you see?'
 const SAVINGS_QUICK_PROMPTS = ['Help me with today’s check-in.', 'What is a comfortable savings target for me?', 'Explain my approved savings progress.']
 const MIA_UPDATE_PROMPTS = [
   { label: 'Update my income', message: 'Help me update my household income sources and schedules.' },
@@ -2170,6 +2171,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
+  // After a statement is saved the next step is what Mia notices in it: ask the question for her.
+  const askMiaAboutPatterns = isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && visibleSections.includes('Ask Mia') && !challengeNotOpen
+    ? () => { if (switchSection('Ask Mia', { focusHeading: false })) void handleAskMia(SPENDING_PATTERNS_PROMPT) }
+    : undefined
+
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
@@ -4096,7 +4102,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
               updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
-              questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : [...data.mia.quick_prompts, 'What spending patterns do you see?']).map(message => ({ label: message, message }))}
+              questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : [...data.mia.quick_prompts, SPENDING_PATTERNS_PROMPT]).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
           <MiaDisclaimer assistantName={assistantName} fullText={data.mia.disclaimer} />
@@ -4371,6 +4377,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           {isFirstSessionUpload && <DocumentImportWorkspace
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            onAskMia={askMiaAboutPatterns}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4413,6 +4420,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <DocumentImportWorkspace
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            onAskMia={askMiaAboutPatterns}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5017,6 +5025,7 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 function DocumentImportWorkspace({
   uploadScope,
   onReviewBaseline,
+  onAskMia,
   onReturnToStart,
   sectionRef,
   isRealWorkspace,
@@ -5052,6 +5061,7 @@ function DocumentImportWorkspace({
 }: {
   uploadScope: string
   onReviewBaseline?: () => void
+  onAskMia?: () => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5153,6 +5163,7 @@ function DocumentImportWorkspace({
           onUpload={onUpload}
           uploading={Boolean(uploadingKind)}
           onReviewBaseline={onReviewBaseline}
+          onAskMia={onAskMia}
         />}
       </div>
 
@@ -5396,6 +5407,7 @@ export function DocumentReviewPanel({
   onUpload,
   uploading,
   onReviewBaseline,
+  onAskMia,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5421,6 +5433,7 @@ export function DocumentReviewPanel({
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   uploading: boolean
   onReviewBaseline?: () => void
+  onAskMia?: () => void
 }) {
   const { assistantName } = useBrand()
   if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
@@ -5532,7 +5545,7 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
-          onDone={onReviewBaseline ? { label: 'Open your spending snapshot', run: onReviewBaseline } : undefined}
+          next={[...(onAskMia ? [{ label: `See what ${assistantName} notices`, run: onAskMia }] : []), ...(onReviewBaseline ? [{ label: 'Open your spending snapshot', run: onReviewBaseline }] : [])]}
         />
       )}
       {sourceMode === 'typed' && fileHeader}

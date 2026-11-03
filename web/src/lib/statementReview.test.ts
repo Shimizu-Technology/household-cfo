@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { accountNames, accountsNeedingBasis, lineKindFor, parseLineAmount, statementCounts, statementHeadline, totalsNote, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, lineKindFor, parseLineAmount, statementCounts, statementHeadline, totalsNote, type StatementPlan } from './statementReview'
 
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
   attention: [1, 2, 3].map((id) => ({ event_id: 100 + id, kind: 'refund' as const, event_type: 'refund' as const, question: 'Is this a refund?', answers: [], merchant: 'Amazon', posted_on: '2026-09-24', signed_amount_cents: 1299, category_id: null, category_name: null })), ...patch })
@@ -10,9 +10,29 @@ describe('statement review wording', () => {
   it('names the lines, account and dates in one sentence', () => {
     vi.useFakeTimers({ now: new Date('2026-10-05T12:00:00Z'), toFake: ['Date'] })
     const data = participantReviewFixture(); const names = accountNames(data.accounts, data.participant_review!.accounts)
-    expect(statementHeadline(data.accounts, { 501: 'Bank of Guam ····1234' }, plan())).toBe('27 lines from Bank of Guam ····1234, Sep 1–30.')
-    expect(names[501]).toBe('Fictional checking')
+    expect(statementHeadline(data.accounts, { 501: { name: 'Bank of Guam', last4: '1234' } }, plan())).toBe('27 lines from Bank of Guam ····1234, Sep 1–30.')
+    expect(names[501]).toEqual({ name: 'Fictional checking', last4: '' })
     expect(statementHeadline([], {}, plan({ total: 1, first_on: null, last_on: null }))).toBe('1 line from your statement.')
+  })
+  it('never names an account with a system label: the bank when known, else the last four, else just the statement', () => {
+    const data = participantReviewFixture()
+    const say = (name: string | null, last4: string | null) => statementHeadline(data.accounts, accountNames(data.accounts, [{ source_account_id: 501, name, last4 }]), plan({ first_on: null, last_on: null }))
+    data.accounts[0].period_start_on = null; data.accounts[0].period_end_on = null
+    expect(say(null, null)).toBe('27 lines from your statement.')
+    expect(say(null, '1234')).toBe('27 lines from your account ····1234.')
+    expect(say('Bank of Guam checking', '1234')).toBe('27 lines from Bank of Guam checking ····1234.')
+    expect(accountSentence(undefined)).toBe('')
+    expect(statementHeadline([data.accounts[0], { ...data.accounts[0], id: 502 }], {}, plan())).toContain('2 accounts')
+  })
+  it('approves a long statement a page at a time and says so', () => {
+    const long = plan({ total: 1_010, ready_event_ids: Array.from({ length: 1_000 }, (_, index) => index) })
+    expect(statementCounts(long)).toMatchObject({ page: APPROVE_PAGE, sentence: '1,000 look right. 3 need a quick look. We’ll approve them 400 at a time.', action: 'Approve these 400' })
+    expect(statementCounts(plan({ ...long, attention: [] })).sentence).toBe('All 1,000 look right. We’ll approve them 400 at a time.')
+    expect(statementCounts(plan({ ready_event_ids: Array.from({ length: 400 }, (_, index) => index) }))).toMatchObject({ page: 400, action: 'Approve the other 400' })
+  })
+  it('writes long counts with a thousands separator', () => {
+    expect(statementHeadline([], {}, plan({ total: 1_000, first_on: null, last_on: null }))).toBe('1,000 lines from your statement.')
+    expect(statementCounts(plan({ total: 1_000, ready_event_ids: [], attention: [], done: 1_000 })).sentence).toBe('All 1,000 lines are saved.')
   })
   it('says how many look right and how many need a look, and names the one action', () => {
     expect(statementCounts(plan())).toMatchObject({ sentence: '24 look right. 3 need a quick look.', action: 'Approve the other 24' })

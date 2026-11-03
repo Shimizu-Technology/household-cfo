@@ -3,7 +3,7 @@ import { fetchDocumentSourceReview } from '../api'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, validateSourceReview, type SourceEvent, type SourceReview } from '../lib/sourceReview'
 import {
-  LINE_KIND_OPTIONS, accountNames, accountsNeedingBasis, lineKindFor, statementCounts, statementHeadline, totalsNote,
+  APPROVE_PAGE, LINE_KIND_OPTIONS, accountNames, accountSentence, accountsNeedingBasis, lineKindFor, statementCounts, statementHeadline, totalsNote,
   type AccountChange, type ApproveLinesInput, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention,
 } from '../lib/statementReview'
 import { isStatementReviewActor } from '../lib/statementReviewRecovery'
@@ -15,15 +15,16 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, onDone }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next }: {
   importId: number; revisionId: number; refreshKey: string
-  /** Where she goes once every line is saved, e.g. her spending snapshot. */
-  onDone?: { label: string; run: () => void }
+  /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
+  next?: Array<{ label: string; run: () => void }>
 }) {
   const [page, setPage] = useState(1)
   const [attempt, setAttempt] = useState(0)
   const [sheet, setSheet] = useState<Sheet>(null)
   const [listOpen, setListOpen] = useState(false)
+  const [savingLines, setSavingLines] = useState(0)
   const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
@@ -78,15 +79,19 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, onDone
   }
   function approveRest() {
     if (!plan) return
-    void save({ expect_ready_ids: plan.ready_event_ids, lines: plan.ready_event_ids.map((id): LineDecision => ({ event_id: id, decision: 'as_read' })) })
+    // A long statement goes a page at a time: the lines of this page are exactly what the request saves.
+    const ids = plan.ready_event_ids.slice(0, APPROVE_PAGE)
+    setSavingLines(ids.length)
+    void save({ expect_ready_ids: ids, ...(plan.ready_event_ids.length > APPROVE_PAGE ? { paged: true } : {}), lines: ids.map((id): LineDecision => ({ event_id: id, decision: 'as_read' })) }).finally(() => setSavingLines(0))
   }
   function chooseBasis(account: number, basis: 'asset' | 'liability') {
     void save({ lines: [], accounts: [{ source_account_id: account, account_basis: basis }] })
   }
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: sheetFromAttention(item) })
-    const entry: LineDecision = id === 'edit'
-      ? { event_id: item.event_id, decision: 'edited', edit: { ...sheetEdit(sheetFromAttention(item)), kind: 'spending', category_id: categoryId ?? null } }
+    // "Yes" to "Still Dining out?" saves the line as spending in the category she chose before.
+    const entry: LineDecision = id === 'edit' || id === 'keep'
+      ? { event_id: item.event_id, decision: 'edited', edit: { ...sheetEdit(sheetFromAttention(item)), kind: 'spending', category_id: categoryId ?? item.category_id } }
       : { event_id: item.event_id, decision: id }
     void save({ lines: [entry] }, index)
   }
@@ -134,9 +139,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, onDone
             <Button variant="secondary" size="compact" disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Change</Button>
           </div>
           <p role="status">{counts.sentence}</p>
+          {savingLines >= 100 && busy && <p className="statement-muted" role="status">Saving {savingLines} lines. This can take a minute.</p>}
           {totalsNote(plan.totals_check) && <p className="statement-muted">{totalsNote(plan.totals_check)}</p>}
           {needBasis.length === 1 && <div className="statement-question-row">
-            <p className="statement-question">Is {names[needBasis[0].id]} a bank account or a credit card?</p>
+            <p className="statement-question">Is {accountSentence(names[needBasis[0].id]) || 'this'} a bank account or a credit card?</p>
             <div className="statement-answers">
               <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
               <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
@@ -144,7 +150,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, onDone
           </div>}
           {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
           {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={approveRest}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
-          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && onDone && <Button onClick={onDone.run}>{onDone.label}</Button>}
+          {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
 
         {plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
@@ -167,7 +173,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, onDone
         </ul>}
 
         <details className="statement-all" open={listOpen} onToggle={(event) => setListOpen(event.currentTarget.open)}>
-          <summary>See all {plan.total} {plan.total === 1 ? 'line' : 'lines'}</summary>
+          <summary>See all {plan.total.toLocaleString('en-US')} {plan.total === 1 ? 'line' : 'lines'}</summary>
           {!pageData && !error && <p role="status" className="statement-muted">Loading lines…</p>}
           {pageData && <table className="statement-table">
             <caption className="sr-only">Every line in this statement</caption>

@@ -1,13 +1,13 @@
 import { formatMonthRange } from './plainDates'
-import { sourceAccountLabel, type SourceAccount, type SourceEvent } from './sourceReview'
+import type { SourceAccount, SourceEvent } from './sourceReview'
 import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
-export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit'
+export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep'
 export type PlanAttention = {
   event_id: number
-  kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category'
+  kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
@@ -31,7 +31,9 @@ export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 're
 export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit }
 export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; lines: LineDecision[]; accounts?: AccountChange[] }
+export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[] }
+/** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
+export const APPROVE_PAGE = 400
 
 export const LINE_KIND_OPTIONS: Array<{ value: LineKind; label: string }> = [
   { value: 'spending', label: 'Spending' },
@@ -66,15 +68,25 @@ export function amountInputText(cents: number | null | undefined): string {
   return cents == null ? '' : (Math.abs(cents) / 100).toFixed(2)
 }
 
-// The name she approved wins over what the reader guessed from the file.
-export function accountNames(accounts: SourceAccount[], reviewed: Array<{ source_account_id: number; approved: { tracked_account: { label: string } } | null }>): Record<number, string> {
-  return Object.fromEntries(accounts.map((account) => [account.id, reviewed.find((row) => row.source_account_id === account.id)?.approved?.tracked_account.label ?? sourceAccountLabel(account, account.id)]))
+// The name comes from the server (the one she approved, else what the file says). A system label never reaches here.
+export type AccountLabel = { name: string; last4: string }
+export function accountNames(accounts: SourceAccount[], reviewed: Array<{ source_account_id: number; name?: string | null; last4?: string | null }>): Record<number, AccountLabel> {
+  return Object.fromEntries(accounts.map((account) => {
+    const row = reviewed.find((entry) => entry.source_account_id === account.id)
+    return [account.id, { name: row?.name ?? '', last4: row?.last4 ?? '' }]
+  }))
 }
 
-export function describeAccounts(accounts: SourceAccount[], names: Record<number, string>): string {
-  if (accounts.length === 0) return 'your statement'
+/** The account as a person would say it in a sentence; empty when the file gave nothing to go on. */
+export function accountSentence(label: AccountLabel | undefined): string {
+  if (!label) return ''
+  if (label.name) return label.last4 ? `${label.name} ····${label.last4}` : label.name
+  return label.last4 ? `your account ····${label.last4}` : ''
+}
+
+export function describeAccounts(accounts: SourceAccount[], names: Record<number, AccountLabel>): string {
   if (accounts.length > 1) return `${accounts.length} accounts`
-  return names[accounts[0].id]
+  return (accounts.length === 1 && accountSentence(names[accounts[0].id])) || 'your statement'
 }
 
 export function statementPeriodText(accounts: SourceAccount[], plan: StatementPlan): string {
@@ -83,19 +95,24 @@ export function statementPeriodText(accounts: SourceAccount[], plan: StatementPl
   return formatMonthRange(starts[0] ?? plan.first_on, ends[ends.length - 1] ?? plan.last_on)
 }
 
-export function statementHeadline(accounts: SourceAccount[], names: Record<number, string>, plan: StatementPlan): string {
+export function statementHeadline(accounts: SourceAccount[], names: Record<number, AccountLabel>, plan: StatementPlan): string {
   const period = statementPeriodText(accounts, plan)
-  return `${plan.total} ${plan.total === 1 ? 'line' : 'lines'} from ${describeAccounts(accounts, names)}${period ? `, ${period}` : ''}.`
+  return `${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line' : 'lines'} from ${describeAccounts(accounts, names)}${period ? `, ${period}` : ''}.`
 }
 
-export function statementCounts(plan: StatementPlan): { open: number; attention: number; sentence: string; action: string | null } {
+export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
   const attention = plan.attention.length
   const open = plan.ready_event_ids.length
+  const page = Math.min(open, APPROVE_PAGE)
   const look = `${attention} ${attention === 1 ? 'needs' : 'need'} a quick look.`
-  if (open > 0 && attention > 0) return { open, attention, sentence: `${open} look right. ${look}`, action: open === 1 ? 'Approve the other one' : `Approve the other ${open}` }
-  if (open > 0) return { open, attention, sentence: open === 1 ? 'It looks right.' : `All ${open} look right.`, action: open === 1 ? 'Approve it' : `Approve all ${open}` }
-  if (attention > 0) return { open, attention, sentence: `${plan.done} saved. ${attention === 1 ? '1 still needs' : `${attention} still need`} a quick look.`, action: null }
-  return { open, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total} ${plan.total === 1 ? 'line is' : 'lines are'} saved.`, action: null }
+  if (open > APPROVE_PAGE) {
+    const lead = attention > 0 ? `${open.toLocaleString('en-US')} look right. ${look}` : `All ${open.toLocaleString('en-US')} look right.`
+    return { open, page, attention, sentence: `${lead} We’ll approve them ${APPROVE_PAGE} at a time.`, action: `Approve these ${APPROVE_PAGE}` }
+  }
+  if (open > 0 && attention > 0) return { open, page, attention, sentence: `${open} look right. ${look}`, action: open === 1 ? 'Approve the other one' : `Approve the other ${open}` }
+  if (open > 0) return { open, page, attention, sentence: open === 1 ? 'It looks right.' : `All ${open} look right.`, action: open === 1 ? 'Approve it' : `Approve all ${open}` }
+  if (attention > 0) return { open, page, attention, sentence: `${plan.done} saved. ${attention === 1 ? '1 still needs' : `${attention} still need`} a quick look.`, action: null }
+  return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.`, action: null }
 }
 
 export function totalsNote(check: StatementPlan['totals_check']): string | null {

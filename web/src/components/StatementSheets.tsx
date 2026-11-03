@@ -2,8 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { Button } from './Button'
-import { sourceAccountLabel, type SourceAccount } from '../lib/sourceReview'
-import { LINE_KIND_OPTIONS, amountInputText, parseLineAmount, type AccountChange, type LineEdit, type LineKind } from '../lib/statementReview'
+import type { SourceAccount } from '../lib/sourceReview'
+import { LINE_KIND_OPTIONS, accountSentence, amountInputText, parseLineAmount, type AccountChange, type AccountLabel, type LineEdit, type LineKind } from '../lib/statementReview'
 import './StatementSheets.css'
 
 export type SheetLine = {
@@ -76,12 +76,12 @@ export function StatementLineSheet({ line, categories, busy, error, onSave, onLe
 type AccountDraft = { source_account_id: number; label: string; account_basis: '' | 'asset' | 'liability'; period_start_on: string; period_end_on: string }
 
 export function StatementAccountSheet({ accounts, names, busy, error, onSave, onClose }: {
-  accounts: SourceAccount[]; names: Record<number, string>; busy: boolean; error: string | null
+  accounts: SourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; error: string | null
   onSave: (changes: AccountChange[]) => void; onClose: () => void
 }) {
   const ref = usePilotDialog(() => { if (!busy) onClose() })
   const [drafts, setDrafts] = useState<AccountDraft[]>(() => accounts.map((account) => ({
-    source_account_id: account.id, label: names[account.id] ?? sourceAccountLabel(account, account.id),
+    source_account_id: account.id, label: names[account.id]?.name ?? '',
     account_basis: account.account_basis === 'unknown' ? '' : account.account_basis,
     period_start_on: account.period_start_on ?? '', period_end_on: account.period_end_on ?? '',
   })))
@@ -102,8 +102,8 @@ export function StatementAccountSheet({ accounts, names, busy, error, onSave, on
       <header><h2 id="statement-account-title">{accounts.length > 1 ? 'Your accounts' : 'Your account'}</h2><Button variant="secondary" disabled={busy} onClick={onClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         {drafts.map((row, index) => <fieldset key={row.source_account_id}>
-          {drafts.length > 1 && <legend>{row.label || `Account ${index + 1}`}</legend>}
-          <label>Name<input value={row.label} maxLength={120} onChange={(event) => update(index, { label: event.target.value })} /></label>
+          {drafts.length > 1 && <legend>{row.label || accountSentence(names[row.source_account_id]) || `Account ${index + 1}`}</legend>}
+          <label>Name<input value={row.label} maxLength={120} placeholder="Optional, like Bank of Guam checking" onChange={(event) => update(index, { label: event.target.value })} /></label>
           <label>Type
             <select value={row.account_basis} onChange={(event) => update(index, { account_basis: event.target.value as AccountDraft['account_basis'] })}>
               <option value="">Choose one</option><option value="asset">Bank account</option><option value="liability">Credit card</option>

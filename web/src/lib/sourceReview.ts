@@ -56,10 +56,6 @@ export function sourceReviewMode(document: FinancialDocumentImport): 'typed' | '
   return 'unsupported'
 }
 
-export function sourceAccountLabel(account: SourceAccount | undefined, id: number): string {
-  return [account?.evidence?.label, account?.evidence?.masked_identifier].filter(Boolean).join(' · ') || `Account ${id}`
-}
-
 export function sourceMoney(cents: number | null | undefined, signed = false): string {
   if (cents == null || !Number.isSafeInteger(cents)) return 'Unknown'
   return `${signed && cents > 0 ? '+' : ''}${formatReviewMoney(cents)}`
