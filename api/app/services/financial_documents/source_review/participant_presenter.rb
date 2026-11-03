@@ -34,8 +34,19 @@ module FinancialDocuments
                 current: group.source_economic_memberships.all? { |member| member.source_review_version.source_review_head.approved_version_id == member.source_review_version_id && member.source_review_version.source_account_identity_version.source_account_review_head.approved_version_id == member.source_review_version.source_account_identity_version_id },
                 members: group.source_economic_memberships.map { |member| { role: member.role, allocation_cents: member.allocation_cents, record: record(member.source_review_version) } } } }
           end,
-          categories: household.budget_categories.active.order(:sort_order, :id).pluck(:id, :name).map { |id, name| { id: id, name: name } }
+          categories: household.budget_categories.active.order(:sort_order, :id).pluck(:id, :name).map { |id, name| { id: id, name: name } },
+          plan: plan_summary
         }
+      end
+
+      # What the participant sees first: how many lines look right, and the few that need an answer.
+      def plan_summary
+        plan = ParticipantPlan.new(household, revision)
+        names = household.budget_categories.active.pluck(:id, :name).to_h
+        dates = plan.lines.filter_map { |line| line.event.posted_on }
+        { total: plan.lines.length, done: plan.lines.count(&:done), ready_event_ids: plan.ready_ids, totals_check: totals_check,
+          first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
+          attention: plan.attention.map { |line| attention_row(line, names) } }
       end
 
       def record(subject, include_matched_target: true)
@@ -64,6 +75,25 @@ module FinancialDocuments
       private
 
       attr_reader :household, :revision
+
+      def attention_row(line, names)
+        event = line.event
+        # A copy of a row she already approved can only be left out; it cannot be counted twice.
+        answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
+        { event_id: event.id, kind: line.kind, event_type: event.event_type, question: ParticipantPlan::QUESTIONS.fetch(line.kind), answers: answers,
+          merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
+          category_id: line.category_id, category_name: names[line.category_id] }
+      end
+
+      # "matches" only when the statement's own printed totals agree; a file that prints none is "unchecked", never "matches".
+      def totals_check
+        report = revision.reconciliation || {}
+        accounts = Array(report["accounts"])
+        residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
+        return "mismatch" if report.dig("row_census", "matches_reported") == false || report.dig("page_coverage", "all_processed") == false ||
+          residuals.any? { |value| value != 0 } || accounts.any? { |account| account["row_count_matches"] == false }
+        accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
+      end
 
       def head_state(head)
         { id: head&.id, approved_version_id: head&.approved_version_id, lock_version: head&.lock_version || 0 }

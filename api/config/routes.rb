@@ -179,6 +179,7 @@ Rails.application.routes.draw do
       get "source_review_accounts", to: "source_reviews#accounts"
       get "document_imports/:document_import_id/review_candidates", to: "source_reviews#candidates"
       get "document_imports/:document_import_id/review_request_status", to: "source_reviews#request_status"
+      post "document_imports/:document_import_id/review/approve_lines", to: "source_reviews#approve_lines"
       post "document_imports/:document_import_id/review/:review_action", to: "source_reviews#mutate"
       resources :document_imports, only: %i[index show create destroy] do
         collection do
