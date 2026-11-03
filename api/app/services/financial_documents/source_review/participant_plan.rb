@@ -188,7 +188,21 @@ module FinancialDocuments
         SourceReviewDraft.where(household: household, source_review_head_id: heads.select(:id)).pending.pluck(:facts).each do |facts|
           keys << [ facts["signed_amount_cents"], facts["posted_on"].to_s ] if amounts.include?(facts["signed_amount_cents"])
         end
-        events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on.to_s ]) }.map(&:id).to_set
+        by_amount = events.select { |event| keys.include?([ event.signed_amount_cents, event.posted_on.to_s ]) }.map(&:id).to_set
+        by_amount | same_physical_rows(events, others, heads)
+      end
+
+      # OverlapDetector treats the same file and physical row as a strong match whatever the amounts now say (she may have
+      # edited the earlier line), so those lines must reach the full check too.
+      def same_physical_rows(events, others, heads)
+        artifact = revision.financial_document_import&.checksum_sha256
+        return Set.new if artifact.blank?
+        from_file = others.joins(financial_extraction_revision: :financial_document_import)
+          .where(financial_document_imports: { checksum_sha256: artifact }).pluck(:locator)
+        approved_ids = SourceReviewVersion.where(id: heads.select(:approved_version_id), source_artifact_digest: artifact)
+          .joins(source_review_head: :financial_source_event).pluck("financial_source_events.locator")
+        locators = (from_file + approved_ids).compact.to_set
+        events.select { |event| event.locator.present? && event.locator["row"].to_i.positive? && locators.include?(event.locator) }.map(&:id).to_set
       end
 
       def overlap_context = @overlap_context ||= OverlapDetector::Context.new(household)

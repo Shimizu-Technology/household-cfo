@@ -599,6 +599,24 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_response :success, response.body
   end
 
+  test "the same file and row is asked about as a copy even when every amount differs" do
+    checksum = SecureRandom.hex(32)
+    first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    older = first[:revision].financial_source_events.sole
+    approve_lines({ lines: [ { event_id: older.id, decision: "edited", edit: { kind: "money_in", amount_cents: 5_000 } } ] }, source: first)
+    assert_response :success, response.body
+    # The same file read again gives a third amount for the same physical row: no amount or date key matches it, but the
+    # detector treats file + row as a strong copy, so the plan must ask instead of showing it as ready.
+    second = build_source(rows: [ [ "Pay", 6_000, "income", 2 ], [ "Bonus", 700, "income", 9 ] ], label: "BOG Everyday Checking", checksum: checksum)
+    plan = plan_for(second)
+    copy = plan.fetch("attention").find { |row| row["kind"] == "duplicate" }
+    assert copy, "the same file and row is asked about before she approves the rest"
+    bonus = second[:revision].financial_source_events.order(:position).last
+    assert_equal [ bonus.id ], plan.fetch("ready_event_ids")
+    approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), lines: as_read(plan.fetch("ready_event_ids"), source: second) }, source: second)
+    assert_response :success, response.body
+  end
+
   test "a copy of a line whose edit is still waiting as a draft is asked about too" do
     first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
@@ -722,8 +740,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {})
-    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: SecureRandom.hex(32))
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32))
+    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row, key|
       { account_key: key || "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
