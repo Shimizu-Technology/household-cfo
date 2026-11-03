@@ -7491,13 +7491,18 @@ h3 {
     scroll-behavior: auto;
   }
 
+  /* Motion is removed, not shortened. A 0.01ms animation or transition still
+     starts on the next frame, so a sheet would rest off-screen, the tab bar
+     would stay hidden, and padding would lag a frame behind the layout it
+     belongs to. Every keyframe in the app only describes an entry from the
+     resting style, so with no animation the element is already in its final
+     state. */
   *,
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation: none !important;
+    transition: none !important;
   }
 }
 
