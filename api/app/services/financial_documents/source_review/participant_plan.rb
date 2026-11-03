@@ -5,7 +5,8 @@ module FinancialDocuments
     # and what "Approve the rest" is allowed to apply, so the two cannot drift.
     # Nothing here approves anything; unknown stays unknown and becomes a question.
     class ParticipantPlan
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, keyword_init: true) do
+      # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -91,9 +92,11 @@ module FinancialDocuments
           chosen = nil unless categories.include?(chosen)
           # What she chose before for this merchant beats the reader's guess; if they disagree she is asked, not overruled.
           category_id = chosen || guess
+          # Only spending carries a category; nothing else is shown or saved with one.
+          category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
-          Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps,
+          Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && guess.nil?,
             done: done?(heads[event.id]&.approved_version))
         end
       end
@@ -145,15 +148,29 @@ module FinancialDocuments
         FinancialDocuments::MerchantNormalizer.call(merchant)&.downcase&.squish
       end
 
+      # What she chose for a merchant on any OTHER statement. This statement's own approvals are left out: they must not
+      # change what an earlier line of the same statement looks like, or a retry of a save that already went through would
+      # find its lines no longer matching what she was shown.
       def previous_choices(merchants)
-        return {} if merchants.empty?
         wanted = merchants.filter_map { |merchant| merchant_key(merchant) }.to_set
-        latest = SourceReviewVersion.where(household: household, disposition: "include").where.not(budget_category_id: nil).where.not(merchant: nil)
-          .group(:merchant, :budget_category_id).maximum(:id)
+        return {} if wanted.empty?
+        own = SourceReviewHead.where(household: household, financial_source_event_id: revision.financial_source_events.select(:id)).select(:id)
+        history = SourceReviewVersion.where(household: household, disposition: "include").where.not(budget_category_id: nil).where.not(merchant: nil)
+          .where.not(source_review_head_id: own)
+        patterns = search_patterns(wanted)
+        history = history.where("merchant ILIKE ANY (ARRAY[?])", patterns) if patterns
+        latest = history.group(:merchant, :budget_category_id).maximum(:id)
         latest.sort_by { |_pair, id| id }.each_with_object({}) do |((merchant, category_id), _id), result|
           key = merchant_key(merchant)
           result[key] = category_id if wanted.include?(key)
         end
+      end
+
+      # A cheap first cut so the household's whole history is not normalised line by line: any merchant that normalises to
+      # a wanted key still contains that key's first word. Falls back to no cut when a key has no plain ASCII word to match.
+      def search_patterns(wanted)
+        words = wanted.map { |key| key[/[a-z]{3,}/] }
+        words.all? ? words.uniq.map { |word| "%#{word}%" } : nil
       end
 
       # Cheap pre-filter: only lines that share an amount and date with something

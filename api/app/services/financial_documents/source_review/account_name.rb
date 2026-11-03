@@ -12,6 +12,8 @@ module FinancialDocuments
         last4 = [ masked_identifier, label ].filter_map { |text| text.to_s[/(?:\*{2,}|X{2,}|·{2,}|•{2,})\s*(\d{4})\b/i, 1] }.first
         name = label.to_s.gsub(MASKED, " ").gsub(/\s*·\s*\z/, "").squish
         name = nil if name.blank? || name.match?(GENERIC)
+        # A raw account number in a file or account label reads ····1234, like everywhere else she sees one.
+        name = AccountNumberMask.display(name)
         { name: name, last4: last4 }
       end
 

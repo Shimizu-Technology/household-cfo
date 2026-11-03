@@ -36,16 +36,20 @@ module FinancialDocuments
                 members: group.source_economic_memberships.map { |member| { role: member.role, allocation_cents: member.allocation_cents, record: record(member.source_review_version) } } } }
           end,
           categories: household.budget_categories.active.order(:sort_order, :id).pluck(:id, :name).map { |id, name| { id: id, name: name } },
-          plan: plan_summary
+          plan: plan_summary(state)
         }
       end
 
       # What the participant sees first: how many lines look right, and the few that need an answer.
-      def plan_summary
+      def plan_summary(state = ApprovalState.new(household, revision).call)
         plan = ParticipantPlan.new(household, revision)
         names = household.budget_categories.active.pluck(:id, :name).to_h
         dates = plan.lines.filter_map { |line| line.event.posted_on }
-        { total: plan.lines.length, done: plan.lines.count(&:done), ready_event_ids: plan.ready_ids, totals_check: totals_check,
+        totals = CoverageQuestion.totals_check(revision)
+        # "ready" is exactly what "Approve the rest" will save: each line's category (and how it was chosen) is shown to her and sent back.
+        { total: plan.lines.length, done: plan.lines.count(&:done), ready_event_ids: plan.ready_ids, totals_check: totals,
+          ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before } },
+          coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision) },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
           attention: plan.attention.map { |line| attention_row(line, names) } }
       end
@@ -53,11 +57,12 @@ module FinancialDocuments
       def record(subject, include_matched_target: true)
         case subject
         when SourceReviewDraft
-          subject.attributes.slice("id", "status", "lock_version", "digest", "facts", "projection", "reason", "base_version_id", "base_head_lock_version").merge(
+          subject.attributes.slice("id", "status", "lock_version", "digest", "projection", "reason", "base_version_id", "base_head_lock_version").merge(
+            facts: shown_facts(subject.facts),
             recognized_account: recognized_account(subject.facts["source_account_identity_version_id"]),
             matched_target: include_matched_target ? matched_target(subject.facts["matched_version_id"]) : nil)
         when SourceReviewVersion
-          { id: subject.id, digest: subject.digest, version_number: subject.version_number, facts: subject.reviewed_facts,
+          { id: subject.id, digest: subject.digest, version_number: subject.version_number, facts: shown_facts(subject.reviewed_facts),
             projection: subject.projection, reason: subject.reason,
             source: { document_import_id: subject.financial_source_event.financial_extraction_revision.financial_document_import_id,
               filename: subject.financial_source_event.financial_extraction_revision.financial_document_import&.filename,
@@ -77,6 +82,12 @@ module FinancialDocuments
 
       attr_reader :household, :revision
 
+      # Lines approved before long account numbers were hidden still store the statement's words; she reads them masked.
+      def shown_facts(facts)
+        key = facts.key?(:merchant) ? :merchant : "merchant"
+        facts.is_a?(Hash) && facts[key].is_a?(String) ? facts.merge(key => AccountNumberMask.display(facts[key])) : facts
+      end
+
       def attention_row(line, names)
         event = line.event
         # A copy of a row she already approved can only be left out; it cannot be counted twice.
@@ -85,17 +96,6 @@ module FinancialDocuments
         { event_id: event.id, kind: line.kind, event_type: event.event_type, question: question, answers: answers,
           merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] }
-      end
-
-      # "matches" only when the statement's own printed totals agree; a file that prints none is "unchecked", never "matches".
-      # Money that does not add up and a line count that differs from the printed one are different problems and are said differently.
-      def totals_check
-        report = revision.reconciliation || {}
-        accounts = Array(report["accounts"])
-        residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
-        return "mismatch" if report.dig("page_coverage", "all_processed") == false || residuals.any? { |value| value != 0 }
-        return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
-        accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
       end
 
       # One name and last four for every sentence that names the account, so none of them shows a system label.

@@ -11,7 +11,7 @@ module FinancialDocuments
       TOOLS = %w[source_review.account.link source_review.draft.stage source_review.draft.approve source_review.revision.approve].freeze
       DECISIONS = %w[as_read different leave_out edited].freeze
       KINDS = { "spending" => "purchase", "money_in" => "income", "moved" => "transfer", "card" => "debt_payment", "cash" => "cash_withdrawal", "refund" => "refund" }.freeze
-      MAX_LINES = 400
+      MAX_LINES = 100
       NOT_REVIEWED = %w[unreviewed_source_rows unreviewed_source_accounts account_identity_changed].freeze
 
       def initialize(domain, revision, input, cohort_membership: nil)
@@ -21,14 +21,16 @@ module FinancialDocuments
       def call
         TOOLS.each { |key| CohortReleases::OperationAccess.require!(household: household, user: domain.user, key: key, membership: @cohort_membership) }
         entries = Array(input[:lines]).map { |entry| entry.to_h.deep_symbolize_keys }
-        raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank?
+        answer = input[:coverage_answer].presence
+        raise ArgumentError, "Choose whether anything is missing from this statement" if answer && !answer.in?(CoverageQuestion::ANSWERS)
+        raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         link_accounts!
         plan = ParticipantPlan.new(household, revision)
-        check_expected!(plan)
+        check_expected!(plan, entries)
         counts = Hash.new(0)
         entries.sort_by { |entry| plan.line_for(entry.fetch(:event_id).to_i)&.event&.position.to_i }.each { |entry| apply!(plan, entry, counts) }
-        { approved: counts[:approved], left_out: counts[:left_out], unchanged: counts[:unchanged], complete: finish_coverage! }
+        { approved: counts[:approved], left_out: counts[:left_out], unchanged: counts[:unchanged], complete: finish_coverage!(answer) }
       rescue KeyError, TypeError
         raise ArgumentError, "Statement review request is missing required fields"
       end
@@ -42,7 +44,7 @@ module FinancialDocuments
       # "Approve the rest" must cover exactly the lines that were on screen as looking right.
       # A long statement is approved a page at a time (paged: true): every line on the page must still look right,
       # and only those lines are saved. A page that already saved is a no-op, so a retry changes nothing.
-      def check_expected!(plan)
+      def check_expected!(plan, entries)
         return unless input.key?(:expect_ready_ids)
         expected = Array(input[:expect_ready_ids]).map(&:to_i).uniq.sort
         ready = plan.lines.select(&:ready?)
@@ -51,6 +53,18 @@ module FinancialDocuments
         unless covered
           raise Domain::StaleReview, "This statement changed while you were reviewing it. Nothing was saved. Refresh and try again."
         end
+        entries.each { |entry| check_shown!(plan.line_for(entry.fetch(:event_id).to_i), entry, required: true) if entry[:decision].to_s == "as_read" }
+      end
+
+      # What is saved must be exactly what she was shown: the line's kind and category as they were on her screen.
+      # A request that does not say what she saw, or saw something else, saves nothing.
+      def check_shown!(line, entry, required:)
+        raise ArgumentError, "Statement review request is missing required fields" if line.nil? || (required && !entry[:shown].is_a?(Hash))
+        return unless entry[:shown].is_a?(Hash)
+        shown = entry[:shown]
+        raise ArgumentError, "Statement review request is missing required fields" unless shown.key?(:category_id) && shown.key?(:event_type)
+        return if shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
+        raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again."
       end
 
       def link_accounts!
@@ -102,15 +116,18 @@ module FinancialDocuments
           counts[:unchanged] += 1
           return
         end
-        check_allowed!(line, decision)
+        check_allowed!(line, decision, entry)
         stage_and_approve!(event, head, facts)
         counts[decision == "leave_out" ? :left_out : :approved] += 1
       end
 
-      def check_allowed!(line, decision)
+      def check_allowed!(line, decision, entry)
         stale = Domain::StaleReview.new("This line changed while you were reviewing it. Nothing was saved. Refresh and try again.")
         case decision
-        when "as_read" then raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund]))
+        when "as_read"
+          raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category]))
+          # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
+          check_shown!(line, entry, required: true) if line.kind == :still_category
         when "different"
           raise stale unless line.kind == :duplicate
           raise ArgumentError, "That line is already in your numbers, so it can only be left out." if line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] }
@@ -130,6 +147,8 @@ module FinancialDocuments
       def edited_facts(base, event, edit)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
+        # "Spending" covers fees and interest too: choosing a category for one must not turn it into a purchase.
+        type = event.event_type if kind == "spending" && event.event_type.in?(ParticipantPlan::EXPENSE_TYPES)
         cents = edit.key?(:amount_cents) ? edit[:amount_cents] : event.signed_amount_cents&.abs
         raise ArgumentError, "Enter the amount for this line" unless cents.is_a?(Integer) && cents.positive?
         signed = case kind
@@ -170,18 +189,26 @@ module FinancialDocuments
       end
 
       # The statement is only marked finished once every line and account has an approved decision.
-      def finish_coverage!
+      #
+      # Whether every row of the document is accounted for is her statement to make, never the system's. A statement that
+      # proves its own coverage (its printed totals match) needs no question; otherwise there is no coverage approval until
+      # she answers, and "something's missing" is recorded as not attested.
+      def finish_coverage!(answer)
         state = ApprovalState.new(household, revision).call
         return false if (state[:deficiencies] & NOT_REVIEWED).any? || state[:pending_corrections].positive?
+        asked = CoverageQuestion.text(revision, deficiencies: state[:deficiencies]).present?
+        said = answer || CoverageQuestion.answer(revision)
+        return false if asked && said.nil?
+        accounted = !asked || said == "nothing_missing"
         last = SourceRevisionApproval.where(household: household, financial_extraction_revision: revision).order(version_number: :desc).first
-        return true if last&.digest == state[:content_digest]
+        return true if last&.digest == state[:content_digest] && last.coverage_attestation["all_document_rows_accounted"] == accounted
         accounts = revision.financial_source_accounts.order(:id).map do |account|
           identity = domain.account_heads.find_by(financial_source_account_id: account.id).approved_version
           { source_account_id: account.id, identity_version_id: identity.id, period_start_on: identity.statement_facts["period_start_on"],
-            period_end_on: identity.statement_facts["period_end_on"], all_rows_accounted: true }
+            period_end_on: identity.statement_facts["period_end_on"], all_rows_accounted: accounted }
         end
         raw = { revision_id: revision.id, requested_status: state[:deficiencies].empty? ? "complete" : "qualified", expected_digest: state[:content_digest],
-          reason: REASON, coverage_attestation: { all_document_rows_accounted: true, accounts: accounts } }
+          reason: REASON, coverage_attestation: { all_document_rows_accounted: accounted, accounts: accounts } }
         domain.execute("revision_approve", domain.normalize("revision_approve", raw))
         true
       end
