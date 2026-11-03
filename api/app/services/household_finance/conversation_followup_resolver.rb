@@ -10,7 +10,7 @@ module HouseholdFinance
     ACKNOWLEDGMENT_WORD_SOURCE = "(?:for sure|sounds good|got it|okay|ok|#{GRATITUDE_SOURCE})".freeze
     ACKNOWLEDGMENT_PATTERN = /\A#{ACKNOWLEDGMENT_WORD_SOURCE}(?:[\s,!.]+(?:#{ACKNOWLEDGMENT_WORD_SOURCE}|so much|a lot|for that|for this|for everything|for the help|chelu|mia))*[\s,!.]*\z/i.freeze
     GRATITUDE_PATTERN = /\b#{GRATITUDE_SOURCE}(?![\w'’])/i.freeze
-    ACKNOWLEDGMENT_ANSWER = "You got it — when you are ready, send me the next amount, due date, transaction, or decision and I’ll keep the coaching grounded in approved household numbers.".freeze
+    ACKNOWLEDGMENT_ANSWER = "Glad to help. I’m here whenever you want to look at the next thing.".freeze
     CONFIRMATION_PATTERN = /\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN = /\b(?:if|given(?:\s+that)?|assuming|suppose|supposing|let['’]?s\s+say)\b.{0,120}\b(?:(?:our|my|the)\s+)?(?:monthly\s+income|income\s+(?:per|each)\s+month|take(?:\s|-)?home(?:\s+pay)?|bring\s+home)\b(?:\s+(?:is|was|were|equals?|of|became|becomes))?\s*(?:about|around|approximately|roughly)?\s*\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?!\d|,\d)#{Money::CHAT_THOUSANDS_SOURCE}?)/i.freeze

@@ -299,9 +299,9 @@ module SavingsChallenge
       amount = money(@savings_intake[:amount_cents])
       day = label_day(@savings_intake[:effective_on])
       if @savings_intake[:kind] == "withdrawal"
-        "Got it: #{amount} taken out of your challenge savings #{day}. I've put it below — check it, then save it. Nothing is saved until you do."
+        "Got it: #{amount} taken out of your challenge savings #{day}. It's below for you to check. Nothing changes until you save it."
       else
-        "Got it: #{amount} set aside #{day}. I've put it below — check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do."
+        "Got it: #{amount} set aside #{day}. It's below for you to check. Nothing counts toward your challenge until you save it."
       end
     end
 
