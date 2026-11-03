@@ -10,19 +10,19 @@ import {
 
 describe('transaction review copy', () => {
   it('names a transaction with merchant and exact amount', () => {
-    expect(transactionItemName({ merchant: "McDonald's", amount: 25, amount_cents: 2500 })).toBe("McDonald's $25.00")
+    expect(transactionItemName({ merchant: "McDonald's", amount: 25, amount_cents: 2500 })).toBe("McDonald's $25")
     expect(transactionItemName({ merchant: 'Pay-Less', amount: 10.5 })).toBe('Pay-Less $10.50')
   })
 
   it('explains that reopening a confirmed transaction removes it from that month’s actuals', () => {
     const message = transactionReopenConfirmMessage({ merchant: "McDonald's", amount: 25, status: 'confirmed', occurred_on: '2026-10-04' })
-    expect(message).toContain("Reopen McDonald's ($25.00)?")
+    expect(message).toContain("Reopen McDonald's ($25)?")
     expect(message).toContain("removes it from October's actuals and puts it back in review")
   })
 
   it('explains that restoring an ignored draft does not change actuals', () => {
     const message = transactionReopenConfirmMessage({ merchant: 'Shell', amount: 40, status: 'ignored', occurred_on: '2026-10-04' })
-    expect(message).toMatch(/^Restore Shell \(\$40\.00\) to review\?/)
+    expect(message).toMatch(/^Restore Shell \(\$40\) to review\?/)
     expect(message).toContain('Your actuals do not change until you confirm it.')
   })
 

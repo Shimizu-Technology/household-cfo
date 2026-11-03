@@ -1,7 +1,7 @@
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+import { formatReviewMoney } from '../lib/reviewMoney'
 
 export function accountSummaryText(value: number, known: boolean, knownCount: number, accountCount: number) {
-  if (known) return money.format(value)
-  if (knownCount > 0) return `${money.format(value)} known so far`
+  if (known) return formatReviewMoney(Math.round((value) * 100))
+  if (knownCount > 0) return `${formatReviewMoney(Math.round((value) * 100))} known so far`
   return accountCount > 0 ? 'Needs a balance' : 'Not entered'
 }

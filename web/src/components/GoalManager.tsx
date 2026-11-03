@@ -1,3 +1,4 @@
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type Ref } from 'react'
 import {
   archiveGoal, createGoal, restoreGoal, updateGoal,
@@ -7,7 +8,6 @@ import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const goalTypes: GoalType[] = ['savings', 'debt_payoff', 'purchase', 'education', 'business', 'business_income', 'travel', 'home', 'retirement', 'other']
 const goalTypeLabels: Record<GoalType, string> = {
   savings: 'Savings', debt_payoff: 'Debt payoff', purchase: 'Purchase', education: 'Education',
@@ -57,7 +57,8 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
 
   const formDirty = editing !== null && Object.entries(draftBaseline).some(([key, value]) => draft[key as keyof Draft] !== value)
   const hasUnsavedChanges = saving || archiveId !== null || formDirty
-  useEffect(() => {
+  // Publish the guard before another control can receive the next interaction.
+  useLayoutEffect(() => {
     onUnsavedChangesChange?.(hasUnsavedChanges)
     return () => onUnsavedChangesChange?.(false)
   }, [hasUnsavedChanges, onUnsavedChangesChange])
@@ -159,9 +160,9 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     } catch (caught) { setError(participantErrorMessage(caught, 'That goal change could not be saved.')) }
     finally { setSaving(false) }
   }
-  const displayAmount = (value: number | null) => value === null ? 'Not entered' : money.format(value)
-  const knownTargetSummary = portfolio.active_count === 0 ? 'Not entered' : portfolio.target_known_count === 0 ? 'Needs targets' : portfolio.target_known_count === portfolio.active_count ? money.format(portfolio.target_total) : `${money.format(portfolio.target_total)} known so far`
-  const knownProgressSummary = portfolio.active_count === 0 ? 'Not entered' : portfolio.progress_known_count === 0 ? 'Needs progress' : portfolio.progress_known_count === portfolio.active_count ? money.format(portfolio.progress_total) : `${money.format(portfolio.progress_total)} known so far`
+  const displayAmount = (value: number | null) => value === null ? 'Not entered' : formatReviewMoney(Math.round((value) * 100))
+  const knownTargetSummary = portfolio.active_count === 0 ? 'Not entered' : portfolio.target_known_count === 0 ? 'Needs targets' : portfolio.target_known_count === portfolio.active_count ? formatReviewMoney(Math.round((portfolio.target_total) * 100)) : `${formatReviewMoney(Math.round((portfolio.target_total) * 100))} known so far`
+  const knownProgressSummary = portfolio.active_count === 0 ? 'Not entered' : portfolio.progress_known_count === 0 ? 'Needs progress' : portfolio.progress_known_count === portfolio.active_count ? formatReviewMoney(Math.round((portfolio.progress_total) * 100)) : `${formatReviewMoney(Math.round((portfolio.progress_total) * 100))} known so far`
 
   return <article ref={sectionRef} className="panel goal-manager">
     <div className="row-between goal-manager-heading"><div><p className="eyebrow">Tracked goals</p><h3>Turn a household priority into a goal you can update.</h3><p>These targets track intent and progress. They never move money or change accounts, debt, the budget, runway, or safe-to-spend.</p></div>{editing === null && <button ref={addButtonRef} type="button" disabled={saving} onClick={(event) => beginCreate(event.currentTarget)}>Add a goal</button>}</div>

@@ -13,8 +13,8 @@ describe('money math', () => {
 describe('formatMoneyOrUnknown', () => {
   it('formats known amounts, including a real zero', () => {
     expect(formatMoneyOrUnknown(1234.5)).toBe('$1,234.50')
-    expect(formatMoneyOrUnknown(0)).toBe('$0.00')
-    expect(formatMoneyOrUnknown(-12)).toBe('-$12.00')
+    expect(formatMoneyOrUnknown(0)).toBe('$0')
+    expect(formatMoneyOrUnknown(-12)).toBe('-$12')
   })
   it('never shows a missing amount as $0', () => {
     expect(formatMoneyOrUnknown(null)).toBe('Not known yet')

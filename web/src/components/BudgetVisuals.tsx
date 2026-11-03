@@ -1,9 +1,9 @@
 import { useId, useState, useRef, useEffect, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
+import { formatReviewMoney } from '../lib/reviewMoney'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
 
-const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const compactCurrency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -55,49 +55,45 @@ export function MonthPlanSummary({
         <PlanValue label="Spent so far" value={actual > 0 ? actual : null} emptyText="No confirmed transactions yet" />
       </div>
       {balance !== null && <p className={`month-plan-balance${balance < 0 ? ' is-short' : ''}`}>{balance < 0
-        ? `This month’s plan is ${currency.format(-balance)} more than money in.`
-        : balance === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${currency.format(balance)} after planned spending.`}</p>}
-      {overPlan > 0 && <p className="month-plan-balance is-short">Spending is {currency.format(overPlan)} over the plan.</p>}
-      {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {currency.format(pending)} pending review · not counted as spent</p>}
-      {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${currency.format(actual)} confirmed, ${currency.format(pending)} pending, against ${currency.format(planned)} planned`} />}
+        ? `This month’s plan is ${formatReviewMoney(Math.round((-balance) * 100))} more than money in.`
+        : balance === 0 ? 'Your plan uses all of your money in.' : `Your plan leaves ${formatReviewMoney(Math.round((balance) * 100))} after planned spending.`}</p>}
+      {overPlan > 0 && <p className="month-plan-balance is-short">Spending is {formatReviewMoney(Math.round((overPlan) * 100))} over the plan.</p>}
+      {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {formatReviewMoney(Math.round((pending) * 100))} pending review · not counted as spent</p>}
+      {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${formatReviewMoney(Math.round((actual) * 100))} confirmed, ${formatReviewMoney(Math.round((pending) * 100))} pending, against ${formatReviewMoney(Math.round((planned) * 100))} planned`} />}
       {planKnown && !compact && (debtMinimums > 0 || !debtMinimumsKnown) && <p className="month-plan-note" role="group" aria-label="Monthly money out breakdown">
-        Category plan {currency.format(planned)} + Debt minimums {debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'} = Planned out {debtMinimumsKnown ? currency.format(addMoney(planned, debtMinimums)) : 'Not available'}
+        Category plan {formatReviewMoney(Math.round((planned) * 100))} + Debt minimums {debtMinimumsKnown ? formatReviewMoney(Math.round((debtMinimums) * 100)) : 'Not entered'} = Planned out {debtMinimumsKnown ? formatReviewMoney(Math.round((addMoney(planned, debtMinimums)) * 100)) : 'Not available'}
       </p>}
     </section>
   )
 }
 
-export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[] }) {
+export function ExpenseStackOverview({ positions, debtMinimums }: { positions: BudgetPosition[]; debtMinimums?: number | null }) {
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
     return {
       stackKey,
       label: stackLabels[stackKey],
+      positions: stackPositions,
       totals: budgetPositionTotals(stackPositions),
     }
   })
 
   return (
     <section className="expense-stack-overview" aria-labelledby={titleId}>
-      <div className="financial-visual-heading">
-        <div>
-          <h4 id={titleId}>Where the money goes</h4>
-        </div>
-        <p>Confirmed spending is solid. Pending review stays striped until you approve it.</p>
-      </div>
+      <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
       <div className="expense-stack-list">
-        {groups.map(({ stackKey, label, totals }) => (
+        {groups.map(({ stackKey, label, totals, positions: categories }) => (
           <article className={`expense-stack-row stack-${stackKey}`} key={stackKey}>
             <div className="expense-stack-row-heading">
               <div>
                 <strong>{label}</strong>
-                <span>{currency.format(totals.actual)} actual · {currency.format(totals.planned)} planned</span>
+                <span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span>
               </div>
-              <b className={totals.remaining < 0 ? 'negative' : ''}>{totals.remaining < 0 ? `${currency.format(Math.abs(totals.remaining))} over` : `${currency.format(totals.remaining)} left`}</b>
+              <b>{categories.length < 2 ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
             </div>
-            <BudgetProgressTrack planned={totals.planned} actual={totals.actual} pending={totals.pending} label={`${label}: ${currency.format(totals.actual)} confirmed and ${currency.format(totals.pending)} pending against ${currency.format(totals.planned)} planned`} />
-            {totals.pending > 0 && <small>{currency.format(totals.pending)} pending review—not included in actuals.</small>}
+            {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+            {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
         ))}
       </div>
@@ -129,7 +125,7 @@ export function CategoryPressureList({
           <span>{eyebrow}</span>
           <h4 id={titleId}>{title}</h4>
         </div>
-        <p>Ranked by confirmed pace, pending review, and how much of the monthly plan remains.</p>
+        <p>See what you’ve spent and what’s waiting for review.</p>
       </div>
       <div className="category-pressure-list">
         {rankedPositions.length === 0 ? (
@@ -145,21 +141,21 @@ export function CategoryPressureList({
                   <span>{stackLabels[position.stackKey]}</span>
                 </div>
                 <div className="category-pressure-status">
-                  {position.pending > 0 && <span>{currency.format(position.pending)} pending</span>}
+                  {position.pending > 0 && <span>{formatReviewMoney(Math.round((position.pending) * 100))} pending</span>}
                   <b className={projectedDifference < 0 ? 'negative' : ''}>
                     {position.planned <= 0
-                      ? `${currency.format(position.actual)} unplanned`
+                      ? `${formatReviewMoney(Math.round((position.actual) * 100))} unplanned`
                       : projectedDifference < 0
-                        ? `${currency.format(Math.abs(projectedDifference))} over if approved`
-                        : `${currency.format(projectedDifference)} after pending`}
+                        ? `${formatReviewMoney(Math.round((Math.abs(projectedDifference)) * 100))} over if approved`
+                        : `${formatReviewMoney(Math.round((projectedDifference) * 100))} after pending`}
                   </b>
                 </div>
               </div>
-              <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${currency.format(position.actual)} confirmed and ${currency.format(position.pending)} pending against ${currency.format(position.planned)} planned`} />
+              <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />
               <div className="category-pressure-values">
-                <span>{currency.format(position.actual)} actual</span>
-                <span>{currency.format(position.planned)} planned</span>
-                <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${currency.format(Math.abs(position.remaining))} over now` : `${currency.format(position.remaining)} remaining now`}</span>
+                <span>{formatReviewMoney(Math.round((position.actual) * 100))} actual</span>
+                <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
+                <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
               </div>
             </article>
           )
@@ -258,7 +254,7 @@ export function AnnualCashFlowChart({
                   aria-hidden={narrow || undefined}
                   aria-pressed={narrow ? undefined : pinnedPeriodId === month.period_id}
                   aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
-                  aria-label={!moneyKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
+                  aria-label={!moneyKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${formatReviewMoney(Math.round((month.income) * 100))} income, ${formatReviewMoney(Math.round((month.planned_outflow) * 100))} planned outflow, and ${formatReviewMoney(Math.round((Math.abs(month.baseline_surplus)) * 100))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
                   onMouseEnter={narrow ? undefined : (event) => {
                     // Focusing a month can scroll another bar beneath a stationary
                     // pointer. Keep the keyboard user's detail on the focused month.
@@ -298,29 +294,29 @@ export function AnnualCashFlowChart({
             <strong>{activeMonth.label} {plan.year}</strong>
             <small>
               {activeMonth.baseline_surplus < 0
-                ? `${currency.format(Math.abs(activeMonth.baseline_surplus))} more is planned than expected income.`
-                : `${currency.format(activeMonth.baseline_surplus)} remains after planned outflow.`}
+                ? `${formatReviewMoney(Math.round((Math.abs(activeMonth.baseline_surplus)) * 100))} more is planned than expected income.`
+                : `${formatReviewMoney(Math.round((activeMonth.baseline_surplus) * 100))} remains after planned outflow.`}
             </small>
           </div>
           <dl>
-            <div><dt>Income</dt><dd>{currency.format(activeMonth.income)}</dd></div>
-            <div><dt>Planned outflow</dt><dd>{currency.format(activeMonth.planned_outflow)}</dd></div>
+            <div><dt>Income</dt><dd>{formatReviewMoney(Math.round((activeMonth.income) * 100))}</dd></div>
+            <div><dt>Planned outflow</dt><dd>{formatReviewMoney(Math.round((activeMonth.planned_outflow) * 100))}</dd></div>
             <div className={activeMonth.baseline_surplus < 0 ? 'negative' : ''}>
               <dt>{activeMonth.baseline_surplus < 0 ? 'Short each month' : 'Left over each month'}</dt>
-              <dd>{currency.format(Math.abs(activeMonth.baseline_surplus))}</dd>
+              <dd>{formatReviewMoney(Math.round((Math.abs(activeMonth.baseline_surplus)) * 100))}</dd>
             </div>
           </dl>
           <div className="cash-flow-detail-context">
             <div>
               <span>Expected irregular plan included in outflow</span>
-              <strong>{currency.format(activeMonth.expected_irregular)}</strong>
+              <strong>{formatReviewMoney(Math.round((activeMonth.expected_irregular) * 100))}</strong>
             </div>
             {activeMonth.expected_contributors.length > 0 ? (
               <ul>
                 {activeMonth.expected_contributors.map((contributor) => (
                   <li key={`${activeMonth.period_id}-${contributor.name}`}>
                     <span>{contributor.name}</span>
-                    <b>{currency.format(contributor.amount)}</b>
+                    <b>{formatReviewMoney(Math.round((contributor.amount) * 100))}</b>
                   </li>
                 ))}
               </ul>
@@ -336,7 +332,7 @@ export function AnnualCashFlowChart({
 }
 
 function PlanValue({ label, value, tone, emptyText = 'Not entered' }: { label: string; value: number | null; tone?: 'pending' | 'negative'; emptyText?: string }) {
-  const formattedValue = value === null ? emptyText : currency.format(value)
+  const formattedValue = value === null ? emptyText : formatReviewMoney(Math.round((value) * 100))
   const lengthClass = formattedValue.length > 14 ? ' value-xlong' : formattedValue.length > 10 ? ' value-long' : ''
   return (
     <div className={tone ? `plan-value ${tone}` : 'plan-value'}>

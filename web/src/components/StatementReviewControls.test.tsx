@@ -56,7 +56,7 @@ describe('participant source approval controls', () => {
     const mutate = vi.fn().mockResolvedValue(undefined)
     render(<StatementRowEditor importId={1203} context={data} event={event} mutate={mutate} disabled={false} />)
     fireEvent.change(screen.getByLabelText('Signed movement'), { target: { value: '-999.00' } })
-    expect(screen.getByText(/Saved merchant · Complete purchase \$9.00/)).toBeTruthy()
+    expect(screen.getByText(/Saved merchant · Complete purchase \$9/)).toBeTruthy()
     const approve = screen.getByRole('button', { name: 'Approve saved row proposal' })
     expect((approve as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: /I reviewed this saved proposal/ }))
@@ -147,7 +147,7 @@ describe('material statement review repairs', () => {
     fireEvent.change(screen.getByLabelText('Review note'), { target: { value: 'Corrected name only' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save proposal for review' }))
     expect(mutate).toHaveBeenCalledWith('stage', expect.objectContaining({ projection: { action: 'none' }, facts: expect.objectContaining({ authorized_on: '2026-07-06', external_reference: 'fictional-reference' }) }))
-    expect(screen.getByText(/Existing spending of \$10.00 stays unchanged/)).toBeTruthy()
+    expect(screen.getByText(/Existing spending of \$10 stays unchanged/)).toBeTruthy()
   })
   it('retries failed account pages at the same cursor without losing selected account', async () => {
     vi.mocked(fetchTrackedSourceAccounts).mockRejectedValueOnce(new Error('Choices offline')).mockResolvedValueOnce({ records: [], next_cursor: 50 }).mockRejectedValueOnce(new Error('Second page offline')).mockResolvedValueOnce({ records: [{ id: 51, label: 'Another account', account_basis: 'asset', account_id: null }], next_cursor: null })

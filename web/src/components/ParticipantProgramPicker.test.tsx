@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import {act,cleanup,fireEvent,render,screen,waitFor} from '@testing-library/react'
 import {afterEach,beforeEach,expect,it,vi} from 'vitest'
+import {useState} from 'react'
+import {AccountMenu} from './AccountMenu'
 import {ParticipantProgramPicker} from './ParticipantProgramPicker'
 import {fetchParticipantPrograms,type ParticipantPrograms,type ParticipantProgram} from '../participantProgramsApi'
 vi.mock('../participantProgramsApi',()=>({fetchParticipantPrograms:vi.fn()}))
@@ -8,7 +10,7 @@ const program=(id:number,name=`Fictional program ${id}`):ParticipantProgram=>({i
 const page=(programs=[program(1),program(2)]):ParticipantPrograms=>({actor_id:7,current_cohort_id:2,current_program:program(2),selection_unavailable:false,programs,next_cursor:null})
 const choose=vi.fn()
 function view(actorId=7,currentCohortId?:number){return <ParticipantProgramPicker actorId={actorId} currentCohortId={currentCohortId} onChoose={choose}/>}
-beforeEach(()=>{vi.clearAllMocks();vi.mocked(fetchParticipantPrograms).mockResolvedValue(page())})
+beforeEach(()=>{vi.resetAllMocks();vi.mocked(fetchParticipantPrograms).mockResolvedValue(page())})
 afterEach(()=>{cleanup();vi.restoreAllMocks()})
 it('shows server-current instead of first option and calls selection only on deliberate native change',async()=>{render(view());const select=await screen.findByLabelText('Switch participant program');expect((select as HTMLSelectElement).value).toBe('2');expect(choose).not.toHaveBeenCalled();fireEvent.change(select,{target:{value:'1'}});expect(choose).toHaveBeenCalledWith(1);expect(screen.getByText(/does not join a program/)).toBeTruthy()})
 it('one available alternative stays explicit when current is unavailable',async()=>{vi.mocked(fetchParticipantPrograms).mockResolvedValue({...page([program(1)]),current_cohort_id:null,current_program:null,selection_unavailable:true});render(view(7,999));await screen.findByText(/selected program is unavailable/);expect(screen.queryByRole('combobox')).toBeNull();expect(choose).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Use Fictional program 1'}));expect(choose).toHaveBeenCalledWith(1)})
@@ -22,3 +24,29 @@ it('program changes during page continuation require refresh instead of switchin
 it('reuses actor-scoped startup selection while explicit refresh remains authoritative',async()=>{render(<ParticipantProgramPicker actorId={7} currentCohortId={2} initialPrograms={page()} onChoose={choose}/>);await screen.findByLabelText('Switch participant program');expect(fetchParticipantPrograms).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Refresh program choices'}));await waitFor(()=>expect(fetchParticipantPrograms).toHaveBeenCalledOnce())})
 it('never shows prefetched program metadata from another actor',async()=>{render(<ParticipantProgramPicker actorId={7} currentCohortId={2} initialPrograms={{...page([program(2,'Wrong actor name')]),actor_id:99}} onChoose={choose}/>);expect(screen.queryByText('Wrong actor name')).toBeNull();await screen.findByLabelText('Switch participant program');expect(fetchParticipantPrograms).toHaveBeenCalledOnce()})
 it('a workspace load failure does not add an empty-programs message when there is nothing to switch to',async()=>{vi.mocked(fetchParticipantPrograms).mockResolvedValue({...page([]),current_cohort_id:null,current_program:null});const ui=render(<ParticipantProgramPicker actorId={7} onChoose={choose} hideWhenEmpty/>);await waitFor(()=>expect(fetchParticipantPrograms).toHaveBeenCalled());await waitFor(()=>expect(screen.queryByRole('status')).toBeNull());expect(screen.queryByText(/No participant programs/)).toBeNull();expect(ui.container.innerHTML).toBe('');vi.mocked(fetchParticipantPrograms).mockResolvedValue({...page([program(1),program(2)])});ui.rerender(<ParticipantProgramPicker actorId={7} currentCohortId={2} onChoose={choose} hideWhenEmpty/>);expect(await screen.findByLabelText('Switch participant program')).toBeTruthy()})
+
+it('omits a single current program from the account menu but keeps recovery and multiple choices',async()=>{
+ vi.mocked(fetchParticipantPrograms).mockResolvedValue({...page([program(2)]),current_cohort_id:2,current_program:program(2)})
+ const ui=render(<ParticipantProgramPicker actorId={7} currentCohortId={2} onChoose={choose} hideWhenSingle/>)
+ await waitFor(()=>expect(ui.container.innerHTML).toBe(''))
+ cleanup()
+ vi.mocked(fetchParticipantPrograms).mockResolvedValue(page())
+ render(<ParticipantProgramPicker actorId={7} currentCohortId={2} onChoose={choose} hideWhenSingle/>)
+ expect(await screen.findByLabelText('Switch participant program')).toBeTruthy()
+})
+
+it('refreshes a hidden one-program picker when the account menu reopens',async()=>{
+ vi.mocked(fetchParticipantPrograms).mockResolvedValueOnce({...page([program(2)]),current_program:program(2)}).mockResolvedValueOnce(page())
+ function Menu(){const [open,setOpen]=useState(false);return <AccountMenu onOpen={()=>setOpen(true)} onClose={()=>setOpen(false)}>{open&&<ParticipantProgramPicker actorId={7} currentCohortId={2} onChoose={choose} hideWhenSingle/>}</AccountMenu>}
+ render(<Menu/>)
+ const menu=screen.getByLabelText('Account and help').closest('details')!
+ menu.open=true;fireEvent(menu,new Event('toggle'))
+ await waitFor(()=>expect(fetchParticipantPrograms).toHaveBeenCalledOnce())
+ await waitFor(()=>expect(screen.queryByRole('status')).toBeNull())
+ expect(screen.queryByRole('combobox')).toBeNull()
+ menu.open=false;fireEvent(menu,new Event('toggle'))
+ menu.open=true;fireEvent(menu,new Event('toggle'))
+ expect(await screen.findByLabelText('Switch participant program')).toBeTruthy()
+ expect(fetchParticipantPrograms).toHaveBeenCalledTimes(2)
+ expect(choose).not.toHaveBeenCalled()
+})

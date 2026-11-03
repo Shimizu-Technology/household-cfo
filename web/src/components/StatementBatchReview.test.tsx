@@ -50,7 +50,7 @@ describe('StatementBatchReview current account identity', () => {
     fireEvent.click(screen.getByText('Review record details'))
     expect(technical.textContent).toMatch(/Saved facts account identity ID: 101/)
 
-    expect(screen.getByText(/Spending: unchanged at \$1,000.00/)).toBeTruthy()
+    expect(screen.getByText(/Spending: unchanged at \$1,000/)).toBeTruthy()
   })
   it('requires a new confirmation when the reviewed account changes without a row-head change', () => {
     const { context, event } = fixture()

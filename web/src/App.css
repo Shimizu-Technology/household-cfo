@@ -10530,7 +10530,8 @@ body:has(.app.is-chat-page) { overflow: hidden; }
   .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-period-prefix { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 }
 
-.money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; }
+.money-setup-help { justify-self: start; grid-column: 1 / -1; min-height: 44px; border-radius: 8px; }
+@media (max-width: 620px) { .money-setup-help { width: 100%; justify-self: stretch; } }
 
 /* Review cards follow the conversation; keep them grouped and out of the way
    of Mia's newest reply. */

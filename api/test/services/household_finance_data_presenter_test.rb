@@ -5,6 +5,20 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
   include ActiveSupport::Testing::TimeHelpers
   include PersonaTestHelper
 
+  test "Home uses the same current-month answer as Mia even when a different budget year is selected" do
+    household, user = create_household
+    travel_to Date.new(2026, 11, 3) do
+      future_plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2027).plan_data
+      dashboard = HouseholdFinance::DataPresenter.new(household, user: user, annual_plan: future_plan).dashboard
+      expected = HouseholdFinance::MiaMonthAnswer.for_question(household, "How am I doing this month?").call
+      assert_equal expected, dashboard.fetch(:month_answer)
+      assert_nil expected[:money_in_cents]
+      assert_equal 0, expected[:planned_out_cents]
+      assert_nil expected[:runway_months]
+      assert_includes HouseholdFinance::MiaMonthAnswer.for_question(household, "How am I doing this month?").response, expected.fetch(:readiness_guidance)
+    end
+  end
+
   test "blank workspace does not invent debt or CFO filter amounts" do
     household, user = create_household
     household.household_profile.update!(
