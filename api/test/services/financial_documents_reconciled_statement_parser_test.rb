@@ -172,13 +172,15 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     extractor.define_singleton_method(:extract_openrouter_document) do |_document, path, batch_label:|
       requested << batch_label
       raise "not a single page" unless CombinePDF.load(path).pages.one?
-      FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: accounting }, error: nil, metadata: { usage: { "total_tokens" => 10 } })
+      FinancialDocuments::Extractor::Result.new(success: true, data: { source_accounting: accounting, confidence: "low", warnings: [ "One merchant name needs a closer look." ] }, error: nil, metadata: { usage: { "total_tokens" => 10 } })
     end
     result = extractor.send(:native_statement_result, doc, ROOT.join("wrapped-page.pdf"))
     assert result.success?, result.error
     assert_equal [ "pages 2-2 of 3" ], requested
     assert_equal 1, result.metadata[:batch_count]
     assert_equal 10, result.metadata.dig(:usage, "total_tokens")
+    assert_equal "low", result.data[:confidence]
+    assert_includes result.data[:warnings], "One merchant name needs a closer look."
     assert_accounting(fixture("wrapped-page.pdf"), result.data[:source_accounting])
   end
 

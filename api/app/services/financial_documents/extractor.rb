@@ -186,6 +186,7 @@ module FinancialDocuments
       source = CombinePDF.load(file_path)
       repairs = {}
       metadata = []
+      repair_data = []
       parser.failed_pages.each do |page_number|
         progress!(stage: "reading", page: page_number, page_count: pages.length)
         chunk = Tempfile.new([ "statement_page", ".pdf" ])
@@ -197,6 +198,7 @@ module FinancialDocuments
 
           repairs[page_number] = repaired.data[:source_accounting]
           metadata << repaired.metadata
+          repair_data << repaired.data
         ensure
           chunk.close!
         end
@@ -204,7 +206,10 @@ module FinancialDocuments
       recovered = parser.recover(repairs)
       return failure("We couldn’t match every statement row to the printed totals. Nothing changed. Upload a CSV export or a clearer copy.") unless recovered.success?
 
-      Result.new(success: true, data: recovered.data, error: nil,
+      data = recovered.data.merge(confidence: merged_confidence([ recovered.data, *repair_data ]),
+        warnings: (recovered.data[:warnings] + repair_data.flat_map { |page| Array(page[:warnings]) })
+          .reject { |warning| batch_scope_warning?(warning) }.uniq.first(MAX_WARNINGS))
+      Result.new(success: true, data: data, error: nil,
         metadata: recovered.metadata.merge(usage: merged_usage(metadata), batch_count: repairs.length))
     end
 
