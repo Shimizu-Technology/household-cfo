@@ -17,10 +17,15 @@ export type PlanAttention = {
   category_id: number | null
   category_name: string | null
 }
+/** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
+export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean }
+export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 export type StatementPlan = {
   total: number
   done: number
   ready_event_ids: number[]
+  ready: PlanReady[]
+  coverage: { question: string | null; answer: CoverageAnswer | null }
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
@@ -29,11 +34,13 @@ export type StatementPlan = {
 
 export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 'refund'
 export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
-export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit }
+/** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
+export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
+export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown }
 export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[] }
+export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
-export const APPROVE_PAGE = 400
+export const APPROVE_PAGE = 100
 
 export const LINE_KIND_OPTIONS: Array<{ value: LineKind; label: string }> = [
   { value: 'spending', label: 'Spending' },
@@ -102,7 +109,7 @@ export function statementHeadline(accounts: SourceAccount[], names: Record<numbe
 
 export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
   const attention = plan.attention.length
-  const open = plan.ready_event_ids.length
+  const open = plan.ready.length
   const page = Math.min(open, APPROVE_PAGE)
   const look = `${attention} ${attention === 1 ? 'needs' : 'need'} a quick look.`
   if (open > APPROVE_PAGE) {
@@ -115,11 +122,23 @@ export function statementCounts(plan: StatementPlan): { open: number; page: numb
   return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.`, action: null }
 }
 
-export function totalsNote(check: StatementPlan['totals_check']): string | null {
-  if (check === 'mismatch') return 'The totals on this statement don’t add up, so a line may be missing or wrong. We’ll keep that noted.'
-  if (check === 'count') return 'The number of lines we found doesn’t match the number printed on your statement, so a line may be missing or extra. We’ll keep that noted.'
-  if (check === 'unchecked') return 'This file doesn’t show totals, so we couldn’t check it against your statement.'
-  return null
+/** "Dining out · as before": a category that comes only from what she chose for this shop earlier says so. */
+export function readyCategoryLabel(line: PlanReady): string | null {
+  if (!line.category_name) return null
+  return line.as_before ? `${line.category_name} · as before` : line.category_name
+}
+
+/** The summary names the categories she did not see a guess for, so "approve" is never a surprise: "2 use a category you chose before: Dining out." */
+export function asBeforeNote(plan: StatementPlan): string | null {
+  const before = plan.ready.filter((line) => line.as_before && line.category_name)
+  if (before.length === 0) return null
+  const names = [...new Set(before.map((line) => line.category_name as string))]
+  const listed = names.length <= 3 ? `: ${names.join(', ')}` : ''
+  return `${before.length} ${before.length === 1 ? 'uses' : 'use'} a category you chose before${listed}.`
+}
+
+export function coverageMissingNote(): string {
+  return 'Your lines are saved. We’ll keep this statement marked as not finished, because something may be missing.'
 }
 
 export function accountsNeedingBasis(accounts: SourceAccount[], reviewed: Array<{ source_account_id: number; approved: unknown }>): SourceAccount[] {

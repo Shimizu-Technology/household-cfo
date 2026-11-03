@@ -22,21 +22,26 @@ describe('statement review a participant can finish', () => {
   it('opens with one summary line: how many lines, which account, which dates, and how many need a look', async () => {
     mount()
     expect(await screen.findByRole('heading', { name: '137 lines from Fictional checking, Sep 1–30.' })).toBeTruthy()
-    expect(screen.getByText('127 look right. 10 need a quick look.')).toBeTruthy()
+    expect(screen.getByText('127 look right. 10 need a quick look. We’ll approve them 100 at a time.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Change' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Approve the other 127' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Approve these 100' })).toBeTruthy()
     expect(fetchReview).toHaveBeenCalledWith(1203, 88, 1, 'all', expect.any(AbortSignal))
   })
 
   it('approves exactly the lines that looked right, in one request that names them', async () => {
     mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve the other 127' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve these 100' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     const [importId, revisionId, action, input] = mutate.mock.calls[0]
     expect([importId, revisionId, action]).toEqual([1203, 88, 'approve_lines'])
-    const sent = input as { expect_ready_ids: number[]; lines: Array<{ event_id: number; decision: string }> }
-    expect(sent.lines).toHaveLength(127)
+    const sent = input as { expect_ready_ids: number[]; paged?: boolean; lines: Array<{ event_id: number; decision: string; shown?: { event_type: string; category_id: number | null } }> }
+    // 127 look right; one request saves one page of 100 and says it is a page.
+    expect(sent.paged).toBe(true)
+    expect(sent.lines).toHaveLength(100)
     expect(new Set(sent.lines.map((line) => line.decision))).toEqual(new Set(['as_read']))
+    // Each line carries the kind and category she was shown, so a category she never saw cannot be saved.
+    const shown = new Map(participantReviewFixture().participant_review!.plan.ready.map((line) => [line.event_id, { event_type: line.event_type, category_id: line.category_id }]))
+    expect(sent.lines.every((line) => JSON.stringify(line.shown) === JSON.stringify(shown.get(line.event_id)))).toBe(true)
     expect(sent.lines.map((line) => line.event_id)).toEqual(sent.expect_ready_ids)
     // The refund, transfer and card payment are never part of "the rest".
     expect(sent.expect_ready_ids).not.toContain(4000)
@@ -114,20 +119,67 @@ describe('statement review a participant can finish', () => {
     expect(fetchReview).toHaveBeenLastCalledWith(1203, 88, 2, 'all', expect.any(AbortSignal))
   })
 
-  it('says plainly when the totals do not add up, and when the file prints none', async () => {
-    const data = participantReviewFixture(); data.participant_review!.plan.totals_check = 'mismatch'
+  it('asks one plain question when the statement cannot show nothing is missing, and sends only her answer', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: 'Your statement shows 27 lines and we found 26. Is anything missing?', answer: null }
     fetchReview.mockResolvedValue(data)
-    const view = mount()
-    expect(await screen.findByText(/The totals on this statement don’t add up/)).toBeTruthy()
-    view.unmount(); cleanup()
-    fetchReview.mockResolvedValue(participantReviewFixture())
     mount()
-    expect(await screen.findByText(/This file doesn’t show totals/)).toBeTruthy()
+    expect(await screen.findByText('Your statement shows 27 lines and we found 26. Is anything missing?')).toBeTruthy()
+    // Approving without answering says nothing about coverage on her behalf.
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).not.toHaveProperty('coverage_answer')
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Nothing’s missing' }) as HTMLButtonElement).disabled).toBe(false))
+    // Her answer rides with the next save, as hers.
+    fireEvent.click(screen.getByRole('button', { name: 'Something’s missing' }))
+    expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText(/We’ll keep this statement marked as not finished/)).toBeTruthy()
+    expect(mutate).toHaveBeenCalledTimes(1)
+    const list = screen.getByRole('list', { name: 'Lines that need a quick look' })
+    fireEvent.click(within(list).getAllByRole('button', { name: /^Yes: / })[0])
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toMatchObject({ coverage_answer: 'something_missing' })
+  })
+
+  it('saves her answer straight away when every line is already saved, and holds the next step until she answers', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.done = 137; plan.ready = []; plan.ready_event_ids = []; plan.attention = []
+    fetchReview.mockResolvedValue(data)
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: vi.fn() }]} />)
+    expect(await screen.findByText('All 137 lines are saved.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing' })
+    expect(await screen.findByRole('button', { name: 'See what Mia notices' })).toBeTruthy()
+  })
+
+  it('asks nothing when the statement reconciles', async () => {
+    const data = participantReviewFixture(); data.participant_review!.plan.coverage = { question: null, answer: null }; data.participant_review!.plan.totals_check = 'matches'
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('heading', { level: 5 })
+    expect(screen.queryByRole('button', { name: 'Nothing’s missing' })).toBeNull()
+    expect(screen.queryByText(/Is anything missing/)).toBeNull()
+  })
+
+  it('shows the category a line will be saved with, including one that comes only from her history', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.ready[3] = { ...plan.ready[3], category_id: 31, category_name: 'Dining out', as_before: true }
+    data.participant_review!.categories = [{ id: 10, name: 'Groceries' }, { id: 31, name: 'Dining out' }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    expect(await screen.findByText('1 uses a category you chose before: Dining out.')).toBeTruthy()
+    const row = screen.getByRole('button', { name: `Fictional entry ${plan.ready[3].event_id - 4000 + 1}` }).closest('tr')!
+    expect(within(row).getByText('Dining out · as before')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    const sent = mutate.mock.calls[0][3] as { lines: Array<{ event_id: number; shown: { category_id: number | null } }> }
+    expect(sent.lines.find((line) => line.event_id === plan.ready[3].event_id)?.shown.category_id).toBe(31)
   })
 
   it('shows a finished statement as saved and offers the next step', async () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
-    plan.done = 137; plan.ready_event_ids = []; plan.attention = []
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
     fetchReview.mockResolvedValue(data)
     const snapshot = vi.fn(); const mia = vi.fn()
     render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="done" next={[{ label: 'See what Mia notices', run: mia }, { label: 'Open your spending snapshot', run: snapshot }]} />)
@@ -140,43 +192,46 @@ describe('statement review a participant can finish', () => {
     expect(mia).toHaveBeenCalled(); expect(snapshot).not.toHaveBeenCalled()
   })
 
-  it('approves a long statement 400 lines at a time, each request naming exactly the lines of its page', async () => {
+  it('approves a long statement 100 lines at a time, each request naming exactly the lines of its page', async () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
-    plan.ready_event_ids = Array.from({ length: 1_000 }, (_, index) => 10_000 + index); plan.attention = []; plan.total = 1_000
+    plan.ready = Array.from({ length: 1_000 }, (_, index) => ({ event_id: 10_000 + index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false })); plan.ready_event_ids = plan.ready.map((line) => line.event_id); plan.attention = []; plan.total = 1_000
     fetchReview.mockResolvedValue(data)
     mount()
-    expect(await screen.findByText('All 1,000 look right. We’ll approve them 400 at a time.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Approve these 400' }))
+    expect(await screen.findByText('All 1,000 look right. We’ll approve them 100 at a time.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     const sent = mutate.mock.calls[0][3] as { expect_ready_ids: number[]; paged?: boolean; lines: Array<{ event_id: number; decision: string }> }
     expect(sent.paged).toBe(true)
-    expect(sent.lines).toHaveLength(400)
-    expect(sent.expect_ready_ids).toEqual(plan.ready_event_ids.slice(0, 400))
+    expect(sent.lines).toHaveLength(100)
+    expect(sent.expect_ready_ids).toEqual(plan.ready_event_ids.slice(0, 100))
     expect(sent.lines.map((line) => line.event_id)).toEqual(sent.expect_ready_ids)
   })
 
   it('says a long save can take a minute while it saves, then stops saying it', async () => {
-    const data = participantReviewFixture(); data.participant_review!.plan.ready_event_ids = Array.from({ length: 1_000 }, (_, index) => 10_000 + index)
+    const data = participantReviewFixture(); data.participant_review!.plan.ready = Array.from({ length: 1_000 }, (_, index) => ({ event_id: 10_000 + index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
     fetchReview.mockResolvedValue(data)
     let finish: (value: { record: object; replayed: boolean }) => void = () => {}
     mutate.mockReturnValueOnce(new Promise((resolve) => { finish = resolve }))
     mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve these 400' }))
-    expect(await screen.findByText('Saving 400 lines. This can take a minute.')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve these 100' }))
+    expect(await screen.findByText('Saving 100 lines. This can take a minute.')).toBeTruthy()
     finish({ record: {}, replayed: false })
-    await waitFor(() => expect(screen.queryByText('Saving 400 lines. This can take a minute.')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('Saving 100 lines. This can take a minute.')).toBeNull())
   })
 
   it('does not call a statement paged when it fits on one page', async () => {
+    const data = participantReviewFixture(); const plan = data.participant_review!.plan
+    plan.ready = plan.ready.slice(0, 27); plan.ready_event_ids = plan.ready.map((line) => line.event_id)
+    fetchReview.mockResolvedValue(data)
     mount()
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve the other 127' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve the other 27' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
     expect(mutate.mock.calls[0][3]).not.toHaveProperty('paged')
   })
 
-  it('asks "Still Dining out?" with Yes and Change, and Yes saves it in that category', async () => {
+  it('asks "Still Dining out?" with Yes and Change, and Yes confirms that category without changing what kind of line it is', async () => {
     const data = participantReviewFixture(); const plan = data.participant_review!.plan
-    plan.attention = [{ event_id: 4005, kind: 'still_category', event_type: 'purchase', question: 'Still Dining out?', answers: [{ id: 'keep', label: 'Yes' }, { id: 'edit', label: 'Change' }],
+    plan.attention = [{ event_id: 4005, kind: 'still_category', event_type: 'fee', question: 'Still Dining out?', answers: [{ id: 'keep', label: 'Yes' }, { id: 'edit', label: 'Change' }],
       merchant: 'Island Table', posted_on: '2026-09-05', signed_amount_cents: -6720, category_id: 31, category_name: 'Dining out' }]
     data.participant_review!.categories = [{ id: 31, name: 'Dining out' }, { id: 32, name: 'Groceries' }]
     fetchReview.mockResolvedValue(data)
@@ -185,7 +240,7 @@ describe('statement review a participant can finish', () => {
     expect(within(item).getByText('Still Dining out?')).toBeTruthy()
     fireEvent.click(within(item).getByRole('button', { name: 'Yes: Island Table' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
-    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4005, decision: 'edited', edit: { kind: 'spending', merchant: 'Island Table', posted_on: '2026-09-05', amount_cents: 6720, category_id: 31 } }] })
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4005, decision: 'as_read', shown: { event_type: 'fee', category_id: 31 } }] })
     fireEvent.click(within(item).getByRole('button', { name: 'Change: Island Table' }))
     const sheet = await screen.findByRole('dialog')
     expect((within(sheet).getByLabelText('Category') as HTMLSelectElement).value).toBe('31')
@@ -244,7 +299,7 @@ describe('statement review a participant can finish', () => {
     await screen.findByRole('table')
     let finish!: (data: SourceReview) => void
     fetchReview.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
-    fireEvent.click(screen.getByRole('button', { name: 'Approve the other 127' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
     await waitFor(() => expect(fetchReview).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('table')).toBeTruthy()
     finish(participantReviewFixture())

@@ -43,6 +43,9 @@ export function participantReviewFixture(page = 1, filter: SourceReviewFilter = 
     rows: Object.fromEntries(data.events.map((event) => [event.id, { head: { id: event.id + 1_000, approved_version_id: null, lock_version: 0 }, approved: null, pending: null }])),
     accounts: [{ source_account_id: 501, name: 'Fictional checking', last4: null, head: { id: 80, approved_version_id: 100, lock_version: 1 }, approved: { id: 100, digest: 'fictional-account', version_number: 1, tracked_account: { id: 2, label: 'Fictional checking', account_basis: 'asset', account_id: null }, statement_facts: { period_start_on: '2026-09-01', period_end_on: '2026-09-30', opening_balance_cents: 500_000, closing_balance_cents: 379_000, printed_debit_cents: 124_000, printed_credit_cents: 3_000, printed_row_count: 137 } } }],
     coverage: { revision_id: 88, represented_rows: 137, approved_rows: 0, pending_corrections: 0, content_digest: 'fictional-coverage', deficiencies: ['unreviewed_source_rows','document_page_or_sheet_coverage_unverified'] }, approved_coverage: null,
-    plan: { total: 137, done: 0, ready_event_ids: everyone.filter((event) => !flagged.has(event.id)).map((event) => event.id), totals_check: 'unchecked', first_on: '2026-09-15', last_on: '2026-09-15', attention } }
+    plan: { total: 137, done: 0, ready_event_ids: everyone.filter((event) => !flagged.has(event.id)).map((event) => event.id), totals_check: 'unchecked', first_on: '2026-09-15', last_on: '2026-09-15', attention,
+      // What "Approve the rest" will save for each line, shown and sent back as she saw it.
+      ready: everyone.filter((event) => !flagged.has(event.id)).map((event) => ({ event_id: event.id, event_type: event.event_type, category_id: event.event_type === 'purchase' ? 10 : null, category_name: event.event_type === 'purchase' ? 'Groceries' : null, as_before: false })),
+      coverage: { question: 'This file doesn’t show totals, so we couldn’t check it against your statement. Is anything missing?', answer: null } } }
   return data
 }

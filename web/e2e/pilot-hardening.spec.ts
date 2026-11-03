@@ -9343,8 +9343,8 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
 test('BOG UI typed statement opens with one summary, the lines that need an answer, and every line in pages', async ({ page }) => {
   const review = await openTypedStatementReview(page)
   await expect(review.getByRole('heading', { level: 5 })).toHaveText('137 lines from Fictional checking, Sep 1–30.')
-  await expect(review).toContainText('127 look right. 10 need a quick look.')
-  await expect(review.getByRole('button', { name: 'Approve the other 127', exact: true })).toBeVisible()
+  await expect(review).toContainText('127 look right. 10 need a quick look. We’ll approve them 100 at a time.')
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeVisible()
   const questions = review.getByRole('list', { name: 'Lines that need a quick look' }).getByRole('listitem')
   await expect(questions).toHaveCount(10)
   await expect(questions.first()).toContainText('Is this a refund?')
@@ -9400,14 +9400,41 @@ test('BOG UI approving the rest sends one request that names exactly those lines
     return route.fulfill({ json: { result: { approved: 127, left_out: 0, unchanged: 0, complete: false } } })
   })
   const review = await openTypedStatementReview(page)
-  await review.getByRole('button', { name: 'Approve the other 127', exact: true }).click()
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
   await expect.poll(() => requests.length).toBe(1)
   expect(requests[0].key).toBeTruthy()
   expect(requests[0].body.revision_id).toBe(88)
-  expect(requests[0].body.input.lines).toHaveLength(127)
+  expect(requests[0].body.input.lines).toHaveLength(100)
   expect(requests[0].body.input.lines.every((line) => line.decision === 'as_read')).toBe(true)
+  // Each line carries the category she was shown for it.
+  expect(requests[0].body.input.lines.every((line) => (line as { shown?: { category_id: number | null } }).shown !== undefined)).toBe(true)
   expect(requests[0].body.input.lines.map((line) => line.event_id)).toEqual(requests[0].body.input.expect_ready_ids)
   expect(requests[0].body.input.expect_ready_ids).not.toContain(4000)
+})
+
+test('BOG UI a statement that cannot prove nothing is missing asks her, and a category from her history is shown before she approves it', async ({ page }) => {
+  const requests: Array<{ input: { coverage_answer?: string; lines: Array<{ event_id: number; shown?: { category_id: number | null } }> } }> = []
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    requests.push(route.request().postDataJSON())
+    return route.fulfill({ json: { result: { approved: 100, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  const review = await openTypedStatementReview(page, false, (data) => {
+    const plan = data.participant_review!.plan
+    plan.coverage = { question: 'Your statement shows 138 lines and we found 137. Is anything missing?', answer: null }
+    plan.ready[3] = { ...plan.ready[3], category_id: 31, category_name: 'Dining out', as_before: true }
+    data.participant_review!.categories = [{ id: 10, name: 'Groceries' }, { id: 31, name: 'Dining out' }]
+    return data
+  })
+  await expect(review).toContainText('Your statement shows 138 lines and we found 137. Is anything missing?')
+  await expect(review).toContainText('1 uses a category you chose before: Dining out.')
+  await review.getByText('See all 137 lines', { exact: true }).click()
+  await expect(review.getByRole('row').filter({ hasText: 'Dining out · as before' })).toHaveCount(1)
+  await review.getByRole('button', { name: 'Something’s missing', exact: true }).click()
+  await expect(review).toContainText('We’ll keep this statement marked as not finished')
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0].input.coverage_answer).toBe('something_missing')
+  expect(requests[0].input.lines.find((line) => line.event_id === 4006)?.shown?.category_id).toBe(31)
 })
 
 async function openAuthenticatedSource(page: Page, type: 'image' | 'pdf', settings: { metadataRevoked?: () => boolean; contentRevoked?: () => boolean; delayContent?: Promise<void>; filename?: string } = {}) {
@@ -10131,7 +10158,7 @@ test('BOG UI a finished statement leads to what Mia notices, with the snapshot a
   })
   const review = await openTypedStatementReview(page, false, (data) => {
     const plan = data.participant_review!.plan
-    plan.done = 137; plan.ready_event_ids = []; plan.attention = []
+    plan.done = 137; plan.ready_event_ids = []; plan.ready = []; plan.attention = []; plan.coverage = { question: null, answer: null }
     return data
   })
   await expect(review).toContainText('All 137 lines are saved.')
@@ -10143,23 +10170,24 @@ test('BOG UI a finished statement leads to what Mia notices, with the snapshot a
   await expect(page.getByText('Dining out is your steadiest pattern.')).toBeVisible()
 })
 
-test('BOG UI a long statement is approved 400 lines at a time', async ({ page }) => {
+test('BOG UI a long statement is approved 100 lines at a time', async ({ page }) => {
   const bodies: Array<{ input: { expect_ready_ids: number[]; paged?: boolean; lines: unknown[] } }> = []
   await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
     bodies.push(route.request().postDataJSON())
-    return route.fulfill({ json: { result: { approved: 400, left_out: 0, unchanged: 0, complete: false } } })
+    return route.fulfill({ json: { result: { approved: 100, left_out: 0, unchanged: 0, complete: false } } })
   })
   const review = await openTypedStatementReview(page, false, (data) => {
     const plan = data.participant_review!.plan
     plan.total = 1000; plan.ready_event_ids = Array.from({ length: 1000 }, (_, index) => 20_000 + index); plan.attention = []
+    plan.ready = plan.ready_event_ids.map((id) => ({ event_id: id, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
     return data
   })
-  await expect(review).toContainText('All 1,000 look right. We’ll approve them 400 at a time.')
-  await review.getByRole('button', { name: 'Approve these 400', exact: true }).click()
+  await expect(review).toContainText('All 1,000 look right. We’ll approve them 100 at a time.')
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
   await expect.poll(() => bodies).toHaveLength(1)
   expect(bodies[0].input.paged).toBe(true)
-  expect(bodies[0].input.lines).toHaveLength(400)
-  expect(bodies[0].input.expect_ready_ids).toEqual(Array.from({ length: 400 }, (_, index) => 20_000 + index))
+  expect(bodies[0].input.lines).toHaveLength(100)
+  expect(bodies[0].input.expect_ready_ids).toEqual(Array.from({ length: 100 }, (_, index) => 20_000 + index))
 })
 
 test('BOG UI statement uncertain request survives section navigation with identical replay', async ({ page }) => {
@@ -10171,12 +10199,12 @@ test('BOG UI statement uncertain request survives section navigation with identi
     return route.fulfill({ json: { result: { approved: 127, left_out: 0, unchanged: 0, complete: false } } })
   })
   const review = await openTypedStatementReview(page)
-  await review.getByRole('button', { name: 'Approve the other 127', exact: true }).click()
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
   await expect(review.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
   await expect(review).toContainText('We’re not sure your last change saved.')
   await openSection(page, 'Home'); await openSection(page, 'Statements')
   await expect(review.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
-  await expect(review.getByRole('button', { name: 'Approve the other 127', exact: true })).toBeDisabled()
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeDisabled()
   const metadata = await page.evaluate(() => sessionStorage.getItem('statement-review-request-identities-v1'))
   expect(metadata).not.toContain('signed_amount_cents')
   await review.getByRole('button', { name: 'Try again', exact: true }).click()
@@ -12943,7 +12971,7 @@ for (const section of ['Home', 'Budget', 'Review', 'Statements', 'My Money', 'As
 test('BOG UI statement review has plain dates and 44px controls at 320px', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 664 })
   const review = await openTypedStatementReview(page)
-  await expect(review.getByRole('button', { name: 'Approve the other 127', exact: true })).toBeVisible()
+  await expect(review.getByRole('button', { name: 'Approve these 100', exact: true })).toBeVisible()
   await expectPhoneTargets(page)
   await review.getByText('See all 137 lines', { exact: true }).click()
   await expect(review.getByRole('table')).toBeVisible()
