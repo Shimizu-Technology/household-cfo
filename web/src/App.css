@@ -6187,7 +6187,7 @@ h3 {
   color: var(--ink);
 }
 
-.clear-chat-dialog #clear-chat-copy {
+.clear-chat-dialog h3 + p {
   margin-top: 10px;
   color: var(--muted);
   line-height: 1.62;
