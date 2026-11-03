@@ -353,7 +353,7 @@ module FinancialDocuments
       match[1] == "-" ? -cents : cents
     end
 
-    def mask(text) = text.gsub(/\d{8,}/) { |value| "****#{value.last(4)}" }
+    def mask(text) = AccountNumberMask.call(text, min_digits: 8, marker: "****")
     def rejected(reason) = Result.new(success: false, data: nil, error: reason, metadata: { reason: reason, parser_version: VERSION })
   end
 end

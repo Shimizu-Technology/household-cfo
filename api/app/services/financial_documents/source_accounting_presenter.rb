@@ -30,7 +30,7 @@ module FinancialDocuments
         review_state: "unreviewed", expense_projection_eligible: record.expense_projection_eligible?, evidence_available: record.financial_source_evidence.present?)
       if include_evidence
         evidence = record.financial_source_evidence&.payload
-        result[:evidence] = evidence&.key?("merchant") ? evidence.merge("merchant" => MerchantNormalizer.call(evidence["merchant"])) : evidence
+        result[:evidence] = evidence && participant_words(evidence)
       end
       result
     end
@@ -38,6 +38,14 @@ module FinancialDocuments
     private
 
     attr_reader :revision, :include_evidence
+
+    # What a participant reads: bank wording grouped by merchant, long account numbers hidden. The stored evidence is untouched.
+    def participant_words(evidence)
+      shown = evidence.dup
+      shown["merchant"] = MerchantNormalizer.call(evidence["merchant"]) if evidence.key?("merchant")
+      %w[raw_description evidence].each { |key| shown[key] = AccountNumberMask.display(evidence[key]) if evidence[key].is_a?(String) }
+      shown
+    end
 
     def account(record)
       ensure_revision!(record)

@@ -25,4 +25,14 @@ class FinancialDocumentsMerchantNormalizerTest < ActiveSupport::TestCase
     end
     assert_nil FinancialDocuments::MerchantNormalizer.call(nil)
   end
+
+  test "long account numbers are hidden for display and known merchants still group around store numbers" do
+    { "Coast360 transfer to own savings 00002468" => "Coast360 transfer to own savings ····2468", "Visa card payment 00009900" => "Visa card payment ····9900",
+      "Transfer to 1234567890 savings" => "Transfer to ····7890 savings", "Check 1234" => "Check 1234", "Invoice $1234567.89" => "Invoice $1234567.89",
+      "Paid 1,234,567 yen" => "Paid 1,234,567 yen", "Ross # 123456 Dededo GU" => "Ross", "Transfer to ****2468" => "Transfer to" }.each do |source, expected|
+      assert_equal expected, FinancialDocuments::MerchantNormalizer.call(source), source
+    end
+    assert_equal "Account ····2468 and ····9900", FinancialDocuments::AccountNumberMask.display("Account XXXX 2468 and 00009900")
+    assert_equal "Pay ****5678", FinancialDocuments::AccountNumberMask.call("Pay 12345678", min_digits: 8, marker: "****")
+  end
 end
