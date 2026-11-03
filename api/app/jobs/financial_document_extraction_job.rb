@@ -93,6 +93,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
 
       native = result.metadata[:extraction_mode] == "native_statement"
+      parser_backed = native || result.metadata[:extraction_mode] == "reconciled_statement_hybrid"
       if native
         attempt.update!(provider: "native_pdf", model: result.metadata[:parser_version],
           prompt_version: result.metadata[:parser_version])
@@ -137,11 +138,11 @@ class FinancialDocumentExtractionJob < ApplicationJob
         "confidence" => data[:confidence],
         "warnings" => warnings.first(FinancialDocuments::Extractor::MAX_WARNINGS),
         "extraction_model" => native ? nil : attempt.model,
-        "extraction_parser_version" => native ? result.metadata[:parser_version] : nil,
-        "extraction_template" => native ? sanitized_metadata_string(result.metadata[:template]) : nil,
-        "extraction_financial_row_count" => native ? result.metadata[:financial_row_count] : nil,
-        "extraction_informational_row_count" => native ? result.metadata[:informational_row_count] : nil,
-        "extraction_printed_arithmetic_verified" => native ? result.metadata[:printed_arithmetic_verified] == true : nil,
+        "extraction_parser_version" => parser_backed ? result.metadata[:parser_version] : nil,
+        "extraction_template" => parser_backed ? sanitized_metadata_string(result.metadata[:template]) : nil,
+        "extraction_financial_row_count" => parser_backed ? result.metadata[:financial_row_count] : nil,
+        "extraction_informational_row_count" => parser_backed ? result.metadata[:informational_row_count] : nil,
+        "extraction_printed_arithmetic_verified" => parser_backed ? result.metadata[:printed_arithmetic_verified] == true : nil,
         "extraction_mode" => result.metadata[:extraction_mode],
         "extraction_page_count" => result.metadata[:page_count],
         "extraction_batch_count" => result.metadata[:batch_count],

@@ -8,6 +8,7 @@ module FinancialDocuments
   class ReconciledStatementParser
     VERSION = "reconciled_statement_v1"
     DATE = /\A\d{1,2}\/\d{1,2}(?:\/\d{4})?\z/
+    PERIOD_DATE = /(?:\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/
     MONEY = /\A([+-]?)(?:\$)?((?:\d{1,3}(?:,\d{3})+|\d+))\.(\d{2})\z/
     Invalid = Class.new(StandardError)
     RowError = Class.new(Invalid)
@@ -15,10 +16,16 @@ module FinancialDocuments
     attr_reader :failed_pages, :recognized
 
     def initialize(pages:)
-      @pages = pages
+      @pages = pages.map do |page|
+        # Keep the page in coverage, but do not interpret coordinates from a
+        # rotated/cropped page. Other readable pages can still use native rows.
+        readable = page[:rotation] == 0 && (page[:crop].nil? || page[:crop] == page[:box])
+        page.merge(runs: readable ? page[:runs] : [])
+      end
       @rows = []
       @failed_pages = []
       @page_dates = {}
+      @page_rows = {}
     end
 
     def call
@@ -26,7 +33,8 @@ module FinancialDocuments
       @recognized = true
       @pages.each do |page|
         yield(page[:number], @pages.length) if block_given?
-        @page_dates[page[:number]] = page[:runs].select { |run| run[:text].match?(DATE) }.sort_by { |run| -run[:y] }.map { |run| date(run[:text]) }
+        @page_dates[page[:number]] = page[:runs].empty? ? nil : page[:runs].select { |run| run[:text].match?(DATE) }.sort_by { |run| -run[:y] }.map { |run| date(run[:text]) }
+        @page_rows[page[:number]] = recovery_evidence(page)
         @rows.concat(read_page(page))
       rescue RowError
         @failed_pages << page[:number]
@@ -43,18 +51,32 @@ module FinancialDocuments
     def recover(page_accounting)
       raise Invalid unless page_accounting.keys.sort == failed_pages.sort
       page_accounting.each do |page, accounting|
+        raise Invalid unless accounting.is_a?(Hash)
         events = accounting.fetch(:events)
         raise Invalid unless accounting[:contract_version] == AccountingContract::VERSION
-        raise Invalid unless events.length == @page_dates.fetch(page).length
-        raise Invalid unless events.map { |event| event[:posted_on] } == @page_dates.fetch(page)
+        dates = @page_dates.fetch(page)
+        if dates
+          raise Invalid unless events.length == dates.length && events.map { |event| event[:posted_on] } == dates
+        else
+          # Scanned/rotated pages have no trustworthy native census. Require
+          # dated model rows, then reconcile the full printed posted count and
+          # both totals against the preserved native pages below.
+          raise Invalid if events.empty?
+          raise Invalid unless events.all? { |event| event[:posted_on].is_a?(Date) && event[:posted_on].between?(@start, @finish) }
+        end
         raise Invalid unless events.all? { |event| event.dig(:locator, :page) == page && event[:row_kind].in?(%w[posted informational]) }
         events.each_with_index do |event, index|
           amount = event[:signed_amount_cents] || event.dig(:evidence, :displayed_amount_cents)
           raise Invalid unless amount.is_a?(Integer)
+          printed = @page_rows.fetch(page)[index]
+          if printed
+            raise Invalid unless amount == printed[:signed_amount_cents] && event[:row_kind] == printed[:row_kind]
+          end
           @rows << { account_key: @account[:account_key], row_kind: event[:row_kind], event_type: event[:event_type],
             signed_amount_cents: amount, amount_column_cents: amount, posted_on: event[:posted_on],
             locator: { page: page, row: index + 1 }, merchant: event.dig(:evidence, :merchant),
-            raw_description: event.dig(:evidence, :raw_description), evidence: event.dig(:evidence, :evidence) }
+            raw_description: event.dig(:evidence, :raw_description), evidence: event.dig(:evidence, :evidence),
+            running_balance_cents: printed&.dig(:running_balance_cents) }
         end
       end
       @rows.sort_by! { |row| row[:locator].values_at(:page, :row) }
@@ -65,14 +87,38 @@ module FinancialDocuments
 
     private
 
+    # Preserve any readable printed amounts/balances even when a wrapped row
+    # makes this page need the model. A repair cannot override those facts.
+    def recovery_evidence(page)
+      header = nil
+      lines(page).filter_map do |line|
+        if line.pluck(:text).include?("Date")
+          header = columns(line)
+          next
+        end
+        run = line.find { |item| item[:text].match?(DATE) }
+        next unless run
+        [ run, line ]
+      end.map.with_index do |(run, line), index|
+        read_row(line, header || {}, run, page[:number], index + 1)
+      rescue RowError
+        nil
+      end
+    rescue RowError
+      []
+    end
+
     def read_header!
       raise Invalid unless @pages.any? && @pages.length <= NativeStatementParser::MAX_PAGES
       raise Invalid if @pages.sum { |page| page[:runs].length } > NativeStatementParser::MAX_RUNS
       @lines = @pages.flat_map { |page| lines(page) }.map { |line| line.pluck(:text).join(" ") }
       text = @lines.join("\n")
-      period = text.scan(/Statement (?:period|cycle):\s*(\d{4}-\d{2}-\d{2})\s*(?:through|to|–|-)\s*(\d{4}-\d{2}-\d{2})/i).uniq
+      # Investment contributions/market activity need their own classification
+      # contract; arithmetic alone does not turn them into spendable income.
+      raise Invalid if text.match?(/\bretirement\b|\binvestment statement\b/i)
+      period = text.scan(/Statement (?:period|cycle):\s*(#{PERIOD_DATE})\s*(?:through|to|–|-)\s*(#{PERIOD_DATE})/i).uniq
       raise Invalid unless period.one?
-      @start, @finish = period.sole.map { |value| Date.iso8601(value) }
+      @start, @finish = period.sole.map { |value| value.include?("/") ? Date.strptime(value, "%m/%d/%Y") : Date.iso8601(value) }
       raise Invalid unless (@finish - @start).between?(0, 366)
       basis = if text.match?(/Beginning \+ credits - debits = ending|\b(?:checking|savings) account\b/i)
         "asset"
@@ -126,7 +172,7 @@ module FinancialDocuments
         unless date_run
           # Never ignore a money-bearing or text-only continuation inside the
           # table. Wrapped/ambiguous rows are confined to this page's fallback.
-          raise RowError if in_table && line.any? { |run| run[:text].match?(/\d[\d,]*\.\d|\A\p{L}/) }
+          raise RowError if in_table && line.any?
           next
         end
         raise RowError unless in_table && header && (date_run[:x] - header[:date][:x]).abs < 3
@@ -173,14 +219,15 @@ module FinancialDocuments
         signed = -printed
       else
         raise RowError unless amounts.key?(:debit) ^ amounts.key?(:credit)
-        raise RowError if amounts.values.any?(&:negative?)
+        raise RowError if amounts.values_at(:debit, :credit).compact.any?(&:negative?)
         signed = amounts.key?(:debit) ? -amounts[:debit] : amounts[:credit]
       end
       pending = body.match?(/\[PENDING\]/i)
       type = event_type(body, signed)
+      raise RowError if type == "unknown" && !pending
       { account_key: @account[:account_key], row_kind: pending ? "informational" : "posted", event_type: type,
         signed_amount_cents: signed, amount_column_cents: signed, posted_on: date(date_run[:text]),
-        locator: { page: page, row: row }, merchant: MerchantNormalizer.call(body), raw_description: mask(body), evidence: mask(body),
+        locator: { page: page, row: row }, merchant: MerchantNormalizer.call(mask(body)), raw_description: mask(body), evidence: mask(body),
         running_balance_cents: amounts[:balance] }
     rescue Invalid, KeyError
       raise RowError
@@ -199,9 +246,12 @@ module FinancialDocuments
         raise Invalid if row[:running_balance_cents] && row[:running_balance_cents] != balance
       end
       raise Invalid unless credits == @account[:printed_credit_cents] && debits == @account[:printed_debit_cents] && balance == @account[:closing_balance_cents]
-      @account[:printed_row_count] = @rows.length
-      accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: [ @account ], events: @rows },
-        coverage: { expected_page_count: @pages.length, processed_pages: (1..@pages.length).to_a, reported_row_count: @rows.length })
+      # The accounting contract's count covers ALL rows. A printed posted-only
+      # count must not be relabelled to include pending authorizations.
+      @account[:printed_row_count] = @posted_count if @posted_count == @rows.length
+      @account[:header_evidence] += "; printed posted row count: #{@posted_count}; physical informational rows: #{@rows.length - posted.length}"
+      accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: [ @account ], events: @rows, reported_row_count: @rows.length },
+        coverage: { expected_page_count: @pages.length, processed_pages: (1..@pages.length).to_a })
       raise Invalid if accounting[:events].any? { |event| event[:row_kind] == "unresolved" }
       Result.new(success: true, error: nil,
         data: { document_kind: "statement", document_date: @finish, period_start_on: @start, period_end_on: @finish,
@@ -215,11 +265,11 @@ module FinancialDocuments
     end
 
     def event_type(body, signed)
-      return "debt_payment" if body.match?(/(?:card|visa|loan)\s+payment|payment\s+(?:received|thank you)/i)
+      return "debt_payment" if body.match?(/(?:card|visa|loan)\s+payment|payment\s+(?:received|thank you)/i) || (@account[:account_basis] == "liability" && body.match?(/\Apayment\s+from\b/i))
       return "transfer" if body.match?(/\btransfer\b/i)
       return "cash_withdrawal" if body.match?(/\bATM\b|cash withdrawal/i)
       return "refund" if signed.positive? && body.match?(/refund|return|reversal/i)
-      return "income" if signed.positive? && body.match?(/payroll|salary|direct deposit|ACH CREDIT/i)
+      return "income" if signed.positive? && body.match?(/payroll|salary|direct deposit|ACH CREDIT|dividend/i)
       return "interest" if body.match?(/\binterest\b/i)
       return "fee" if signed.negative? && body.match?(/\bfee\b/i)
       return "purchase" if signed.negative?
@@ -239,6 +289,7 @@ module FinancialDocuments
     end
 
     def money(text)
+      text = text.sub(/\A\$([+-])/) { "#{Regexp.last_match(1)}$" }
       match = text.match(MONEY) || raise(Invalid)
       cents = match[2].delete(",").to_i * 100 + match[3].to_i
       raise Invalid if cents > AccountingContract::CENT_LIMIT

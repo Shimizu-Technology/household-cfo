@@ -1,0 +1,30 @@
+{
+  "document_kind": "receipt",
+  "items": [],
+  "transaction_drafts": [
+    {
+      "occurred_on": "2026-09-03",
+      "merchant": "Tasi Demo Market",
+      "total_amount": 35.73,
+      "source_type": "receipt",
+      "evidence": "Milk 6.49; Bread 4.25; Rice 24.99; Total 35.73",
+      "splits": [
+        {
+          "amount": 6.49,
+          "notes": "Printed fictional receipt item"
+        },
+        {
+          "amount": 4.25,
+          "notes": "Printed fictional receipt item"
+        },
+        {
+          "amount": 24.99,
+          "notes": "Printed fictional receipt item"
+        }
+      ]
+    }
+  ],
+  "confidence": "high",
+  "warnings": [],
+  "summary": "Fictional offline provider contract"
+}

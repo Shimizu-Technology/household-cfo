@@ -2,11 +2,12 @@
 
 # Runs inside ContentSources::PdfSandbox (a separate process with wall-clock,
 # CPU and memory limits) so a hostile financial PDF can only exhaust this
-# worker, never the web process. It repeats the parse the extractor is about
-# to do in-process and prints one small JSON object -- never page text.
+# worker, never the web process. Results travel through a bounded private pipe;
+# callers must never log the pages payload, which contains financial text.
 #
 #   structure: CombinePDF load + page count (batch splitting, page coverage)
 #   text:      PDF::Reader text runs on every page (native statement parser)
+#   pages:     bounded runs reused by both native parsers without a second read
 
 require "json"
 begin

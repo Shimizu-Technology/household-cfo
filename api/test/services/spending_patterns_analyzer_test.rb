@@ -10,7 +10,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
   end
 
   test "three full months use exact reviewed amounts and ignore the current month, ignored purchases and other households" do
-    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "Ross", 20_000) }
+    [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "POS DEBIT 1234 ROSS STORES #567 XXXX1234", 20_000) }
     purchase(Date.new(2026, 11, 1), "Current month", 999_999)
     purchase(Date.new(2026, 10, 2), "Ignored", 888_888, status: "ignored")
     other_user = User.create!(clerk_id: "patterns-other-#{SecureRandom.hex(8)}", email: "patterns-other-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
@@ -39,6 +39,15 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @household.household_transactions.update_all(status: "ignored")
     assert_nil analyze[:observed_spending_cents]
     assert_empty analyze[:candidate_changes]
+  end
+
+  test "real bank descriptors retain the Ross 600 and Kmart 360 comparison" do
+    [ 8, 9, 10 ].each do |month|
+      purchase(Date.new(2026, month, 5), "POS DEBIT 1234 ROSS STORES #567 XXXX1234", 20_000)
+      purchase(Date.new(2026, month, 9), "POS DEBIT 1234 KMART #101 XXXX1234", 12_000)
+    end
+    merchants = analyze[:discretionary_merchants].to_h { |row| [ row[:label], row[:total_cents] ] }
+    assert_equal({ "Ross" => 60_000, "Kmart" => 36_000 }, merchants)
   end
 
   test "a selected window loads only the transactions it analyzes" do

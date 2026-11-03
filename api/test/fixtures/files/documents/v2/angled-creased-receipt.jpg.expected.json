@@ -1,0 +1,19 @@
+{
+  "filename": "angled-creased-receipt.jpg",
+  "kind": "receipt",
+  "format": "jpg",
+  "expected_events": [],
+  "expected_receipt": {
+    "merchant": "Tasi Demo Market",
+    "occurred_on": "2026-09-03",
+    "total_amount_cents": 3573,
+    "items_cents": [
+      649,
+      425,
+      2499
+    ]
+  },
+  "synthetic": true,
+  "sha256": "57437f5bbfa002c09821c462bf893469a9b8aec243c8dfea23dba31a12e1c660",
+  "size_bytes": 83778
+}

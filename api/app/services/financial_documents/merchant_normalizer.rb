@@ -8,9 +8,10 @@ module FinancialDocuments
     module_function
 
     def call(value)
+      return if value.nil?
       text = value.to_s.unicode_normalize(:nfkc).squish
       text = text.sub(/\A(?:POS\s+(?:DEBIT|PURCHASE)|DEBIT\s+CARD|CARD\s+PURCHASE)\s+(?:\d{4}\s+)?/i, "")
-        .gsub(/\b(?:XXXX|\*{4})\s*\d{4}\b/i, "").squish
+        .gsub(/(?<!\w)(?:XXXX|\*{4})\s*\d{4}\b/i, "").squish
       return "Ross" if text.match?(/\ARoss(?:\s+Stores|\s+Dress for Less)?(?:\s*#\s*\d+)?(?:\s+(?:Tamuning|Guam))?\z/i)
       return "Kmart" if text.match?(/\AKmart(?:\s*#\s*\d+)?(?:\s+(?:Tamuning|Guam))?\z/i)
       text.presence || value.to_s.squish

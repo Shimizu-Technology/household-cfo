@@ -7,6 +7,23 @@ class FinancialDocumentsSourceSafetyTest < ActiveJob::TestCase
   SourceSafety = FinancialDocuments::SourceSafety
   CONTENT_TYPES_XML = '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'.freeze
 
+  test "native text pages are bounded and rotated or cropped pages stay on the model route" do
+    root = Rails.root.join("test/fixtures/files/documents/v2")
+    assert_equal 3, SourceSafety.pdf_text_pages(root.join("continued-pages.pdf"), max_pages: 60, max_runs: 60_000).length
+    assert_nil SourceSafety.pdf_text_pages(root.join("continued-pages.pdf"), max_pages: 1, max_runs: 60_000)
+    assert_nil SourceSafety.pdf_text_pages(root.join("continued-pages.pdf"), max_pages: 60, max_runs: 1)
+    [ { Rotate: 90 }, { CropBox: [ 0, 0, 600, 800 ] } ].each do |attributes|
+      Tempfile.create([ "bounded-native-text", ".pdf" ]) do |file|
+        pdf = CombinePDF.load(root.join("bank-descriptors.pdf"))
+        pdf.pages.first.merge!(attributes)
+        pdf.save(file.path)
+        pages = SourceSafety.pdf_text_pages(file.path, max_pages: 60, max_runs: 60_000)
+        assert_equal 1, pages.length
+        refute FinancialDocuments::ReconciledStatementParser.new(pages: pages).call.success?
+      end
+    end
+  end
+
   test "accepts ordinary Office files including the published budget template" do
     template = Rails.root.join("..", "web", "public", "household-cfo-budget-template.xlsx").to_s
     assert SourceSafety.check_ooxml!(template)

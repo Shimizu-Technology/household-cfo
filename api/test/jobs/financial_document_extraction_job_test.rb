@@ -85,6 +85,22 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 3, @document_import.metadata.fetch("extraction_batch_count")
   end
 
+  test "page progress is saved during the authoritative attempt and cleared after failure" do
+    observed = []
+    extractor = Object.new
+    extractor.define_singleton_method(:model) { "synthetic" }
+    extractor.define_singleton_method(:call) do |document, &heartbeat|
+      heartbeat.call(stage: "reading", page: 2, page_count: 3)
+      observed << document.reload.metadata.fetch("extraction_progress")
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "Synthetic unreadable page", metadata: {})
+    end
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+    assert_equal [ { "stage" => "reading", "page" => 2, "page_count" => 3 } ], observed
+    assert_equal "failed", @document_import.reload.status
+    refute @document_import.metadata.key?("extraction_progress")
+    assert_empty @household.household_transactions
+  end
+
   test "native success records parser provenance without claiming a model request" do
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
       accounts: [ { account_key: "synthetic", account_basis: "asset", period_start_on: "2026-06-01", period_end_on: "2026-06-30", opening_balance_cents: 100, closing_balance_cents: 100, printed_debit_cents: 0, printed_credit_cents: 0 } ],

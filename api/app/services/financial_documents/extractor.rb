@@ -96,6 +96,7 @@ module FinancialDocuments
         payload_size_error = inline_payload_size_error(document_import, tempfile.path)
         return failure(payload_size_error) if payload_size_error
 
+        progress!(stage: "reading", page: document_import.pdf? ? 1 : nil, page_count: @pdf_page_count)
         extract_openrouter_document(document_import, tempfile.path)
       end
     rescue SourceSafety::Unreadable => e

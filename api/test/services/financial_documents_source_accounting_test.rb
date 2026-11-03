@@ -37,6 +37,18 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal 1, result[:reconciliation][:accounts].first[:unresolved_rows]
   end
 
+  test "review and draft merchants share cleanup while original source evidence remains intact" do
+    descriptor = "POS DEBIT 1234 ROSS STORES #567 XXXX1234"
+    result = persist(normalized([ event(-1_000, merchant: descriptor, raw_description: descriptor) ]))
+    assert_equal "Ross", result[:transaction_drafts].sole[:merchant]
+    source = result[:events].sole
+    view = FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: true).event(source)
+    assert_equal "Ross", view.dig(:evidence, "merchant")
+    assert_equal descriptor, view.dig(:evidence, "raw_description")
+    assert_equal descriptor, source.financial_source_evidence.reload.payload["merchant"]
+    refute FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: false).event(source).key?(:evidence)
+  end
+
   test "structured projections keep confidence and sheet row provenance through draft staging" do
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ account ],
       events: [ event(-1_000, locator: { sheet_index: 0, row: 7 }, category_name: "Dining Out", evidence: "Synthetic sheet row") ] }, coverage: { expected_sheet_count: 1, processed_sheets: [ 0 ] })

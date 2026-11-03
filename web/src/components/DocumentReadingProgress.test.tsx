@@ -1,6 +1,9 @@
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+// @vitest-environment jsdom
+import { cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
 import { DocumentReadingProgress } from './DocumentReadingProgress'
+
+afterEach(cleanup)
 
 describe('DocumentReadingProgress', () => {
   it('shows actual page progress and explains that leaving is safe', () => {

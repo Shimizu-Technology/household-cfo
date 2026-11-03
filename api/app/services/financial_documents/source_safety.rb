@@ -102,8 +102,6 @@ module FinancialDocuments
       payload = pdf_sandbox.run(path, "pages", max_pages, max_runs)
       pages = payload.fetch("pages").map(&:deep_symbolize_keys)
       return unless pages.length == payload.fetch("page_count")
-      return unless pages.all? { |page| page[:rotation] == 0 && (page[:crop].nil? || page[:crop] == page[:box]) }
-
       pages
     rescue ContentSources::Error, KeyError, TypeError
       nil

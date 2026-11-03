@@ -31,7 +31,8 @@ module FinancialDocuments
 
     def call
       if @supplied_pages
-        reject!("page_geometry") unless @supplied_pages.all? { |page| page[:box] == [ 0, 0, 612, 792 ] }
+        reject!("page_limit") unless @supplied_pages.length.between?(1, MAX_PAGES)
+        reject!("page_geometry") unless @supplied_pages.all? { |page| page[:box] == [ 0, 0, 612, 792 ] && page[:rotation] == 0 && (page[:crop].nil? || page[:crop] == page[:box]) }
         return parse_pages(@supplied_pages)
       end
       reader = PDF::Reader.new(@file_path)
