@@ -85,6 +85,22 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal "Synthetic merchant", second.reload.merchant
   end
 
+  test "participant merchant wording survives staging approval read-back and spending projection" do
+    merchant = "Ross Dress for Less"
+    draft = stage(@source[:events].sole, merchant: merchant)
+    assert_equal merchant, draft.facts["merchant"]
+    version = approve(draft)
+    assert_equal merchant, version.reload.merchant
+    assert_equal merchant, reader[:rows].sole[:merchant]
+    assert_equal merchant, reader[:canonical_rows].sole[:merchant]
+    project(version)
+    assert_equal merchant, @household.household_transactions.sole.merchant
+
+    corrected = approve(stage(@source[:events].sole, merchant: "CARD PURCHASE 1776 COFFEE", reason: "Participant corrected the merchant"))
+    assert_equal "CARD PURCHASE 1776 COFFEE", corrected.reload.merchant
+    assert_equal "CARD PURCHASE 1776 COFFEE", reader[:rows].sole[:merchant]
+  end
+
   test "stale proposal fingerprints fail before changing approved versions" do
     draft = stage(@source[:events].first)
     operation = OPS::DraftApprove.new(@household, user: @user)
@@ -405,13 +421,13 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     run_operation(OPS::AccountLink, account_input(source).merge(tracked_account_id: tracked&.id))
   end
 
-  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" })
+  def stage(event, identity: @identity, amount: -1_000, purchase: :default, posted_on: "2026-07-07", event_type: "purchase", disposition: "include", overlap: "new", matched_version_id: nil, reason: "Participant reviewed the synthetic row", projection: { action: "none" }, merchant: "Synthetic merchant")
     head = SourceReviewHead.find_by(household: @household, financial_source_event: event)
     purchase = amount&.abs if purchase == :default
     pending = head&.source_review_drafts&.pending&.first
     run_operation(OPS::DraftStage, { event_id: event.id, base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, expected_pending_draft: pending && { id: pending.id, lock_version: pending.lock_version, digest: pending.digest }, reason: reason, projection: projection,
       facts: { source_account_identity_version_id: identity.id, disposition: disposition, event_type: event_type, signed_amount_cents: amount, purchase_amount_cents: purchase, posted_on: posted_on,
-        merchant: "Synthetic merchant", budget_category_id: @category.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
+        merchant: merchant, budget_category_id: @category.id, overlap_disposition: overlap, matched_version_id: matched_version_id } })
   end
 
   def draft_input(draft)

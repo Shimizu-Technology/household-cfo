@@ -1,6 +1,41 @@
 require "test_helper"
 
 class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
+  test "normalization cannot demote a printed posted returned unpaid fee" do
+    pages = wells_pages
+    pages.first[:runs].find { |run| run[:text].start_with?("Purchase authorized") }[:text] = "Returned Unpaid Item Fee"
+    assert_rejected(pages)
+    pages.each { |page| page.merge!(box: [ 0, 0, 612, 792 ], rotation: 0) }
+    result = FinancialDocuments::NativeStatementParser.new(file_path: "unused", pages: pages).call
+    refute result.success?
+    assert_nil result.data
+    assert_equal "printed_arithmetic", result.error
+  end
+
+  test "every native template rejects normalized amount and informational display drift" do
+    [ :signed_amount_cents, :displayed_amount_cents ].each do |field|
+      [ wells_pages, apple_pages ].each do |pages|
+        singleton = FinancialDocuments::AccountingContract.singleton_class
+        original = singleton.instance_method(:normalize)
+        singleton.define_method(:normalize) do |*args, **kwargs|
+          result = original.bind_call(self, *args, **kwargs)
+          event = result[:events].find { |row| field == :signed_amount_cents ? row[:signed_amount_cents] : row.dig(:evidence, field) }
+          if field == :signed_amount_cents
+            event[field] += 1
+          else
+            event[:evidence][field] += 1
+          end
+          result
+        end
+        begin
+          assert_rejected(pages)
+        ensure
+          singleton.define_method(:normalize, original)
+        end
+      end
+    end
+  end
+
   test "PDF boundary checks reject rotation crop drift excess pages and unreadable content safely" do
     page_type = Struct.new(:attributes, :runs)
     reader_type = Struct.new(:page_count, :pages)

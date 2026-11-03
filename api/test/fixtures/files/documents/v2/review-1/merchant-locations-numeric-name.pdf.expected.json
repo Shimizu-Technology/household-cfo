@@ -1,0 +1,73 @@
+{
+  "filename": "merchant-locations-numeric-name.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": true,
+  "failed_pages": [],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "ROSS DRESS FOR LESS #123 DEDEDO GU",
+      "signed_amount_cents": -1000,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Ross",
+      "running_balance_cents": 99000
+    },
+    {
+      "posted_on": "2025-11-06",
+      "description": "ROSS STORES #456 HAGATNA GU",
+      "signed_amount_cents": -2000,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Ross",
+      "running_balance_cents": 97000
+    },
+    {
+      "posted_on": "2025-11-07",
+      "description": "KMART #101 HONOLULU HI",
+      "signed_amount_cents": -3000,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Kmart",
+      "running_balance_cents": 94000
+    },
+    {
+      "posted_on": "2025-11-08",
+      "description": "CARD PURCHASE 1776 COFFEE",
+      "signed_amount_cents": -500,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "1776 COFFEE",
+      "running_balance_cents": 93500
+    },
+    {
+      "posted_on": "2025-11-09",
+      "description": "CARD PURCHASE 1776 ROSS COFFEE",
+      "signed_amount_cents": -500,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "1776 ROSS COFFEE",
+      "running_balance_cents": 93000
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 93000,
+    "printed_credit_cents": 0,
+    "printed_debit_cents": 7000
+  },
+  "sha256": "a238d1dd8368b27798dc7887e86b0ed954b6cead5229f6f5b4616831d09b7cc6",
+  "size_bytes": 2095
+}

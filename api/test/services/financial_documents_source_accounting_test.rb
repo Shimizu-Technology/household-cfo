@@ -37,6 +37,18 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal 1, result[:reconciliation][:accounts].first[:unresolved_rows]
   end
 
+  test "review and draft merchants share cleanup while original source evidence remains intact" do
+    descriptor = "POS DEBIT 1234 ROSS STORES #567 XXXX1234"
+    result = persist(normalized([ event(-1_000, merchant: descriptor, raw_description: descriptor) ]))
+    assert_equal "Ross", result[:transaction_drafts].sole[:merchant]
+    source = result[:events].sole
+    view = FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: true).event(source)
+    assert_equal "Ross", view.dig(:evidence, "merchant")
+    assert_equal descriptor, view.dig(:evidence, "raw_description")
+    assert_equal descriptor, source.financial_source_evidence.reload.payload["merchant"]
+    refute FinancialDocuments::SourceAccountingPresenter.new(result[:revision], include_evidence: false).event(source).key?(:evidence)
+  end
+
   test "structured projections keep confidence and sheet row provenance through draft staging" do
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ account ],
       events: [ event(-1_000, locator: { sheet_index: 0, row: 7 }, category_name: "Dining Out", evidence: "Synthetic sheet row") ] }, coverage: { expected_sheet_count: 1, processed_sheets: [ 0 ] })
@@ -105,6 +117,17 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_equal 1, result[:transaction_drafts].length
     assert_equal "2026-07-08", result[:transaction_drafts].first[:occurred_on]
     assert_equal 1_500, result[:reconciliation][:accounts].first[:debit_cents]
+  end
+
+  test "posted NSF fees are spending while returned principal and fee summaries remain informational" do
+    rows = [ event(-3500, type: "fee", merchant: "NSF RETURNED UNPAID ITEM FEE"),
+      event(-10000, row: 2, merchant: "Returned unpaid principal"),
+      event(-3500, type: "fee", row: 3, merchant: "Total fees for this period") ]
+    result = persist(normalized(rows))
+    assert_equal %w[posted informational informational], result[:events].pluck(:row_kind)
+    assert_equal [ -3500, nil, nil ], result[:events].pluck(:signed_amount_cents)
+    assert_equal 3500, result[:events].first.expense_amount_cents
+    assert_equal [ 3500 ], result[:transaction_drafts].pluck(:total_amount_cents)
   end
 
   test "an embedded overdraft cause amount cannot override a disagreeing printed amount column" do

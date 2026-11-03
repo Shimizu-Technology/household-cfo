@@ -43,8 +43,12 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
     end
   end
 
-  MANIFEST["documents"].each do |doc|
-    test "extract corpus #{doc['filename']} with offline recorded provider responses" do
+  # Native extraction must leave any loaded recording count untouched,
+  # including an absent recording and recordings with multiple sections.
+  native_doc = MANIFEST["documents"].find { |doc| doc["filename"] == "bank-of-guam-2026-09.pdf" }
+  cases = MANIFEST["documents"].map { |doc| [ doc, nil ] } + [ 0, 2 ].map { |count| [ native_doc, count ] }
+  cases.each do |doc, recording_count|
+    test "extract corpus #{doc['filename']} with offline recorded provider responses #{recording_count}" do
       path = ROOT.join(doc["filename"])
       mime = Marcel::MimeType.for(path, name: doc["filename"])
       kind = { "budget" => "spreadsheet", "statement_screenshot" => "statement", "retirement_statement" => "statement" }.fetch(doc["kind"], doc["kind"])
@@ -53,6 +57,8 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
       document = FinancialDocumentImport.new(household: household, uploaded_by_user: user, document_kind: kind, filename: doc["filename"], content_type: mime, s3_key: "synthetic-only/#{doc['filename']}")
       recording = ROOT.join("recorded_responses", doc["filename"] + ".json")
       responses = recording.exist? ? JSON.parse(recording.read).fetch("responses").dup : []
+      responses = Array.new(recording_count) { responses.first.deep_dup } if recording_count
+      loaded_recording_count = responses.length
       extractor = FinancialDocuments::Extractor.new(api_key: "offline-fixture")
       assertions = self
       requested_label = nil
@@ -80,12 +86,17 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
       begin
         result = extractor.call(document)
         assert result.success?, "#{doc['filename']}: #{result.error}; #{result.metadata[:error_detail]}"
-        assert_empty responses, "Every recorded provider section must be consumed"
+        native = result.metadata[:extraction_mode] == "native_statement"
+        if native
+          assert_equal loaded_recording_count, responses.length, "Reconciled text PDFs must not call the provider"
+        else
+          assert_empty responses, "Every recorded provider section must be consumed"
+        end
         accounting = result.data.fetch(:source_accounting)
         events = accounting.fetch(:events)
         assert_equal doc["expected_source_event_count"], events.length
         financial_items = result.data.fetch(:items).reject { |item| item[:target_type] == "profile_note" }
-        assert_equal doc["expected_item_count"], financial_items.length
+        assert_equal native ? 0 : doc["expected_item_count"], financial_items.length
         result.data[:items].select { |item| item[:target_type] == "profile_note" }.each do |note|
           assert_nil note[:amount_cents]
           assert_nil note[:balance_cents]
@@ -127,7 +138,7 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
         assert_equal doc["expected_spending_draft_count"], eligible.length
         assert_equal doc.dig("totals_cents", "spending_draft_total_cents").to_i, eligible.sum { |e| e[:expense_amount_cents] }
         assert_equal doc.fetch("expected_events").map { |e| e["posted_on"][0, 7] }.uniq.sort, events.filter_map { |e| e[:posted_on]&.strftime("%Y-%m") }.uniq.sort
-        doc["expected_items"].each do |item|
+        (native ? [] : doc["expected_items"]).each do |item|
           candidate = result.data[:items].find { |i| i[:target_type] == item["type"] && (i[:label] == item["label"] || doc["kind"] == "pay_stub") }
           assert candidate, "Missing #{item['label']}"
           if doc["kind"] == "pay_stub"

@@ -1,0 +1,33 @@
+{
+  "filename": "merged-account-period.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": true,
+  "failed_pages": [],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "Tasi Demo groceries",
+      "signed_amount_cents": -2500,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo groceries",
+      "running_balance_cents": 97500
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 97500,
+    "printed_credit_cents": 0,
+    "printed_debit_cents": 2500
+  },
+  "sha256": "672b6d455fdc989174f2f27525292215284b9dc90962038d3dc1ba7d296cc4e2",
+  "size_bytes": 1873
+}

@@ -602,14 +602,14 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
     document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "statement.pdf", content_type: "application/pdf")
     singleton = FinancialDocuments::SourceSafety.singleton_class
-    original = singleton.instance_method(:pdf_text_readable?)
-    singleton.define_method(:pdf_text_readable?) { |*_args, **_kwargs| false }
+    original = singleton.instance_method(:pdf_text_pages)
+    singleton.define_method(:pdf_text_pages) { |*_args, **_kwargs| nil }
     original_new = FinancialDocuments::NativeStatementParser.method(:new)
     FinancialDocuments::NativeStatementParser.define_singleton_method(:new) { |*| raise "native parser must not run in-process" }
 
     assert_nil extractor.send(:native_statement_result, document_import, "/tmp/unused.pdf")
   ensure
-    singleton.define_method(:pdf_text_readable?, original) if original
+    singleton.define_method(:pdf_text_pages, original) if original
     FinancialDocuments::NativeStatementParser.singleton_class.send(:remove_method, :new) if original_new
   end
 

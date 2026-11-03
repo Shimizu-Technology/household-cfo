@@ -20,8 +20,9 @@ module FinancialDocuments
     end
     InvalidTemplate = Class.new(StandardError)
 
-    def initialize(file_path:)
+    def initialize(file_path:, pages: nil)
       @file_path = file_path
+      @supplied_pages = pages
       @accounts, @events = [], []
       @financial_count = 0
       @consumed_money = []
@@ -29,6 +30,11 @@ module FinancialDocuments
     end
 
     def call
+      if @supplied_pages
+        reject!("page_limit") unless @supplied_pages.length.between?(1, MAX_PAGES)
+        reject!("page_geometry") unless @supplied_pages.all? { |page| page[:box] == [ 0, 0, 612, 792 ] && page[:rotation] == 0 && (page[:crop].nil? || page[:crop] == page[:box]) }
+        return parse_pages(@supplied_pages)
+      end
       reader = PDF::Reader.new(@file_path)
       reject!("page_limit") unless reader.page_count.between?(1, MAX_PAGES)
       pages = reader.pages.map.with_index do |page, index|
@@ -67,6 +73,7 @@ module FinancialDocuments
       verify_region_census!(pages)
       accounting = AccountingContract.normalize({ contract_version: AccountingContract::VERSION, accounts: @accounts, events: @events },
         coverage: { expected_page_count: pages.length, processed_pages: (1..pages.length).to_a })
+      reject!("printed_arithmetic") unless AccountingContract.preserves_printed_rows?(accounting, @events)
       Result.new(success: true, error: nil,
         data: { document_kind: "statement", document_date: @accounts.last[:period_end_on],
           period_start_on: @accounts.first[:period_start_on], period_end_on: @accounts.last[:period_end_on],
@@ -334,7 +341,7 @@ module FinancialDocuments
       reject!("date_order") if @last_date && @last_date > date
       @last_date = date
       @financial_count += 1
-      attributes = { account_key: account[:account_key], row_kind: "posted", event_type: type, signed_amount_cents: signed,
+      attributes = { account_key: account[:account_key], row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: signed,
         amount_column_cents: signed, posted_on: date.iso8601, authorized_on: authorized&.iso8601,
         locator: { page: page[:number], row: row }, merchant: body, raw_description: body, evidence: body, funding_components: funding }
       @events << attributes

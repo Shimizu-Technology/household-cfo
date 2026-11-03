@@ -1,0 +1,53 @@
+{
+  "filename": "scanned-text-footer.pdf",
+  "synthetic": true,
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 2,
+  "account_basis": "asset",
+  "masked_identifier": "****1234",
+  "period_start_on": "2025-11-01",
+  "period_end_on": "2025-11-30",
+  "native": false,
+  "failed_pages": [
+    2
+  ],
+  "expected_events": [
+    {
+      "posted_on": "2025-11-05",
+      "description": "ACH CREDIT PAYROLL",
+      "signed_amount_cents": 10000,
+      "event_type": "income",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "ACH CREDIT PAYROLL",
+      "running_balance_cents": 110000
+    },
+    {
+      "posted_on": "2025-11-06",
+      "description": "Tasi Demo groceries",
+      "signed_amount_cents": -2500,
+      "event_type": "purchase",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Tasi Demo groceries"
+    },
+    {
+      "posted_on": "2025-11-07",
+      "description": "Monthly service fee",
+      "signed_amount_cents": -500,
+      "event_type": "fee",
+      "row_kind": "posted",
+      "status": "posted",
+      "expected_merchant": "Monthly service fee"
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 100000,
+    "closing_balance_cents": 107000,
+    "printed_credit_cents": 10000,
+    "printed_debit_cents": 3000
+  },
+  "sha256": "11768ed4867c25ea118703e5beb2acd8cf34748b7871c6530c9abfd9b21b4a88",
+  "size_bytes": 34305
+}

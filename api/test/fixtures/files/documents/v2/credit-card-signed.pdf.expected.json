@@ -1,0 +1,100 @@
+{
+  "filename": "credit-card-signed.pdf",
+  "kind": "statement",
+  "format": "pdf",
+  "page_count": 1,
+  "account_basis": "liability",
+  "period_start_on": "2026-09-01",
+  "period_end_on": "2026-09-30",
+  "expected_events": [
+    {
+      "event_id": "card-1234-202609-0001",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-02",
+      "description": "POS DEBIT 1234 ROSS STORES #567 XXXX1234",
+      "signed_amount_cents": -6000,
+      "event_type": "purchase",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": null,
+      "expected_merchant": "Ross"
+    },
+    {
+      "event_id": "card-1234-202609-0002",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-03",
+      "description": "KMART #101",
+      "signed_amount_cents": -3600,
+      "event_type": "purchase",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": null,
+      "expected_merchant": "Kmart"
+    },
+    {
+      "event_id": "card-1234-202609-0003",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-05",
+      "description": "Payment received thank you",
+      "signed_amount_cents": 20000,
+      "event_type": "debt_payment",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": false,
+      "category": null,
+      "expected_merchant": "Payment received thank you"
+    },
+    {
+      "event_id": "card-1234-202609-0004",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-08",
+      "description": "Ross refund",
+      "signed_amount_cents": 1200,
+      "event_type": "refund",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": false,
+      "category": null,
+      "expected_merchant": "Ross refund"
+    },
+    {
+      "event_id": "card-1234-202609-0005",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-09",
+      "description": "Interest charge",
+      "signed_amount_cents": -425,
+      "event_type": "interest",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": "Interest",
+      "expected_merchant": "Interest charge"
+    },
+    {
+      "event_id": "card-1234-202609-0006",
+      "account_key": "card-1234",
+      "posted_on": "2026-09-10",
+      "description": "Annual fee",
+      "signed_amount_cents": -500,
+      "event_type": "fee",
+      "status": "posted",
+      "row_kind": "posted",
+      "expected_spending_draft": true,
+      "category": "Bank fees",
+      "expected_merchant": "Annual fee"
+    }
+  ],
+  "totals_cents": {
+    "opening_balance_cents": 125000,
+    "printed_credit_cents": 21200,
+    "printed_debit_cents": 10525,
+    "closing_balance_cents": 114325,
+    "spending_draft_total_cents": 10525,
+    "pending_display_total_cents": 0
+  },
+  "synthetic": true,
+  "sha256": "9575546a23a7cba941bb516fca3f88f09309b1c5cf044eae1e93f4b78fe9fd17",
+  "size_bytes": 2235
+}
