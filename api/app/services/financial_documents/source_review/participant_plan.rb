@@ -16,7 +16,9 @@ module FinancialDocuments
         transfer: "Did this move between your own accounts?",
         card_payment: "Is this a payment on your own card or loan?",
         refund: "Is this a refund?",
-        no_category: "What was this for?"
+        no_category: "What was this for?",
+        # Asked with her own earlier category for the same merchant: "Still Dining out?"
+        still_category: nil
       }.freeze
       ANSWERS = {
         unclear: [ { id: "edit", label: "Fix it" }, { id: "leave_out", label: "Leave it out" } ],
@@ -24,7 +26,8 @@ module FinancialDocuments
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         refund: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
-        no_category: [ { id: "edit", label: "Choose one" }, { id: "leave_out", label: "Leave it out" } ]
+        no_category: [ { id: "edit", label: "Choose one" }, { id: "leave_out", label: "Leave it out" } ],
+        still_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ]
       }.freeze
 
       def initialize(household, revision)
@@ -63,9 +66,10 @@ module FinancialDocuments
         event.row_kind == "posted" && event.event_type.in?(EXPENSE_TYPES) && event.signed_amount_cents.to_i.negative?
       end
 
+      # The words she sees and approves. Long account numbers show as ····1234; the statement's own text stays stored as read.
       def self.merchant_for(event)
         payload = event.financial_source_evidence&.payload || {}
-        payload["merchant"].to_s.squish.presence || payload["raw_description"].to_s.squish.presence
+        AccountNumberMask.display(payload["merchant"].to_s.squish.presence || payload["raw_description"].to_s.squish.presence)
       end
 
       private
@@ -74,17 +78,21 @@ module FinancialDocuments
 
       def build
         events = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
-        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(:approved_version).index_by(&:financial_source_event_id)
+        heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
         categories = household.budget_categories.active.pluck(:id).to_set
-        suggestions = suggested_categories(events)
+        suggestions, earlier = suggested_categories(events)
         accounts = revision.financial_source_accounts.index_by(&:id)
         candidates = overlap_candidates(events)
         events.map do |event|
           merchant = self.class.merchant_for(event)
-          category_id = suggestions[event.id]
-          category_id = nil unless categories.include?(category_id)
+          guess = suggestions[event.id]
+          guess = nil unless categories.include?(guess)
+          chosen = earlier[event.id]
+          chosen = nil unless categories.include?(chosen)
+          # What she chose before for this merchant beats the reader's guess; if they disagree she is asked, not overruled.
+          category_id = chosen || guess
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
-          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id])
+          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps,
             done: done?(heads[event.id]&.approved_version))
         end
@@ -96,7 +104,7 @@ module FinancialDocuments
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id
       end
 
-      def classify(event, merchant, category_id, overlaps, account)
+      def classify(event, merchant, category_id, overlaps, account, disagrees: false)
         return nil if event.row_kind == "informational"
         amount = event.signed_amount_cents
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
@@ -110,6 +118,7 @@ module FinancialDocuments
           return :unclear unless merchant && event.expense_projection_eligible? && event.expense_amount_cents == amount.abs &&
             HouseholdFinance::AnnualBudgetManager.supported_year?(event.posted_on.year)
           return :no_category unless category_id
+          return :still_category if disagrees
         end
         nil
       end
@@ -119,22 +128,32 @@ module FinancialDocuments
         !event.posted_on.between?(account.period_start_on, account.period_end_on)
       end
 
-      # The reader's own category guess lives on the expense it proposed for this line.
-      # When it had none, the category she already chose for the same merchant is the next best answer.
+      # Two sources, kept apart: the reader's own guess (the expense it proposed for this line) and the category she
+      # already chose for the same merchant on an earlier statement.
       def suggested_categories(events)
         drafts = household.transaction_drafts.where(financial_source_event_id: events.map(&:id)).includes(:transaction_draft_splits).order(:id)
-        suggestions = drafts.each_with_object({}) do |draft, result|
+        guesses = drafts.each_with_object({}) do |draft, result|
           result[draft.financial_source_event_id] = draft.budget_category_id || draft.transaction_draft_splits.map(&:budget_category_id).compact.uniq.then { |ids| ids.one? ? ids.first : nil }
         end
-        previous = previous_choices(events.reject { |event| suggestions[event.id] }.filter_map { |event| self.class.merchant_for(event) })
-        events.each { |event| suggestions[event.id] ||= previous[self.class.merchant_for(event)&.downcase] }
-        suggestions
+        previous = previous_choices(events.filter_map { |event| self.class.merchant_for(event) })
+        earlier = events.to_h { |event| [ event.id, previous[merchant_key(self.class.merchant_for(event))] ] }
+        [ guesses, earlier ]
+      end
+
+      # Same shop, different bank wording ("ZIPPYS DEDEDO #12" and "Zippy's") share one key.
+      def merchant_key(merchant)
+        FinancialDocuments::MerchantNormalizer.call(merchant)&.downcase&.squish
       end
 
       def previous_choices(merchants)
         return {} if merchants.empty?
-        SourceReviewVersion.where(household: household, disposition: "include").where("LOWER(merchant) IN (?)", merchants.map(&:downcase).uniq)
-          .where.not(budget_category_id: nil).order(:id).pluck(:merchant, :budget_category_id).to_h { |merchant, id| [ merchant.downcase, id ] }
+        wanted = merchants.filter_map { |merchant| merchant_key(merchant) }.to_set
+        latest = SourceReviewVersion.where(household: household, disposition: "include").where.not(budget_category_id: nil).where.not(merchant: nil)
+          .group(:merchant, :budget_category_id).maximum(:id)
+        latest.sort_by { |_pair, id| id }.each_with_object({}) do |((merchant, category_id), _id), result|
+          key = merchant_key(merchant)
+          result[key] = category_id if wanted.include?(key)
+        end
       end
 
       # Cheap pre-filter: only lines that share an amount and date with something
