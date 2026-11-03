@@ -53,7 +53,7 @@ module Api
         raise ArgumentError, "Review request contains unsupported fields" unless (body.keys - %i[revision_id input]).empty?
         input = body.fetch(:input).to_h.deep_symbolize_keys
         raise ArgumentError, "Idempotency-Key is required" if request.headers["Idempotency-Key"].to_s.strip.empty?
-        result = with_locked_revision(body, lock_timeout: "5s") do |revision|
+        result = with_locked_revision(body, bounded_wait: true) do |revision|
           FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input, cohort_membership: current_cohort_membership).call
         end
         response.set_header("Cache-Control", "no-store")
@@ -150,9 +150,9 @@ module Api
 
       private
 
-      def with_locked_revision(body, lock_timeout: nil)
+      def with_locked_revision(body, bounded_wait: false)
         ApplicationRecord.transaction do
-          ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '#{lock_timeout}'") if lock_timeout
+          ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '5s'") if bounded_wait
           current_household.lock!
           domain.authorize!
           document = current_household.financial_document_imports.lock.find(params[:document_import_id])
