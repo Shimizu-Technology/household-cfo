@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ApiRequestError } from '../api'
-import { useBrand } from '../contexts/brandContextValue'
 import type { AuthSignInOptions } from '../contexts/authContextValue'
 import { usePilotDialog } from '../lib/usePilotDialog'
 import { useDialogViewport } from '../lib/useDialogViewport'
@@ -71,7 +70,6 @@ function safeError(error: unknown) {
 
 export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAuthenticated, onExternalSignIn, externalError, onCancelExternal }: Props) {
   const id = useId()
-  const { brand } = useBrand()
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
   const [challenge, setChallenge] = useState<Extract<DialogEmailAuthStep, { step: 'code' }> | null>(null)
@@ -220,7 +218,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   return createPortal(<div className="workos-sign-in-overlay">
     <div className="workos-sign-in-backdrop" aria-hidden="true" />
     <section ref={dialog} className="workos-sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1}>
-      <header><div><p className="eyebrow">{brand.product_name}</p><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="workos-sign-in-close" aria-label="Close" onClick={close}><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></header>
+      <header><div><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="workos-sign-in-close" aria-label="Close" onClick={close}><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></header>
       <div className="pilot-dialog-body workos-sign-in-body">
         <p id={`${id}-description`}>{external ? 'Continue through your organization’s secure sign-in flow.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>
         {(error || externalError) && <p className="document-alert" role="alert">{externalError || error}</p>}

@@ -45,7 +45,7 @@ export function IgnoredTransactionList({
 
   return (
     <section className="reviewed-transaction-group" aria-label={heading}>
-      <p className="eyebrow">{heading}</p>
+      <p className="group-label">{heading}</p>
       <p className="reviewed-transaction-note">Ignored transactions never counted toward actuals. Restore one to put it back in review.</p>
       <ul>
         {drafts.map((row) => {
@@ -90,13 +90,13 @@ export function ReviewedTransactionsPanel({
   return (
     <section className="reviewed-transactions-panel" aria-labelledby="reviewed-transactions-heading">
       <div>
-        <p className="eyebrow">Already reviewed · {report.period_label}</p>
+        <p className="group-label">Already reviewed · {report.period_label}</p>
         <h4 id="reviewed-transactions-heading">Change your mind?</h4>
         <p className="reviewed-transaction-note">Reopening a confirmed transaction removes it from this month’s actuals and puts it back in review.</p>
       </div>
       {confirmed.length > 0 && (
         <section className="reviewed-transaction-group" aria-label="Confirmed this month">
-          <p className="eyebrow">Confirmed this month</p>
+          <p className="group-label">Confirmed this month</p>
           <ul>
             {confirmed.map((transaction) => (
               <li className="reviewed-transaction-row" key={transaction.id}>

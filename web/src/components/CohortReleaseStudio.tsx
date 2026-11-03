@@ -47,7 +47,7 @@ export function CohortReleaseStudio({
   onSelectedCohortIdChange: (cohortId: number | null) => void
   embedded?: boolean
   onReleaseChange?: () => void
-  beforeReleaseAction?: () => boolean
+  beforeReleaseAction?: () => boolean | Promise<boolean>
 }) {
   const [studio, setStudio] = useState<CohortReleaseStudioData | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
@@ -152,16 +152,18 @@ export function CohortReleaseStudio({
     setNotice(null)
   }
 
-  function requestSeal(event: ReactMouseEvent<HTMLButtonElement>) {
-    if (beforeReleaseAction && !beforeReleaseAction()) return
-    restoreFocusRef.current = event.currentTarget
+  async function requestSeal(event: ReactMouseEvent<HTMLButtonElement>) {
+    const trigger = event.currentTarget
+    if (beforeReleaseAction && !(await beforeReleaseAction())) return
+    restoreFocusRef.current = trigger
     setActionError(null)
     setConfirmation({ kind: 'seal', release: null, requestId: createCohortReleaseRequestId() })
   }
 
-  function requestRestore(event: ReactMouseEvent<HTMLButtonElement>, release: CohortReleaseRecord) {
-    if (beforeReleaseAction && !beforeReleaseAction()) return
-    restoreFocusRef.current = event.currentTarget
+  async function requestRestore(event: ReactMouseEvent<HTMLButtonElement>, release: CohortReleaseRecord) {
+    const trigger = event.currentTarget
+    if (beforeReleaseAction && !(await beforeReleaseAction())) return
+    restoreFocusRef.current = trigger
     setActionError(null)
     setConfirmation({ kind: 'restore', release, requestId: createCohortReleaseRequestId() })
   }
@@ -256,7 +258,7 @@ export function CohortReleaseStudio({
 
       {!embedded && <article className="panel cohort-release-picker">
         <div>
-          <p className="eyebrow">Cohort releases</p>
+          
           <h3>Review the appearance, Mia voice, and tools together</h3>
           <p>Choose a cohort to check the exact published versions and preserve an immutable record.</p>
         </div>
@@ -454,7 +456,7 @@ function ReleaseConfirmationDialog({
   return (
     <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
       <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-release-modal-title" aria-describedby="cohort-release-modal-copy" onKeyDown={trapFocus}>
-        <p className="eyebrow">Final review</p>
+        
         <h3 id="cohort-release-modal-title">{restoring ? `Restore version ${confirmation.release?.release_number}` : 'Prepare this version?'}</h3>
         <p id="cohort-release-modal-copy">This saves a fixed version of the reviewed settings for {cohortName}. Participants keep their current settings until you launch or update the group.</p>
         <dl className="cohort-rollout-confirmation-summary">

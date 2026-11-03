@@ -1,6 +1,10 @@
 import { useEffect, useRef } from 'react'
 import { revealDialogControl } from './dialogFocus'
 
+// A confirmation can open over another dialog; only the topmost one traps focus
+// and answers Escape, so the one underneath waits until it closes.
+const openDialogs: symbol[] = []
+
 export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
@@ -10,6 +14,9 @@ export function usePilotDialog(onClose: () => void) {
   }, [onClose])
 
   useEffect(() => {
+    const token = Symbol('pilot-dialog')
+    openDialogs.push(token)
+    const isTopmost = () => openDialogs[openDialogs.length - 1] === token
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousBodyOverflow = document.body.style.overflow
     const dialog = dialogRef.current
@@ -43,6 +50,7 @@ export function usePilotDialog(onClose: () => void) {
     })
 
     function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (!isTopmost()) return
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
@@ -73,6 +81,7 @@ export function usePilotDialog(onClose: () => void) {
     }
 
     function handleFocusIn(event: FocusEvent) {
+      if (!isTopmost()) return
       if (dialog?.contains(event.target as Node)) {
         if (event.target instanceof HTMLElement) revealDialogControl(event.target, dialog)
         return
@@ -86,6 +95,8 @@ export function usePilotDialog(onClose: () => void) {
     document.body.style.overflow = 'hidden'
     return () => {
       window.cancelAnimationFrame(focusFrame)
+      const position = openDialogs.indexOf(token)
+      if (position >= 0) openDialogs.splice(position, 1)
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
       document.body.style.overflow = previousBodyOverflow

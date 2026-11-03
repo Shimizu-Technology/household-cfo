@@ -11,7 +11,7 @@
   box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
-  font: inherit;
+  font: inherit; font-weight: var(--weight-semibold);
 }
 
 :is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) button {

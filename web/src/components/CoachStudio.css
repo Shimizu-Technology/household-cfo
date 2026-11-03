@@ -1759,7 +1759,6 @@
   border-radius: var(--radius-md);
   background: var(--paper);
   box-shadow: none;
-  backdrop-filter: none;
 }
 
 .coach-save-bar.is-floating {
@@ -1926,7 +1925,6 @@
   .coach-save-bar.is-floating {
     position: static;
     box-shadow: none;
-    backdrop-filter: none;
   }
 }
 
@@ -2705,7 +2703,7 @@
   border-radius: var(--radius-sm);
   color: var(--ink);
   background: var(--paper-warm);
-  font: inherit;
+  font: inherit; font-weight: var(--weight-semibold);
   text-align: left;
   cursor: pointer;
 }
@@ -2792,7 +2790,7 @@
 .coach-studio-section-tabs button { min-height: 44px; padding: .65rem .85rem; flex: 0 1 auto; }
 .coach-studio-section-tabs button small { display: none; }
 .coach-assistant-stages { display: flex; flex-wrap: wrap; gap: .4rem; }
-.coach-assistant-stages button { min-height: 44px; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); font: inherit; cursor: pointer; }
+.coach-assistant-stages button { min-height: 44px; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; }
 .coach-assistant-stages button[aria-pressed="true"] { background: var(--emerald); color: var(--brand-on-primary, var(--paper)); border-color: var(--emerald); }
 .coach-editor-column [hidden] { display: none; }
 .coach-group-context { display: grid; max-width: 42rem; gap: .4rem; font-weight: var(--weight-bold); }
@@ -2862,25 +2860,21 @@
 .coach-simple-heading p { margin: 0; color: var(--muted); }
 .coach-simple-heading select { min-height: 44px; max-width: 100%; font: inherit; font-size: 1rem; padding: .5rem .75rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); }
 .coach-simple .coach-studio-section-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.coach-simple .coach-studio-section-tabs button { min-height: 48px; font: inherit; padding: .8rem .4rem; min-width: 0; white-space: normal; overflow: visible; text-overflow: clip; }
+.coach-simple .coach-studio-section-tabs button { min-height: 48px; font: inherit; font-weight: var(--weight-semibold); padding: .8rem .4rem; min-width: 0; white-space: normal; overflow: visible; text-overflow: clip; }
 .coach-simple .coach-studio-section-tabs [aria-current="page"] { background: var(--emerald-soft); color: var(--emerald); font-weight: 600; }
 .coach-simple-tasks { display: flex; gap: .6rem; flex-wrap: wrap; }
 .coach-simple label { display: flex; align-items: start; gap: .65rem; margin-block: .7rem; min-height: 44px; line-height: 1.6; }
 .coach-simple label:has(input:not([type="checkbox"])), .coach-simple label:has(select), .coach-simple .coach-transcript-upload { flex-direction: column; }
 .coach-simple input[type="checkbox"], .coach-simple input[type="radio"] { accent-color: var(--emerald); width: 22px; height: 22px; margin-top: .25rem; flex: 0 0 auto; }
-.coach-simple input[type="file"] { max-width: 100%; font: inherit; }
 .coach-simple textarea { width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font: inherit; font-size: 1rem; padding: .75rem; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); }
 .coach-simple label:has(textarea) { flex-direction: column; }
-.coach-simple input[type="file"]::file-selector-button { min-height: 44px; border: 1px solid var(--line); border-radius: .5rem; background: var(--paper); color: var(--ink); padding: .5rem .8rem; font: inherit; margin-right: .5rem; }
-.coach-simple button { transition: transform 140ms var(--ease-out, ease-out); }
-.coach-simple button:active:not(:disabled) { transform: scale(.97); }
 .coach-simple .coach-answer-comparison { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; margin-block: 1.5rem; }
 .coach-answer-comparison section { border-top: 1px solid var(--line); }
 .coach-answer-comparison p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 .coach-phrase-approval small { display: block; }
 .coach-setup-checklist ol { padding-left: 1.4rem; }
 .coach-setup-checklist li { margin-block: .8rem; }
-.coach-setup-checklist button { min-height: 44px; padding: .25rem; text-align: left; border: 0; background: none; color: var(--emerald); font: inherit; text-decoration: underline; }
+.coach-setup-checklist button { min-height: 44px; padding: .25rem; text-align: left; border: 0; background: none; color: var(--emerald); font: inherit; font-weight: var(--weight-semibold); text-decoration: underline; }
 .coach-setup-checklist span { margin-left: .8rem; color: var(--muted); }
 .coach-simple details > summary { min-height: 44px; cursor: pointer; padding-block: .7rem; }
 .coach-simple pre { white-space: pre-wrap; overflow-wrap: anywhere; }

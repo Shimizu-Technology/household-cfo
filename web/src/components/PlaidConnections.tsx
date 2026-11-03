@@ -36,6 +36,7 @@ import { BankActivityResumeDialog } from './BankActivityResumeDialog'
 import './PlaidConnections.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import { sourceTypeLabel } from '../lib/sourceReview'
+import { confirmAction } from '../lib/confirmAction'
 
 function hasFreshBankObservation(item: PlaidItem, account: PlaidAccount) {
   if (item.context_paused_by_restart) return false
@@ -450,7 +451,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
 
   const runItemAction = async (item: PlaidItem, action: 'sync' | 'disconnect') => {
     if (action === 'sync' && item.context_paused_by_restart) return
-    if (action === 'disconnect' && !window.confirm(`Disconnect ${item.institution_name}? Plaid access and unapproved imported bank data will be removed. Approved actuals will stay in your household record.`)) return
+    if (action === 'disconnect' && !(await confirmAction('Bank access and imported bank data you have not approved will be removed. Approved actuals stay in your household record.', { title: `Disconnect ${item.institution_name}?`, confirmLabel: 'Disconnect', cancelLabel: 'Keep connected', caution: true }))) return
     const assertCurrent = captureCurrentOperation()
     setBusy(`${action}-${item.id}`)
     setError(null)
@@ -719,7 +720,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
 
           <div className="plaid-review">
             <div className="row-between">
-              <div><span className="eyebrow">{activityViews.find((view) => view.id === activityView)?.label}</span><h3>{activityTotal} transaction{activityTotal === 1 ? '' : 's'}</h3></div>
+              <div><span className="group-label">{activityViews.find((view) => view.id === activityView)?.label}</span><h3>{activityTotal} transaction{activityTotal === 1 ? '' : 's'}</h3></div>
               {stageable.length > 0 && <span>{stageable.length} still preparing for review</span>}
             </div>
             <div className="plaid-transaction-list">

@@ -125,7 +125,7 @@ export function SetupHelpDialog(props: Props) {
     else setError('That correction tool is not available right now. Finish any open edits, or ask Mia to help.')
   }
   return <div className="pilot-dialog-overlay" role="presentation"><section ref={dialog} className="pilot-dialog setup-help-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-help-title" tabIndex={-1}>
-    <header><div><p className="eyebrow">Your information, your review</p><h2 id="setup-help-title">Fix my setup</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={props.onClose}>Close</button></header>
+    <header><div><h2 id="setup-help-title">Fix my setup</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={props.onClose}>Close</button></header>
     <div className="pilot-dialog-body">
       <section className="setup-help-section"><h3>Correct something I entered</h3><p>Open the right record or ask Mia to prepare a correction. Check the change before applying it.</p>
         <div className="setup-help-topics">{moneyTopics.map(topic => <button type="button" className="secondary-button" key={topic.id} disabled={busy} onClick={() => go(topic.id)}>{topic.label}</button>)}</div>

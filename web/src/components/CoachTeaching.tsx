@@ -3,6 +3,7 @@ import { updateAdminPersona, type AdminPersonaDetail, type CurrentUser } from '.
 import { Button } from './Button'
 import { CoachContentLibrary } from './CoachContentLibrary'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { confirmDiscard } from '../lib/confirmAction'
 
 export function CoachTeachingWorkspace({ persona, currentUser, lifecycle, onDirtyChange, onPersonaChange, onPreview }: { persona: AdminPersonaDetail | null; currentUser: CurrentUser; lifecycle: CoachWorkspaceMutationLifecycle; onDirtyChange: (dirty: boolean) => void; onPersonaChange: (persona: AdminPersonaDetail) => void; onPreview: () => void }) {
   const [methodDirty, setMethodDirty] = useState(false)
@@ -10,8 +11,8 @@ export function CoachTeachingWorkspace({ persona, currentUser, lifecycle, onDirt
   const [saved, setSaved] = useState(false)
   useEffect(() => { onDirtyChange(methodDirty || libraryDirty) }, [methodDirty, libraryDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
-  function preview() {
-    if (libraryDirty && !window.confirm('Leave without saving your library changes? Your teaching method is saved.')) return
+  async function preview() {
+    if (libraryDirty && !(await confirmDiscard('Your teaching method is saved. Your changes to the library are not.'))) return
     onPreview()
   }
   return <>

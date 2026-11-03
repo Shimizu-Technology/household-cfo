@@ -1,6 +1,7 @@
 import { useLayoutEffect } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
 import { brandFontStylesheetHref } from '../lib/brandFonts'
+import { readableOn } from '../lib/readableColor'
 
 const displayFonts: Record<string, string> = {
   cormorant_garamond: '"Cormorant Garamond", Georgia, serif',
@@ -26,12 +27,13 @@ export function BrandDocument() {
     const root = document.documentElement
     const displayFont = displayFonts[brand.typography.display] ?? displayFonts.system_serif
     const bodyFont = bodyFonts[brand.typography.body] ?? bodyFonts.system_sans
+    const mutedText = readableOn(brand.colors.text_muted, [brand.colors.surface, brand.colors.surface_muted, brand.colors.background, brand.colors.primary_soft])
     const variables: Record<string, string> = {
       '--surface-page': brand.colors.background,
       '--surface': brand.colors.surface,
       '--surface-muted': brand.colors.surface_muted,
       '--text-primary': brand.colors.text,
-      '--text-muted': brand.colors.text_muted,
+      '--text-muted': mutedText,
       '--border-subtle': brand.colors.border,
       '--action-primary': brand.colors.primary,
       '--action-primary-hover': brand.colors.primary_hover,
@@ -43,8 +45,8 @@ export function BrandDocument() {
       '--paper-warm': brand.colors.surface_muted,
       '--paper-deep': brand.colors.surface_muted,
       '--ink': brand.colors.text,
-      '--ink-soft': brand.colors.text_muted,
-      '--muted': brand.colors.text_muted,
+      '--ink-soft': mutedText,
+      '--muted': mutedText,
       '--line': brand.colors.border,
       '--emerald': brand.colors.primary,
       '--mauve': brand.colors.primary,

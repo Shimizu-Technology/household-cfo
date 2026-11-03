@@ -14,6 +14,7 @@ import {
 import { resolveMemoryRequestKey, type MemoryRequestKeyState } from '../lib/memoryRequestKey'
 import { useBrand } from '../contexts/brandContextValue'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
+import { confirmAction } from '../lib/confirmAction'
 
 const categoryLabels: Record<HouseholdMemoryCategory, string> = {
   goal: 'Personal goal',
@@ -145,7 +146,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
   if (!enabled) {
     return (
       <article id="mia-memory" className="panel mia-memory-panel">
-        <div className="mia-memory-heading"><div><span className="eyebrow">Personalization</span><h2>What {assistantName} remembers</h2></div></div>
+        <div className="mia-memory-heading"><div><h2>What {assistantName} remembers</h2></div></div>
         <p>Sign in to choose what {assistantName} remembers between conversations.</p>
       </article>
     )
@@ -160,7 +161,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
     <article id="mia-memory" className="panel mia-memory-panel" aria-labelledby="mia-memory-title" aria-busy={loading}>
       <div className="mia-memory-heading">
         <div>
-          <span className="eyebrow">Personalization you control</span>
+          
           <h2 id="mia-memory-title">What {assistantName} remembers</h2>
           <p>Only items you explicitly save appear here. {assistantName} uses your approved financial records for money facts.</p>
         </div>
@@ -218,7 +219,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
               {memory.status === 'pending_confirmation' && memory.confirmation_fingerprint && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} aria-label={`Confirm memory: ${memoryItemName(memory)}`} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id, memory.confirmation_fingerprint!), `Memory confirmed. ${assistantName} can use it now.`)}>Confirm</button>}
               {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} aria-label={`Reject memory: ${memoryItemName(memory)}`} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), `Memory rejected. ${assistantName} will not use it.`)}>Reject</button>}
               <button type="button" className="secondary-button" aria-label={`Edit memory: ${memoryItemName(memory)}`} disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
-              <button type="button" className="danger-button" aria-label={`Forget memory: ${memoryItemName(memory)}`} disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm(`Forget this memory? ${assistantName} will stop using it immediately.`)) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
+              <button type="button" className="danger-button" aria-label={`Forget memory: ${memoryItemName(memory)}`} disabled={controlsUnavailable || Boolean(busy)} onClick={async () => { if (await confirmAction(`${assistantName} will stop using it immediately.`, { title: 'Forget this memory?', confirmLabel: 'Forget it', cancelLabel: 'Keep it', caution: true })) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
             </div>
           </section>
         ))}

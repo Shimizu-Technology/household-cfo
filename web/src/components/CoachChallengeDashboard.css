@@ -5,7 +5,7 @@
 .coach-challenge label { display: grid; gap: .4rem; margin: .65rem 0; min-width: 0; }
 .coach-challenge input:not([type="checkbox"]), .coach-challenge select { appearance: none; box-sizing: border-box; height: 44px; min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--line-strong, var(--line)); border-radius: var(--radius-sm); padding: .6rem; font: inherit; background: var(--paper); color: var(--ink); }
 .coach-challenge select { appearance: auto; }
-.coach-challenge button { min-height: 44px; border: 1px solid var(--line-strong, var(--line)); background: transparent; color: var(--ink); padding: .5rem .7rem; border-radius: var(--radius-sm); font: inherit; cursor: pointer; margin: 0; box-shadow: none; white-space: normal; }
+.coach-challenge button { min-height: 44px; border: 1px solid var(--line-strong, var(--line)); background: transparent; color: var(--ink); padding: .5rem .7rem; border-radius: var(--radius-sm); font: inherit; font-weight: var(--weight-semibold); cursor: pointer; margin: 0; box-shadow: none; white-space: normal; }
 .coach-challenge button:disabled { opacity: .6; cursor: default; }
 .coach-challenge button:focus-visible, .coach-challenge summary:focus-visible { outline: 2px solid var(--mauve); outline-offset: 3px; }
 .coach-challenge button:active:not(:disabled) { transform: scale(.97); }
@@ -48,7 +48,7 @@
   .coach-challenge .coach-daily-heading button:not(.coach-daily-primary) { width: auto; justify-self: start; min-height: 44px; }
   .coach-daily-layout.has-detail { grid-template-columns: minmax(0, 1fr); }
   .coach-daily-layout.has-detail .coach-daily-list { display: none; }
-  .coach-challenge-roster > li { display: grid; gap: .5rem; }
+  .coach-challenge-roster > li { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; gap: .5rem; }
   .coach-challenge-card button { margin: .25rem 0; }
 }
 @media (prefers-reduced-motion: reduce) { .coach-challenge button:active:not(:disabled) { transform: none; } }
@@ -60,3 +60,7 @@
 }
 /* Compact labels must not make Safari zoom when the search field receives focus. */
 .coach-challenge .coach-daily-list > label input { font-size: max(16px, 1em); }
+
+/* The search label sits beside its field, left-aligned, in every Coach Studio layout.
+   Doubled class so the Studio's generic label rules cannot restack it. */
+.coach-challenge.coach-challenge .coach-daily-list > label { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; justify-items: start; justify-content: stretch; gap: .5rem; text-align: left; font-weight: var(--weight-semibold); }

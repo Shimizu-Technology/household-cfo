@@ -10,6 +10,16 @@ import { participantReviewFixture, sourceReviewFixture } from './sourceReviewFix
 import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
 
+// The app asks in its own dialog instead of the browser prompt: answer it by clicking.
+// "accept" presses the confirming action; "dismiss" presses the cancelling one.
+async function answerConfirm(page: Page, answer: 'accept' | 'dismiss', ...expected: string[]) {
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog).toBeVisible()
+  for (const text of expected) await expect(dialog).toContainText(text)
+  await dialog.getByRole('button').nth(answer === 'accept' ? 1 : 0).click()
+  await expect(dialog).toHaveCount(0)
+}
+
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const longMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
@@ -119,8 +129,9 @@ async function openAccountHelp(page: Page) {
   if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await disclosure.locator('summary').click()
 }
 
-// Phones (<=620px) fold Memory, Prompts, Context & help, Clear and Expand into one
-// More menu; wider screens show them inline in the chat header.
+// The chat header shows one action (Prompts, or the way out of full screen) beside a
+// More menu that holds Memory, Context & help, Clear chat and Full screen; on phones
+// Prompts moves into the menu too.
 const CHAT_MENU_LABELS: Record<string, string> = { Clear: 'Clear chat', 'Expand Ask Mia chat': 'Full screen' }
 
 function chatMoreButton(page: Page) {
@@ -131,7 +142,8 @@ async function chatHeaderAction(page: Page, name: string) {
   const header = page.locator('.chat-shell-header')
   await expect(header).toBeVisible()
   const more = chatMoreButton(page)
-  if (!(await more.isVisible())) return header.getByRole('button', { name, exact: true })
+  const inline = header.getByRole('button', { name, exact: true })
+  if (await inline.isVisible()) return inline
   const item = page.locator('.chat-more-menu').getByRole('button', { name: CHAT_MENU_LABELS[name] ?? name, exact: true })
   await expect(async () => {
     if (await more.getAttribute('aria-expanded') !== 'true') await more.click()
@@ -4638,12 +4650,14 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
   test.skip(testInfo.project.name.includes('mobile'), 'desktop-only modal boundary assertion')
   await page.goto('/#Ask%20Mia')
 
-  const expandButton = page.getByRole('button', { name: 'Expand Ask Mia chat' })
-  await expandButton.click()
+  const more = chatMoreButton(page)
+  const menuItem = (name: string) => page.locator('.chat-more-menu').getByRole('button', { name, exact: true })
+  await more.click()
+  await menuItem('Full screen').click()
   await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeVisible()
 
-  const clearButton = page.getByRole('button', { name: 'Clear', exact: true })
-  await clearButton.click()
+  await more.click()
+  await menuItem('Clear chat').click()
   const clearDialog = page.getByRole('dialog', { name: 'Clear this chat?' })
   await expect(clearDialog).toBeVisible()
   await expect(clearDialog.getByRole('button', { name: 'Keep chat' })).toBeFocused()
@@ -4651,12 +4665,12 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
   await expect(clearDialog.getByRole('button', { name: 'Clear chat' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(clearDialog).toBeHidden()
-  await expect(clearButton).toBeFocused()
+  await expect(more).toBeFocused()
 
-  await clearButton.click()
+  await more.click()
+  await menuItem('Clear chat').click()
   await clearDialog.getByRole('button', { name: 'Clear chat' }).click()
   await expect(clearDialog).toBeHidden()
-  await expect(clearButton).toBeHidden()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
 
   // Navigation hides beneath the full-screen chat on phones; any outside control must hand focus back to it.
@@ -4665,7 +4679,7 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
 
   await page.locator('.mia-chat-backdrop').click({ position: { x: 2, y: 2 } })
   await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeHidden()
-  await expect(expandButton).toBeFocused()
+  await expect(more).toBeFocused()
 })
 
 test('BOG UI household incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
@@ -5206,8 +5220,8 @@ test('Admin UI keeps the selected challenge first, guards review drafts and expl
   await expect(page.getByRole('button', { name: 'Pause the challenge', exact: true })).toBeDisabled()
   await expect(page.getByText('Enter a reason of 5–500 characters to confirm this change.')).toBeVisible()
   await page.getByLabel(/Reason/).fill('Keep this review reason')
-  page.once('dialog', dialog => dialog.dismiss())
   await page.getByLabel('Cohort scope').selectOption('')
+  await answerConfirm(page, 'dismiss')
   await expect(page.getByLabel('Cohort scope')).toHaveValue(String(pilotCohort.id))
   await expect(page.getByLabel(/Reason/)).toHaveValue('Keep this review reason')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -5283,13 +5297,13 @@ test('Coach Studio waits for its initial library before opening a create form', 
   await create.click()
   await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
-  page.once('dialog', dialog => dialog.dismiss())
   await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
+  await answerConfirm(page, 'dismiss')
   await expect(page.getByRole('combobox', { name: /Coach workspace/ })).toHaveValue('1')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
   listGate = new Promise<void>((resolve) => { releaseList = resolve })
-  page.once('dialog', dialog => dialog.accept())
   await page.getByRole('combobox', { name: /Coach workspace/ }).selectOption('2')
+  await answerConfirm(page, 'accept')
   await expect(page.getByRole('tab', { name: 'Daily coaching', exact: true })).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('.coach-create-form')).toHaveCount(0)
   await openCoachAdvanced(page)
@@ -5312,14 +5326,14 @@ test('Coach Studio warns before discarding an unsaved creation form on a view ch
   const form=page.locator('.coach-create-form')
   await form.getByLabel('Assistant name').fill('Private unfinished assistant')
   await form.getByLabel('Internal description').fill('Private unfinished description')
-  page.once('dialog',dialog=>dialog.dismiss())
   await openCoachAdvanced(page)
   await page.getByRole('tab',{name:/Program settings/}).click()
+  await answerConfirm(page, 'dismiss')
   await expect(form.getByLabel('Assistant name')).toHaveValue('Private unfinished assistant')
   await expect(form.getByLabel('Internal description')).toHaveValue('Private unfinished description')
-  page.once('dialog',dialog=>dialog.accept())
   await openCoachAdvanced(page)
   await page.getByRole('tab',{name:/Program settings/}).click()
+  await answerConfirm(page, 'accept')
   await expect(form).toHaveCount(0)
   await openCoachAdvanced(page)
   await page.getByRole('tab',{name:/Assistant voice/}).click()
@@ -5521,14 +5535,14 @@ test('Coach Studio preserves coach-authored community context through preview, p
   await expect(completedCohort.getByRole('button', { name: 'Assign', exact: true })).toBeDisabled()
   await expect(completedCohort).toContainText('Completed and archived cohorts are read-only.')
 
-  page.once('dialog', (dialog) => dialog.accept())
   await activeCohort.getByRole('button', { name: 'Remove', exact: true }).click()
+  await answerConfirm(page, 'accept')
   await expect(activeCohort).toContainText('Neutral product voice')
   await expect(page.locator('.coach-library-list')).toContainText('0 cohort assignments')
 
-  page.once('dialog', (dialog) => dialog.accept())
   await showAssistantStage(page, 'History')
   await page.getByRole('button', { name: 'Archive assistant', exact: true }).click()
+  await answerConfirm(page, 'accept')
   await showAssistantStage(page, 'History')
   await expect(page.getByRole('button', { name: 'Restore assistant', exact: true })).toBeVisible()
   await showAssistantStage(page, 'Draft')
@@ -5555,12 +5569,9 @@ test('Coach Studio preserves coach-authored community context through preview, p
   const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
   await showAssistantStage(page, 'History')
   await expect(page.getByRole('button', { name: 'Restore to draft' })).toHaveCount(1)
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('published assistant stays live')
-    await dialog.accept()
-  })
   await showAssistantStage(page, 'History')
   await versionOne.getByRole('button', { name: 'Restore to draft' }).click()
+  await answerConfirm(page, 'accept', 'published assistant stays live')
   await expect(page.getByRole('status').filter({ hasText: 'Version 1 was restored to draft revision' })).toBeVisible()
   await expect(page.getByText('Version history (2)')).toBeVisible()
   await expect(versionOne.getByText('Matches Draft')).toBeVisible()
@@ -5637,15 +5648,15 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   expect(requestedWorkspaceIds).toContain('1')
 
   await page.getByLabel('Internal description').fill('Unsaved workspace-specific note')
-  page.once('dialog', async (dialog) => dialog.dismiss())
   await workspacePicker.selectOption('2')
+  await answerConfirm(page, 'dismiss')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByLabel('Internal description')).toHaveValue('Unsaved workspace-specific note')
 
-  page.once('dialog', async (dialog) => dialog.accept())
   await workspacePicker.selectOption('2')
+  await answerConfirm(page, 'accept')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
   await expect(workspacePicker).toHaveValue('2')
@@ -5752,14 +5763,11 @@ test('Coach Studio platform administrator deliberately switches between global a
   await page.getByText('Create a cohort', { exact: true }).click()
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
   await page.getByLabel('Cohort name', { exact: true }).fill('Unsaved cohort workspace switch')
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard unsaved program, cohort, invite, and user changes')
-    await dialog.dismiss()
-  })
   await adminWorkspacePicker.selectOption('platform')
+  await answerConfirm(page, 'dismiss', 'Discard unsaved program, cohort, invite, and user changes')
   await expect(adminWorkspacePicker).toHaveValue('1')
-  page.once('dialog', async (dialog) => dialog.accept())
   await adminWorkspacePicker.selectOption('platform')
+  await answerConfirm(page, 'accept')
   await page.getByRole('button', { name: 'Cohorts', exact: true }).click()
   await page.getByText('Create a cohort', { exact: true }).click()
   await expect(adminWorkspacePicker).toHaveValue('platform')
@@ -5838,25 +5846,21 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   await expect(preview.getByRole('navigation', { name: 'Desktop preview' })).toContainText('Optionality')
   await expect(preview).toContainText('Not included: CFO Filter')
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('1 participant will keep their group’s current tools')
-    expect(dialog.message()).toContain('until you launch or update their group')
-    await dialog.accept()
-  })
   await page.getByRole('button', { name: 'Publish tool version' }).click()
+  await answerConfirm(page, 'accept', '1 participant will keep their group’s current tools', 'until you launch or update their group')
   await expect(page.getByRole('status')).toContainText('version 1 is published')
 
   await page.getByLabel('Include CFO Filter').check()
   await page.getByRole('button', { name: 'Save draft' }).click()
   await page.getByRole('button', { name: 'Preview navigation' }).click()
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('button', { name: 'Publish tool version' }).click()
+  await answerConfirm(page, 'accept')
   await expect(page.getByRole('status')).toContainText('version 2 is published')
 
   await page.getByText('Version history (2)').click()
   const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
-  page.once('dialog', (dialog) => dialog.accept())
   await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+  await answerConfirm(page, 'accept')
   await expect(page.getByRole('status')).toContainText('Version 1 was restored as version 3')
   await expect(page.getByLabel('Include CFO Filter')).not.toBeChecked()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -5931,8 +5935,8 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
     }
     if (permissions.publish) {
       await expect(page.getByRole('button', { name: 'Publish tool version' })).toBeEnabled()
-      page.once('dialog', (dialog) => dialog.accept())
       await page.getByRole('button', { name: 'Publish tool version' }).click()
+      await answerConfirm(page, 'accept')
       await expect(page.getByRole('status')).toContainText('version 3 is published')
       expect(mutationRequests).toEqual([{
         method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/publish',
@@ -5944,8 +5948,8 @@ for (const role of ['editor', 'reviewer', 'viewer'] as const) {
     if (permissions.rollback) {
       const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
       await expect(versionOne.getByRole('button', { name: 'Restore as new version' })).toBeEnabled()
-      page.once('dialog', (dialog) => dialog.accept())
       await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+      await answerConfirm(page, 'accept')
       await expect(page.getByRole('status')).toContainText('Version 1 was restored as version 4')
       expect(mutationRequests[1]).toEqual({
         method: 'POST', path: '/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback',
@@ -6181,12 +6185,9 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await expect(itemPanel.getByRole('button', { name: 'Save draft', exact: true })).toBeDisabled()
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only when the participant raises them.')
   await expect(itemPanel.getByRole('button', { name: 'Save draft before approving' })).toBeDisabled()
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
-    await dialog.dismiss()
-  })
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await answerConfirm(page, 'dismiss', 'Discard unsaved Coach Studio changes')
   await expect(itemPanel.getByLabel('Draft wording')).toHaveValue('Mention extended-family obligations only when the participant raises them.')
   await itemPanel.getByRole('button', { name: 'Save draft', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Content draft saved')
@@ -6868,6 +6869,7 @@ test('Coach Studio keeps failed library drafts and read-only sources do not trig
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
   page.off('dialog', acceptUnexpectedPrompt)
   expect(unexpectedPrompt).toBe(false)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
 
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
@@ -6982,36 +6984,27 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await sourceCheckbox.check()
 
   await assistantTab.focus()
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
-    await dialog.dismiss()
-  })
   await assistantTab.press('ArrowRight')
+  await answerConfirm(page, 'dismiss', 'Discard unsaved Coach Studio changes')
   await expect(assistantTab).toBeFocused()
   await expect(assistantTab).toHaveAttribute('aria-selected', 'true')
   await expect(sourceCheckbox).toBeChecked()
 
   for (const target of [/Coaching Library/, /Participant tools/]) {
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
-      await dialog.dismiss()
-    })
     await page.getByRole('tab', { name: target }).click()
+    await answerConfirm(page, 'dismiss', 'Discard unsaved Coach Studio changes')
     await expect(page.getByRole('tab', { name: /Assistant voice/ })).toHaveAttribute('aria-selected', 'true')
     await expect(sourceCheckbox).toBeChecked()
   }
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
-    await dialog.dismiss()
-  })
   await page.getByRole('link', { name: 'Admin', exact: true }).click()
+  await answerConfirm(page, 'dismiss', 'Discard your unsaved Coach Studio changes')
   await expect(page).toHaveURL(/#Coach%20Studio$/)
   await expect(sourceCheckbox).toBeChecked()
 
-  page.once('dialog', (dialog) => dialog.accept())
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await answerConfirm(page, 'accept')
   await showLibraryArea(page, 'Private sources')
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
   await openCoachAdvanced(page)
@@ -7020,8 +7013,8 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
 
   await showAssistantStage(page, 'Sources')
   await page.getByLabel(/Mrs. Mel Guam context/).check()
-  page.once('dialog', (dialog) => dialog.accept())
   await page.getByRole('link', { name: 'Admin', exact: true }).click()
+  await answerConfirm(page, 'accept')
   await expect(page).toHaveURL(/#Admin$/)
   await openSection(page, 'Coach Studio')
   await expect(page.getByLabel(/Mrs. Mel Guam context/)).not.toBeChecked()
@@ -7042,6 +7035,7 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
   page.off('dialog', acceptUnexpectedPrompt)
   expect(promptedAfterSave).toBe(false)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
 })
 
 test('Coach Studio protects unsaved work across mobile back and section navigation', async ({ page }) => {
@@ -7061,11 +7055,8 @@ test('Coach Studio protects unsaved work across mobile back and section navigati
   await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
   await backConflict.getByRole('button', { name: 'Keep editing' }).click()
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
-    await dialog.dismiss()
-  })
   await page.getByRole('link', { name: 'Admin', exact: true }).click()
+  await answerConfirm(page, 'dismiss', 'Discard your unsaved Coach Studio changes')
   await expect(page).toHaveURL(/#Coach%20Studio$/)
   await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
 
@@ -7274,8 +7265,8 @@ test('Coach Studio manages typed live-model scenarios across responsive layouts'
   await expect(liveResult).toContainText('openai/gpt-test')
   await expect(liveResult).toContainText('gen-evaluation-3')
 
-  page.once('dialog', (dialog) => dialog.accept())
   await scenario.getByRole('button', { name: 'Retire scenario' }).click()
+  await answerConfirm(page, 'accept')
   await expect(scenario).toContainText('Retired')
   expect(await page.evaluate(() => ({ scrollX: window.scrollX, fits: document.documentElement.scrollWidth <= window.innerWidth }))).toEqual({ scrollX: 0, fits: true })
 })
@@ -7303,12 +7294,9 @@ test('Coach Studio confirms immediate assigned-cohort impact before publishing a
   await completePersonaReleaseChecks(page)
   await expect(page.getByText('Publishing updates future participant messages', { exact: false })).toBeVisible()
 
-  page.once('dialog', async (dialog) => {
-    expect(dialog.message()).toContain('Groups with a saved version keep their current voice')
-    await dialog.accept()
-  })
   await showAssistantStage(page, 'Evaluate & publish')
   await page.getByRole('button', { name: 'Publish next version' }).click()
+  await answerConfirm(page, 'accept', 'Groups with a saved version keep their current voice')
   await expect(page.getByRole('status').filter({ hasText: 'version 2 is published' })).toBeVisible()
 })
 
@@ -8838,8 +8826,8 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await page.getByLabel('Support label', { exact: true }).fill('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Publish branding' })).toBeDisabled()
-  page.once('dialog', (dialog) => dialog.dismiss())
   await page.getByRole('tab', { name: /Daily coaching/ }).click()
+  await answerConfirm(page, 'dismiss')
   await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Mel Island Money')
   await page.getByRole('button', { name: 'Save brand draft' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Brand draft saved' })).toBeVisible()
@@ -8848,12 +8836,12 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
   await expect(page.locator('.program-preview')).toContainText('Mel Island Money')
   await assertProgramFits(page)
-  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Participants keep the appearance saved for their group'); await dialog.accept() })
   await page.getByRole('button', { name: 'Publish branding' }).click()
+  await answerConfirm(page, 'accept', 'Participants keep the appearance saved for their group')
   await expect(page.getByRole('status').filter({ hasText: 'Brand version 2 published' })).toBeVisible()
   await page.getByText('Brand version history (2)', { exact: true }).click()
-  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('Restore brand version 1 as a new published version'); await dialog.accept() })
   await page.getByRole('button', { name: 'Restore as new version' }).click()
+  await answerConfirm(page, 'accept', 'Restore brand version 1?')
   await expect(page.getByRole('status').filter({ hasText: 'Brand version 1 restored as version 3' })).toBeVisible()
   await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Household CFO')
   expect(mutations.map((mutation) => mutation.path)).toEqual(['/api/v1/admin/coach_workspaces/1', '/api/v1/admin/brand', '/api/v1/admin/brand/preview', '/api/v1/admin/brand/publish', '/api/v1/admin/brand/versions/12/rollback'])
@@ -8876,16 +8864,16 @@ test('Coach Studio program collaborator controls protect owner access and report
   // Settle native scrolling and font layout before WebKit dispatches the pointer click.
   await page.evaluate(() => document.fonts.ready)
   await viewer.getByRole('button', { name: 'Save role', exact: true }).scrollIntoViewIfNeeded()
-  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('from viewer to editor'); await dialog.accept() })
   await viewer.getByRole('button', { name: 'Save role', exact: true }).click()
+  await answerConfirm(page, 'accept', 'from viewer to editor')
   await expect(team.getByRole('status')).toContainText('as editor')
   await team.getByLabel('Collaborator email').fill('new-coach@example.test')
   await team.getByRole('button', { name: 'Add collaborator', exact: true }).click()
   await expect(team.getByRole('status')).toContainText('Access was saved, but the email could not be confirmed')
   await expect(team.getByRole('status')).not.toContainText('provider accepted')
   await expect(team.getByLabel('Access role')).not.toContainText('Admin')
-  page.once('dialog', async (dialog) => { expect(dialog.message()).toContain('participant enrollments and access to other programs will stay intact'); await dialog.accept() })
   await viewer.getByRole('button', { name: 'Remove', exact: true }).click()
+  await answerConfirm(page, 'accept', 'participant enrollments and access to other programs will stay intact')
   await expect(viewer).toHaveCount(0)
   expect(writes.map((write) => write.method)).toEqual(['PATCH', 'POST', 'DELETE'])
   await assertProgramFits(page)
@@ -12602,15 +12590,15 @@ for (const width of [1366, 320]) {
     await confirm.press('Enter')
     const reopen = page.getByRole('button', { name: /^Reopen Dinner with friends/ })
     await expect(reopen).toBeVisible()
-    page.once('dialog', dialog => dialog.accept())
     await reopen.focus(); await reopen.press('Enter')
+    await answerConfirm(page, 'accept')
     await expect(confirm).toBeFocused()
     const ignore = page.getByRole('button', { name: /^Ignore Dinner with friends/ })
     await ignore.focus(); await ignore.press('Enter')
     const restore = page.getByRole('button', { name: /^Restore Dinner with friends/ })
     await expect(restore).toBeVisible()
-    page.once('dialog', dialog => dialog.accept())
     await restore.focus(); await restore.press('Enter')
+    await answerConfirm(page, 'accept')
     await expect(confirm).toBeFocused()
   })
 }
@@ -12694,8 +12682,8 @@ test('Coach Studio final acceptance identity save retains Program settings throu
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Mel’s saved program')
   expect(reads).toBe(2)
   await page.getByLabel('Program name', { exact: true }).fill('Unsaved program')
-  page.once('dialog', dialog => dialog.dismiss())
   await page.getByRole('tab', { name: /Daily coaching/ }).click()
+  await answerConfirm(page, 'dismiss')
   await expect(page.getByLabel('Program name', { exact: true })).toHaveValue('Unsaved program')
   await expect(page.getByRole('tab', { name: /Program settings/ })).toHaveAttribute('aria-selected', 'true')
 })
@@ -12725,8 +12713,8 @@ for (const previousStatus of ['confirmed', 'ignored'] as const) {
     if (previousStatus === 'ignored') await page.getByRole('searchbox', { name: 'Search transaction reviews' }).fill('Earlier')
     const action = page.getByRole('button', { name: new RegExp(`^${previousStatus === 'confirmed' ? 'Reopen' : 'Restore'} Hidden grocery`) })
     await expect(action).toBeEnabled()
-    page.once('dialog', dialog => dialog.accept())
     await action.focus(); await action.press('Enter')
+    await answerConfirm(page, 'accept')
     await expect(page.getByRole('status').filter({ hasText: 'Reopened Hidden grocery.' })).toBeFocused()
     await expect(page.getByRole('button', { name: /^Confirm Earlier purchase 1/ })).not.toBeFocused()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -12863,6 +12851,8 @@ test('BOG UI bank activity dates and selection targets fit 320px', async ({ page
 })
 
 test('mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
+  // This test checks the real reply timing, so it opts back in to motion.
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
   const workspace = realWorkspaceData(true)
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ status: 200, json: workspace }))
   let release: (() => void) | undefined
@@ -13152,7 +13142,7 @@ test('BOG UI a saved current-month Budget amount refreshes Home and Wealth witho
     return route.fulfill({ json: { budget: savedBudget } })
   })
   await page.goto('/?pilot_e2e_role=participant#Home')
-  await expect(page.locator('.home-money-values')).toContainText('$9,500')
+  await expect(page.locator('.home-money-values').getByText('$9,500', { exact: true })).toBeVisible()
   await openSection(page, 'Budget')
   await page.getByRole('combobox', { name: 'Report month', exact: true }).selectOption(String(monthIndex))
   await page.getByRole('button', { name: 'Manage manually', exact: true }).click()
@@ -13173,9 +13163,9 @@ test('BOG UI a saved current-month Budget amount refreshes Home and Wealth witho
   }
   await expect(page.getByRole('button', { name: 'Manage manually', exact: true })).toBeEnabled()
   await openSection(page, 'Home')
-  await expect(page.locator('.home-money-values')).toContainText('$9,400')
+  await expect(page.locator('.home-money-values').getByText('$9,400', { exact: true })).toBeVisible()
   await openSection(page, 'Wealth')
-  await expect(page.locator('.wealth-explainer-metric')).toContainText('$9,400')
+  await expect(page.locator('.wealth-explainer-metric').getByText('$9,400', { exact: true })).toBeVisible()
 })
 
 for (const runway of [-1, 0]) {

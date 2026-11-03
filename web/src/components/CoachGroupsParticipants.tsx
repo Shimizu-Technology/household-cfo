@@ -4,6 +4,7 @@ import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminUser, Admin
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import { Button } from './Button'
 import './CoachGroupsParticipants.css'
+import { confirmDiscard } from '../lib/confirmAction'
 
 type GroupDraft = { name: string; status: AdminCohortStatus; starts_on: string; ends_on: string; notes: string }
 const draftFor = (group: AdminCohort): GroupDraft => ({ name: group.name, status: group.status, starts_on: group.starts_on ?? '', ends_on: group.ends_on ?? '', notes: group.notes })
@@ -153,9 +154,9 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     }
   }
 
-  function chooseGroup(nextId: number) {
+  async function chooseGroup(nextId: number) {
     if (disabled || nextId === selectedId) return
-    if ((groupDirty || email.trim()) && !window.confirm('Discard unsaved group or invitation changes?')) return
+    if ((groupDirty || email.trim()) && !(await confirmDiscard('Discard unsaved group or invitation changes?'))) return
     const group = groups.find((item) => item.id === nextId)
     setRosterPage(0); setSearch(''); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId); setDraft(group ? draftFor(group) : null); setEmail(''); setRemovingId(null); setError(null); setNotice(null)
   }
@@ -185,11 +186,11 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   if (!workspaceId) return <section className="coach-groups"><h2>Groups & participants</h2><p>Choose a program to manage its groups and participants.</p></section>
   if (!allowed) return <section className="coach-groups"><h2>Groups & participants</h2><p>Ask a program owner to create groups and manage participant invitations. Your collaborator role does not include roster access.</p></section>
   return <section ref={panel} className="coach-groups" aria-label="Groups and participants">
-    <header className="coach-groups-header"><div><h2>Groups & participants</h2><p>Organize your program into groups and invite participants by email.</p></div><div className="coach-groups-actions"><Button variant="secondary" disabled={disabled} onClick={() => {
-      if (dirty && !window.confirm('Discard unsaved changes and reload groups?')) return
+    <header className="coach-groups-header"><div><h2>Groups & participants</h2><p>Organize your program into groups and invite participants by email.</p></div><div className="coach-groups-actions"><Button variant="secondary" disabled={disabled} onClick={async () => {
+      if (dirty && !(await confirmDiscard('Discard unsaved changes and reload groups?'))) return
       void mutate(async () => ({ notice: 'Groups and participants reloaded.' }), () => { setEmail(''); setNewName(''); setRemovingId(null) })
-    }}>Reload groups</Button><Button variant="secondary" disabled={disabled} onClick={() => {
-      if (createOpen && newName.trim() && !window.confirm('Discard the new group name?')) return
+    }}>Reload groups</Button><Button variant="secondary" disabled={disabled} onClick={async () => {
+      if (createOpen && newName.trim() && !(await confirmDiscard('Discard the new group name?', { title: 'Discard this group name?' }))) return
       setNewName(''); setCreateOpen((open) => !open)
     }}>{createOpen ? 'Close new group' : 'New group'}</Button></div></header>
     {error && <div className="coach-groups-error" role="alert">{error}</div>}

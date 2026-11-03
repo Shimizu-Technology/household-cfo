@@ -1,7 +1,8 @@
-/* Frequent actions are immediate, including keyboard navigation. Press is a
- * direct state change, never a queued animation. Disabled controls stay still. */
-:is(.button, .secondary-button, .primary-button, .danger-button, .tabs a) {
-  transition: none;
+/* Press feedback settles quickly and eases out, so a tap reads as a response
+ * rather than a jump. Only transform moves, so nothing else is delayed.
+ * Disabled controls stay still. */
+:is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']) {
+  transition: transform var(--duration-press) var(--ease-out);
 }
 
 :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']):active {
@@ -9,6 +10,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']) {
+    transition: none;
+  }
+
   :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']):active {
     transform: none;
   }

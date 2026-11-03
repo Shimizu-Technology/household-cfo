@@ -51,8 +51,8 @@
   --duration-fast: 160ms;
 
   /* Semantic status colors, kept in step with the legacy --status-* names. */
-  --color-success: var(--status-green, #5f7d61);
-  --color-warning: var(--status-yellow, #a86b34);
+  --color-success: var(--status-green, #4f6d53);
+  --color-warning: var(--status-yellow, #8f5a28);
   --color-danger: var(--status-red, #9d4b45);
 }
 

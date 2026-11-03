@@ -26,6 +26,7 @@ import { Button } from './Button'
 import { DisabledReason } from './DisabledReason'
 import './PersonaVoiceFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { confirmAction } from '../lib/confirmAction'
 
 const TERMINAL_RUN_STATUSES = new Set(['passed', 'failed', 'error'])
 const RUN_POLL_INTERVAL_MS = 1_750
@@ -311,7 +312,7 @@ export function PersonaReleasePanel({
 
   async function retireCase(evaluationCase: AdminPersonaEvaluationCase) {
     if (!evaluationCase.id || !evaluationCase.active || !readiness?.permissions.manage_cases || dirty || action || parentBusy) return
-    if (!window.confirm(`Retire “${evaluationCase.name}”? It stays in the audit history and will not run again.`)) return
+    if (!(await confirmAction('It stays in the audit history and will not run again.', { title: `Retire “${evaluationCase.name}”?`, confirmLabel: 'Retire it', cancelLabel: 'Keep it' }))) return
     const ticket = mutationLifecycle.begin()
     setAction(`retire_case:${evaluationCase.id}`)
     setError(null)

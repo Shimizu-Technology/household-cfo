@@ -1,10 +1,9 @@
 @font-face { font-family: "Google Sans"; src: url("/auth/google-sans-medium.woff2") format("woff2"); font-style: normal; font-weight: 500; font-display: swap; }
 .workos-sign-in-overlay { position: fixed; z-index: 110; top: var(--dialog-viewport-top, 0px); left: 0; right: 0; height: var(--dialog-viewport-height, 100dvh); display: grid; place-items: center; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
-.workos-sign-in-backdrop { position: absolute; inset: 0; background: rgb(31 36 33 / 58%); backdrop-filter: blur(7px); }
+.workos-sign-in-backdrop { position: absolute; inset: 0; background: rgb(31 36 33 / 58%); }
 .workos-sign-in-dialog { position: relative; display: flex; flex-direction: column; width: min(500px, 100%); min-height: 0; max-height: 100%; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); box-shadow: var(--shadow-overlay); color: var(--ink); }
 .workos-sign-in-dialog > header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 24px; border-bottom: 1px solid var(--line); }
 .workos-sign-in-dialog h2 { margin: 0; font-size: clamp(1.6rem, 4vw, 2rem); line-height: 1.1; }
-.workos-sign-in-dialog .eyebrow { margin: 0 0 8px; }
 .workos-sign-in-dialog > header button { flex: 0 0 auto; min-height: 44px; }
 .workos-sign-in-dialog .workos-sign-in-body { display: flex; flex-direction: column; gap: 20px; padding: 24px; overflow-wrap: anywhere; }
 .workos-sign-in-body p { margin: 0; line-height: 1.55; }
@@ -24,7 +23,7 @@
 .workos-google-mark { flex-shrink: 0; width: 20px; height: 20px; }
 .workos-sign-in-provider-retry { display: grid; gap: 12px; }
 @media (max-width: 390px) { .workos-sign-in-dialog > header { padding: 16px; gap: 12px; } .workos-sign-in-dialog .workos-sign-in-body { padding: 20px 16px; } .workos-sign-in-secondary { grid-template-columns: 1fr; } }
-@media (max-height: 400px) { .workos-sign-in-dialog > header { padding: 12px 16px; } .workos-sign-in-dialog h2 { font-size: var(--text-xl); } .workos-sign-in-dialog .eyebrow { display: none; } }
+@media (max-height: 400px) { .workos-sign-in-dialog > header { padding: 12px 16px; } .workos-sign-in-dialog h2 { font-size: var(--text-xl); } }
 
 /* Opening feels calm: the backdrop fades and the window rises slightly. */
 @keyframes workos-sign-in-fade { from { opacity: 0; } to { opacity: 1; } }

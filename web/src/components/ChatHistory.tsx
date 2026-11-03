@@ -32,6 +32,7 @@ type ChatHistoryProps = {
   onSetupHelp?: () => void
   onFinancialRestart?: () => void
   starterPrompts?: { label: string; message: string }[]
+  emptyIntro?: string
   onChoosePrompt?: (message: string) => void
 }
 
@@ -61,6 +62,7 @@ export function ChatHistory({
   onSetupHelp,
   onFinancialRestart,
   starterPrompts = [],
+  emptyIntro,
   onChoosePrompt,
 }: ChatHistoryProps) {
   const { assistantName } = useBrand()
@@ -79,7 +81,7 @@ export function ChatHistory({
           <div className="empty-chat-state">
             <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
             <h3>Hi, I’m {assistantName}.</h3>
-            <p>Tell me what changed, like a purchase, a bill, or a raise, or ask what to do next. I’ll prepare anything that changes your numbers for you to review first.</p>
+            <p>{emptyIntro ?? 'Tell me what changed, like a purchase, a bill, or a raise, or ask what to do next. I’ll prepare anything that changes your numbers for you to review first.'}</p>
             {onChoosePrompt && starterPrompts.length > 0 && (
               <div className="empty-chat-starters" role="group" aria-label="Ways to start">
                 {starterPrompts.map((prompt) => (

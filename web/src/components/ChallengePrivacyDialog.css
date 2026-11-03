@@ -3,9 +3,8 @@
 .challenge-privacy-dialog { --privacy-surface: var(--surface, #fffdf8); --privacy-ink: var(--ink, #18392e); --privacy-line: var(--line, #d8ded5); color: var(--privacy-ink); background: var(--privacy-surface); border: 1px solid var(--privacy-line); border-radius: var(--radius-lg); padding: 0; width: min(740px, calc(100vw - 24px)); max-width: calc(100vw - 24px); max-height: calc(100dvh - 24px); margin: auto; box-shadow: var(--shadow-overlay); overflow: hidden; font-family: var(--font-body, sans-serif); }
 .challenge-privacy-dialog::backdrop { background: #10282085; }
 .challenge-privacy-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; border-bottom: 1px solid var(--privacy-line); }
-.challenge-privacy-dialog h2 { font: 600 clamp(22px, 4vw, 30px)/1.2 var(--font-display, sans-serif); margin: 4px 0 0; }
+.challenge-privacy-dialog h2 { font: 600 clamp(22px, 4vw, 30px)/1.2 var(--font-body, sans-serif); margin: 4px 0 0; }
 .challenge-privacy-dialog h3, .challenge-privacy-dialog h4 { margin: 12px 0; }
-.privacy-eyebrow { margin: 0; font-size: var(--text-xs); font-weight: var(--weight-bold); text-transform: uppercase; letter-spacing: .12em; color: var(--muted, #547467); }
 .privacy-scroll { padding: 20px 24px 28px; overflow: auto; max-height: calc(100dvh - 135px); overscroll-behavior: contain; }
 .challenge-privacy-dialog p, .challenge-privacy-dialog li { line-height: 1.55; overflow-wrap: anywhere; }
 .privacy-intro { margin: 0 0 22px; max-width: 60ch; }
@@ -45,7 +44,7 @@
 .challenge-privacy-dialog[open] { display: flex; flex-direction: column; }
 .challenge-privacy-dialog > header { flex: 0 0 auto; }
 .privacy-scroll { min-height: 0; max-height: none; }
-.privacy-eyebrow, .privacy-sections > details > summary span { font-size: var(--text-xs); }
+.privacy-sections > details > summary span { font-size: var(--text-xs); }
 
 /* Very short screens (landscape phones, large text): keep each section title reachable; its description is repeated inside. */
 @media (max-height: 360px) {

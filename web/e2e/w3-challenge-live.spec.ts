@@ -243,8 +243,7 @@ test.describe('BOG UI W3 real challenge journey', () => {
     async function clearChat() {
       const header = page.locator('.chat-shell-header')
       const more = header.getByRole('button', { name: 'More chat options', exact: true })
-      if (await more.isVisible()) { await more.click(); await page.locator('.chat-more-menu').getByRole('button', { name: 'Clear chat', exact: true }).click() }
-      else await header.getByRole('button', { name: 'Clear', exact: true }).click()
+      await more.click(); await page.locator('.chat-more-menu').getByRole('button', { name: 'Clear chat', exact: true }).click()
       const cleared = page.waitForResponse(response => response.url().endsWith('/mia/messages') && response.request().method() === 'DELETE')
       await page.getByRole('dialog', { name: 'Clear this chat?', exact: true }).getByRole('button', { name: 'Clear chat', exact: true }).click()
       expect((await cleared).ok()).toBe(true)

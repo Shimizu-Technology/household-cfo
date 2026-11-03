@@ -23,6 +23,7 @@ import {
 import { Button } from './Button'
 import './ProgramSettingsFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { confirmDiscard } from '../lib/confirmAction'
 
 type Action = 'plan' | 'advance' | 'pause' | 'resume' | 'cancel' | 'rollback'
 type Confirmation = { action: Action; requestId: string }
@@ -240,7 +241,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
     <section ref={studioRootRef} className="cohort-rollout-studio" aria-busy={pendingAction !== null || mutationLifecycle.pending}>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => void loadStudio(cohortId)}>Reload</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
-      <Button variant="ghost" disabled={pendingAction !== null || mutationLifecycle.pending} onClick={() => { if (!dirty || window.confirm('Discard the unsaved update plan and reload?')) void loadStudio(cohortId) }}>Refresh update state</Button>
+      <Button variant="ghost" disabled={pendingAction !== null || mutationLifecycle.pending} onClick={async () => { if (!dirty || await confirmDiscard('Discard the unsaved update plan and reload?')) void loadStudio(cohortId) }}>Refresh update state</Button>
 
       {rollout ? <ActiveRollout rollout={rollout} pending={pendingAction !== null || mutationLifecycle.pending} onAction={requestAction} /> : (
         <PlanBuilder
@@ -358,7 +359,7 @@ function ActiveRollout({ rollout, pending, onAction }: {
   const advanceLabel = rollout.status === 'planned' ? 'Review and start update' : nextPosition ? `Review wave ${nextPosition}` : 'Review and complete update'
   return <div className="cohort-rollout-active-layout">
     <article className="panel cohort-rollout-current">
-      <header><div><p className="eyebrow">Current update</p><h3 tabIndex={-1} data-rollout-focus-target>Version {rollout.target_release.release_number}</h3></div><span className={`cohort-rollout-status is-${rollout.status}`}>{status}</span></header>
+      <header><div><h3 tabIndex={-1} data-rollout-focus-target>Version {rollout.target_release.release_number}</h3></div><span className={`cohort-rollout-status is-${rollout.status}`}>{status}</span></header>
       {!runtimeModeSupported ? (
         <div className="cohort-rollout-legacy" role="alert"><strong>Update the app before changing this group</strong><p>This app needs an update before it can manage this group update. Reload after updating the app; changes are unavailable from this screen.</p></div>
       ) : legacy ? (
@@ -387,7 +388,7 @@ function ActiveRollout({ rollout, pending, onAction }: {
       <p className="cohort-rollout-runtime-note">{!runtimeModeSupported ? 'Changes are unavailable until this app is updated to support this group update.' : legacy ? 'Legacy lifecycle actions close this pre-cutover record without changing participant settings.' : 'Starting a stage can change participant settings immediately. Some participants may not receive it; check each participant’s status. Completing the update makes this version the group default. Restoring the previous version changes settings back for participants who received this update and are still enrolled.'}</p>
     </article>
     <article className="panel cohort-rollout-transition-history">
-      <header><div><p className="eyebrow">Decision history</p><h3>{historyLabel(rollout.transition_history.total_count, rollout.transitions.length, rollout.transition_history.truncated, 'event')}</h3></div></header>
+      <header><div><h3>{historyLabel(rollout.transition_history.total_count, rollout.transitions.length, rollout.transition_history.truncated, 'event')}</h3></div></header>
       <ol>{rollout.transitions.map((transition) => <li key={transition.id}><strong>{titleize(transition.event_type)}</strong><small>{formatDate(transition.occurred_at)} · {transition.actor?.full_name ?? 'System record'}</small><span>{titleize(transition.to_status)}{transition.to_wave_position > 0 ? ` · Wave ${transition.to_wave_position}` : ''} · {rollout.runtime_mode === 'release_runtime_v2' ? transition.participant_runtime_changed ? 'Participant settings changed' : 'Participant settings unchanged' : rollout.runtime_mode === 'legacy_record_only_v1' ? 'History only' : 'Update unavailable'}</span></li>)}</ol>
     </article>
   </div>
@@ -396,7 +397,7 @@ function ActiveRollout({ rollout, pending, onAction }: {
 function RosterReadiness({ studio }: { studio: CohortRolloutStudioData }) {
   const counts = studio.current_roster.counts
   return <article className="panel cohort-rollout-roster-readiness">
-    <header><div><p className="eyebrow">Roster readiness</p><h3>{counts.ready} of {studio.current_roster.total_count} ready</h3></div></header>
+    <header><div><h3>{counts.ready} of {studio.current_roster.total_count} ready</h3></div></header>
     <dl><div><dt>Ready</dt><dd>{counts.ready}</dd></div><div><dt>Awaiting acceptance</dt><dd>{counts.awaiting_acceptance}</dd></div><div><dt>Revoked</dt><dd>{counts.revoked}</dd></div><div><dt>Removed</dt><dd>{counts.removed}</dd></div></dl>
     <p>Readiness is checked again when each wave advances. A changed roster or invitation state requires a fresh review.</p>
   </article>
@@ -404,7 +405,7 @@ function RosterReadiness({ studio }: { studio: CohortRolloutStudioData }) {
 
 function RolloutHistory({ studio }: { studio: CohortRolloutStudioData }) {
   return <article className="panel cohort-rollout-history">
-    <header><div><p className="eyebrow">Update history</p><h3>{historyLabel(studio.history.total_count, studio.rollouts.length, studio.history.truncated, 'update')}</h3></div></header>
+    <header><div><h3>{historyLabel(studio.history.total_count, studio.rollouts.length, studio.history.truncated, 'update')}</h3></div></header>
     {studio.rollouts.length === 0 ? <div className="cohort-release-empty"><strong>No update records yet.</strong><p>A reviewed plan will appear here.</p></div> : <ol>{studio.rollouts.map((rollout) => <li key={rollout.id}><div><strong>Version {rollout.target_release.release_number}</strong><small>{formatDate(rollout.planned_at)} · {rollout.planned_by?.full_name ?? 'System record'}</small></div><span className={`cohort-rollout-status is-${rollout.status}`}>{titleize(rollout.status)}</span><p>{rollout.wave_count} wave{rollout.wave_count === 1 ? '' : 's'} · {rollout.participant_count} participant{rollout.participant_count === 1 ? '' : 's'} · {rollout.runtime_mode === 'release_runtime_v2' ? rollout.status === 'cancelled' ? 'Participant settings unchanged' : rollout.participant_runtime_changed ? 'Participant update recorded' : 'Ready to update participants' : rollout.runtime_mode === 'legacy_record_only_v1' ? 'History only' : 'Update unavailable'}</p></li>)}</ol>}
   </article>
 }
@@ -447,7 +448,7 @@ function RolloutConfirmationDialog({ confirmation, rollout, studio, plan, pendin
   const details = confirmationDetails(confirmation.action, rollout, studio, plan)
   return <div className="cohort-release-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !pending) onCancel() }}>
     <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-rollout-modal-title" aria-describedby="cohort-rollout-modal-copy" onKeyDown={trapFocus}>
-      <p className="eyebrow">Final review</p><h3 id="cohort-rollout-modal-title">{copy.title}</h3><p id="cohort-rollout-modal-copy">{copy.body}</p>
+      <h3 id="cohort-rollout-modal-title">{copy.title}</h3><p id="cohort-rollout-modal-copy">{copy.body}</p>
       <dl className="cohort-rollout-confirmation-summary">
         <div><dt>Cohort</dt><dd>{studio.cohort.name}</dd></div>
         {details.map((detail) => <div key={`${detail.label}-${detail.value}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}

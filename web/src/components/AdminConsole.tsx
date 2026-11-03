@@ -7,6 +7,7 @@ import { SetupSupportInbox } from './SetupSupportInbox'
 import { CreateCoachProgram } from './CoachProgramSettings'
 import { SavingsChallengeAccessPanel } from './SavingsChallengeAccessPanel'
 import './AdminConsole.css'
+import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 type AdminUserDraft = {
   role: UserRole
@@ -209,8 +210,8 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     }
   }, [activeCoachWorkspaceId, loadAdminData])
 
-  function selectCohort(cohortId: number | null) {
-    if (cohortId === selectedCohortId || adminMutationPending || ((adminDraftsDirty || challengeDirty) && !window.confirm('Discard unsaved cohort, invitation, participant and challenge changes?'))) return
+  async function selectCohort(cohortId: number | null) {
+    if (cohortId === selectedCohortId || adminMutationPending || ((adminDraftsDirty || challengeDirty) && !(await confirmDiscard('Discard unsaved cohort, invitation, participant and challenge changes?')))) return
     setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
     setUserDrafts(adminDraftsForUsers(users))
     selectedCohortIdRef.current = cohortId
@@ -223,9 +224,9 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
     setInviteDraft({ email: '', role: 'participant', cohort_id: cohortId ? String(cohortId) : '', send_invitation_email: true })
   }
 
-  function chooseAdminWorkspace(nextWorkspaceId: number | null) {
+  async function chooseAdminWorkspace(nextWorkspaceId: number | null) {
     if (nextWorkspaceId === activeCoachWorkspaceId || adminMutationPending) return
-    if ((adminDraftsDirty || programCreateDirty || challengeDirty) && !window.confirm('Discard unsaved program, cohort, invite, and user changes and switch workspaces?')) return
+    if ((adminDraftsDirty || programCreateDirty || challengeDirty) && !(await confirmDiscard('Discard unsaved program, cohort, invite, and user changes and switch workspaces?'))) return
 
     setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
     setEditDraft(null)
@@ -366,7 +367,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleCancelInvite(user: AdminUser) {
-    if (adminMutationPending || !window.confirm(`Cancel ${user.email}'s invitation and revoke their cohort access?`)) return
+    if (adminMutationPending || !(await confirmAction(`${user.email} will lose access to their cohort.`, { title: 'Cancel this invitation?', confirmLabel: 'Cancel invitation', cancelLabel: 'Keep invitation', caution: true }))) return
 
     markUserSaving(user.id, true)
     setError(null)
@@ -386,7 +387,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleRemoveFromSelectedCohort(user: AdminUser) {
-    if (!selectedCohortId || adminMutationPending || !window.confirm(`Remove ${user.email} from ${selectedCohort?.name ?? 'this cohort'}? If no required cohorts remain, their access will be revoked.`)) return
+    if (!selectedCohortId || adminMutationPending || !(await confirmAction(`If no required cohorts remain, their access will be revoked.`, { title: `Remove ${user.email} from ${selectedCohort?.name ?? 'this cohort'}?`, confirmLabel: 'Remove', cancelLabel: 'Keep them', caution: true }))) return
     const selectedId = String(selectedCohortId)
     const nextCohortIds = serverCohortIdsForUser(user).filter((cohortId) => cohortId !== selectedId)
     const shouldRevokeAfterRemoval = cohortRequiredFor(user.role, user.invitation_status) && nextCohortIds.length === 0
@@ -646,7 +647,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
             <p className="admin-attention">{pendingInviteCount} awaiting sign-in{failedInviteCount > 0 ? ` · ${failedInviteCount} invitation emails need attention` : ''}</p>
             <p className="admin-list-summary">Showing {visibleUsers.length} of {matchingUsers.length} matching users · {scopedUsers.length} in this cohort scope. Revoked users are hidden by default.</p>
           </div>
-          <button type="button" className="admin-refresh" onClick={() => { if (adminDraftsDirty && !window.confirm('Discard unsaved changes and refresh?')) return; void loadAdminData(undefined, { all: true }) }} disabled={adminMutationPending}>{loading ? 'Refreshing' : 'Refresh'}</button>
+          <button type="button" className="admin-refresh" onClick={async () => { if (adminDraftsDirty && !(await confirmDiscard('Discard unsaved changes and refresh?'))) return; void loadAdminData(undefined, { all: true }) }} disabled={adminMutationPending}>{loading ? 'Refreshing' : 'Refresh'}</button>
         </div>
 
         <div className="admin-user-toolbar" aria-label="User filters and sorting">

@@ -24,7 +24,7 @@ export function EarlierMiaConversations({ onClose }: { onClose: () => void }) {
     return () => { active = false; controller.abort() }
   }, [before, attempt])
   return <div className="pilot-dialog-overlay" role="presentation"><section ref={ref} className="pilot-dialog earlier-mia-dialog" role="dialog" aria-modal="true" aria-labelledby="earlier-mia-title" tabIndex={-1}>
-    <header><div><p className="eyebrow">Private history</p><h2 id="earlier-mia-title">Earlier conversations</h2></div><button type="button" className="secondary-button" onClick={onClose}>Close</button></header>
+    <header><div><h2 id="earlier-mia-title">Earlier conversations</h2></div><button type="button" className="secondary-button" onClick={onClose}>Close</button></header>
     <div className="pilot-dialog-body">
       <p>These messages are from before your financial picture was reset. They are read-only and do not supply your current numbers or Mia’s coaching context.</p>
       {error && <p role="alert">{error}</p>}
