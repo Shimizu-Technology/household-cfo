@@ -256,7 +256,7 @@ test.describe('BOG UI W3 real challenge journey', () => {
     try {
       await stale.goto(url)
       const oldGoal = stale.getByRole('region', { name: 'Your challenge goal', exact: true })
-      await expect(oldGoal).toContainText('$500.00', { timeout: 60000 })
+      await expect(oldGoal).toContainText('$500', { timeout: 60000 })
       await send(page, 'Can we change my goal to $300?', transcript)
       const goal = page.getByRole('region', { name: 'Your challenge goal', exact: true })
       await expect(goal).toContainText('$300')

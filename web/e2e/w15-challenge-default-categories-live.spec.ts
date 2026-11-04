@@ -101,6 +101,7 @@ test('BOG UI budgetless challenge upload, one-tap review, patterns, goal and dai
   await expect(review).toContainText('27 lines', { timeout: 180_000 })
   await expect(review.getByRole('button', { name: /^Yes: Ross/ }).first()).toBeEnabled({ timeout: 180_000 })
   const readAt = Date.now()
+  await expect(review).toContainText('Island Table - Tamuning (includes tip)')
   await shot('review')
   expect(await review.evaluate(element => element.scrollWidth > element.clientWidth + 1)).toBe(false)
   const decisions: string[] = []
@@ -156,6 +157,10 @@ test('BOG UI budgetless challenge upload, one-tap review, patterns, goal and dai
   await goal.scrollIntoViewIfNeeded()
   await shot('goal-saved')
   await goal.getByRole('button', { name: 'Done', exact: true }).click()
+  await page.getByRole('link', { name: 'Savings', exact: true }).click()
+  await expect(page.getByRole('article', { name: 'Approved savings progress' })).toContainText('of $500 target')
+  await shot('savings-header')
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await send('Today I spent $6 at Jamba. I felt rushed when I bought it and now I feel calm.')
   const daily = page.getByRole('region', { name: 'Your check-in', exact: true })
   await expect(daily).toBeVisible({ timeout: 180_000 })
