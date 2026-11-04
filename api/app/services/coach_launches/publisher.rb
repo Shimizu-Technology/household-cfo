@@ -24,6 +24,8 @@ module CoachLaunches
           if receipt
             raise Conflict, "This update changed. Review it again." unless receipt.request_digest == digest && receipt.coach_persona_id == persona.id
 
+            raise Conflict, "This request was closed. Review the update before trying again." if receipt.result["status"] == "not_committed"
+
             next receipt.result
           end
           groups = Array(review.fetch("groups"))
@@ -41,6 +43,26 @@ module CoachLaunches
           CoachLaunchReceipt.create!(coach_workspace: workspace, user: actor, coach_persona: persona, request_key:, request_digest: digest, result:)
           result
         end
+      end
+    end
+
+    # Resolve an uncertain response without repeating a failing launch. The same
+    # workspace lock waits for an in-flight commit. A negative result fences the
+    # key, so a delayed original POST cannot launch after the coach starts over.
+    def resolve!
+      raise Conflict, "Reopen Go live to review this update." unless request_key.length.between?(1, 64)
+
+      CoachWorkspaces::MutationAuthority.new(workspace:, actor:, permissions: :publish).call do |persisted_actor|
+        policy = Mia::PersonaStudioPolicy.new(persisted_actor, workspace:)
+        policy.publishable_personas.find(persona.id)
+        digest = CohortReleases::Contract.digest(review)
+        receipt = CoachLaunchReceipt.find_by(coach_workspace: workspace, user: persisted_actor, request_key:)
+        if receipt && (receipt.request_digest != digest || receipt.coach_persona_id != persona.id)
+          raise Conflict, "This request changed. Reopen its original program to check it."
+        end
+        receipt ||= CoachLaunchReceipt.create!(coach_workspace: workspace, user: persisted_actor, coach_persona: persona,
+          request_key:, request_digest: digest, result: { "status" => "not_committed" })
+        receipt.result["status"] == "not_committed" ? { status: "not_committed" } : { status: "live", launch: receipt.result }
       end
     end
 
@@ -135,7 +157,10 @@ module CoachLaunches
       assignment.update!(coach_persona: persona, coach_persona_version: persona.current_published_version, assigned_by_user: actor)
       cohort.reload
       studio = CohortReleases::StudioSerializer.new(cohort:, actor:).call
-      candidate = studio.fetch(:readiness).fetch(:candidate)
+      readiness = studio.fetch(:readiness)
+      raise Conflict, "#{cohort.name} needs attention before going live." unless readiness.fetch(:ready) && readiness.fetch(:blockers).empty?
+
+      candidate = readiness.fetch(:candidate)
       release_id = candidate[:expected_latest_release_id]
       if studio.dig(:readiness, :seal_needed)
         input = {
@@ -155,6 +180,13 @@ module CoachLaunches
         launcher.call!(release_id:, preview_digest: preview.fetch(:preview_digest), expected_roster_digest: expected.fetch("roster_digest"), request_key: "#{request_key}:launch:#{cohort.id}")
       else
         rollout = operation!(cohort, "cohort.rollout.plan", { target_release_id: release_id, expected_latest_release_id: release_id, expected_roster_digest: expected.fetch("roster_digest"), waves: [ { name: "Everyone reviewed", user_ids: expected.fetch("participant_ids") } ] }, "plan:#{cohort.id}").rollout
+        # A planned transition proves the baseline against the currently locked
+        # cohort. Check its complete execution evidence now, before completion
+        # moves that pointer. Subsequent transitions still validate at COMMIT.
+        constraints = "cohort_rollouts_integrity_deferred, cohort_rollout_transitions_integrity_deferred, coach_operation_rollout_integrity_deferred"
+        connection = Cohort.connection
+        connection.execute("SET CONSTRAINTS #{constraints} IMMEDIATE")
+        connection.execute("SET CONSTRAINTS #{constraints} DEFERRED")
         2.times do |step|
           break if rollout.status == "completed"
 

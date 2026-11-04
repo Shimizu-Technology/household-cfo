@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
-import { fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness, type AdminPersonaEvaluationResult, type AdminPersonaBehavioralPreviewEvidence } from '../api'
+import { resolveCoachLaunch, fetchAdminPersona, fetchAdminPersonaEvaluationRun, fetchAdminPersonaReleaseReadiness, previewAdminPersona, runAdminPersonaEvaluation, type AdminPersonaAssignableCohort, type AdminPersonaDetail, type AdminPersonaReleaseReadiness, type AdminPersonaEvaluationResult, type AdminPersonaBehavioralPreviewEvidence } from '../api'
 import { reviewCoachGroup, type GroupReview } from '../lib/coachGoLive'
 import { reviewCoachSettings, type CoachSettingsReview } from '../lib/coachSettingsReview'
 import { prepareCoachLaunch, finishCoachLaunch, launchStorageKey, readPendingLaunch, type PendingCoachLaunch } from '../lib/coachLaunch'
@@ -79,6 +79,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         const saved = await fetchAdminPersona(source.id)
         if (!current()) return
         if (saved.draft_revision !== source.draft_revision || saved.published_version?.id !== source.published_version?.id || ready.candidate?.draft_revision !== source.draft_revision || ready.candidate?.manifest_digest !== run.candidate_digest || ready.evaluation_run?.id !== run.id || ready.evaluation_run?.run_digest !== run.run_digest || ready.behavioral_preview_evidence?.digest !== lastEvidence?.digest || ready.candidate?.manifest_digest !== lastEvidence?.candidate_digest) throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
+        setReviewedPersona(saved)
         setReadiness(ready)
       }
       setStatus('Preparing your group review…')
@@ -122,23 +123,54 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       setStatus(`Saving your assistant and updating ${pending.review.groups.map(item => item.name).join(', ')}… You can reopen Go live if you leave this page.`)
       const result = await finishCoachLaunch(pending)
       if (!current()) return
-      localStorage.removeItem(storageKey)
-      setPendingLaunch(null); setLive(true)
-      setStatus(`Live for ${result.launch.groups.map(item => item.name).join(', ')}. Participants will hear your assistant and see the published tools and appearance.${result.launch.groups.filter(item => item.challenge_closed).map(item => ` ${item.name}: the program team still needs to open the savings challenge. Participants will see “Your savings challenge opens soon” until then.`).join('')}`)
-      setGroups([]); setSettings(null); setReviewedPersona(result.persona)
-      startedAutomatically.current = true
-      onPersonaChange(result.persona)
+      showLive(result)
     } catch (caught) {
       if (current()) {
         const code = caught && typeof caught === 'object' && 'status' in caught ? caught.status : null
-        if (typeof code === 'number' && code >= 400 && code < 500 && ![408, 429].includes(code)) {
-          localStorage.removeItem(storageKey); setPendingLaunch(null); setGroups([]); setSettings(null); setReviewedPersona(null)
-          setStatus(''); setError('Nothing went live. Review the latest assistant, settings and people before trying again.')
-        } else if (!savedForRecovery) {
+        if (!savedForRecovery) {
           setStatus(''); setError('Your browser could not save the update for recovery. Allow storage for this site, then try again.')
+        } else if (code === 401 || code === 403) {
+          setStatus(''); setError('We could not confirm whether your update went live. Sign in with access to this program, then choose Check this update.')
         } else {
-          setStatus(''); setError('We could not confirm the update. Choose Finish going live to safely check and finish the same update.')
+          setStatus(''); setError('We could not confirm the update. Choose Finish going live to retry, or Check this update to find out what happened and start again safely.')
         }
+      }
+    } finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
+  }
+  function showLive(result: Awaited<ReturnType<typeof finishCoachLaunch>>) {
+    localStorage.removeItem(storageKey)
+    setPendingLaunch(null); setLive(true)
+    setStatus(`Live for ${result.launch.groups.map(item => item.name).join(', ')}. Participants will hear your assistant and see the published tools and appearance.${result.launch.groups.filter(item => item.challenge_closed).map(item => ` ${item.name}: the program team still needs to open the savings challenge. Participants will see “Your savings challenge opens soon” until then.`).join('')}`)
+    setGroups([]); setSettings(null); setReviewedPersona(result.persona)
+    startedAutomatically.current = true
+    onPersonaChange(result.persona)
+  }
+
+  async function checkUpdate() {
+    if (!pendingLaunch || busy || lifecycle.pending) return
+    const ticket = lifecycle.begin()
+    const current = () => mounted.current && lifecycle.isCurrent(ticket)
+    setBusy(true); setError(null); setStatus('Checking your earlier update…')
+    try {
+      const result = await resolveCoachLaunch(pendingLaunch.review, pendingLaunch.key)
+      if (!current()) return
+      if (result.status === 'live') {
+        showLive(result)
+      } else if (result.status === 'not_committed') {
+        localStorage.removeItem(storageKey)
+        setPendingLaunch(null); setGroups([]); setSettings(null); setReviewedPersona(null); setReadiness(null); setAnswers([]); setChecks([])
+        setLive(false); startedAutomatically.current = true
+        setStatus('Nothing went live from this request. Review the latest assistant, settings and people before trying again.')
+        onPersonaChange(result.persona)
+      } else {
+        throw new Error('Unconfirmed update')
+      }
+    } catch (caught) {
+      if (current()) {
+        const code = caught && typeof caught === 'object' && 'status' in caught ? caught.status : null
+        setStatus(''); setError(code === 401 || code === 403
+          ? 'We could not confirm whether your update went live. Sign in with access to this program, then choose Check this update.'
+          : 'We still could not confirm your update. Keep this request and try Check this update again in a minute.')
       }
     } finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
@@ -148,7 +180,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
     <h3>{live ? 'Your program is live' : voiceChanges ? 'Hear your assistant, then go live' : 'Review changes, then go live'}</h3><p>{live ? 'Your people have the published assistant, appearance and tools.' : voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
     {!live && !(reviewedPersona ?? persona).published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
     <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
-    {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button></>}
+    {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></>}
     {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>

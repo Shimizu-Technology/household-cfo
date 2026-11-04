@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail } from '../api'
 import { CoachGoLive } from './CoachGoLive'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
-const api = vi.hoisted(() => ({ fetchAdminPersona:vi.fn(),fetchAdminPersonaEvaluationRun:vi.fn(),fetchAdminPersonaReleaseReadiness:vi.fn(),previewAdminPersona:vi.fn(),postCoachLaunch:vi.fn(),runAdminPersonaEvaluation:vi.fn() }))
+const api = vi.hoisted(() => ({ resolveCoachLaunch:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaEvaluationRun:vi.fn(),fetchAdminPersonaReleaseReadiness:vi.fn(),previewAdminPersona:vi.fn(),postCoachLaunch:vi.fn(),runAdminPersonaEvaluation:vi.fn() }))
 const groupApi = vi.hoisted(() => ({reviewCoachGroup:vi.fn()}))
 vi.mock('../api', () => api)
 const settingsApi = vi.hoisted(() => ({ reviewCoachSettings:vi.fn() }))
@@ -72,9 +72,14 @@ it('recovers a lost response after remount with the same key and reviewed reques
  expect(api.postCoachLaunch.mock.calls[1]).toEqual(call);expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
  expect(localStorage.length).toBe(0)
 })
-it('requires a fresh review after the server rejects stale settings',async()=>{
- api.postCoachLaunch.mockRejectedValueOnce(Object.assign(new Error('stale'),{status:409}));render(<Harness/>);await approve()
- expect((await screen.findByRole('alert')).textContent).toContain('Nothing went live')
+it('checks and closes a rejected request before offering a fresh review',async()=>{
+ api.postCoachLaunch.mockRejectedValueOnce(Object.assign(new Error('stale'),{status:409}))
+ api.resolveCoachLaunch.mockResolvedValue({status:'not_committed',persona})
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ expect(localStorage.length).toBe(1)
+ fireEvent.click(screen.getByRole('button',{name:'Check this update'}))
+ await screen.findByText(/^Nothing went live from this request/)
+ expect(api.resolveCoachLaunch).toHaveBeenCalledWith(...api.postCoachLaunch.mock.calls[0])
  expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false)
  expect(screen.queryByRole('button',{name:'Finish going live'})).toBeNull();expect(localStorage.length).toBe(0)
 })
@@ -109,4 +114,50 @@ it('honors custom participant navigation order and independently hidden Statemen
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:true,module_order:['wealth','ask_mia','home'],modules:[{id:'home',enabled:true},{id:'ask_mia',enabled:true},{id:'wealth',enabled:true},{id:'statements',enabled:false}]}}]})
  render(<Harness/>);await review();expect(screen.getByText('Wealth · Mia · Savings')).toBeTruthy()
  expect(screen.queryByText('Savings · Mia · Statements · More')).toBeNull()
+})
+
+it('approves the digest read after preview rather than the empty digest left by a voice edit',async()=>{
+ api.fetchAdminPersona.mockResolvedValueOnce({...persona,preview:null}).mockResolvedValueOnce({...persona,preview:{digest:'fresh-preview'}})
+ render(<Harness/>);await approve();await screen.findByText(/^Live for/)
+ expect(api.postCoachLaunch.mock.calls[0][0].persona.preview_digest).toBe('fresh-preview')
+})
+it.each([401,403])('retains an uncertain launch after a lost reply and a %s retry',async(status)=>{
+ api.postCoachLaunch.mockRejectedValueOnce(new Error('lost response')).mockRejectedValueOnce(Object.assign(new Error('auth'),{status}))
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'Finish going live'}))
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain('Sign in'))
+ expect(screen.getByRole('alert').textContent).not.toContain('Nothing went live')
+ expect(localStorage.length).toBe(1)
+ expect(screen.getByRole('button',{name:'Check this update'})).toBeTruthy()
+})
+
+it('escapes repeated server failures only after the server closes the uncommitted request',async()=>{
+ api.postCoachLaunch.mockRejectedValue(Object.assign(new Error('commit failed'),{status:500}))
+ api.resolveCoachLaunch.mockResolvedValue({status:'not_committed',persona})
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'Finish going live'}))
+ await waitFor(()=>expect(api.postCoachLaunch).toHaveBeenCalledTimes(2))
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Check this update'})).toHaveProperty('disabled',false))
+ expect(localStorage.length).toBe(1)
+ fireEvent.click(screen.getByRole('button',{name:'Check this update'}))
+ await screen.findByText(/^Nothing went live from this request/)
+ expect(localStorage.length).toBe(0)
+ await review()
+ expect(screen.getByRole('button',{name:'Approve and go live'})).toHaveProperty('disabled',false)
+})
+it('checking a committed request shows live without resending the launch',async()=>{
+ api.postCoachLaunch.mockRejectedValueOnce(new Error('reply lost'))
+ api.resolveCoachLaunch.mockResolvedValue({status:'live',persona:published,launch:{groups:[{...group,challenge_closed:false}]}})
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'Check this update'}))
+ await screen.findByText(/^Live for Practice people/)
+ expect(api.postCoachLaunch).toHaveBeenCalledTimes(1);expect(localStorage.length).toBe(0)
+})
+it.each([401,403,500])('keeps recovery when checking status fails with %s',async(status)=>{
+ api.postCoachLaunch.mockRejectedValueOnce(new Error('reply lost'))
+ api.resolveCoachLaunch.mockRejectedValue(Object.assign(new Error('unavailable'),{status}))
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ fireEvent.click(screen.getByRole('button',{name:'Check this update'}))
+ await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain(status===500?'still could not confirm':'Sign in'))
+ expect(localStorage.length).toBe(1);expect(screen.queryByText(/^Nothing went live/)).toBeNull()
 })

@@ -250,6 +250,7 @@ Rails.application.routes.draw do
           post :preview, on: :member
           post :publish, on: :member
           post :go_live, to: "coach_launches#create", on: :member
+          post :resolve_go_live, to: "coach_launches#resolve", on: :member
           post :restore, on: :member
           resources :versions, controller: "mia_persona_versions", only: :show do
             post :rollback, on: :member

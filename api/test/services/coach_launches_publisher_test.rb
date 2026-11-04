@@ -1,28 +1,10 @@
 require "test_helper"
-require_relative "../support/persona_test_helper"
+require_relative "../support/coach_launch_test_helper"
 
 class CoachLaunchesPublisherTest < ActiveSupport::TestCase
-  include PersonaTestHelper
+  include CoachLaunchTestHelper
   setup do
-    @owner = persona_user
-    @workspace = CoachWorkspaces::Provisioner.ensure_for!(@owner)
-    config = persona_configuration.merge("phrases" => [ persona_phrase_artifact({ "text" => "One step", "meaning" => "Choose one manageable next step." }, source_user_id: @owner.id) ])
-    @persona = create_persona(creator: @owner, workspace: @workspace, config:)
-    brand = @workspace.workspace_brand_configuration
-    brand.update!(draft_config: brand.draft_config.merge("product_name" => "Reviewed launch appearance"))
-    @groups = 2.times.map { |n| Cohort.create!(name: "Launch group #{n}", status: "active", created_by_user: @owner, coach_workspace: @workspace) }
-    @groups.each do |cohort|
-      config = cohort.cohort_experience_configuration
-      config.update!(draft_config: CohortExperience::Schema.upgrade(config.draft_config).merge("experience_mode" => "savings_challenge"))
-    end
-    Mia::PersonaPublisher.new(persona: @persona, actor: @owner).preview!(expected_draft_revision: @persona.draft_revision)
-    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: @persona, actor: @owner).call!
-    Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: @persona, actor: @owner).call!(candidate:, preview: {
-      status: "ready", source: "live_model", sample_prompt: "Help this fictional household plan.", sample_reply: "Review the confirmed plan and choose one next step.",
-      model_identifier: "test-model", provider_request_id: "gen-test-helper", context_digest: Mia::PersonaPreviewer.context_digest
-    })
-    Mia::PersonaRelease::Runner.new(persona: @persona, actor: @owner).call!
-    @review = build_review
+    prepare_launch
   end
 
   test "atomic launch publishes every group and reports unopened challenges with idempotent replay" do
@@ -139,29 +121,66 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
     assert_equal 2, result.fetch("groups").length
     assert @groups.all? { |c| c.reload.active_cohort_release_id != previous[@groups.index(c)] }
   end
+end
+
+class CoachLaunchesReadinessTest < ActiveSupport::TestCase
+  include CoachLaunchTestHelper
+  setup do
+    prepare_launch
+    publish
+  end
+
+  [ false, true ].each do |changed|
+    test "participant conflicts block #{changed ? 'a new bundle' : 'an active bundle with no seal needed'}" do
+      participant = persona_user(role: "participant")
+      @groups.each { |cohort| participant.cohort_memberships.create!(cohort:, role: "participant") }
+      if changed
+        brand = @workspace.workspace_brand_configuration.reload
+        brand.update!(draft_config: brand.draft_config.merge("product_name" => "Blocked appearance"))
+      end
+      @review = build_review
+      studio = CohortReleases::StudioSerializer.new(cohort: @groups.first.reload, actor: @owner).call
+      refute studio.dig(:readiness, :ready)
+      refute studio.dig(:readiness, :seal_needed)
+      assert_no_difference [ "CoachLaunchReceipt.count", "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseActivationEvent.count" ] do
+        assert_raises(CoachLaunches::Publisher::Conflict) { publish(request_key: "blocked-noop") }
+      end
+    end
+  end
+end
+
+class CoachLaunchesRecoveryTest < ActiveSupport::TestCase
+  include CoachLaunchTestHelper
+  setup { prepare_launch }
+
+  test "resolution returns the committed receipt without replaying or changing it" do
+    result = publish
+    assert_no_difference [ "CoachLaunchReceipt.count", "CoachPersonaVersion.count", "CohortRelease.count" ] do
+      assert_equal({ status: "live", launch: result }, resolver.resolve!)
+    end
+  end
+
+  test "negative resolution closes the key and prevents a delayed original request from launching" do
+    assert_equal({ status: "not_committed" }, resolver.resolve!)
+    assert_equal({ status: "not_committed" }, resolver.resolve!)
+    assert_no_difference [ "CoachLaunchReceipt.count", "CoachPersonaVersion.count", "CohortRelease.count" ] do
+      assert_raises(CoachLaunches::Publisher::Conflict) { publish }
+    end
+    assert_nil @groups.first.reload.active_cohort_release_id
+    assert publish(request_key: "fresh-review")
+  end
+
+  test "resolution rechecks authority and exact persona and request evidence" do
+    publish
+    bad = @review.deep_merge("brand" => { "draft_revision" => 999 })
+    assert_raises(CoachLaunches::Publisher::Conflict) { resolver(review: bad).resolve! }
+    @workspace.coach_workspace_memberships.find_by!(user: @owner).update!(role: "editor")
+    assert_raises(ActiveRecord::RecordNotFound) { resolver.resolve! }
+  end
 
   private
 
-  def publish(review: @review)
-    CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review:, request_key: "one-launch").call!
-  end
-
-  def config_review(config, publisher)
-    digest = publisher.new(configuration: config, actor: @owner).preview!(expected_draft_revision: config.draft_revision)
-    { "draft_revision" => config.reload.draft_revision, "published_version_id" => config.current_published_version_id, "preview_digest" => digest }
-  end
-
-  def build_review
-    ready = Mia::PersonaRelease::Readiness.new(persona: @persona.reload, actor: @owner).call.deep_stringify_keys
-    {
-      "persona" => { "id" => @persona.id, "draft_revision" => @persona.draft_revision, "published_version_id" => @persona.current_published_version_id, "voice_changes" => @persona.current_published_version_id.nil?, "preview_digest" => @persona.preview_digest }.merge(ready.slice("candidate", "evaluation_run", "behavioral_preview_evidence")),
-      "brand" => config_review(@workspace.workspace_brand_configuration, Branding::Publisher),
-      "tools" => @groups.map { |c| config_review(c.cohort_experience_configuration, CohortExperience::Publisher).merge("id" => c.id) },
-      "groups" => @groups.map do |c|
-        rollout = CohortRollouts::StudioSerializer.new(cohort: c.reload, actor: @owner).call
-        candidate = CohortReleases::StudioSerializer.new(cohort: c, actor: @owner).call.dig(:readiness, :candidate)
-        { "id" => c.id, "name" => c.name, "bundle_digest" => candidate[:bundle_digest], "roster_digest" => rollout.dig(:current_roster, :digest), "participant_ids" => rollout.dig(:current_roster, :participants).map { |p| p[:user_id] }, "active_release_id" => c.active_cohort_release_id, "assignment_persona_id" => c.cohort_persona_assignment&.coach_persona_id }
-      end
-    }
+  def resolver(review: @review)
+    CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review:, request_key: "one-launch")
   end
 end

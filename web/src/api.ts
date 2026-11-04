@@ -3475,6 +3475,10 @@ export async function postCoachLaunch(review: CoachLaunchReview, key: string): P
   return fetchJson(`/api/v1/admin/personas/${review.persona.id}/go_live`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ review }) })
 }
 
+export async function resolveCoachLaunch(review: CoachLaunchReview, key: string): Promise<{ persona: AdminPersonaDetail } & ({ status: 'live'; launch: { groups: Array<{ id: number; name: string; challenge_closed: boolean }> } } | { status: 'not_committed' })> {
+  return fetchJson(`/api/v1/admin/personas/${review.persona.id}/resolve_go_live`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ review }) })
+}
+
 export async function publishAdminPersona(id: number, values: AdminPersonaPublishInput): Promise<AdminPersonaPublicationResponse> {
   return postJson<AdminPersonaPublicationResponse>(`/api/v1/admin/personas/${id}/publish`, { publish: values })
 }
