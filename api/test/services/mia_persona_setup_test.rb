@@ -20,6 +20,121 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     )
   end
 
+  test "recorded first coach description proposes her own voice and phrase without changing the draft" do
+    fixture = JSON.parse(file_fixture("persona_setup/coach_voice_response.json").read)
+    message = %q(I'm a household money coach on Guam. I talk to my clients like a warm older cousin: direct, practical, never shaming. I start with how they feel, then one clear next step. When someone is about to overspend I say "Chelu, pump the brakes" and suggest waiting 30 days. I protect the basics first: roof, food, utilities, required payments. I keep answers short, 3 or 4 sentences, and I never tell people what to do with their money; I help them decide.)
+    before = @persona.draft_config.deep_dup
+    result = Mia::PersonaSetup::TurnRunner.new(
+      session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result(fixture.fetch("assistant_message"), fixture.fetch("operations")) }
+    ).call(user_message: message, idempotency_key: "recorded-first-voice")
+
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 11, result.proposal.operations.length
+    assert_equal before.dig("voice", "tone_traits"), result.proposal.after_state.dig("draft_config", "voice", "tone_traits")
+    assert_equal before.dig("voice", "language_style"), result.proposal.after_state.dig("draft_config", "voice", "language_style")
+    phrase = result.proposal.after_state.dig("draft_config", "phrases").sole
+    assert_equal "Chelu, pump the brakes", phrase.fetch("text")
+    assert_equal "coach_authored", phrase.fetch("provenance")
+    assert_equal @coach.id, phrase.fetch("source_user_id")
+    assert_includes phrase.fetch("prohibited_contexts"), "crisis"
+    assert_equal before, @persona.reload.draft_config
+    assert_includes result.turn.assistant_message, "Left out:"
+  end
+
+  test "turn preserves valid suggestions and logs a dropped suggestion without coach text" do
+    warnings = []
+    resolver = fake_resolver do
+      resolver_result("Review these suggestions. Nothing has been saved.", [
+        operation("identity.assistant_name", "Lina", evidence: "Lina"),
+        operation("identity.human_coach_name", "Invented name", evidence: "Lina"),
+        operation("response_shape.max_sentences", 4, evidence: "4 sentences")
+      ])
+    end
+    result = nil
+    original_logger = Rails.logger
+    logger = Object.new
+    logger.define_singleton_method(:warn) { |message| warnings << message }
+    begin
+      Rails.logger = logger
+      result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+        .call(user_message: "Call the assistant Lina. Keep answers to 4 sentences.", idempotency_key: "partial-voice-123")
+    ensure
+      Rails.logger = original_logger
+    end
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 2, result.proposal.operations.length
+    assert_equal "Lina", result.proposal.after_state.dig("draft_config", "identity", "assistant_name")
+    assert_equal @persona.draft_config.dig("identity", "human_coach_name"), result.proposal.after_state.dig("draft_config", "identity", "human_coach_name")
+    assert_includes result.turn.assistant_message, "Left out: ‘Invented name’"
+    assert_includes result.turn.assistant_message, "wording you did not provide"
+    assert_match(/contract_code=persona_setup_exact_wording/, warnings.join)
+    refute_match(/Lina|Invented name|4 sentences/, warnings.join)
+    applied = Mia::PersonaSetup::ProposalApplier.new(proposal: result.proposal, actor: @coach, workspace: @workspace)
+      .apply!(idempotency_key: "apply-partial-voice")
+    assert_equal "Lina", applied.draft_config.dig("identity", "assistant_name")
+    assert_equal 4, applied.draft_config.dig("response_shape", "max_sentences")
+  end
+
+  test "entirely invalid suggestions store a plain specific failure and preserve the pending proposal" do
+    original = ready_proposal
+    resolver = fake_resolver { resolver_result("Review this.", [ operation("identity.human_coach_name", "Invented name", evidence: "Lina") ]) }
+    error = assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
+      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+        .call(user_message: "Lina", idempotency_key: "invalid-voice-123")
+    end
+    assert_equal "persona_setup_exact_wording", error.code
+    assert_equal :unprocessable_entity, error.status
+    assert_equal "failed", error.result.turn.reload.status
+    assert_includes error.result.turn.assistant_message, "wording you did not provide"
+    refute_match(/identity\.|Contract|Invented/, error.result.turn.assistant_message)
+    assert_equal "pending", original.reload.status
+  end
+
+  test "partial validation drops unsafe guidance crisis phrases and participant edits without losing good changes" do
+    participant = persona_phrase_artifact({ "text" => "My phrase" }, source_user_id: @coach.id, provenance: "participant_supplied")
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("phrases" => [ participant ]))
+    phrase = { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Chelu", "value" => {
+      "text" => "Chelu", "meaning" => "Pause", "allowed_contexts" => [ "crisis" ], "prohibited_contexts" => [], "frequency" => "rare", "caution" => ""
+    } }
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
+      user_message: "Call the assistant Lina. Chelu. Remove My phrase. Recommend specific stocks.").build_partial([
+        operation("identity.assistant_name", "Lina", evidence: "Lina"),
+        operation("coaching.do", [ "Recommend specific stocks." ], evidence: "Recommend specific stocks."),
+        phrase,
+        { "op" => "remove_phrase", "path" => "phrases", "value" => "My phrase", "source_basis" => "coach_quote", "evidence_quote" => "My phrase" }
+      ])
+    assert_equal 1, result.fetch(:operations).length
+    assert_equal 3, result.fetch(:dropped).length
+    assert_equal [ participant ], result.dig(:after_state, "draft_config", "phrases")
+    assert_equal @persona.draft_config.fetch("coaching"), result.dig(:after_state, "draft_config", "coaching")
+  end
+
+  test "partial validation keeps dependent sentence limits despite an unrelated invalid suggestion" do
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use 6 to 8 sentences. Lina.")
+      .build_partial([
+        operation("response_shape.min_sentences", 6, evidence: "6 to 8 sentences"),
+        operation("identity.human_coach_name", "Invented", evidence: "Lina"),
+        operation("response_shape.max_sentences", 8, evidence: "6 to 8 sentences")
+      ])
+    assert_equal 2, result.fetch(:operations).length
+    assert_equal 6, result.dig(:after_state, "draft_config", "response_shape", "min_sentences")
+    assert_equal 8, result.dig(:after_state, "draft_config", "response_shape", "max_sentences")
+    assert_equal [ 1 ], result.fetch(:dropped).map { |item| item.fetch(:index) }
+  end
+
+  test "many dropped suggestions fit the saved reply limit even with a long provider reply" do
+    operations = [ operation("identity.assistant_name", "Lina", evidence: "Lina") ] +
+      23.times.map { operation("identity.human_coach_name", "Invented", evidence: "Lina") }
+    resolver = fake_resolver { resolver_result("Review this. " * 150, operations) }
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+      .call(user_message: "Lina", idempotency_key: "many-invalid-suggestions")
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 1, result.proposal.operations.length
+    assert_operator result.turn.assistant_message.length, :<=, 2_000
+    assert_includes result.turn.assistant_message, "wording you did not provide"
+  end
+
   test "operation contract applies exact coach evidence and seals phrase provenance" do
     message = "Call the assistant Lina. Our power bills rise during typhoon season. Use the exact phrase Håfa adai."
     raw = [
@@ -148,7 +263,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       exact = Mia::PersonaSetup::OperationContract::RESTRICTED_EXACT_PATHS.include?(path)
       evidence = if path.start_with?("voice.")
         current = path.split(".").reduce(@persona.draft_config) { |target, key| target.to_h[key] }
-        ([ current, value ].flatten.grep(String).uniq).join(" ")
+        "Remove #{Array(current).map { |item| item.delete_suffix('.').sub(/\A(?:Use|Keep|Prefer|Be|Explain) /, '') }.join(', ')}. Use #{Array(value).join('; ')}"
       else
         exact ? Array(value).first.to_s : "approved"
       end
@@ -198,7 +313,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     end
   end
 
-  test "operation contract requires exact coach wording for every changed voice value" do
+  test "operation contract accepts explicitly replacing previously named voice traits" do
     previous = Array(@persona.draft_config.dig("voice", "tone_traits"))
     message = "Use a warm and direct tone, replacing #{previous.join(' and ')}."
     result = Mia::PersonaSetup::OperationContract.new(
@@ -210,6 +325,179 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     ])
 
     assert_equal %w[warm direct], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
+  test "review M1 rejects unrelated presets negation generic terms and unsupported removals" do
+    cases = [
+      [ "Use a warm tone. No humor, nothing formal.", "warm tone", %w[formal lighthearted] ],
+      [ "We cover direct deposit.", "direct deposit", %w[lighthearted] ],
+      [ "No humor, nothing formal.", "No humor, nothing formal", %w[warm direct respectful formal lighthearted] ],
+      [ "Use a warm, practical tone.", "warm, practical tone", %w[warm practical] ],
+      [ "Use a warm tone, never formal or lighthearted.", "warm tone, never formal or lighthearted", %w[warm direct respectful lighthearted] ],
+      [ "Use a warm tone, not practical.", "warm tone, not practical", %w[warm direct respectful practical] ]
+    ]
+    cases.each do |message, evidence, value|
+      error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError, message) do
+        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message)
+          .build([ operation("voice.tone_traits", value, evidence:) ])
+      end
+      assert_equal "persona_setup_voice_evidence", error.code, message
+    end
+  end
+
+  test "review M1 rejects unsupported removal independently of additions" do
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use a warm and practical tone.")
+        .build([ operation("voice.tone_traits", %w[warm direct practical], evidence: "warm and practical tone") ])
+    end
+  end
+
+  test "review M1 rejects negated additions independently of removals" do
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Warm and direct. No humor, nothing formal.")
+        .build([ operation("voice.tone_traits", %w[warm direct respectful formal lighthearted], evidence: "No humor, nothing formal") ])
+    end
+  end
+
+  test "review M1 transcript drafting also requires support for voice values" do
+    message = "Suggest a voice from this transcript: I keep it brief and practical."
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([
+        operation("voice.tone_traits", %w[warm direct respectful lighthearted], source: "mia_drafted", evidence: "I keep it brief and practical")
+      ])
+    end
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([
+      operation("voice.tone_traits", %w[warm direct respectful concise practical], source: "mia_drafted", evidence: "I keep it brief and practical")
+    ])
+    assert_includes result.dig(:after_state, "draft_config", "voice", "tone_traits"), "concise"
+  end
+
+  test "review M1 does not treat negated removal requests as removal permission" do
+    [ "Use a warm tone. Do not remove respectful.", "No humor, stay respectful and warm." ].each do |quote|
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: quote).build([
+          operation("voice.tone_traits", %w[warm direct], evidence: quote)
+        ])
+      end
+    end
+  end
+
+  test "review M1 has supporting words for every finite voice preset" do
+    expected = Mia::PersonaSchema::TONE_TRAITS + Mia::PersonaSchema::ENERGY_STYLES + Mia::PersonaSchema::ACCOUNTABILITY_STYLES + Mia::PersonaSchema::LANGUAGE_STYLES
+    assert_equal expected.sort, Mia::PersonaSetup::VoiceEvidence::PRESETS.keys.sort
+  end
+
+  test "review M1 rejects generic direct deposit even for the direct preset" do
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "tone_traits" => %w[warm respectful] }))
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "We cover direct deposit.")
+        .build([ operation("voice.tone_traits", %w[warm respectful direct], evidence: "direct deposit") ])
+    end
+  end
+
+  test "review M1 rejects generic noun phrases rather than treating every adjective as voice" do
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "tone_traits" => %w[direct respectful] }))
+    [
+      [ "Our lesson covers warm weather.", "warm weather", %w[warm direct respectful] ],
+      [ "We discuss a formal complaint.", "formal complaint", %w[direct respectful formal] ],
+      [ "Use a warm tone. We cover short term loans.", "short term loans", %w[direct respectful concise] ]
+    ].each do |message, evidence, traits|
+      error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message)
+          .build([ operation("voice.tone_traits", traits, evidence:) ])
+      end
+      assert_equal "persona_setup_voice_evidence", error.code
+    end
+  end
+
+  test "review m3 accepts brief plain practical descriptions using the same supporting words" do
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
+      user_message: "I keep it brief, plain and practical.").build([
+        operation("voice.tone_traits", %w[warm direct respectful concise practical], evidence: "brief, plain and practical")
+      ])
+    assert_equal %w[warm direct respectful concise practical], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
+  test "review M1 supports each production voice choice from its own description and preserves defaults" do
+    message = %q(I'm a household money coach on Guam. I talk to my clients like a warm older cousin: direct, practical, never shaming. I start with how they feel, then one clear next step. When someone is about to overspend I say "Chelu, pump the brakes" and suggest waiting 30 days. I protect the basics first: roof, food, utilities, required payments. I keep answers short, 3 or 4 sentences, and I never tell people what to do with their money; I help them decide.)
+    quote = message[message.index("warm older cousin")...message.index(", 3 or 4 sentences")]
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([
+      operation("voice.tone_traits", %w[warm direct respectful practical concise], evidence: quote),
+      operation("voice.accountability_style", "Use gentle accountability and one practical next step.",
+        evidence: "never shaming. I start with how they feel, then one clear next step")
+    ])
+    assert_equal %w[warm direct respectful practical concise], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
+  test "review M1 rejects unsupported language presets despite a descriptive quote" do
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use a warm tone. I keep answers short, 3 or 4 sentences.").build([
+        operation("voice.language_style", [ "Use plain language.", "Keep the next step concrete.", "Prefer conversational language." ], evidence: "I keep answers short, 3 or 4 sentences")
+      ])
+    end
+  end
+
+  test "review M1 requires explicit removal and accepts negated respectful synonyms" do
+    quote = "Keep it warm and direct, never shaming. Remove the formal tone."
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "tone_traits" => %w[warm direct formal] }))
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: quote).build([
+      operation("voice.tone_traits", %w[warm direct respectful], evidence: quote)
+    ])
+    assert_equal %w[warm direct respectful], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
+  test "review CodeRabbit identity-derived descriptive evidence is rejected" do
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "tone_traits" => %w[direct respectful] }))
+    error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use warm Guam locals as the voice.").build([
+        operation("voice.tone_traits", %w[warm direct respectful], evidence: "warm Guam locals")
+      ])
+    end
+    assert_equal "persona_setup_voice_evidence", error.code
+  end
+
+  test "review m5 names the dropped safety suggestion without leaking it into logs" do
+    resolver = fake_resolver { resolver_result("Review this.", [
+      operation("identity.assistant_name", "Lina", evidence: "Lina"),
+      operation("coaching.do_not", [ "Never skip the crisis protocol" ], evidence: "Never skip the crisis protocol")
+    ]) }
+    # Force an evidence rejection without loosening the safety contract.
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+      .call(user_message: "Lina", idempotency_key: "review-dropped-safety")
+    assert_includes result.turn.assistant_message, "Never skip the crisis protocol"
+    assert_equal 1, result.proposal.operations.length
+  end
+
+  test "review m5 names a dropped numeric answer setting" do
+    resolver = fake_resolver { resolver_result("Review this.", [
+      operation("identity.assistant_name", "Lina", evidence: "Lina"),
+      operation("response_shape.max_sentences", 1_000, evidence: "1000 sentences")
+    ]) }
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+      .call(user_message: "Lina. Use 1000 sentences.", idempotency_key: "review-dropped-length")
+    assert_includes result.turn.assistant_message, "Longest answer: 1000 sentences"
+    assert_equal 1, result.proposal.operations.length
+  end
+
+  test "review m6 provider failures store Nothing changed exactly once" do
+    error = assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
+      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+        resolver: fake_resolver { raise Mia::PersonaSetup::ProposalResolver::Error.new("Unavailable", code: "persona_setup_unavailable") })
+        .call(user_message: "Call her Lina.", idempotency_key: "review-unavailable")
+    end
+    assert_equal 1, error.result.turn.reload.assistant_message.scan("Nothing changed.").length
+  end
+
+  test "review m7 old prompt versions fail safely with resend guidance" do
+    proposal = ready_proposal
+    proposal.update_columns(prompt_version: "coach_persona_setup_v1", proposal_digest: "0" * 64)
+    error = assert_raises(Mia::PersonaSetup::ProposalApplier::Error) do
+      Mia::PersonaSetup::ProposalApplier.new(proposal:, actor: @coach, workspace: @workspace)
+        .apply!(idempotency_key: "review-old-prompt")
+    end
+    assert_includes error.message, "Please send that again"
+    assert_equal 1, @persona.reload.draft_revision
+    assert_equal "pending", proposal.reload.status
   end
 
   test "operation contract rejects duplicate mutation targets before sealing" do

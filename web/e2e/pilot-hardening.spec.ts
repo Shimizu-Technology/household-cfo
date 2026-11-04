@@ -5344,6 +5344,28 @@ test('Coach Studio warns before discarding an unsaved creation form on a view ch
   await expect(form.getByLabel('Internal description')).toHaveValue('')
 })
 
+test('Coach Studio People checklist opens the assistant area before creation completes', async ({ page }) => {
+  let finishCreate!: () => void
+  const creating = new Promise<void>(resolve => { finishCreate = resolve })
+  await page.route('http://api.test/api/v1/admin/personas', async route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { personas: [] } })
+    await creating
+    await route.fallback()
+  })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => route.fulfill({ json: { cohorts: [] } }))
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await expect(page.getByRole('heading', { name: 'Get your program ready' })).toBeVisible()
+  await page.getByRole('button', { name: 'Describe your assistant', exact: true }).click()
+  const areas = page.getByRole('navigation', { name: 'Coach Studio areas' })
+  await expect(areas.getByRole('button', { name: 'Your assistant', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByLabel('Assistant name', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Your assistant', exact: true })).toBeFocused()
+  await expect(page.getByRole('status').filter({hasText:'Creating your assistant'})).toBeVisible()
+  finishCreate()
+  await expect(page.getByLabel('Message Mia', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
 test('Coach Studio simple preview failure offers a plain retry and a route to save the voice', async ({ page }) => {
   let previews = 0
   await page.route('http://api.test/api/v1/admin/personas/81/preview', route => {

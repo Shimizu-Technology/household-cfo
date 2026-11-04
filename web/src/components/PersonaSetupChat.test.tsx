@@ -193,7 +193,7 @@ describe('PersonaSetupChat', () => {
         position: 1,
         status: 'failed',
         user_message: 'Use a calm voice.',
-        assistant_message: 'Nothing changed. Try again.',
+        assistant_message: 'This suggestion used wording you did not provide. Please include the exact words you want. Nothing changed.',
         error_code: 'persona_setup_unavailable',
         created_at: '2026-10-02T00:00:00Z',
       }],
@@ -212,7 +212,7 @@ describe('PersonaSetupChat', () => {
 
     expect(await screen.findByRole('button', { name: 'Send to Mia' })).toBeTruthy()
     expect(composer.value).toBe('Use a calm voice.')
-    expect(screen.getByRole('alert').textContent).toContain('Nothing changed. Try again or use Guided setup.')
+    expect(screen.getByRole('alert').textContent).toContain('This suggestion used wording you did not provide.')
     expect(screen.getByRole('alert').textContent).not.toContain('503')
 
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))

@@ -16,45 +16,45 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
   end
 
   test "transcripts propose enum voice and examples with source evidence without changing names or guardrails" do
-    message = "Propose a voice and example replies from these transcripts. Transcript: We take a breath and choose one small step."
+    message = "Propose a voice and example replies from these transcripts. Transcript: We take our time and choose one small step."
     operations = [
-      operation("voice.tone_traits", [ "patient", "warm" ], "We take a breath"),
+      operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time"),
       operation("curriculum.examples", [ { "participant" => "I overspent.", "assistant" => "Take a breath. What small step feels possible today?" } ], "choose one small step")
     ]
     built = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build(operations)
-    assert_equal [ "patient", "warm" ], built.dig(:after_state, "draft_config", "voice", "tone_traits")
+    assert_equal %w[warm direct respectful patient], built.dig(:after_state, "draft_config", "voice", "tone_traits")
     assert_equal "Take a breath. What small step feels possible today?", built.dig(:after_state, "draft_config", "curriculum", "examples", 0, "assistant")
     assert_equal @persona.draft_config, @persona.reload.draft_config
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
-      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ operation("identity.human_coach_name", "Invented coach", "We take a breath") ])
+      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ operation("identity.human_coach_name", "Invented coach", "We take our time") ])
     end
   end
 
-  test "transcript coach quotes must contain each exact proposed voice value" do
+  test "transcript coach quotes require supported additions and preserve current traits" do
     message = "Propose voice from transcripts: We take a breath."
-    op = operation("voice.tone_traits", [ "patient" ], "We take a breath").merge("source_basis" => "coach_quote")
+    op = operation("voice.tone_traits", %w[warm direct respectful patient], "We take a breath").merge("source_basis" => "coach_quote")
     error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ op ])
     end
-    assert_includes error.message, "Every voice value must appear exactly"
-    op["value"] = [ "patient" ]
-    exact = (@persona.draft_config.dig("voice", "tone_traits") + [ "patient" ]).join(" ")
+    assert_equal "persona_setup_voice_evidence", error.code
+    op["value"] = %w[warm direct respectful patient]
+    exact = (@persona.draft_config.dig("voice", "tone_traits") + %w[warm direct respectful patient]).join(" ")
     op["evidence_quote"] = exact
     result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "#{message} #{exact}").build([ op ])
-    assert_equal [ "patient" ], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+    assert_equal %w[warm direct respectful patient], result.dig(:after_state, "draft_config", "voice", "tone_traits")
   end
 
   test "transcript suggestions need explicit request and actual source evidence" do
     [ [ "Transcript: We take a breath.", "We take a breath" ], [ "Propose voice from transcripts: We take a breath.", "fabricated evidence" ] ].each do |message, quote|
       assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
-        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ operation("voice.tone_traits", [ "patient" ], quote) ])
+        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ operation("voice.tone_traits", %w[warm direct respectful patient], quote) ])
       end
     end
   end
 
   test "coach may save selected suggestions and their exact choices remain audited and idempotent" do
-    message = "Propose voice from transcripts: We take a breath and choose one small step."
-    operations = [ operation("voice.tone_traits", [ "patient" ], "We take a breath"), operation("coaching.method", "Choose a small step.", "choose one small step") ]
+    message = "Propose voice from transcripts: We take our time and choose one small step."
+    operations = [ operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time"), operation("coaching.method", "Choose a small step.", "choose one small step") ]
     built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
     turn = @session.turns.create!(position: 1, idempotency_key: "transcript-turn", status: "ready", assistant_message: "Review these suggestions. Nothing has been saved.", user_message: message,
       base_draft_revision: @persona.draft_revision, base_config_digest: Mia::PersonaSchema.digest(@persona.draft_config))
@@ -62,7 +62,7 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     before_method = @persona.draft_config.dig("coaching", "method")
     applier = Mia::PersonaSetup::ProposalApplier.new(proposal: proposal, actor: @coach, workspace: @workspace)
     applier.apply!(idempotency_key: "selected-choices", accepted_operation_indexes: [ 0 ])
-    assert_equal [ "patient" ], @persona.reload.draft_config.dig("voice", "tone_traits")
+    assert_equal %w[warm direct respectful patient], @persona.reload.draft_config.dig("voice", "tone_traits")
     assert_equal before_method, @persona.draft_config.dig("coaching", "method")
     assert_equal [ 0 ], proposal.reload.accepted_operation_indexes
     serialized = Mia::PersonaSetup::Serializer.new(@session.reload).call
@@ -91,12 +91,12 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
   end
 
   test "selecting a phrase preserves its sealed identity and original capture role" do
-    message = "Propose voice from transcripts: One small step."
+    message = "Propose voice from transcripts: One small step. We take our time."
     phrase = { "text" => "One small step", "meaning" => "Choose a manageable next move.",
       "allowed_contexts" => [ "general" ], "prohibited_contexts" => [ "crisis" ], "frequency" => "rare", "caution" => "Use gently." }
     operations = [ { "op" => "add_phrase", "path" => "phrases", "value" => phrase,
       "source_basis" => "coach_quote", "evidence_quote" => "One small step" },
-      operation("voice.tone_traits", [ "patient" ], "One small step") ]
+      operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
     built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
     turn = @session.turns.create!(position: 1, idempotency_key: "phrase-turn", status: "ready",
       assistant_message: "Review these suggestions.", user_message: message, base_draft_revision: @persona.draft_revision,
@@ -136,10 +136,10 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
       config = @persona.draft_config.deep_dup
       config["phrases"] = 2.times.map { persona_phrase_artifact({ text: "One small step" }, source_user_id: @coach.id) }
       @persona.update!(draft_config: config)
-      message = "Propose voice from transcripts: One small step."
+      message = "Propose voice from transcripts: One small step. We take our time."
       value = action == "add" ? config.fetch("phrases").first.slice(*Mia::PersonaSchema::PHRASE_AUTHORING_KEYS) : "One small step"
       operations = [ { "op" => "#{action}_phrase", "path" => "phrases", "value" => value,
-        "source_basis" => "coach_quote", "evidence_quote" => "One small step" }, operation("voice.tone_traits", [ "patient" ], "One small step") ]
+        "source_basis" => "coach_quote", "evidence_quote" => "One small step" }, operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
       built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
       turn = @session.turns.create!(position: 1, idempotency_key: "duplicate-phrase-turn", status: "ready",
         assistant_message: "Review these suggestions.", user_message: message, base_draft_revision: @persona.draft_revision,
