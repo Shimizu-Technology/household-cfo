@@ -12,9 +12,15 @@ module CohortExperience
     SUPPORTED_SCHEMA_VERSIONS = [ 1, 2, 3, 4 ].freeze
     EXPERIENCE_MODES = %w[household_cfo savings_challenge].freeze
     DEFAULT_CONFIG = {
-      "schema_version" => 1,
-      "optional_modules" => OPTIONAL_MODULES.index_with(false).freeze
+      "schema_version" => 4,
+      "experience_mode" => "household_cfo",
+      "optional_modules" => MODULE_DEFAULTS,
+      "module_order" => [].freeze
     }.freeze
+    # A corrupt published choice must never grant tools the coach may have disabled.
+    RESTRICTED_CONFIG = DEFAULT_CONFIG.merge(
+      "optional_modules" => CONFIGURABLE_MODULES.index_with(false).freeze
+    ).freeze
     LEGACY_CONFIG = {
       "schema_version" => 1,
       "optional_modules" => OPTIONAL_MODULES.index_with(true).freeze

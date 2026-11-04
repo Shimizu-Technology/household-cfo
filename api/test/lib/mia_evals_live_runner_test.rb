@@ -95,7 +95,12 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
 
   def assert_preflight(expected, message = nil)
     passed = nil
-    _out, err = capture_io { passed = @runner.send(:preflight) }
+    # Keep these unit cases independent of each worker's isolated database name.
+    # The actual name predicate is exercised separately, including unsafe names.
+    err = nil
+    stub_method(ActiveRecord::Base.connection, :current_database, "household_cfo_api_test") do
+      _out, err = capture_io { passed = @runner.send(:preflight) }
+    end
     assert_equal expected, passed, err
     assert_match message, err if message
   end

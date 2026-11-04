@@ -1,11 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mkdir } from 'node:fs/promises'
 import workspace from './fixtures/savings-home-workspace.json' with { type: 'json' }
 import { savingsFixture, savingsPlanVersion } from '../src/test/savingsFixtures'
 import { dailyContext, dailyVersion } from '../src/test/dailyFixtures'
 
 // Synthetic Rails workspace captured from an isolated, system-sealed savings cohort.
 // Every endpoint remains observable; no private read is silently supplied by a cache.
-async function mockSavingsHome(page: Page, checkedIn = false) {
+async function mockSavingsHome(page: Page, checkedIn = false, notOpen = false) {
   const challenge = { ...savingsFixture(), cohort_id: 1, accepted_plan: savingsPlanVersion() }
   challenge.enrollment!.cohort_id = 1
   challenge.enrollment!.current_accepted_plan_version_id = 21
@@ -15,7 +16,8 @@ async function mockSavingsHome(page: Page, checkedIn = false) {
     const path = url.pathname
     if (path === '/api/public/brand') return route.fulfill({ json: { brand: workspace.workspace.brand.config, available: true, source: 'legacy_household_cfo_default', workspace: null, version: null, primary_domain: '127.0.0.1' } })
     if (path === '/api/v1/auth/me') return route.fulfill({ json: { user: { id: 901, clerk_id: 'e2e_participant', email: 'participant@pilot.test', first_name: 'Test', last_name: 'Participant', full_name: 'Test Participant', role: 'participant', is_participant: true, is_staff: false, is_admin: false, is_coach: false, invitation_status: 'accepted', coach_workspaces: [], active_coach_workspace: null } } })
-    if (path === '/api/v1/workspace') return route.fulfill({ json: workspace })
+    if (path === '/api/v1/workspace') return route.fulfill({ json: notOpen ? { ...workspace, workspace: { ...workspace.workspace, challenge_open: false, challenge_state: 'not_open' } } : workspace })
+    if (path === '/api/v1/document_imports') return route.fulfill({ json: { document_imports: [] } })
     if (path === '/api/v1/savings_challenge/chat_cards') return route.fulfill({ json: { records: [], actor_scope: actor, cohort_id: 1, enrollment_id: 1 } })
     if (path === '/api/v1/savings_challenge') return route.fulfill({ json: challenge })
     if (path === '/api/v1/savings_challenge/daily') return route.fulfill({ json: { ...dailyContext, day: { ...dailyContext.day, local_on: challenge.calendar!.local_today, check_in_id: checkedIn ? 7 : null, check_in_version_id: checkedIn ? 8 : null, spending_state: checkedIn ? 'spending' : 'unknown', approved_purchase_count: checkedIn ? 1 : 0, reported_spend_cents: checkedIn ? 1250 : null, completed_at: checkedIn ? '2026-10-04T01:00:00Z' : null }, actor_scope: actor, cohort_id: 1, enrollment_id: 1, calendar: challenge.calendar } })
@@ -24,6 +26,20 @@ async function mockSavingsHome(page: Page, checkedIn = false) {
     return route.fulfill({ status: 404, json: { errors: ['Unexpected fixture read'] } })
   })
 }
+
+test('BOG UI an unopened challenge explains why statements cannot be uploaded', async ({ page }, info) => {
+  await mockSavingsHome(page, false, true)
+  if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const imports = page.getByRole('region', { name: 'Private financial document imports' })
+  await expect(imports).toContainText('Your coach is still setting up your program. You can upload statements once it opens.')
+  await expect(imports.locator('input[type=file]').first()).toBeDisabled()
+  await expect(imports.getByText('Unavailable right now').first()).toBeVisible()
+  if (process.env.HCFO_W14_EVIDENCE_DIR) {
+    await mkdir(process.env.HCFO_W14_EVIDENCE_DIR, { recursive: true })
+    await page.screenshot({ path: `${process.env.HCFO_W14_EVIDENCE_DIR}/${info.project.name}-unopened.png`, fullPage: true })
+  }
+})
 
 async function openDetails(page: Page, label: string | RegExp) {
   const summary = page.locator('details > summary').filter({ hasText: label })

@@ -38,10 +38,11 @@ module Api
 
         def preview
           digest = CohortExperience::Publisher.new(configuration: editable_configuration, actor: current_user).preview!(
-            expected_draft_revision: action_params[:draft_revision]
+            expected_draft_revision: action_params[:draft_revision],
+            upgrade_to_current: action_params[:upgrade_to_current] == true
           )
           render json: {
-            preview: preview_payload(digest),
+            preview: preview_payload(digest).merge(upgrade_notice: statements_upgrade_notice),
             experience_configuration: serializer.detail
           }
         rescue CohortExperience::Publisher::ReadOnlyError => error
@@ -116,7 +117,7 @@ module Api
         end
 
         def action_params
-          @action_params ||= configuration_input.permit(:draft_revision, :preview_digest, :expected_published_version_id)
+          @action_params ||= configuration_input.permit(:draft_revision, :preview_digest, :expected_published_version_id, :upgrade_to_current)
         end
 
         def configuration_input
@@ -139,6 +140,18 @@ module Api
             module_order: capabilities.fetch(:module_order, []),
             modules: capabilities.fetch(:modules)
           }
+        end
+
+        # Keep the notice when a coach reopens a review after the draft was upgraded.
+        def statements_upgrade_notice
+          return unless action_params[:upgrade_to_current] == true
+
+          config = editable_configuration.draft_config
+          return unless config.fetch("schema_version") == 4 && config.dig("optional_modules", "statements")
+
+          release = cohort.active_cohort_release || cohort.cohort_releases.order(release_number: :desc).first
+          previous = release&.experience_snapshot&.fetch("config") || editable_configuration.current_published_version&.config
+          "This update adds Statements" if previous.nil? || previous.fetch("schema_version") < 4
         end
 
         def render_conflict

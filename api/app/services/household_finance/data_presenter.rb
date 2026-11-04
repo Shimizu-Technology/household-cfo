@@ -62,9 +62,23 @@ module HouseholdFinance
         goals: goal_records,
         goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
-        capabilities: experience_capabilities,
+        capabilities: participant_capabilities,
         brand: brand
       }
+    end
+
+    def participant_capabilities
+      return experience_capabilities unless user&.participant?
+
+      capabilities = experience_capabilities.deep_dup
+      statement = capabilities.fetch(:modules).find { |item| item[:id] == "statements" }
+      unless statement
+        statement = { id: "statements", label: "Statements", core: false }
+        capabilities.fetch(:modules) << statement
+      end
+      statement[:enabled] = FinancialDocuments::StatementAccess.available?(household: household, user: user, membership: @cohort_membership)
+      statement[:unavailable_message] = FinancialDocuments::StatementAccess::UNAVAILABLE_MESSAGE unless statement[:enabled]
+      capabilities
     end
 
     # Savings-mode programs only: whether the challenge is open for activity.
@@ -72,7 +86,7 @@ module HouseholdFinance
     def challenge_open?
       return true unless participant_experience_mode == "savings_challenge"
 
-      SavingsChallenge::ProgramMode.open?(@cohort_membership&.cohort)
+      SavingsChallenge::ProgramMode.available?(user: user, membership: @cohort_membership, runtime: @runtime)
     end
 
     # Has this participant already joined the challenge (so a paused one can
@@ -87,7 +101,8 @@ module HouseholdFinance
     def challenge_state
       return "open" unless participant_experience_mode == "savings_challenge"
 
-      SavingsChallenge::ProgramMode.state(@cohort_membership&.cohort)
+      state = SavingsChallenge::ProgramMode.state(@cohort_membership&.cohort)
+      state == "open" && !challenge_open? ? "not_open" : state
     end
 
     def participant_experience_mode
@@ -95,7 +110,8 @@ module HouseholdFinance
     end
 
     def compute_participant_experience_mode
-      return "household_cfo" unless user && cohort_membership && experience_capabilities[:experience_mode] == "savings_challenge"
+      return "household_cfo" unless user && cohort_membership &&
+        (cohort_membership.cohort.savings_challenge_enabled || experience_capabilities[:experience_mode] == "savings_challenge")
 
       SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: cohort_membership.cohort).call!
       "savings_challenge"

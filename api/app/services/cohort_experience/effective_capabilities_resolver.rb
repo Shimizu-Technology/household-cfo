@@ -26,7 +26,7 @@ module CohortExperience
       end
 
       def safe_default_payload(cohort_membership:, standalone: false)
-        config = standalone ? Schema::LEGACY_CONFIG : Schema::DEFAULT_CONFIG
+        config = standalone ? Schema::LEGACY_CONFIG : Schema::RESTRICTED_CONFIG
         payload_for(
           config: config,
           source: standalone ? "standalone_default" : "safe_default",
@@ -86,9 +86,9 @@ module CohortExperience
       configuration = cohort_membership.cohort.cohort_experience_configuration
       version = configuration&.current_published_version
       return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version
-      return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version.cohort_experience_configuration_id == configuration.id
-      return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] if Schema.errors(version.config).any?
-      return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version.config_digest == Schema.digest(version.config)
+      return [ Schema::RESTRICTED_CONFIG, "safe_default", nil ] unless version.cohort_experience_configuration_id == configuration.id
+      return [ Schema::RESTRICTED_CONFIG, "safe_default", nil ] if Schema.errors(version.config).any?
+      return [ Schema::RESTRICTED_CONFIG, "safe_default", nil ] unless version.config_digest == Schema.digest(version.config)
 
       [ Schema.normalize(version.config), "published_cohort", version ]
     end

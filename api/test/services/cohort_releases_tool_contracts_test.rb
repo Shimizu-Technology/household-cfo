@@ -77,8 +77,11 @@ class CohortReleasesToolContractsTest < ActiveSupport::TestCase
   test "savings experience requires its declared supported tool contract" do
     refute catalogs.supports_experience?(catalogs::V1, CohortExperience::Schema::SAVINGS_CONFIG)
     assert catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::SAVINGS_CONFIG)
-    assert catalogs.supports_experience?(catalogs::V1, CohortExperience::Schema::DEFAULT_CONFIG)
-    assert catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::DEFAULT_CONFIG)
+    assert catalogs.supports_experience?(catalogs::V1, CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
+    assert catalogs.supports_experience?(catalogs::V2, CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
+    refute catalogs.supports_experience?(catalogs::V1, CohortExperience::Schema::DEFAULT_CONFIG)
+    refute catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::DEFAULT_CONFIG)
+    assert catalogs.supports_experience?(catalogs::V6, CohortExperience::Schema::DEFAULT_CONFIG)
     refute catalogs.supports_experience?(catalogs::V2, CohortExperience::Schema::SAVINGS_CONFIG.merge("experience_mode" => "unknown"))
   end
 

@@ -14,6 +14,12 @@ module CohortReleases
     TOOL_REGISTRY_VERSION = 1
     RUNTIME_TOOL_REGISTRY_VERSION = 5
 
+    # Literal historical evidence: changing today's defaults must never expand V1.
+    LEGACY_EXPERIENCE_DEFAULT_V1 = {
+      "schema_version" => 1,
+      "optional_modules" => { "cfo_filter" => false, "optionality" => false }.freeze
+    }.freeze
+
     def self.deep_freeze(value)
       case value
       when Hash
@@ -132,7 +138,7 @@ module CohortReleases
         canonicalize(
           "mode" => "safe_default",
           "configuration_id" => configuration.id,
-          "config" => CohortExperience::Schema::DEFAULT_CONFIG
+          "config" => LEGACY_EXPERIENCE_DEFAULT_V1
         )
       end
     end

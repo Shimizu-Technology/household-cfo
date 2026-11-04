@@ -3,15 +3,23 @@
 require "test_helper"
 
 class CohortExperienceSchemaTest < ActiveSupport::TestCase
+  test "new household configurations use the current schema and statement tools" do
+    owner = User.create!(clerk_id: "current-schema-owner", email: "current-schema@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Current tools", status: "enrolling", created_by_user: owner)
+    assert_equal 4, schema::DEFAULT_CONFIG.fetch("schema_version")
+    assert_equal schema::DEFAULT_CONFIG, cohort.cohort_experience_configuration.draft_config
+    assert_equal true, cohort.cohort_experience_configuration.draft_config.dig("optional_modules", "statements")
+  end
+
   test "schema one defaults normalization and digests retain their historical meaning" do
-    assert_equal 1, schema::DEFAULT_CONFIG.fetch("schema_version")
-    assert_equal "3be07a7dd471984a8af537e0f8deef30bce2ea17b1454e750aa1eeb792d48105", schema.digest(schema::DEFAULT_CONFIG)
+    assert_equal 1, CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1.fetch("schema_version")
+    assert_equal "3be07a7dd471984a8af537e0f8deef30bce2ea17b1454e750aa1eeb792d48105", schema.digest(CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     assert_equal "74e76d9fa8b89e1b72b33eebb24c05cdc0c0b3bd09555f2132c655ba757a7078", schema.digest(schema::LEGACY_CONFIG)
-    assert_equal schema::DEFAULT_CONFIG, schema.normalize(schema::DEFAULT_CONFIG)
-    assert_empty schema.errors(schema::DEFAULT_CONFIG)
+    assert_equal CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1, schema.normalize(CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
+    assert_empty schema.errors(CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     assert_empty schema.errors(schema::LEGACY_CONFIG)
-    assert_raises(FrozenError) { schema::DEFAULT_CONFIG.fetch("optional_modules")["cfo_filter"] = true }
-    capabilities = payload(schema::DEFAULT_CONFIG)
+    assert_raises(FrozenError) { CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1.fetch("optional_modules")["cfo_filter"] = true }
+    capabilities = payload(CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     assert_equal 1, capabilities.fetch(:schema_version)
     refute capabilities.key?(:experience_mode)
   end
@@ -34,7 +42,7 @@ class CohortExperienceSchemaTest < ActiveSupport::TestCase
       schema::SAVINGS_CONFIG.merge("experience_mode" => "unknown"),
       schema::SAVINGS_CONFIG.merge("experience_mode" => nil),
       schema::SAVINGS_CONFIG.merge("schema_version" => 99),
-      schema::DEFAULT_CONFIG.merge("experience_mode" => "savings_challenge"),
+      CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1.merge("experience_mode" => "savings_challenge"),
       schema::SAVINGS_CONFIG.merge("optional_modules" => { "cfo_filter" => false, "optionality" => false, "unknown" => true }),
       schema::SAVINGS_CONFIG.merge("optional_modules" => { "cfo_filter" => "true", "optionality" => false })
     ]
@@ -90,7 +98,7 @@ class CohortExperienceSchemaTest < ActiveSupport::TestCase
       valid.merge("module_order" => nil),
       valid.merge("module_order" => %w[home home]),
       valid.merge("module_order" => %w[home nonexistent]),
-      schema::DEFAULT_CONFIG.merge("module_order" => %w[home])
+      CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1.merge("module_order" => %w[home])
     ].each { |config| assert schema.errors(config).any?, config.inspect }
     assert_empty schema.errors(valid.except("module_order"))
     assert_equal [], schema.normalize(valid.except("module_order")).fetch("module_order")

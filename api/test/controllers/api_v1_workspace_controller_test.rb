@@ -1128,6 +1128,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     cohort.cohort_memberships.create!(user: user, role: "participant")
     cohort.cohort_memberships.create!(user: source_participant, role: "participant")
     CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: coach)
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     session = household.chat_sessions.create!(user: user, title: "Ask Mia")
     session.chat_messages.create!(
@@ -1135,7 +1137,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       content: "Steady steps. My grocery check. Auntie's grocery rule. Review the list.",
       coach_persona_version: version,
       assistant_author: "Coach Lila",
-      cohort: cohort
+      cohort: cohort,
+      cohort_release: cohort.active_cohort_release
     )
     captured_contexts = []
     fake_resolver = lambda do |**kwargs|

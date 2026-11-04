@@ -20,16 +20,27 @@ module CohortReleases
         if membership.cohort.savings_challenge_enabled
           SavingsChallenge::AccessPolicy.new(household: household, user: user, cohort: membership.cohort).call!
         end
+        # Only a genuinely unreleased cohort may use the deployed default.
+        # A resolver failure or a cohort that has ever sealed a release stays closed.
+        if runtime.source == "prelaunch_default" && !membership.cohort.cohort_releases.exists? &&
+            !ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household)
+          version = Contract::RUNTIME_TOOL_REGISTRY_VERSION
+          snapshot = ToolContracts.fetch(version)
+        end
         allowed = runtime.membership&.id == membership.id && runtime.cohort_id == membership.cohort_id &&
           ToolContracts.supported_snapshot?(snapshot, version: version) &&
           snapshot.fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION })
+        if key.start_with?("source_review.")
+          module_id = runtime.capabilities[:schema_version] == 4 ? "statements" : "profile"
+          allowed &&= runtime.capabilities.fetch(:modules).any? { |item| item[:id] == module_id && item[:enabled] }
+        end
       else
         # Standalone participant tools use the current deployed contract. A
         # removed pilot membership cannot become this standalone exception.
         allowed = !ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household) &&
           ToolContracts.fetch(Contract::RUNTIME_TOOL_REGISTRY_VERSION).fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION })
       end
-      raise SavingsChallenge::AccessPolicy::Unavailable, "This tool requires an approved program release. Review the current program before continuing." unless allowed
+      raise SavingsChallenge::AccessPolicy::Unavailable, "This part of your program isn't available right now. Please contact your program team." unless allowed
       true
     end
   end

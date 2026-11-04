@@ -14,6 +14,7 @@ module Api
       participant_rate_limit to: 10, within: 10.minutes, name: "reprocess", only: :reprocess
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
       before_action :require_open_challenge_for_uploads!, only: %i[create presign complete]
+      before_action :require_statement_access!, only: %i[create presign complete]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
       before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]
 
@@ -373,13 +374,23 @@ module Api
 
       private
 
+      def require_statement_access!
+        FinancialDocuments::StatementAccess.require!(household: current_household, user: current_user, membership: current_cohort_membership)
+      rescue SavingsChallenge::AccessPolicy::Unavailable
+        render json: { errors: [ FinancialDocuments::StatementAccess::UNAVAILABLE_MESSAGE ], code: "savings_challenge_unavailable" }, status: :forbidden
+      end
+
       # Uploads are household-level, but a challenge that is not open must not start private
       # document processing while Mia and Home say nothing is being recorded.
       def require_open_challenge_for_uploads!
         return unless savings_program_selected?
-        return if SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+        unless SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+          return render json: { errors: [ "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded." ] }, status: :forbidden
+        end
+        SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: current_cohort_membership.cohort).call!
+      rescue SavingsChallenge::AccessPolicy::Unavailable
 
-        render json: { errors: [ "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded." ] }, status: :forbidden
+        render json: { errors: [ "Your coach is still setting up your program. You can upload statements once it opens." ] }, status: :forbidden
       end
 
       def prevent_source_caching
