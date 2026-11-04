@@ -29,6 +29,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
   // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
   const [coverageFailed, setCoverageFailed] = useState(false)
+  const [unsavedAnswer, setUnsavedAnswer] = useState<{ input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' } | null>(null)
   const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
@@ -104,7 +105,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
   }
   function chooseBasis(account: number, basis: 'asset' | 'liability') {
-    void save({ lines: [], accounts: [{ source_account_id: account, account_basis: basis }] })
+    const pending = { input: { lines: [], accounts: [{ source_account_id: account, account_basis: basis }] }, index: null, accountId: account, basis }
+    void save(pending.input).then((saved) => setUnsavedAnswer(saved ? null : pending))
   }
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: sheetFromAttention(item) })
@@ -117,7 +119,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
           ? { event_id: item.event_id, decision: id }
           // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
           : { event_id: item.event_id, decision: id, shown: { event_type: item.event_type, category_id: item.category_id } }
-    void save({ lines: [entry] }, index)
+    const pending = { input: { lines: [entry] }, index, eventId: item.event_id, choice: id, categoryId }
+    void save(pending.input, index).then((saved) => setUnsavedAnswer(saved ? null : pending))
   }
   async function saveSheet(entry: LineDecision) {
     if (await save({ lines: [entry] })) setSheet(null)
@@ -153,6 +156,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
     <section className="statement-source-review" aria-label="Statement review">
       {mutation.pendingRequest && !mutation.pendingRequest.working && <div className="statement-notice" role="status">
         <p>We’re not sure your last change saved.</p>
+        {mutation.pendingRequest.error && <p>{mutation.pendingRequest.error}</p>}
         <div className="statement-answers">
           {mutation.checkStatus && <Button variant="secondary" disabled={mutation.pendingRequest.working} onClick={() => { void mutation.checkStatus?.() }}>Check again</Button>}
           {mutation.retry && <Button disabled={mutation.pendingRequest.working} onClick={() => { void mutation.retry?.() }}>Try again</Button>}
@@ -186,8 +190,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
           {needBasis.length === 1 && <div className="statement-question-row">
             <p className="statement-question">Is {accountSentence(names[needBasis[0].id]) || 'this'} a bank account or a credit card?</p>
             <div className="statement-answers">
-              <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
-              <Button variant="secondary" disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
+              <Button variant="secondary" aria-pressed={unsavedAnswer?.accountId === needBasis[0].id && unsavedAnswer.basis === 'asset'} disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
+              <Button variant="secondary" aria-pressed={unsavedAnswer?.accountId === needBasis[0].id && unsavedAnswer.basis === 'liability'} disabled={busy} onClick={() => chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
             </div>
           </div>}
           {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
@@ -205,14 +209,16 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
             <p className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
             <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
               {item.answers.map((choice) => item.kind === 'no_category' && choice.id === 'edit'
-                ? <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value="" disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>
+                ? <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value={unsavedAnswer?.eventId === item.event_id ? unsavedAnswer.categoryId ?? '' : ''} disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>
                   <option value="">{choice.label}</option>
                   {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                 </select>
-                : <Button key={choice.id} variant="secondary" disabled={busy || needBasis.length > 0} aria-label={`${choice.label}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, choice.id)}>{choice.label}</Button>)}
+                : <Button key={choice.id} variant="secondary" aria-pressed={unsavedAnswer?.eventId === item.event_id && unsavedAnswer.choice === choice.id} disabled={busy || needBasis.length > 0} aria-label={`${choice.label}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, choice.id)}>{choice.label}</Button>)}
             </div>
           </li>)}
         </ul>}
+
+        {unsavedAnswer && !mutation.pendingRequest && <Button variant="secondary" disabled={busy} onClick={() => { void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) }) }}>Try saving this answer again</Button>}
 
         <details className="statement-all" open={listOpen} onToggle={(event) => setListOpen(event.currentTarget.open)}>
           <summary>See all {plan.total.toLocaleString('en-US')} {plan.total === 1 ? 'line' : 'lines'}</summary>

@@ -39,6 +39,16 @@ class CohortReleasesOperationAccessTest < ActiveSupport::TestCase
     end
   end
 
+  test "a removed pilot cannot regain default tools through an unreleased ordinary cohort" do
+    with_savings_runtime { savings_enroll }
+    @savings_membership.destroy!
+    ordinary = Cohort.create!(name: "Unreleased ordinary program", status: "enrolling", created_by_user: @savings_owner)
+    CohortMembership.create!(cohort: ordinary, user: @savings_user, role: "participant")
+    assert_raises(SavingsChallenge::AccessPolicy::Unavailable) do
+      CohortReleases::OperationAccess.require!(household: @savings_household, user: @savings_user, key: "baseline.approve", cohort: ordinary)
+    end
+  end
+
   private
   def access!(key)
     CohortReleases::OperationAccess.require!(household: @savings_household, user: @savings_user, key: key, cohort: @savings_cohort)

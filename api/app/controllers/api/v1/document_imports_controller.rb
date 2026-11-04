@@ -377,9 +377,13 @@ module Api
       # document processing while Mia and Home say nothing is being recorded.
       def require_open_challenge_for_uploads!
         return unless savings_program_selected?
-        return if SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+        unless SavingsChallenge::ProgramMode.open?(current_cohort_membership.cohort)
+          return render json: { errors: [ "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded." ] }, status: :forbidden
+        end
+        SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: current_cohort_membership.cohort).call!
+      rescue SavingsChallenge::AccessPolicy::Unavailable
 
-        render json: { errors: [ "Your savings challenge isn't open yet, so files can't be added for it right now. Nothing was uploaded." ] }, status: :forbidden
+        render json: { errors: [ "Your coach is still setting up your program. You can upload statements once it opens." ] }, status: :forbidden
       end
 
       def prevent_source_caching

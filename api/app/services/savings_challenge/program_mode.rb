@@ -29,6 +29,14 @@ module SavingsChallenge
         cohort.status.in?(OPEN_STATUSES)
     end
 
+    def self.available?(user:, membership:, runtime: nil)
+      return false unless user && membership && membership.user_id == user.id && open?(membership.cohort)
+
+      runtime ||= Mia::ParticipantRuntimeResolver.new(user: user, cohort_membership: membership).call
+      runtime.membership&.id == membership.id && runtime.cohort_id == membership.cohort_id &&
+        AccessPolicy.runtime_supports_challenge?(runtime.release, runtime.capabilities)
+    end
+
     # "open", "paused" (switched on, then put on release hold) or "not_open"
     # (never switched on, or the cohort is in a status that cannot run it).
     def self.state(cohort)

@@ -17,7 +17,8 @@ module Mia
     # nothing to show, and reading it must not raise a raw error at the
     # participant. Writes, replay and clearing still go through authorize!.
     def find_for_display
-      return if cohort_id && !SavingsChallenge::ProgramMode.open?(@membership.cohort.reload)
+      @membership.cohort.reload if cohort_id
+      return if cohort_id && !SavingsChallenge::ProgramMode.available?(user: @user, membership: @membership, runtime: @runtime)
 
       find
     end

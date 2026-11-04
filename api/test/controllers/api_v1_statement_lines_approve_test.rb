@@ -135,6 +135,47 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 0, @household.household_transactions.where(financial_source_event: savings).count
   end
 
+  test "a participant can finish a statement before their program's first release" do
+    coach = User.create!(clerk_id: "prelaunch-coach", email: "prelaunch-coach@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Prelaunch", status: "enrolling", created_by_user: coach)
+    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    ready = review_plan.fetch("ready_event_ids")
+    ross, savings = @events.fetch("Ross"), @events.fetch("Own savings")
+    approve_lines({ lines: as_read(ready + [ savings.id ]) + [
+      { event_id: @events.fetch("Unreadable").id, decision: "leave_out" },
+      { event_id: ross.id, decision: "edited", edit: { kind: "spending", merchant: "Ross", posted_on: "2026-07-04", amount_cents: 500, category_id: @groceries.id } }
+    ], coverage_answer: "nothing_missing" })
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("result", "complete")
+    assert_equal 5, SourceReviewHead.where(household: @household).where.not(approved_version_id: nil).count
+    assert SourceRevisionApproval.exists?(household: @household)
+  end
+
+  test "an older release denies newer statement tools with a recoverable plain response" do
+    coach = User.create!(clerk_id: "sealed-coach", email: "sealed-coach@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Sealed program", status: "enrolling", created_by_user: coach)
+    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
+    assert_operator cohort.active_cohort_release.tool_registry_version, :<, 3
+    approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
+    assert_response :forbidden
+    assert_equal "savings_challenge_unavailable", response.parsed_body.fetch("code")
+    assert_equal "This part of your program isn't available right now. Please contact your program team.", response.parsed_body.fetch("errors").sole
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+  end
+
+  test "a participant retains their review when their challenge is unavailable" do
+    coach = User.create!(clerk_id: "paused-coach", email: "paused-coach@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Paused program", status: "enrolling", created_by_user: coach,
+      savings_challenge_enabled: true, savings_challenge_release_hold: true)
+    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
+    assert_response :forbidden
+    assert_equal "savings_challenge_unavailable", response.parsed_body.fetch("code")
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+  end
+
   test "an account whose type is unknown asks before anything is saved" do
     other = build_source(basis: "unknown")
     post "/api/v1/document_imports/#{other[:import].id}/review/approve_lines", params: { revision_id: other[:revision].id, input: { lines: [ { event_id: other[:revision].financial_source_events.first.id, decision: "leave_out" } ] } },

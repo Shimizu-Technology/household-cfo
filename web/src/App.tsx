@@ -3233,6 +3233,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setDocumentsError('Sign in to a real workspace before uploading financial documents.')
       return false
     }
+    if (challengeNotOpen) {
+      const message = data?.workspace.challenge_state === 'not_open' ? 'Your coach is still setting up your program. You can upload statements once it opens.' : CHALLENGE_UPLOADS_CLOSED
+      setDocumentsError(message)
+      if (origin === 'mia') setMiaError(message)
+      return false
+    }
 
     const uploadFile = normalizedEvidenceFile(file, 0)
     const validation = validateFinancialUpload(uploadFile)
@@ -4390,6 +4396,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
 
           {isFirstSessionUpload && <DocumentImportWorkspace
+            uploadBlocked={challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : undefined}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
@@ -4433,6 +4440,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {activeSection === 'Statements' && <section className="screen-grid statements-screen">
         <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement, then approve what looks right. Your numbers change only after you approve." />
         <DocumentImportWorkspace
+            uploadBlocked={challengeNotOpen ? (data.workspace.challenge_state === 'not_open' ? 'Your coach is still setting up your program. You can upload statements once it opens.' : CHALLENGE_UPLOADS_CLOSED) : undefined}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
@@ -5045,6 +5053,7 @@ function milestoneSummary(milestone: WealthData['milestones'][number]) {
 }
 
 function DocumentImportWorkspace({
+  uploadBlocked,
   uploadScope,
   onReviewBaseline,
   onAskMia,
@@ -5081,6 +5090,7 @@ function DocumentImportWorkspace({
   onDeleteImport,
   onOpenSource,
 }: {
+  uploadBlocked?: string
   uploadScope: string
   onReviewBaseline?: () => void
   onAskMia?: () => void
@@ -5146,12 +5156,13 @@ function DocumentImportWorkspace({
 
   return (
     <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
-        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : 'Upload a statement'}</h3></div>
+        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3></div>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
-      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      {uploadBlocked && <p className="document-alert" role="status">{uploadBlocked}</p>}
+      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -5198,7 +5209,7 @@ function DocumentImportWorkspace({
           </div>
           <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
         </div>
-        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+        <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
         {(onReviewBaseline || onReturnToStart) && <div className="document-other-links">
           {onReviewBaseline && <button type="button" className="text-button" onClick={onReviewBaseline}>Open your spending snapshot</button>}
           {onReturnToStart && <button type="button" className="text-button" onClick={onReturnToStart}>Return to starting numbers</button>}
@@ -5248,7 +5259,7 @@ export function DocumentUploadCard({
         <p>{card.helper}</p>
         <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
-        <strong>{uploading ? 'Uploading' : 'Choose file'}</strong>
+        <strong>{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
       </label>
       {retryFile && !uploading && (
         <div className="form-stack document-upload-recovery">

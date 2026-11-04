@@ -23,7 +23,16 @@ module Api
         render json: { errors: [ error.message ] }, status: :conflict
       end
       rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
-        render json: { errors: [ error.message ] }, status: :forbidden
+        # A paused challenge must not erase an authorized participant's review.
+        # Revoked users and removed pilot members still lose access to cached data.
+        actor = User.find_by(id: current_user&.id)
+        household = @current_household
+        writable = actor && household && household.household_memberships.find_by(user_id: actor.id)&.role.in?(%w[owner partner])
+        member = actor && current_cohort_membership && CohortMembership.exists?(id: current_cohort_membership.id, user_id: actor.id, role: "participant")
+        can_keep_review = actor&.participant? && !actor.revoked? && writable &&
+          (member || !ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household))
+        code = "savings_challenge_unavailable" if can_keep_review
+        render json: { errors: [ error.message ], code: code }.compact, status: :forbidden
       end
 
       def mutate

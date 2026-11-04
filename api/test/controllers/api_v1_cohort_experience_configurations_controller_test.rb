@@ -165,6 +165,9 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
     publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
 
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
+
     get "/api/v1/workspace", headers: auth_headers(participant)
     assert_response :success
     assert response.parsed_body.key?("optionality")
@@ -363,6 +366,9 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
       draft_config: persona_configuration(assistant_name: "Other Voice"))
     publish_persona(second_voice, actor: admin)
 
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: participant_cohort.id)).call
+    participant_cohort.update!(active_cohort_release: participant_cohort.cohort_releases.sole)
+
     get "/api/v1/workspace", headers: auth_headers(staff)
 
     assert_response :success
@@ -370,7 +376,7 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert_equal participant_cohort.id, capabilities.fetch("cohort_id")
     assert_equal participant_cohort.id, response.parsed_body.dig("workspace", "cohort", "id")
     assert_equal Mia::Persona.find(Mia::Persona::NEUTRAL_ID).name, response.parsed_body.dig("profile", "coach", "name")
-    assert_equal "published_cohort", capabilities.fetch("source")
+    assert_equal "cohort_release", capabilities.fetch("source")
     modules = capabilities.fetch("modules").index_by { |item| item.fetch("id") }
     refute modules.fetch("cfo_filter").fetch("enabled")
     assert modules.fetch("optionality").fetch("enabled")

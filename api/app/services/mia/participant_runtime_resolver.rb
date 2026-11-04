@@ -17,6 +17,7 @@ module Mia
 
         exposure = latest_exposure_for(membership)
         release = exposure&.cohort_release || membership.cohort.active_cohort_release
+        next prelaunch_runtime(membership) if !release && !membership.cohort.cohort_releases.exists?
         next legacy_runtime(membership) unless release
 
         released_runtime(membership, release, exposure)
@@ -124,6 +125,18 @@ module Mia
         capabilities: capabilities,
         brand: Branding::RuntimeResolver.for_membership(membership),
         source: "legacy_fallback"
+      )
+    end
+
+    def prelaunch_runtime(membership)
+      ParticipantRuntime.new(
+        membership: membership,
+        cohort: membership.cohort,
+        release: nil,
+        persona: Persona.neutral,
+        capabilities: CohortExperience::EffectiveCapabilitiesResolver.safe_default_payload(cohort_membership: membership, standalone: true),
+        brand: Branding::RuntimeResolver.for_membership(membership),
+        source: "prelaunch_default"
       )
     end
 

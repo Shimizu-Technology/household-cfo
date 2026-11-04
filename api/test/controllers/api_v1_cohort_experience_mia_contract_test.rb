@@ -16,6 +16,8 @@ class ApiV1CohortExperienceMiaContractTest < ActionDispatch::IntegrationTest
     publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
     digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
     publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
   end
 
   teardown { travel_back }

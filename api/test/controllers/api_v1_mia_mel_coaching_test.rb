@@ -52,6 +52,9 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   test "inherited published Guam voice survives narration and persists its version" do
     membership, version = published_mel_program_for(@user)
     assert_nil membership.cohort.cohort_persona_assignment
+    cohort = membership.cohort
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
     original = HouseholdFinance::MiaNarrator.method(:new)
     selected = nil
     packet = nil

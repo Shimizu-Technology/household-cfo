@@ -19,6 +19,36 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('keeps an unsaved category answer and lets her retry it', async () => {
+    const data = participantReviewFixture()
+    const item = data.participant_review!.plan.attention[0]
+    item.kind = 'no_category'; item.question = 'What was this for?'; item.answers = [{ id: 'edit', label: 'Choose one' }]
+    fetchReview.mockResolvedValue(data)
+    mutate.mockRejectedValueOnce(new ApiRequestError('This part of your program is not available right now.', { status: 403, code: 'savings_challenge_unavailable' }))
+    mount()
+    const choice = await screen.findByRole('combobox', { name: `Category for ${item.merchant}` }) as HTMLSelectElement
+    fireEvent.change(choice, { target: { value: '10' } })
+    const retry = await screen.findByRole('button', { name: 'Try saving this answer again' })
+    expect(choice.value).toBe('10')
+    fireEvent.click(retry)
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual(mutate.mock.calls[0][3])
+  })
+  it('keeps the review and an open answer when the program temporarily cannot save', async () => {
+    mutate.mockRejectedValueOnce(new ApiRequestError('This part of your program is not available right now.', { status: 403, code: 'savings_challenge_unavailable' }))
+    mount()
+    const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    fireEvent.click(within(list).getAllByRole('button', { name: /^Fix it: / })[0])
+    const sheet = await screen.findByRole('dialog')
+    fireEvent.change(within(sheet).getByLabelText('Name'), { target: { value: 'Payless' } })
+    fireEvent.change(within(sheet).getByLabelText('Date'), { target: { value: '2026-09-16' } })
+    fireEvent.change(within(sheet).getByLabelText('Amount'), { target: { value: '12.5' } })
+    fireEvent.change(within(sheet).getByLabelText(/^Category/), { target: { value: '10' } })
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
+    expect((await within(sheet).findByRole('alert')).textContent).toContain('not available right now')
+    expect((within(sheet).getByLabelText('Name') as HTMLInputElement).value).toBe('Payless')
+    expect(screen.getByRole('heading', { name: '137 lines from Fictional checking, Sep 1–30.' })).toBeTruthy()
+  })
   it('opens with one summary line: how many lines, which account, which dates, and how many need a look', async () => {
     mount()
     expect(await screen.findByRole('heading', { name: '137 lines from Fictional checking, Sep 1–30.' })).toBeTruthy()
