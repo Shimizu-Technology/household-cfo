@@ -64,6 +64,7 @@ describe('statement review a participant can finish', () => {
 
   it('keeps an unsaved category answer and lets her retry it', async () => {
     const data = participantReviewFixture()
+    data.participant_review!.categories.push({ id: 12, name: 'Transport' }, { id: 13, name: 'Other' }, { id: 14, name: 'Dining' })
     const item = data.participant_review!.plan.attention[0]
     item.kind = 'no_category'; item.question = 'What was this for?'; item.answers = [{ id: 'edit', label: 'Choose one' }]
     fetchReview.mockResolvedValue(data)
