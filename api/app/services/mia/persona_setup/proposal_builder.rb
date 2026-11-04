@@ -6,7 +6,7 @@ require "json"
 module Mia
   module PersonaSetup
     class ProposalBuilder
-      PROMPT_VERSION = "coach_persona_setup_v1"
+      PROMPT_VERSION = "coach_persona_setup_v3"
       SCHEMA_VERSION = "coach_persona_setup_operations_v1"
 
       def self.digest_for(persona:, base_draft_revision:, base_config_digest:, operations:, before_state:, after_state:)
@@ -31,8 +31,9 @@ module Mia
         @user_message = user_message
       end
 
-      def call(raw_operations)
-        built = OperationContract.new(actor:, user_message:, persona:).build(raw_operations)
+      def call(raw_operations, partial: false)
+        contract = OperationContract.new(actor:, user_message:, persona:)
+        built = partial ? contract.build_partial(raw_operations) : contract.build(raw_operations)
         base_digest = PersonaSchema.digest(persona.draft_config)
         digest = self.class.digest_for(
           persona:,
