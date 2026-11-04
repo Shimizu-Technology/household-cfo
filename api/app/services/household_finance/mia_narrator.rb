@@ -345,7 +345,9 @@ module HouseholdFinance
       return false unless facts&.key?(:pending_count)
 
       count = facts.key?(:pending_review_count) ? facts[:pending_review_count] : facts[:pending_count]
-      return false if count == 0
+      count_claims = content.scan(/\b(\d+)\s+(?:purchases?|reviews?|transactions?)\b/i).flatten.map(&:to_i)
+      return count_claims.any?(&:positive?) if count == 0
+      return true if count.nil? && count_claims.any?
 
       sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
       review = sentences.select { |sentence| sentence.match?(/\breview\b/i) }
@@ -353,7 +355,6 @@ module HouseholdFinance
       return true unless review.first == sentences.last
       return true unless review.first.match?(/\b(?:review|check|look)\b/i)
       if count.nil?
-        return true if review.first.match?(/\b\d+\s+(?:purchases?|reviews?|transactions?)\b/i)
         return !review.first.match?(/\b(?:incomplete|unknown|not (?:yet )?known|don['’]?t know|may be|might be)\b/i)
       end
 

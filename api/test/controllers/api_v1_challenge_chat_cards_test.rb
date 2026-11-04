@@ -59,7 +59,8 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
 
   { "Change my goal from $500 to 300" => 30_000,
     "I want my goal to be $500 instead of $400" => 50_000,
-    "I want to save $500 instead of $400" => 50_000 }.each_with_index do |(message, cents), index|
+    "I want to save $500 instead of $400" => 50_000,
+    "I want to save $100 a month, so change my goal to $500" => 50_000 }.each_with_index do |(message, cents), index|
     test "replacement phrasing #{index} chooses the requested amount before confirmation" do
       ask message, "replacement-#{index}"
       card = response.parsed_body.fetch("challenge_chat_card")

@@ -66,6 +66,17 @@ describe('transaction review cards', () => {
     expect(screen.getByLabelText('Merchant')).toBeTruthy()
   })
 
+  it.each([true, false])('counts distinct saved categories in either purchase summary (compact=%s)', (compact) => {
+    const splits = [1, 2].map(id => ({ id, budget_category_id: 7, category_name: 'Dining out', stack_key: 'discretionary' as const,
+      stack_label: 'Everyday spending', amount: 12.5, amount_cents: 1250, notes: null, confidence: null }))
+    const props = stackProps([draft({ splits })], { compact })
+    const { container, rerender } = render(<TransactionDraftReviewStack {...props} />)
+    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
+    expect(container.querySelector('.mia-change-lines')?.textContent).not.toContain('2 categories')
+    rerender(<TransactionDraftReviewStack {...props} drafts={[draft({ splits: [splits[0], { ...splits[1], budget_category_id: 8, category_name: 'Groceries' }] })]} />)
+    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('Category2 categories')
+  })
+
   it('shows a newly drafted purchase even when an earlier queue page and filter were open', async () => {
     const drafts = Array.from({ length: 7 }, (_, index) => draft({ id: index + 1, merchant: `Older shop ${index}` }))
     const props = stackProps(drafts, { compact: true })

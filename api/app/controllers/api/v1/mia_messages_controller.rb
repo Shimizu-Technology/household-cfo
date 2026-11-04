@@ -962,7 +962,13 @@ module Api
           combined_content = attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
         else
-          narrated = attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
+          begin
+            narrated = attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
+          rescue StandardError => error
+            Rails.logger.warn("Mia attached action kept its factual reply after narration failed: #{error.class}")
+            @used_coach_content = []
+            narrated = combined_content
+          end
           # If enrichment fails, the complete, factual reply and its review
           # remain saved together. Never undo a valid draft for a wording error.
           begin
@@ -997,7 +1003,7 @@ module Api
           intent_result: intent_result,
           user_message: user_message,
           assistant_message: assistant_message,
-          mia_action_draft: mia_action_draft&.reviewable? ? mia_action_draft : nil,
+          mia_action_draft: mia_action_draft,
           transaction_draft: nil,
           persona_context_id: current_participant_runtime.continuity_id
         )

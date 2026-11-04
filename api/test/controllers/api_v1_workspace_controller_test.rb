@@ -1631,6 +1631,25 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.dig("assistant_message", "content"), "set aside"
     refute body.dig("budget", "annual_plan", "pending_mia_action_drafts").any? { |pending| pending.fetch("id") == body.dig("mia_action_draft", "id") }
     assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
+
+    # Optional narration setup can fail before MiaNarrator#call. The draft and
+    # factual reply have committed already and must still be returned together.
+    setup_failure = ->(**) { raise RuntimeError, "synthetic narrator setup failure" }
+    assert_difference("MiaActionDraft.count", 1) do
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, setup_failure) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+            params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+            headers: auth_headers(user), as: :json
+        end
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "pending", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "$87.45"
+    assert_includes body.dig("assistant_message", "content"), "Separately,"
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
   end
 
   test "a failed attached action draft rolls back newly prepared plan records" do

@@ -41,6 +41,9 @@ describe('transaction review copy', () => {
     expect(transactionCategoryWarningCopy({ source_type: 'manual_ui' }, 'Mia')).toMatch(/^Needs a category\./)
     expect(transactionCategoryWarningCopy({ source_type: 'plaid' }, 'Mia')).not.toContain('Mia')
     expect(transactionCategoryWarningCopy({ source_type: 'manual_chat' }, 'Mia')).toContain('Mia could not confidently match')
+    for (const source of [{ source_type: 'manual_ui' }, { source_type: 'plaid' }, { source_type: 'manual_chat' }, { source_type: 'receipt', financial_document_import_id: 5 }]) {
+      expect(transactionCategoryWarningCopy(source, 'Mia')).toContain('before it counts as spent')
+    }
   })
 
   it('only offers reopen for ledger rows confirmed through a review', () => {

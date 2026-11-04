@@ -13,13 +13,35 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       annual_plan_summary: { category_period: { unit: "month", year: 2026, month: 11, label: "November 2026" },
         top_categories: [ { name: "Flexible spending", planned: 700, actual: 0, remaining: 700 } ] } }
     [ "Your plan sets aside $700 for flexible spending this year.", "Your yearly flexible spending plan is $700.",
-      "Your flexible spending plan is $700 for October 2026." ].each do |claim|
+      "Your flexible spending plan is $700 for October 2026.", "You have $700 yearly.",
+      "Your flexible spending plan is $700 for october 2026.", "Your flexible spending plan is $700 for may 2026." ].each do |claim|
       assert_equal packet[:fallback_response], narrate("#{claim} Consider waiting on the purse. What would you pause to fund it?", packet, "Should I buy a $60 purse?"), claim
     end
     reply = "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?"
     assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
     reply = "Your annual plan sets aside $700 for flexible spending each month this year. Consider waiting on the purse. What would you pause to fund it?"
     assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
+  end
+
+  test "period validation distinguishes ambiguous amounts and the modal may" do
+    packet = { annual_plan_summary: { category_period: { unit: "month", year: 2026, month: 11 },
+      top_categories: [ { name: "Groceries", planned: 700 }, { name: "Rent", planned: 700 } ] } }
+    validator = HouseholdFinance::MiaPlanPeriodValidator.new(packet)
+    refute validator.mismatch?("You have $700 yearly.")
+    assert validator.mismatch?("The groceries plan is $700 yearly.")
+    refute validator.mismatch?("The budget may exceed $700 on groceries.")
+    assert validator.mismatch?("The groceries plan is $700 in may.")
+  end
+
+  test "month review counts are checked across the entire reply when zero or unknown" do
+    packet = { annual_plan_summary: { month_answer: { pending_count: 0 } } }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?", answer_packet: packet)
+    assert narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. Review the 2 purchases waiting for you.")
+    refute narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. Choose your next step.")
+    packet[:annual_plan_summary][:month_answer][:pending_count] = nil
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?", answer_packet: packet)
+    assert narrator.send(:incorrect_month_review_step?, "You have 2 purchases waiting. Your cushion needs building. The review list is incomplete, so check the purchases waiting there.")
+    refute narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. The review list is incomplete, so check the purchases waiting there.")
   end
 
   test "month narration retains pending reviews once with an honest count" do
