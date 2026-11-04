@@ -54,7 +54,10 @@ export function partitionParticipantSections(sections: string[], savingsChalleng
 /** Shared displayed labels for participant navigation and the coach's review. */
 export function participantSectionLabel(section: string, savingsChallenge = false, assistantName = 'Mia', compact = false) {
   if (savingsChallenge && section === 'Home') return 'Savings'
-  if (section === 'Ask Mia') return compact ? assistantName.split(/\s+/)[0] : `Ask ${assistantName}`
+  if (section === 'Ask Mia') {
+    const trimmed = assistantName.trim()
+    return compact ? trimmed.length <= 10 ? trimmed : trimmed.split(/\s+/)[0] || trimmed : `Ask ${assistantName}`
+  }
   if (compact && section === 'My Profile') return 'Profile'
   if (compact && section === 'My Money') return 'Money'
   return section

@@ -6,14 +6,22 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
   setup do
     @owner = persona_user
     @workspace = CoachWorkspaces::Provisioner.ensure_for!(@owner)
-    @persona = create_persona(creator: @owner, workspace: @workspace)
+    config = persona_configuration.merge("phrases" => [ persona_phrase_artifact({ "text" => "One step", "meaning" => "Choose one manageable next step." }, source_user_id: @owner.id) ])
+    @persona = create_persona(creator: @owner, workspace: @workspace, config:)
+    brand = @workspace.workspace_brand_configuration
+    brand.update!(draft_config: brand.draft_config.merge("product_name" => "Reviewed launch appearance"))
     @groups = 2.times.map { |n| Cohort.create!(name: "Launch group #{n}", status: "active", created_by_user: @owner, coach_workspace: @workspace) }
     @groups.each do |cohort|
       config = cohort.cohort_experience_configuration
       config.update!(draft_config: CohortExperience::Schema.upgrade(config.draft_config).merge("experience_mode" => "savings_challenge"))
     end
     Mia::PersonaPublisher.new(persona: @persona, actor: @owner).preview!(expected_draft_revision: @persona.draft_revision)
-    persona_release_evidence(@persona, actor: @owner)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: @persona, actor: @owner).call!
+    Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: @persona, actor: @owner).call!(candidate:, preview: {
+      status: "ready", source: "live_model", sample_prompt: "Help this fictional household plan.", sample_reply: "Review the confirmed plan and choose one next step.",
+      model_identifier: "test-model", provider_request_id: "gen-test-helper", context_digest: Mia::PersonaPreviewer.context_digest
+    })
+    Mia::PersonaRelease::Runner.new(persona: @persona, actor: @owner).call!
     @review = build_review
   end
 
@@ -55,30 +63,52 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
     assert_raises(CoachLaunches::Publisher::Conflict) { publish(review: @review.deep_merge("extra" => true)) }
   end
 
-  test "interruption after every write phase rolls back all groups and retry publishes once" do
-    interrupted = Class.new(CoachLaunches::Publisher) do
-      attr_accessor :interrupt_after, :steps
-      %i[publish_configuration! publish_voice! launch_group! operation!].each do |method|
-        define_method(method) do |*args, **kwargs|
-          result = super(*args, **kwargs)
-          self.steps = (steps || 0) + 1
-          raise IOError, "Browser connection lost" if steps == interrupt_after
-          result
-        end
-        private method
+  test "interruption after each publication approval assignment seal and launch rolls back every group" do
+    checkpoints = {
+      Branding::Publisher => :publish!, CohortExperience::Publisher => :publish!,
+      Mia::PersonaRelease::AudienceAttester => :call!, Mia::PersonaRelease::RunApprover => :call!, Mia::PersonaPublisher => :publish!,
+      CohortPersonaAssignment => :update!, CoachOperations::Runner => :call!, CohortReleases::InitialLauncher => :call!
+    }
+    originals = checkpoints.to_h { |klass, method| [ klass, klass.instance_method(method) ] }
+    observed = []
+    interrupt_after = nil
+    originals.each do |klass, original|
+      klass.define_method(checkpoints.fetch(klass)) do |*args, **kwargs|
+        result = original.bind_call(self, *args, **kwargs)
+        observed << klass.name
+        raise IOError, "Connection lost after #{klass.name}" if observed.length == interrupt_after
+
+        result
       end
     end
-    1.upto(8) do |step|
-      worker = interrupted.new(persona: @persona.reload, actor: @owner, review: @review, request_key: "interrupted")
-      worker.interrupt_after = step
-      assert_no_difference [ "CoachPersonaVersion.count", "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortExperienceVersion.count", "CohortReleaseActivationEvent.count", "CoachLaunchReceipt.count" ] do
-        assert_raises(IOError, "step #{step}") { worker.call! }
+    # brand + two tool publications + phrase review + evaluation approval + voice
+    # publication + each group's assignment, seal and initial launch = 12 steps.
+    1.upto(12) do |step|
+      interrupt_after = step
+      observed.clear
+      counts = %w[CoachPersonaVersion CohortRelease WorkspaceBrandVersion CohortExperienceVersion CohortReleaseActivationEvent CoachLaunchReceipt CoachPhraseAudienceAttestation CoachPersonaEvaluationApproval CohortPersonaAssignment CoachOperationExecution].map { |name| "#{name}.count" }
+      assert_no_difference counts do
+        assert_raises(IOError, "step #{step}") { publish }
       end
+      assert_equal step, observed.length
       assert @groups.all? { |cohort| cohort.reload.active_cohort_release_id.nil? }
       assert_nil @persona.reload.current_published_version_id
     end
+    interrupt_after = nil
+    observed.clear
     publish
+    assert_equal 12, observed.length
     assert_equal 2, CohortReleaseActivationEvent.count
+  ensure
+    originals&.each { |klass, original| klass.define_method(checkpoints.fetch(klass), original) }
+  end
+
+  test "a group completed after review cannot be assigned or published" do
+    @groups.first.update!(status: "completed")
+    assert_no_difference [ "CoachPersonaVersion.count", "WorkspaceBrandVersion.count", "CohortPersonaAssignment.count", "CoachLaunchReceipt.count" ] do
+      assert_raises(CoachLaunches::Publisher::Conflict) { publish }
+    end
+    assert_nil @persona.reload.current_published_version_id
   end
 
   test "replay rechecks authority" do
@@ -93,6 +123,7 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
       user.cohort_memberships.create!(cohort:, role: "participant")
       user
     end
+    @review = build_review
     publish
     brand = @workspace.workspace_brand_configuration.reload
     brand.update!(draft_config: brand.draft_config.merge("product_name" => "A changed program"))

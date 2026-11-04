@@ -4,6 +4,9 @@ class CoachWorkspaceCollaboratorInviteEmailTest < ActiveSupport::TestCase
   test "access email names the exact workspace role and sign in link and needs provider acceptance" do
     owner = User.create!(email: "owner-#{SecureRandom.hex(4)}@example.test", clerk_id: "owner_#{SecureRandom.hex(4)}", role: "coach", invitation_status: "accepted")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    owner.update!(email: "shimizu+qa@example.test")
+    workspace.update!(name: "Coaching team")
+    workspace.coach_profile.update!(display_name: "Mrs. Mel")
     invitee = User.create!(email: "invitee-#{SecureRandom.hex(4)}@example.test", clerk_id: "pending_#{SecureRandom.hex(4)}", role: "coach")
     original_environment = %w[RESEND_API_KEY RESEND_FROM_EMAIL MAILER_FROM_EMAIL].to_h { |key| [ key, ENV[key] ] }
     ENV.delete("RESEND_FROM_EMAIL")
@@ -14,6 +17,8 @@ class CoachWorkspaceCollaboratorInviteEmailTest < ActiveSupport::TestCase
     Resend::Emails.define_singleton_method(:send) { |payload| payloads << payload; { "id" => "provider-accepted" } }
     result = CoachWorkspaces::CollaboratorInviteEmail.send_invite(user: invitee, workspace: workspace, role: "reviewer", invited_by: owner, sign_in_url: "https://island.example.test", requested: true)
     assert_equal "sent", result[:status]
+    assert payloads.first[:text].start_with?("Mrs. Mel invited you")
+    refute_includes payloads.first[:text], "shimizu+qa"
     assert_includes payloads.first[:text], workspace.name
     assert_includes payloads.first[:text], "as reviewer"
     assert_includes payloads.first[:text], "https://island.example.test"

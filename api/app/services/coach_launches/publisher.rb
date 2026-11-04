@@ -68,6 +68,9 @@ module CoachLaunches
     end
 
     def check_group!(cohort, expected)
+      unless cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES)
+        raise Conflict, "#{cohort.name} is now read-only. Review your selected groups again."
+      end
       current = CohortRollouts::StudioSerializer.new(cohort:, actor:).call
       candidate = CohortReleases::StudioSerializer.new(cohort:, actor:).call.dig(:readiness, :candidate)
       unless current.dig(:current_roster, :digest) == expected.fetch("roster_digest") &&

@@ -58,11 +58,6 @@ function ArrowIcon() {
 
 // A long branded assistant name ("Mia for Mrs. Mel BOG") is cut off in the
 // narrow tab bar, so the compact label keeps only its first word.
-function shortAssistantName(name: string) {
-  const trimmed = name.trim()
-  return trimmed.length <= 10 ? trimmed : trimmed.split(/\s+/)[0] || trimmed
-}
-
 function sectionHref(section: string) {
   return `#${encodeURIComponent(section)}`
 }
@@ -181,7 +176,7 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
     setMoreOpen(true)
   }
 
-  const sectionLabel = (section: string, compact = false) => participantSectionLabel(section, savingsChallenge, compact ? shortAssistantName(assistantName) : assistantName, compact)
+  const sectionLabel = (section: string, compact = false) => participantSectionLabel(section, savingsChallenge, assistantName, compact)
 
   return (
     <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
