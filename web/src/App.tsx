@@ -1002,11 +1002,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     })
     return () => { cancelled = true; budgetViewRequestRef.current += 1 }
   }, [budgetViewScope])
+  const statementUploadBlocked = data?.workspace.capabilities.modules.some((module) => module.id === 'statements' && !module.enabled)
+    ? data.workspace.capabilities.modules.find((module) => module.id === 'statements')?.unavailable_message || "Statements aren't available for your group yet. Please contact your program team."
+    : undefined
   const visibleSections = useMemo(() => {
     const participantSections = data
       ? participantSectionsForModules(data.workspace.capabilities.modules.filter((module) => module.enabled).map((module) => module.id), {
         moduleOrder: data.workspace.capabilities.module_order,
         independentStatements: data.workspace.capabilities.schema_version === 4,
+        statementsAvailable: !data.workspace.capabilities.modules.some((module) => module.id === 'statements' && !module.enabled),
       })
       : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
@@ -3240,6 +3244,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       return false
     }
 
+    if (statementUploadBlocked) { setDocumentsError(statementUploadBlocked); return false }
     const uploadFile = normalizedEvidenceFile(file, 0)
     const validation = validateFinancialUpload(uploadFile)
     if (!validation.valid) {
@@ -3316,6 +3321,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string, assertOriginalWorkspace: () => void) {
+    if (statementUploadBlocked) throw new Error(statementUploadBlocked)
     const preparedAttachments = [...attachments]
 
     for (const [index, attachment] of attachments.entries()) {
@@ -4054,8 +4060,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || challengeNotOpen || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
-                  title={challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
+                  disabled={!isRealWorkspace || challengeNotOpen || Boolean(statementUploadBlocked) || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
+                  title={statementUploadBlocked ?? (challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.')}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
                 >
@@ -4396,7 +4402,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
 
           {isFirstSessionUpload && <DocumentImportWorkspace
-            uploadBlocked={challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : undefined}
+            uploadBlocked={statementUploadBlocked ?? (challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : undefined)}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
@@ -4440,7 +4446,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {activeSection === 'Statements' && <section className="screen-grid statements-screen">
         <ScreenHeading eyebrow="Statements" title="Statements" copy="Upload your statement, then approve what looks right. Your numbers change only after you approve." />
         <DocumentImportWorkspace
-            uploadBlocked={challengeNotOpen ? (data.workspace.challenge_state === 'not_open' ? 'Your coach is still setting up your program. You can upload statements once it opens.' : CHALLENGE_UPLOADS_CLOSED) : undefined}
+            uploadBlocked={statementUploadBlocked ?? (challengeNotOpen ? (data.workspace.challenge_state === 'not_open' ? 'Your coach is still setting up your program. You can upload statements once it opens.' : CHALLENGE_UPLOADS_CLOSED) : undefined)}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}

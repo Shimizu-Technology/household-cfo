@@ -62,9 +62,23 @@ module HouseholdFinance
         goals: goal_records,
         goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
-        capabilities: experience_capabilities,
+        capabilities: participant_capabilities,
         brand: brand
       }
+    end
+
+    def participant_capabilities
+      return experience_capabilities unless user&.participant?
+
+      capabilities = experience_capabilities.deep_dup
+      statement = capabilities.fetch(:modules).find { |item| item[:id] == "statements" }
+      unless statement
+        statement = { id: "statements", label: "Statements", core: false }
+        capabilities.fetch(:modules) << statement
+      end
+      statement[:enabled] = FinancialDocuments::StatementAccess.available?(household: household, user: user, membership: @cohort_membership)
+      statement[:unavailable_message] = FinancialDocuments::StatementAccess::UNAVAILABLE_MESSAGE unless statement[:enabled]
+      capabilities
     end
 
     # Savings-mode programs only: whether the challenge is open for activity.

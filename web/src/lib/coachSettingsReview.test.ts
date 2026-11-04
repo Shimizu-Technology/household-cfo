@@ -41,3 +41,13 @@ it('stops when program context is lost and refuses insufficient review authority
  expect(api.previewWorkspaceBrand).not.toHaveBeenCalled()
  await expect(reviewCoachSettings([42],()=>false)).rejects.toThrow('program changed')
 })
+
+it('requests a current-schema draft before the coach reviews or publishes old tools', async () => {
+  const upgraded = {...tools, draft_revision: 5}
+  api.previewCohortExperienceConfiguration.mockResolvedValue({experience_configuration: upgraded, preview: {digest: 'upgraded', upgrade_notice: 'This update adds Statements', modules: []}})
+  const review = await reviewCoachSettings([42], () => true)
+  expect(api.previewCohortExperienceConfiguration).toHaveBeenCalledWith(42, 4, true)
+  expect(review.tools[0].configuration.draft_revision).toBe(5)
+  expect(review.tools[0].preview.upgrade_notice).toBe('This update adds Statements')
+  expect(api.publishCohortExperienceConfiguration).not.toHaveBeenCalled()
+})

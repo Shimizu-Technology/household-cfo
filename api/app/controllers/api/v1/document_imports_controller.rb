@@ -14,6 +14,7 @@ module Api
       participant_rate_limit to: 10, within: 10.minutes, name: "reprocess", only: :reprocess
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
       before_action :require_open_challenge_for_uploads!, only: %i[create presign complete]
+      before_action :require_statement_access!, only: %i[create presign complete]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
       before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]
 
@@ -372,6 +373,12 @@ module Api
       end
 
       private
+
+      def require_statement_access!
+        FinancialDocuments::StatementAccess.require!(household: current_household, user: current_user, membership: current_cohort_membership)
+      rescue SavingsChallenge::AccessPolicy::Unavailable
+        render json: { errors: [ FinancialDocuments::StatementAccess::UNAVAILABLE_MESSAGE ], code: "savings_challenge_unavailable" }, status: :forbidden
+      end
 
       # Uploads are household-level, but a challenge that is not open must not start private
       # document processing while Mia and Home say nothing is being recorded.

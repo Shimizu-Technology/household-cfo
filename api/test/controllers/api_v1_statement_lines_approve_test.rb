@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 # Lets one test make the household lock look busy; inert unless switched on.
 module LockWaitSwitch
@@ -9,6 +10,7 @@ Household.prepend(LockWaitSwitch)
 
 # "Approve the rest" must save exactly the lines that looked right, all or none, and be safe to repeat.
 class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
+  include PersonaTestHelper
   setup do
     @user = User.create!(clerk_id: "lines-#{SecureRandom.hex(8)}", email: "lines-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
@@ -138,7 +140,17 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   test "a participant can finish a statement before their program's first release" do
     coach = User.create!(clerk_id: "prelaunch-coach", email: "prelaunch-coach@example.invalid", role: "coach", invitation_status: "accepted")
     cohort = Cohort.create!(name: "Prelaunch", status: "enrolling", created_by_user: coach)
-    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    membership = CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    persona = create_persona(creator: coach, config: persona_configuration(assistant_name: "Mel's Mia"))
+    voice = publish_persona(persona, actor: coach)
+    runtime = Mia::ParticipantRuntimeResolver.new(user: @user, cohort_membership: membership).call
+    assert_equal voice.id, runtime.persona.version_id
+    assert_equal "Mel's Mia", runtime.persona.name
+    assert_nil cohort.cohort_persona_assignment
+    post "/api/v1/mia/messages", params: { message: "I stayed under my grocery budget this week", year: 2026, month: 7 }, headers: headers, as: :json
+    assert_response :created
+    assert_equal "Mel's Mia", response.parsed_body.dig("assistant_message", "author")
+    assert_equal voice.id, ChatMessage.find(response.parsed_body.dig("assistant_message", "id")).coach_persona_version_id
     ready = review_plan.fetch("ready_event_ids")
     ross, savings = @events.fetch("Ross"), @events.fetch("Own savings")
     approve_lines({ lines: as_read(ready + [ savings.id ]) + [
@@ -149,6 +161,47 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal true, response.parsed_body.dig("result", "complete")
     assert_equal 5, SourceReviewHead.where(household: @household).where.not(approved_version_id: nil).count
     assert SourceRevisionApproval.exists?(household: @household)
+  end
+
+  test "a schema one household draft goes live with Statements and completes review" do
+    coach = persona_user
+    cohort = cohort_for(coach, name: "Household go live")
+    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    publish_persona(create_persona(creator: coach), actor: coach)
+    brand = cohort.coach_workspace.workspace_brand_configuration
+    brand_publisher = Branding::Publisher.new(configuration: brand, actor: coach)
+    preview = brand_publisher.preview!(expected_draft_revision: brand.draft_revision)
+    brand_publisher.publish!(expected_preview_digest: preview, expected_draft_revision: brand.draft_revision, expected_current_version_id: brand.current_published_version_id, idempotency_key: "household-brand")
+    configuration = cohort.cohort_experience_configuration
+    old_config = { "schema_version" => 1, "optional_modules" => { "cfo_filter" => true, "optionality" => false } }
+    configuration.update!(draft_config: old_config, last_edited_by_user: coach)
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    old_version = publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    old_release = CohortReleases::Sealer.new(cohort: cohort, actor: coach).call!(request_key: "old-household", expected_bundle_digest: CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call.bundle_digest)
+    old_attributes = old_release.attributes.deep_dup
+    post "/api/v1/admin/cohorts/#{cohort.id}/experience_configuration/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision, upgrade_to_current: true } }, headers: { "Authorization" => "Bearer test_token_#{coach.id}" }, as: :json
+    assert_response :success
+    assert_equal 4, configuration.reload.draft_config.fetch("schema_version")
+    assert_equal "This update adds Statements", response.parsed_body.dig("preview", "upgrade_notice")
+    assert_equal true, configuration.draft_config.dig("optional_modules", "cfo_filter")
+    assert_equal old_config, old_version.reload.config
+    post "/api/v1/admin/cohorts/#{cohort.id}/experience_configuration/preview", params: { experience_configuration: { draft_revision: configuration.draft_revision, upgrade_to_current: true } }, headers: { "Authorization" => "Bearer test_token_#{coach.id}" }, as: :json
+    assert_response :success
+    assert_equal "This update adds Statements", response.parsed_body.dig("preview", "upgrade_notice")
+    digest = response.parsed_body.dig("preview", "digest")
+    publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: old_version.id)
+    cohort.reload
+    release = CohortReleases::Sealer.new(cohort: cohort, actor: coach).call!(request_key: "current-household", expected_bundle_digest: CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call.bundle_digest)
+    assert_equal 6, release.tool_registry_version
+    launcher = CohortReleases::InitialLauncher.new(cohort: cohort, actor: coach)
+    launcher.call!(release_id: release.id, preview_digest: launcher.preview.fetch(:preview_digest), request_key: "launch-household")
+    approve_lines({ lines: @events.values.map { |event| { event_id: event.id, decision: "leave_out" } }, coverage_answer: "nothing_missing" })
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("result", "complete")
+    assert SourceRevisionApproval.exists?(household: @household)
+    assert_equal old_attributes, old_release.reload.attributes
+    assert old_release.integrity_valid?
   end
 
   test "an older release denies newer statement tools with a recoverable plain response" do
@@ -162,6 +215,45 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_equal "savings_challenge_unavailable", response.parsed_body.fetch("code")
     assert_equal "This part of your program isn't available right now. Please contact your program team.", response.parsed_body.fetch("errors").sole
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    get "/api/v1/workspace", headers: headers
+    assert_response :success
+    statement = response.parsed_body.dig("workspace", "capabilities", "modules").find { |item| item["id"] == "statements" }
+    assert_equal false, statement&.fetch("enabled")
+    assert_equal "Statements aren't available for your group yet. Please contact your program team.", statement.fetch("unavailable_message")
+    %w[document_imports document_imports/presign document_imports/complete].each do |path|
+      post "/api/v1/#{path}", params: {}, headers: headers, as: :json
+      assert_response :forbidden
+    end
+  end
+
+  test "a prelaunch coach can hide statement review" do
+    coach = User.create!(clerk_id: "hidden-coach", email: "hidden-coach@example.invalid", role: "coach", invitation_status: "accepted")
+    cohort = Cohort.create!(name: "Hidden statements", status: "enrolling", created_by_user: coach)
+    CohortMembership.create!(cohort: cohort, user: @user, role: "participant")
+    configuration = cohort.cohort_experience_configuration
+    config = CohortExperience::Schema.upgrade(configuration.draft_config)
+    config["optional_modules"]["statements"] = false
+    configuration.update!(draft_config: config, last_edited_by_user: coach)
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
+    assert_response :forbidden
+    assert_equal "This part of your program isn't available right now. Please contact your program team.", response.parsed_body.fetch("errors").sole
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    get "/api/v1/workspace", headers: headers
+    assert_response :success
+    statement = response.parsed_body.dig("workspace", "capabilities", "modules").find { |item| item["id"] == "statements" }
+    assert_equal false, statement.fetch("enabled")
+    post "/api/v1/document_imports/presign", params: {}, headers: headers, as: :json
+    assert_response :forbidden
+    # Publishing a release must retain the same coach-selected restriction.
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    cohort.update!(active_cohort_release: cohort.cohort_releases.sole)
+    assert_equal 6, cohort.active_cohort_release.tool_registry_version
+    approve_lines({ lines: as_read(review_plan.fetch("ready_event_ids")) })
+    assert_response :forbidden
     assert_equal 0, SourceReviewVersion.where(household: @household).count
   end
 

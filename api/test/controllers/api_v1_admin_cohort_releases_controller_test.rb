@@ -71,7 +71,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "historical v1 seal retries replay under their stored contract and changed input conflicts" do
-    owner, cohort, = governed_components
+    owner, cohort, = governed_components(experience_config: CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     request_key = "historical-v1-seal"
     release, execution = create_historical_v1_operation!(owner, cohort, request_key: request_key)
     legacy_payload = execution.normalized_input.symbolize_keys
@@ -144,7 +144,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "historical v1 restore retries replay under their stored contract" do
-    owner, cohort, = governed_components
+    owner, cohort, = governed_components(experience_config: CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     first, = create_historical_v1_operation!(owner, cohort, request_key: "historical-v1-source")
     publish_changed_experience(cohort, owner)
     run_seal(cohort, owner, seal_payload(cohort), "historical-v1-current")
@@ -169,7 +169,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "restoring governed v1 evidence promotes it to v2 with the historical Household CFO brand" do
-    owner, cohort, = governed_components
+    owner, cohort, = governed_components(experience_config: CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     first, = create_historical_v1_operation!(owner, cohort, request_key: "v1-promotion-source")
     publish_changed_experience(cohort, owner)
     run_seal(cohort, owner, seal_payload(cohort), "v1-promotion-current")
@@ -225,7 +225,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
 
   private
 
-  def governed_components
+  def governed_components(experience_config: CohortExperience::Schema::DEFAULT_CONFIG)
     owner = persona_user
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
     cohort = Cohort.create!(
@@ -244,6 +244,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
       assigned_by_user: owner
     )
     configuration = cohort.cohort_experience_configuration
+    configuration.update!(draft_config: experience_config)
     publisher = CohortExperience::Publisher.new(configuration: configuration, actor: owner)
     digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
     experience_version = publisher.publish!(
@@ -294,7 +295,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
       expected_persona_version_id: candidate.persona_version.id,
       expected_brand_version_id: candidate.brand_version&.id,
       expected_tool_registry_digest: CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
-      expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
+      expected_tool_registry_version: candidate.tool_registry_snapshot.fetch("schema_version")
     }
   end
 
@@ -354,7 +355,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
       cohort_experience_version_id: candidate.experience_version&.id,
       experience_snapshot: candidate.experience_snapshot,
       experience_snapshot_digest: CohortReleases::Contract.digest(candidate.experience_snapshot),
-      tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION,
+      tool_registry_version: candidate.tool_registry_snapshot.fetch("schema_version"),
       tool_registry_snapshot: candidate.tool_registry_snapshot,
       tool_registry_digest: CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
       manifest_schema: CohortReleases::Contract::V1_SCHEMA,
@@ -386,7 +387,7 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
         "expected_latest_release_id" => previous&.id,
         "expected_persona_version_id" => candidate.persona_version.id,
         "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
-        "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
+        "expected_tool_registry_version" => candidate.tool_registry_snapshot.fetch("schema_version")
       }
     end
     before = operation_state(cohort, previous, release_count: release_number - 1)
