@@ -8,6 +8,6 @@ class InvitationCoachName
     workspace = CoachWorkspace.find_by(id: workspace_ids.sole) if workspace_ids.one?
     workspace ||= invited_by.coach_workspaces.first if invited_by.coach_workspaces.count == 1
     candidates = [ workspace&.coach_profile&.display_name, [ invited_by.first_name, invited_by.last_name ].compact_blank.join(" ") ]
-    candidates.find { |name| name.present? && !name.match?(/[@+\r\n]/) && name.downcase != invited_by.email.to_s.split('@').first.to_s.downcase } || "Your coaching team"
+    candidates.find { |name| name.present? && !name.match?(/[@+\r\n]/) && name.downcase != invited_by.email.to_s.split("@").first.to_s.downcase } || "Your coaching team"
   end
 end

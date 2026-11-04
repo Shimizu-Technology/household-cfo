@@ -87,6 +87,28 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::RecordNotFound) { publish }
   end
 
+  test "later updates keep readiness gates and roll back every group when one participant is not ready" do
+    participants = @groups.map do |cohort|
+      user = persona_user(role: "participant")
+      user.cohort_memberships.create!(cohort:, role: "participant")
+      user
+    end
+    publish
+    brand = @workspace.workspace_brand_configuration.reload
+    brand.update!(draft_config: brand.draft_config.merge("product_name" => "A changed program"))
+    @review = build_review
+    participants.last.update!(invitation_status: "revoked")
+    previous = @groups.map { |c| c.reload.active_cohort_release_id }
+    assert_no_difference [ "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseExposure.count", "CoachLaunchReceipt.count" ] do
+      assert_raises(CohortRollouts::StateMachine::Ineligible) { CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review: @review, request_key: "later-launch").call! }
+    end
+    assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
+    participants.last.update!(invitation_status: "accepted")
+    result = CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review: @review, request_key: "later-launch").call!
+    assert_equal 2, result.fetch("groups").length
+    assert @groups.all? { |c| c.reload.active_cohort_release_id != previous[@groups.index(c)] }
+  end
+
   private
 
   def publish(review: @review)
@@ -101,13 +123,13 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
   def build_review
     ready = Mia::PersonaRelease::Readiness.new(persona: @persona.reload, actor: @owner).call.deep_stringify_keys
     {
-      "persona" => { "id" => @persona.id, "draft_revision" => @persona.draft_revision, "published_version_id" => nil, "voice_changes" => true, "preview_digest" => @persona.preview_digest }.merge(ready.slice("candidate", "evaluation_run", "behavioral_preview_evidence")),
+      "persona" => { "id" => @persona.id, "draft_revision" => @persona.draft_revision, "published_version_id" => @persona.current_published_version_id, "voice_changes" => @persona.current_published_version_id.nil?, "preview_digest" => @persona.preview_digest }.merge(ready.slice("candidate", "evaluation_run", "behavioral_preview_evidence")),
       "brand" => config_review(@workspace.workspace_brand_configuration, Branding::Publisher),
       "tools" => @groups.map { |c| config_review(c.cohort_experience_configuration, CohortExperience::Publisher).merge("id" => c.id) },
       "groups" => @groups.map do |c|
         rollout = CohortRollouts::StudioSerializer.new(cohort: c.reload, actor: @owner).call
         candidate = CohortReleases::StudioSerializer.new(cohort: c, actor: @owner).call.dig(:readiness, :candidate)
-        { "id" => c.id, "name" => c.name, "bundle_digest" => candidate[:bundle_digest], "roster_digest" => rollout.dig(:current_roster, :digest), "participant_ids" => [], "active_release_id" => nil, "assignment_persona_id" => nil }
+        { "id" => c.id, "name" => c.name, "bundle_digest" => candidate[:bundle_digest], "roster_digest" => rollout.dig(:current_roster, :digest), "participant_ids" => rollout.dig(:current_roster, :participants).map { |p| p[:user_id] }, "active_release_id" => c.active_cohort_release_id, "assignment_persona_id" => c.cohort_persona_assignment&.coach_persona_id }
       end
     }
   end

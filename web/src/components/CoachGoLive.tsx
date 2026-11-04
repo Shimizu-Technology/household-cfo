@@ -110,12 +110,14 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
     const ticket = lifecycle.begin()
     const current = () => mounted.current && lifecycle.isCurrent(ticket)
     setBusy(true); setError(null)
+    let savedForRecovery = Boolean(pendingLaunch)
     try {
       if (!pendingLaunch && (!reviewedPersona || !settings || groups.length === 0)) throw new Error('Review your assistant first.')
       const pending = pendingLaunch ?? prepareCoachLaunch(reviewedPersona!, readiness, settings!, groups)
       // Persist before sending. A lost response can always be retried with the
       // same receipt key, even after closing this tab.
       localStorage.setItem(storageKey, JSON.stringify(pending))
+      savedForRecovery = true
       setPendingLaunch(pending)
       setStatus(`Saving your assistant and updating ${pending.review.groups.map(item => item.name).join(', ')}… You can reopen Go live if you leave this page.`)
       const result = await finishCoachLaunch(pending)
@@ -132,6 +134,8 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         if (typeof code === 'number' && code >= 400 && code < 500 && ![408, 429].includes(code)) {
           localStorage.removeItem(storageKey); setPendingLaunch(null); setGroups([]); setSettings(null); setReviewedPersona(null)
           setStatus(''); setError('Nothing went live. Review the latest assistant, settings and people before trying again.')
+        } else if (!savedForRecovery) {
+          setStatus(''); setError('Your browser could not save the update for recovery. Allow storage for this site, then try again.')
         } else {
           setStatus(''); setError('We could not confirm the update. Choose Finish going live to safely check and finish the same update.')
         }

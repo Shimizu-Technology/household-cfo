@@ -105,3 +105,8 @@ it('does not claim an already open challenge still needs opening',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:true,modules:[]}}]})
  render(<Harness/>);await review();expect(screen.queryByText(/program team still needs to open/)).toBeNull()
 })
+it('honors custom participant navigation order and independently hidden Statements',async()=>{
+ settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:true,module_order:['wealth','ask_mia','home'],modules:[{id:'home',enabled:true},{id:'ask_mia',enabled:true},{id:'wealth',enabled:true},{id:'statements',enabled:false}]}}]})
+ render(<Harness/>);await review();expect(screen.getByText('Wealth · Mia · Savings')).toBeTruthy()
+ expect(screen.queryByText('Savings · Mia · Statements · More')).toBeNull()
+})

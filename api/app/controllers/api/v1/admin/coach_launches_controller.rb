@@ -9,6 +9,9 @@ module Api
         before_action :require_selected_coach_workspace!
 
         def create
+          unless params[:review].is_a?(ActionController::Parameters)
+            return render json: { error: "Reopen Go live to review this update." }, status: :unprocessable_entity
+          end
           policy = Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
           persona = policy.publishable_personas.find(params[:id])
           result = CoachLaunches::Publisher.new(persona:, actor: current_user,
@@ -23,7 +26,7 @@ module Api
           CohortReleases::Sealer::Incomplete, CohortReleases::Sealer::ReadOnly,
           CohortRollouts::StateMachine::Error, CohortReleases::InitialLauncher::Conflict,
           CohortReleases::InitialLauncher::Incomplete, Mia::PersonaAssignmentCompatibility::Conflict,
-          ActiveRecord::RecordInvalid, KeyError, ActionController::ParameterMissing => error
+          ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
           Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
           render json: { error: "This update could not go live. Nothing changed. Review the latest assistant, settings and people before trying again." }, status: :conflict
         end

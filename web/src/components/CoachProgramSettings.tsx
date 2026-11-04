@@ -7,6 +7,7 @@ import {
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
+import { rememberCreatedProgram } from './ProgramCreatedNotice'
 import { Button } from './Button'
 import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -32,7 +33,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   onPendingChange?: (pending: boolean) => void
   onCreated?: (workspace: CoachWorkspaceSettings) => void
 }) {
-  const { refreshCurrentUser } = useAuthContext()
+  const { refreshCurrentUser, currentUser } = useAuthContext()
   const initialIdentity = { ...blankIdentity, coach_profile: { ...blankIdentity.coach_profile, display_name: defaultCoachName } }
   const [open, setOpen] = useState(autoOpen)
   const [values, setValues] = useState<CoachWorkspaceSettingsInput>(initialIdentity)
@@ -61,6 +62,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
       if (!requestKey) { requestKey = crypto.randomUUID(); creationKeys.current.set(fingerprint, requestKey) }
       const created = await createCoachWorkspace(payload, requestKey)
       if (!mounted.current) return
+      rememberCreatedProgram(currentUser?.id, created)
       creationKeys.current.clear()
       setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
       const ownerNote = created.owner_invitation

@@ -331,7 +331,7 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
 it('selects a created program and keeps its confirmation after switching program scope', async () => {
   const view = render(<AdminConsole currentUser={actor}/>)
   await screen.findAllByText('Participant 00', {}, {timeout:3000})
-  fireEvent.click(screen.getByRole('button',{name:'Programs & rules',exact:true}))
+  fireEvent.click(screen.getByRole('button',{name:'Programs & rules'}))
   fireEvent.click(screen.getByRole('button',{name:'Complete creation'}))
   expect(authScope.selectCoachWorkspace).toHaveBeenCalledWith(3)
   authScope.workspaceId=3

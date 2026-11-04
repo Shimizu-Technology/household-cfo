@@ -33,6 +33,7 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
   end
 
   test "normal descriptions retain aligned paraphrases and exact numbers without reversing negation" do
+    assert Mia::PersonaSetup::TextEvidence.supports?('When someone is about to overspend I say "Chelu, pump the brakes" and suggest waiting 30 days.', "Said when someone is about to overspend, followed by a suggestion to wait 30 days.")
     assert Mia::PersonaSetup::TextEvidence.supports?("I start with how they feel, then one clear next step.", "Start with how the participant feels, then give one clear next step.")
     assert Mia::PersonaSetup::TextEvidence.supports?("I never tell people what to do with their money.", "Never tell participants what to do with their money.")
     refute Mia::PersonaSetup::TextEvidence.supports?("Do not suggest waiting 30 days.", "Suggest waiting 30 days.")
@@ -47,6 +48,16 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { transcript.build([ op ]) }
     creative = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Please suggest a coaching philosophy.")
     assert creative.build([ operation("coaching.philosophy", "Build confidence one decision at a time.", "").merge("source_basis" => "mia_drafted") ])
+  end
+
+  test "the exact production description accepts the recorded live follow-up with its phrase meaning" do
+    recorded = JSON.parse(file_fixture("persona_setup/coach_followups_response.json").read)
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: recorded.fetch("message")).build(recorded.fetch("operations"))
+    assert_equal 9, result.fetch(:operations).length
+    phrase = result.dig(:after_state, "draft_config", "phrases").sole
+    assert_equal "Chelu, pump the brakes", phrase.fetch("text")
+    assert_includes phrase.fetch("meaning"), "30 days"
+    assert_includes phrase.fetch("prohibited_contexts"), "crisis"
   end
 
   private

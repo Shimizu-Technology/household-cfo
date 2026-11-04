@@ -15,31 +15,32 @@ module CoachLaunches
       raise Conflict, "Reopen Go live to review this update." unless request_key.length.between?(1, 64)
 
       CoachLaunchReceipt.transaction(requires_new: true) do
-      CoachWorkspaces::MutationAuthority.new(workspace:, actor:, permissions: :publish).call do
-        policy = Mia::PersonaStudioPolicy.new(actor, workspace:)
-        policy.publishable_personas.find(persona.id)
-        digest = CohortReleases::Contract.digest(review)
-        receipt = CoachLaunchReceipt.find_by(coach_workspace: workspace, user: actor, request_key:)
-        if receipt
-          raise Conflict, "This update changed. Review it again." unless receipt.request_digest == digest && receipt.coach_persona_id == persona.id
+        CoachWorkspaces::MutationAuthority.new(workspace:, actor:, permissions: :publish).call do |persisted_actor|
+          @actor = persisted_actor
+          policy = Mia::PersonaStudioPolicy.new(actor, workspace:)
+          policy.publishable_personas.find(persona.id)
+          digest = CohortReleases::Contract.digest(review)
+          receipt = CoachLaunchReceipt.find_by(coach_workspace: workspace, user: actor, request_key:)
+          if receipt
+            raise Conflict, "This update changed. Review it again." unless receipt.request_digest == digest && receipt.coach_persona_id == persona.id
 
-          next receipt.result
+            next receipt.result
+          end
+          groups = Array(review.fetch("groups"))
+          raise Conflict, "Choose at least one group." if groups.empty? || groups.size > 100 || groups.map { |g| g.fetch("id") }.uniq.size != groups.size
+
+          cohorts = groups.sort_by { |group| group.fetch("id") }.map { |group| policy.assignment_manageable_cohorts.lock.find(group.fetch("id")) }
+          cohorts.each { |cohort| CohortReleases::Authorization.new(cohort:, actor:).call! }
+          persona.lock!
+          check_persona!
+          groups.each { |group| check_group!(cohorts.find { |c| c.id == group.fetch("id") }, group) }
+          publish_settings!(cohorts)
+          publish_voice!
+          cohorts.each { |cohort| launch_group!(cohort, groups.find { |g| g.fetch("id") == cohort.id }) }
+          result = { "groups" => cohorts.map { |c| { "id" => c.id, "name" => c.name, "challenge_closed" => challenge_closed?(c) } } }
+          CoachLaunchReceipt.create!(coach_workspace: workspace, user: actor, coach_persona: persona, request_key:, request_digest: digest, result:)
+          result
         end
-        groups = Array(review.fetch("groups"))
-        raise Conflict, "Choose at least one group." if groups.empty? || groups.size > 100 || groups.map { |g| g.fetch("id") }.uniq.size != groups.size
-
-        cohorts = groups.sort_by { |group| group.fetch("id") }.map { |group| policy.assignment_manageable_cohorts.lock.find(group.fetch("id")) }
-        cohorts.each { |cohort| CohortReleases::Authorization.new(cohort:, actor:).call! }
-        persona.lock!
-        check_persona!
-        groups.each { |group| check_group!(cohorts.find { |c| c.id == group.fetch("id") }, group) }
-        publish_settings!(cohorts)
-        publish_voice!
-        cohorts.each { |cohort| launch_group!(cohort, groups.find { |g| g.fetch("id") == cohort.id }) }
-        result = { "groups" => cohorts.map { |c| { "id" => c.id, "name" => c.name, "challenge_closed" => challenge_closed?(c) } } }
-        CoachLaunchReceipt.create!(coach_workspace: workspace, user: actor, coach_persona: persona, request_key:, request_digest: digest, result:)
-        result
-      end
       end
     end
 

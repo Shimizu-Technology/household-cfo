@@ -6,7 +6,7 @@ module Mia
     # voice presets, new prose must keep its factual words, numbers and polarity.
     # Unsupported paraphrases are left out, never silently treated as coach words.
     class TextEvidence
-      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were and then when someone people participant participants client clients coach coaching use using used give say said start starts keep make only].freeze
+      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were and then when someone people participant participants client clients coach coaching use using used give say said start starts keep make only followed by].freeze
       SYNONYMS = {
         "feeling" => "feel", "feelings" => "feel", "feels" => "feel", "felt" => "feel",
         "shaming" => "shame", "shamed" => "shame", "shames" => "shame",
@@ -23,7 +23,7 @@ module Mia
       }.freeze
 
       def self.supports?(quote, value)
-        return true if value.blank? || quote.include?(value)
+        return true if value.blank?
 
         claims = value.split(/[.!?;]|\bbut\b/i).reject(&:blank?)
         sources = quote.split(/[.!?;]|\bbut\b/i)

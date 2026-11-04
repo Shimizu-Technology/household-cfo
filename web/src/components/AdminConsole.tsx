@@ -5,6 +5,7 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { PilotFeedbackInbox } from './PilotFeedbackInbox'
 import { SetupSupportInbox } from './SetupSupportInbox'
 import { CreateCoachProgram } from './CoachProgramSettings'
+import { ProgramCreatedNotice, rememberCreatedProgram } from './ProgramCreatedNotice'
 import { SavingsChallengeAccessPanel } from './SavingsChallengeAccessPanel'
 import './AdminConsole.css'
 import { confirmAction, confirmDiscard } from '../lib/confirmAction'
@@ -35,8 +36,7 @@ const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
 
 export function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
-  const [createdNotice, setCreatedNotice] = useState('')
-  return <>{createdNotice && <p role="status" className="coach-studio-alert is-success">{createdNotice}</p>}<AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { setCreatedNotice(`${workspace.name} was created and selected. You can now set up its assistant, appearance and groups.`); selectCoachWorkspace(workspace.id) }} /></>
+  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
 }
 
 function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: { id: number; name: string }) => void }) {
