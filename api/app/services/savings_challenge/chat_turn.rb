@@ -162,13 +162,13 @@ module SavingsChallenge
       present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
       missing = coverage[:months].any? { |row| row[:spending_cents].nil? }
       window = if missing
-        "I only see purchases for #{present.to_sentence}"
+        "I only see purchases for #{present.to_sentence}:"
       else
-        "From #{present.first} to #{present.last} in the recorded purchases"
+        "From #{present.first} to #{present.last} in the recorded purchases,"
       end
       flexible = @patterns[:discretionary_merchants].first(2).map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       observed = if flexible.any?
-        "#{window}, #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
+        "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
       else
         "I don't have enough purchases in flexible categories to suggest a cut yet. A store name alone doesn't tell me what you needed."
       end
@@ -205,12 +205,10 @@ module SavingsChallenge
       # A polite request with an explicit amount is still a proposal. A question
       # about reaching the existing goal must not silently propose the default.
       return false if !suggestion && amounts.empty? && @message.match?(/\?|\A\s*(?:can|should|could|would|what|how)\b/i)
-      replacement = @message[/\b(?:to|at|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
-      chosen = if amounts.length > 1
-        replacement
-      else
-        amounts.first
-      end
+      # The requested destination wins even when the old amount alone has a
+      # dollar sign. "Be $500 instead of $400" also names a destination.
+      replacement = @message[/\b(?:to|at|be|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
+      chosen = replacement || (amounts.first if amounts.one?)
       @goal_cents = if malformed
         nil
       elsif chosen

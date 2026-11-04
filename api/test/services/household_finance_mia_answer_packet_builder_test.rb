@@ -1,6 +1,13 @@
 require "test_helper"
 
 class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
+  test "selected category figures carry their month rather than only the plan year" do
+    packet = HouseholdFinance::MiaAnswerPacketBuilder.new(kind: "coaching", fallback_response: "Your flexible spending plan is $700 a month.",
+      write_state: "no_write", selected_month: 11, annual_plan: { year: 2026,
+        rows: [ { name: "Flexible spending", months: Array.new(12) { { planned: 700, actual: 0, remaining: 700 } } } ] }).call
+    assert_equal({ unit: "month", year: 2026, month: 11, label: "November 2026" }, packet.dig(:annual_plan_summary, :category_period))
+  end
+
   test "truncated annual reviews stay unknown in the narrator summary" do
     packet = HouseholdFinance::MiaAnswerPacketBuilder.new(kind: "coaching", fallback_response: "Check your reviews.",
       write_state: "no_write", annual_plan: { year: 2026, rows: [], pending_transaction_drafts: [ { id: 1 } ],

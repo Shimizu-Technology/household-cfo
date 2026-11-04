@@ -87,13 +87,14 @@ module HouseholdFinance
           plan_left_cents: income && planned ? income - planned : nil,
           category_left_cents: categories && actual ? categories - actual : nil,
           pending_cents: approved && !pending_unknown ? pending.sum { |draft| draft[:amount_cents] || Money.cents(draft[:amount]) } : nil,
-          pending_count: pending_unknown ? nil : pending.length, pending_list_truncated: truncated,
+          pending_review_count: pending_unknown ? nil : Array(plan[:pending_transaction_drafts]).length,
+          pending_count: pending_unknown ? nil : pending.length, pending_unknown: pending_unknown, pending_list_truncated: truncated,
           readiness_tone: readiness_known ? snapshot[:readiness_tone] : nil,
           runway_months: readiness_known ? snapshot[:runway_months] : nil,
           readiness_guidance: cushion_guidance(readiness_known ? snapshot[:readiness_tone] : nil, income && planned ? income - planned : nil),
           readiness_meaning: readiness_known ? snapshot[:readiness_label] : "Add the missing starting numbers before judging your cushion.",
           safe_to_spend_cents: readiness_known ? snapshot[:safe_to_spend_cents] : nil,
-          spent_basis: "confirmed category spending; debt payments are separate",
+          spent_basis: "purchases you approved; debt payments are separate",
           left_basis: "the plan after planned spending; not a bank balance or permission to spend"
         }
       end
@@ -110,7 +111,7 @@ module HouseholdFinance
         else
           "From your approved statement lines, you spent #{money(facts[:spent_so_far_cents])} in #{facts[:period_label]}."
         end
-        return "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}"
+        return [ "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}", review_next_step(facts) ].compact.join(" ")
       end
 
       left = facts[:plan_left_cents]
@@ -124,14 +125,11 @@ module HouseholdFinance
       spent = facts[:spent_so_far_cents]
       spent_line = spent.nil? ? "spent so far is not known yet" : "you’ve spent #{money(spent)} so far"
       cushion_line = facts[:readiness_guidance]
-      review_line = next_move.presence
-      review_line ||= if facts[:pending_count].nil?
-        "The review list is incomplete, so check it before making your next money decision."
-      elsif facts[:pending_count].positive?
-        "Check the purchases waiting on your review card before choosing where the next dollar goes."
-      else
-        "Check the next bill due before deciding where any money left should go."
+      review_line = review_next_step(facts)
+      if next_move.present?
+        review_line = review_line ? "#{next_move.sub(/[.!?]\z/, '')}; #{review_line.sub(/\A./, &:downcase)}" : next_move
       end
+      review_line ||= "Check the next bill due before deciding where any money left should go."
       caveat = left.nil? ? "" : "; this is a plan figure, not a bank balance or permission to spend"
       "#{plan_line}#{caveat}, and #{spent_line}. #{cushion_line} #{review_line}"
     end
@@ -139,6 +137,15 @@ module HouseholdFinance
     private
 
     attr_reader :household, :plan, :month
+
+    def review_next_step(facts)
+      count = facts[:pending_review_count]
+      if count.nil?
+        "The review list is incomplete, so check the purchases waiting there before deciding what comes next."
+      elsif count.positive?
+        "Review the #{count} #{'purchase'.pluralize(count)} waiting for you before deciding what comes next."
+      end
+    end
 
     def cushion_guidance(tone, left)
       case tone

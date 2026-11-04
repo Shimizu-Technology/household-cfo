@@ -1565,16 +1565,35 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     )
     fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
 
+    transaction_depth = 0
+    observed_depth = nil
+    original_transaction = ApplicationRecord.method(:transaction)
+    transaction_probe = lambda do |**options, &block|
+      transaction_depth += 1
+      original_transaction.call(**options, &block)
+    ensure
+      transaction_depth -= 1
+    end
+    original_narrator = HouseholdFinance::MiaNarrator.method(:new)
+    fake_narrator = lambda do |**attributes|
+      observed_depth = transaction_depth
+      original_narrator.call(**attributes.merge(api_key: ""))
+    end
     assert_difference("MiaActionDraft.count", 1) do
-      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
-        post "/api/v1/mia/messages",
-             params: { message: message, document_import_ids: [ document_import.id ] },
-             headers: auth_headers(user),
-             as: :json
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, fake_narrator) do
+        with_singleton_stub(ApplicationRecord, :transaction, transaction_probe) do
+          with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+          end
+        end
       end
     end
 
     assert_response :created
+    assert_equal 0, observed_depth, "Provider narration must run outside the action transaction"
     body = JSON.parse(response.body)
     assistant_content = body.dig("assistant_message", "content")
     assert_includes assistant_content, "$87.45"

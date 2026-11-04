@@ -1,6 +1,41 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "approved spending is not relabeled a plan figure in a month answer" do
+    fallback = "Your plan leaves breathing room. Your cushion needs building. Review the purchases waiting for you."
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    reply = "Your plan leaves breathing room, and you've spent so far, which is a plan figure and not a bank balance. Your cushion needs building. Review the purchases waiting for you."
+    assert_equal fallback, narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "known monthly plan figures cannot be narrated as yearly or a different month" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?",
+      annual_plan_summary: { category_period: { unit: "month", year: 2026, month: 11, label: "November 2026" },
+        top_categories: [ { name: "Flexible spending", planned: 700, actual: 0, remaining: 700 } ] } }
+    [ "Your plan sets aside $700 for flexible spending this year.", "Your yearly flexible spending plan is $700.",
+      "Your flexible spending plan is $700 for October 2026." ].each do |claim|
+      assert_equal packet[:fallback_response], narrate("#{claim} Consider waiting on the purse. What would you pause to fund it?", packet, "Should I buy a $60 purse?"), claim
+    end
+    reply = "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?"
+    assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
+    reply = "Your annual plan sets aside $700 for flexible spending each month this year. Consider waiting on the purse. What would you pause to fund it?"
+    assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
+  end
+
+  test "month narration retains pending reviews once with an honest count" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Your plan leaves breathing room. Your cushion needs building. Review the 18 purchases waiting for you.",
+      annual_plan_summary: { pending_draft_count: 18, month_answer: { pending_count: 18 } } }
+    missing = "Your plan leaves breathing room. Your cushion needs building. Add your account balances."
+    wrong = "Your plan leaves breathing room. Your cushion needs building. Review the 2 purchases waiting for you."
+    assert_equal packet[:fallback_response], narrate(missing, packet, "How am I doing this month?")
+    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    assert_equal packet[:fallback_response], narrate(packet[:fallback_response], packet, "How am I doing this month?")
+    packet[:annual_plan_summary][:month_answer] = { pending_count: nil, pending_list_truncated: true }
+    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    honest = "Your plan leaves breathing room. Your cushion needs building. The review list is incomplete, so check the purchases waiting there."
+    assert_equal honest, narrate(honest, packet, "How am I doing this month?")
+  end
+
   test "before-start months keep the plain server answer without provider narration" do
     fallback = "Your plan starts in November 2026. October 2026 is before you started, so its income and planned costs are not known."
     packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback,

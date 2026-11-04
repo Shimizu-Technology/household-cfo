@@ -602,7 +602,7 @@ module HouseholdFinance
     def pending_drafts_payload(budget_year)
       pending_drafts_scope(budget_year)
         .includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
-        .recent_first
+        .order(updated_at: :desc, id: :desc)
         .limit(MAX_PENDING_TRANSACTION_DRAFTS)
         .map { |draft| draft_payload(draft) }
     end

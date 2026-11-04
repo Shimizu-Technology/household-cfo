@@ -192,6 +192,31 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     assert_includes reply, "total Ross purchase amount"
   end
 
+  test "month answer names the review count once even when another next move was supplied" do
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).read_only_plan_data
+    plan[:pending_transaction_drafts] = Array.new(18) { { occurred_on: "2026-01-05", amount_cents: 100 } }
+    answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: plan, month: 7)
+    assert_equal 0, answer.call[:pending_count]
+    assert_equal 18, answer.call[:pending_review_count]
+    assert_match(/review the 18 purchases waiting/i, answer.response(next_move: "Add your account balances."))
+    assert_equal 1, answer.response.scan(/18 purchases/).length
+    refute_includes answer.call[:spent_basis], "confirmed category spending"
+  end
+
+  test "an old pending purchase cannot replace the purchase named in a new reply" do
+    old = @household.transaction_drafts.create!(occurred_on: Date.current + 1.day, merchant: "Payless — groceries",
+      total_amount_cents: 8250, budget_category: @household.budget_categories.find_by!(stack_key: "discretionary"), source_type: "manual_ui")
+    post_message("I spent $18.47 at Payless on groceries today")
+    body = response.parsed_body
+    fresh = body.fetch("transaction_draft")
+    assert_equal 1847, fresh.fetch("amount_cents")
+    assert_includes reply, "$18.47"
+    drafts = body.dig("budget", "annual_plan", "pending_transaction_drafts")
+    assert_equal fresh.fetch("id"), drafts.first.fetch("id")
+    assert_equal 1847, drafts.first.fetch("amount_cents")
+    assert drafts.any? { |draft| draft.fetch("id") == old.id }
+  end
+
   test "month overview resolves an ISO year and month" do
     post_message("How am I doing in 2026-09?")
     assert_equal 2026, response.parsed_body.dig("month_answer", "year")
