@@ -1922,6 +1922,7 @@ export type CohortExperienceConfiguration = {
 }
 
 export type CohortExperiencePreview = {
+  upgrade_notice?: string | null
   module_order?: ExperienceModuleId[]
   digest: string
   draft_revision: number
@@ -2907,9 +2908,10 @@ export async function updateCohortExperienceConfiguration(
 export async function previewCohortExperienceConfiguration(
   cohortId: number,
   draftRevision: number,
+  upgradeToCurrent = false,
 ): Promise<{ preview: CohortExperiencePreview; experience_configuration: CohortExperienceConfiguration }> {
   return postJson(`/api/v1/admin/cohorts/${cohortId}/experience_configuration/preview`, {
-    experience_configuration: { draft_revision: draftRevision },
+    experience_configuration: { draft_revision: draftRevision, upgrade_to_current: upgradeToCurrent },
   })
 }
 

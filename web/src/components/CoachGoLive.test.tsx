@@ -170,3 +170,11 @@ it.each(['before approvals','before publish'])('rejects a missing preview digest
  expect(api.publishAdminPersona).not.toHaveBeenCalled();expect(groupApi.publishCoachGroup).not.toHaveBeenCalled();
  if(stage==='before approvals'){expect(api.reviewAdminPersonaAudience).not.toHaveBeenCalled();expect(api.reviewAdminPersonaEvaluation).not.toHaveBeenCalled();expect(settingsApi.publishCoachSettings).not.toHaveBeenCalled()}
 })
+
+it('shows the Statements upgrade in the review before approval', async () => {
+ settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration:{},preview:{brand:{}}},tools:[{configuration:{cohort:{id:42,name:'Practice people'},draft:{experience_mode:'household_cfo'}},preview:{upgrade_notice:'This update adds Statements',modules:[{id:'statements',label:'Statements',enabled:true}]}}]})
+ render(<Harness/>); fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ await screen.findByText('This update adds Statements')
+ expect(screen.getByRole('button',{name:'Approve and go live'})).toHaveProperty('disabled',false)
+ expect(settingsApi.publishCoachSettings).not.toHaveBeenCalled()
+})

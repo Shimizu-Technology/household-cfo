@@ -17,6 +17,7 @@ type Props = {
   processingCount: number
   latestSource?: string
   realWorkspace: boolean
+  uploadBlocked?: string
   uploading: boolean
   hasMessages: boolean
   busy: boolean
@@ -74,7 +75,7 @@ function PanelContent(props: Props) {
           {props.realWorkspace ? <>
             <dl className="mia-assist-status"><div><dt>Waiting for review</dt><dd>{props.pendingCount}</dd></div><div><dt>Processing</dt><dd>{props.processingCount}</dd></div></dl>
             <p>{props.latestSource || 'No approved file sources yet. Uploading a file does not update your numbers until you review and apply it.'}</p>
-            <div className="mia-assist-actions"><button type="button" className="secondary-button" disabled={props.uploading || props.busy} onClick={() => act(props.onAttach)}>{props.uploading ? 'Uploading privately' : 'Attach a file'}</button><button type="button" className="secondary-button" onClick={() => act(props.onReviewImports)}>Review files</button></div>
+            <div className="mia-assist-actions"><button type="button" className="secondary-button" disabled={Boolean(props.uploadBlocked) || props.uploading || props.busy} title={props.uploadBlocked} onClick={() => act(props.onAttach)}>{props.uploading ? 'Uploading privately' : 'Attach a file'}</button><button type="button" className="secondary-button" onClick={() => act(props.onReviewImports)}>Review files</button></div>
             <details className="mia-assist-file-help"><summary>Supported files and sizes</summary><p>Attach up to five files. Images and PDFs up to 12 MB each; CSV, Excel and Word up to 20 MB each. Choose the file types and tell {props.assistantName} what you want reviewed.</p></details>
           </> : <p>Sign in to upload and review your own files.</p>}
         </section>

@@ -19,7 +19,7 @@ export async function reviewCoachSettings(groupIds: number[], isCurrent: () => b
     const configuration = await fetchCohortExperienceConfiguration(id)
     guard()
     if (!configuration.permissions.review || !configuration.permissions.publish) throw new Error(`Ask a program owner or reviewer to approve the tools for ${configuration.cohort.name}.`)
-    const result = await previewCohortExperienceConfiguration(id, configuration.draft_revision)
+    const result = await previewCohortExperienceConfiguration(id, configuration.draft_revision, true)
     guard()
     tools.push({ configuration: result.experience_configuration, preview: result.preview })
   }

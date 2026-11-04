@@ -229,7 +229,7 @@ class CohortReleaseContractVersionsTest < ActiveSupport::TestCase
     version = publish_persona(persona, actor: owner)
     CohortPersonaAssignment.create!(cohort: cohort, coach_workspace: workspace, coach_persona: persona,
       coach_persona_version: version, assigned_by_user: owner)
-    publish_experience(cohort, owner, CohortExperience::Schema::DEFAULT_CONFIG)
+    publish_experience(cohort, owner, CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1)
     participant = persona_user(role: "participant")
     cohort.cohort_memberships.create!(user: participant, role: "participant")
     [ owner, cohort, participant ]

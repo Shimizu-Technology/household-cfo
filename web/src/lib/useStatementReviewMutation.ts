@@ -37,10 +37,11 @@ export function useStatementReviewMutation({ importId, revisionId, scope, refres
     } catch (failure) {
       if (!isStatementReviewActor(scope)) return false
       const message = participantErrorMessage(failure, 'Could not save the statement review.')
-      const deterministic = failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status)
+      // A first rejection is known not to have saved. A rejected retry cannot settle an earlier uncertain attempt.
+      const deterministic = failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status) && (failure.code !== 'savings_challenge_unavailable' || !existing)
       if (deterministic) clearStatementReviewRecovery(key)
       else saveStatementReviewRecovery({ scope, importId: targetImport, revisionId: targetRevision, action, input, key, working: false, error: message })
-      if (live.current) { setError(message); if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) setAccessDenied(true) }
+      if (live.current) { setError(message); if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status) && failure.code !== 'savings_challenge_unavailable') setAccessDenied(true) }
       return false
     }
   }
@@ -54,7 +55,10 @@ export function useStatementReviewMutation({ importId, revisionId, scope, refres
       else saveStatementReviewRecovery({ ...recovery, working: false, error: status.state === 'in_flight' ? 'The earlier request is still processing. Check its result again.' : recovery.input ? 'No committed result found. Retry the exact saved request.' : 'The result remains unknown. This page no longer holds the original request. Further changes are blocked; keep this reference number for support.' })
     } catch (failure) {
       if (!isStatementReviewActor(scope)) return
-      if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) { clearStatementReviewRecovery(recovery.key); if (live.current) setAccessDenied(true) }
+      if (failure instanceof ApiRequestError && failure.code === 'savings_challenge_unavailable') {
+        saveStatementReviewRecovery({ ...recovery, working: false, error: participantErrorMessage(failure, 'Could not check the earlier request.') })
+      }
+      else if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status)) { clearStatementReviewRecovery(recovery.key); if (live.current) setAccessDenied(true) }
       else saveStatementReviewRecovery({ ...recovery, working: false, error: participantErrorMessage(failure, 'Could not check the earlier request.') })
     }
   }

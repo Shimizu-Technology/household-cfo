@@ -16,11 +16,11 @@ export const SECTION_CAPABILITY_IDS: Record<string, string> = {
 }
 
 /** Participant sections a cohort exposes for its enabled capability modules, in navigation order. */
-export type ParticipantModuleNavigation = { moduleOrder?: string[]; independentStatements?: boolean }
+export type ParticipantModuleNavigation = { moduleOrder?: string[]; independentStatements?: boolean; statementsAvailable?: boolean }
 
-export function participantSectionsForModules(enabledModuleIds: string[], { moduleOrder = [], independentStatements = false }: ParticipantModuleNavigation = {}) {
+export function participantSectionsForModules(enabledModuleIds: string[], { moduleOrder = [], independentStatements = false, statementsAvailable }: ParticipantModuleNavigation = {}) {
   const enabled = PARTICIPANT_SECTIONS.filter((section) => enabledModuleIds.includes(SECTION_CAPABILITY_IDS[section]))
-  if (enabledModuleIds.includes('statements') || (!independentStatements && enabledModuleIds.includes('profile'))) enabled.push('Statements')
+  if (statementsAvailable !== false && (enabledModuleIds.includes('statements') || (!independentStatements && enabledModuleIds.includes('profile')))) enabled.push('Statements')
   if (!moduleOrder.length) return enabled
 
   // Unspecified modules retain their historical relative order after the chosen ones.

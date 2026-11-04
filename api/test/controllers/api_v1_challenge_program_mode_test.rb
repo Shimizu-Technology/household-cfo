@@ -26,6 +26,9 @@ class ApiV1ChallengeProgramModeTest < ActionDispatch::IntegrationTest
     mode = SavingsChallenge::ProgramMode
     assert mode.savings?(user: @savings_user, membership: @savings_membership)
     assert mode.open?(@savings_cohort)
+    other_user = User.create!(clerk_id: "other-mode-user", email: "other-mode@example.invalid", role: "participant", invitation_status: "accepted")
+    runtime = Mia::ParticipantRuntimeResolver.new(user: @savings_user, cohort_membership: @savings_membership).call
+    refute mode.available?(user: other_user, membership: @savings_membership, runtime: runtime)
     not_open!
     assert mode.savings?(user: @savings_user, membership: @savings_membership), "sealed savings mode stays savings while closed"
     refute mode.open?(@savings_cohort)
@@ -124,6 +127,35 @@ class ApiV1ChallengeProgramModeTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an enabled challenge without a release is shown as not open" do
+    cohort = prelaunch_challenge
+    get "/api/v1/workspace", headers: auth(cohort)
+    assert_response :success
+    workspace = response.parsed_body.fetch("workspace")
+    assert_equal "savings_challenge", workspace.fetch("experience_mode")
+    assert_equal false, workspace.fetch("challenge_open")
+    assert_equal "not_open", workspace.fetch("challenge_state")
+  end
+
+  test "an enabled challenge without a release cannot start an upload" do
+    cohort = prelaunch_challenge
+    assert_no_difference "FinancialDocumentImport.count" do
+      post "/api/v1/document_imports/presign", params: {}, headers: auth(cohort), as: :json
+      assert_response :forbidden
+      assert_equal "Your coach is still setting up your program. You can upload statements once it opens.", response.parsed_body.fetch("errors").sole
+    end
+  end
+
+  test "an enabled challenge without a release does not save a Mia draft" do
+    cohort = prelaunch_challenge
+    assert_no_difference [ "ChatSession.count", "ChatMessage.count", "MiaActionDraft.count" ] do
+      post "/api/v1/mia/messages", params: { message: "I spent $12 at Payless", request_id: "prelaunch-closed" }, headers: auth(cohort), as: :json
+      assert_response :created
+      assert_equal false, response.parsed_body.fetch("conversation_persisted")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "isn't open yet"
+    end
+  end
+
   test "crisis guidance still answers while the challenge is not open" do
     not_open!
     post "/api/v1/mia/messages", params: { message: "I want to end it all.", request_id: "closed-crisis" }, headers: auth(@savings_cohort), as: :json
@@ -153,6 +185,13 @@ class ApiV1ChallengeProgramModeTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def prelaunch_challenge
+    cohort = Cohort.create!(name: "Not yet released", status: "enrolling", created_by_user: @savings_owner,
+      savings_challenge_enabled: true, savings_challenge_release_hold: false)
+    cohort.cohort_memberships.create!(user: @savings_user, role: "participant")
+    cohort
+  end
 
   def not_open!
     @savings_cohort.update!(savings_challenge_enabled: false, savings_challenge_release_hold: true)

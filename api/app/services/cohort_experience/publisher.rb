@@ -11,9 +11,12 @@ module CohortExperience
       @actor = actor
     end
 
-    def preview!(expected_draft_revision:)
+    def preview!(expected_draft_revision:, upgrade_to_current: false)
       with_locked_editable_configuration(permission: :review) do
         validate_revision!(expected_draft_revision)
+        if upgrade_to_current
+          configuration.update!(draft_config: Schema.upgrade(configuration.draft_config))
+        end
         digest = preview_digest
         configuration.update!(
           preview_digest: digest,

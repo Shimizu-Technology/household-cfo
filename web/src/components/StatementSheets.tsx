@@ -19,11 +19,11 @@ export type SheetLine = {
 
 type Category = { id: number; name: string }
 
-export function StatementLineSheet({ line, categories, busy, error, onSave, onLeaveOut, onClose }: {
-  line: SheetLine; categories: Category[]; busy: boolean; error: string | null
+export function StatementLineSheet({ line, categories, busy, canClose = !busy, error, onSave, onLeaveOut, onClose }: {
+  line: SheetLine; categories: Category[]; busy: boolean; canClose?: boolean; error: string | null
   onSave: (edit: LineEdit) => void; onLeaveOut: () => void; onClose: () => void
 }) {
-  const ref = usePilotDialog(() => { if (!busy) onClose() })
+  const ref = usePilotDialog(() => { if (canClose) onClose() })
   const [kind, setKind] = useState<LineKind>(line.kind)
   const [merchant, setMerchant] = useState(line.merchant)
   const [postedOn, setPostedOn] = useState(line.postedOn)
@@ -43,7 +43,7 @@ export function StatementLineSheet({ line, categories, busy, error, onSave, onLe
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" role="presentation">
     <section ref={ref} className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-line-title" tabIndex={-1}>
-      <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={busy} onClick={onClose}>Close</Button></header>
+      <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={onClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         <label>What was this?
           <select value={kind} onChange={(event) => setKind(event.target.value as LineKind)}>
@@ -65,6 +65,7 @@ export function StatementLineSheet({ line, categories, busy, error, onSave, onLe
           {!categoryId && <small>Without a category, this won’t count toward your spending.</small>}
         </label>}
         {(problem || error) && <p role="alert" className="statement-sheet-error">{problem ?? error}</p>}
+        {busy && canClose && <p>Close this window to check whether your change saved or try it again.</p>}
         <div className="statement-sheet-actions">
           <Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button>
           {!line.leftOut && <Button variant="secondary" disabled={busy} onClick={onLeaveOut}>Leave this line out</Button>}
@@ -76,11 +77,11 @@ export function StatementLineSheet({ line, categories, busy, error, onSave, onLe
 
 type AccountDraft = { source_account_id: number; label: string; account_basis: '' | 'asset' | 'liability'; period_start_on: string; period_end_on: string }
 
-export function StatementAccountSheet({ accounts, reviewed, names, busy, error, onSave, onClose }: {
-  accounts: SourceAccount[]; reviewed: ReviewedSourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; error: string | null
+export function StatementAccountSheet({ accounts, reviewed, names, busy, canClose = !busy, error, onSave, onClose }: {
+  accounts: SourceAccount[]; reviewed: ReviewedSourceAccount[]; names: Record<number, AccountLabel>; busy: boolean; canClose?: boolean; error: string | null
   onSave: (changes: AccountChange[]) => void; onClose: () => void
 }) {
-  const ref = usePilotDialog(() => { if (!busy) onClose() })
+  const ref = usePilotDialog(() => { if (canClose) onClose() })
   const [drafts, setDrafts] = useState<AccountDraft[]>(() => accounts.map((account) => ({
     source_account_id: account.id, label: names[account.id]?.name ?? '',
     account_basis: reviewed.find((row) => row.source_account_id === account.id)?.approved?.tracked_account.account_basis ?? (account.account_basis === 'unknown' ? '' : account.account_basis),
@@ -100,7 +101,7 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, error, 
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" role="presentation">
     <section ref={ref} className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-account-title" tabIndex={-1}>
-      <header><h2 id="statement-account-title">{accounts.length > 1 ? 'Your accounts' : 'Your account'}</h2><Button variant="secondary" disabled={busy} onClick={onClose}>Close</Button></header>
+      <header><h2 id="statement-account-title">{accounts.length > 1 ? 'Your accounts' : 'Your account'}</h2><Button variant="secondary" disabled={!canClose} onClick={onClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         {drafts.map((row, index) => <fieldset key={row.source_account_id}>
           {drafts.length > 1 && <legend>{row.label || accountSentence(names[row.source_account_id]) || `Account ${index + 1}`}</legend>}
@@ -116,6 +117,7 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, error, 
           </div>
         </fieldset>)}
         {(problem || error) && <p role="alert" className="statement-sheet-error">{problem ?? error}</p>}
+        {busy && canClose && <p>Close this window to check whether your change saved or try it again.</p>}
         <div className="statement-sheet-actions"><Button type="submit" disabled={busy}>{busy ? 'Saving' : 'Save'}</Button></div>
       </form>
     </section>

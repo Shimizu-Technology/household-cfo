@@ -39,6 +39,38 @@ class CohortReleasesOperationAccessTest < ActiveSupport::TestCase
     end
   end
 
+  test "a removed pilot cannot regain default tools through an unreleased ordinary cohort" do
+    with_savings_runtime { savings_enroll }
+    @savings_membership.destroy!
+    ordinary = Cohort.create!(name: "Unreleased ordinary program", status: "enrolling", created_by_user: @savings_owner)
+    CohortMembership.create!(cohort: ordinary, user: @savings_user, role: "participant")
+    assert_raises(SavingsChallenge::AccessPolicy::Unavailable) do
+      CohortReleases::OperationAccess.require!(household: @savings_household, user: @savings_user, key: "baseline.approve", cohort: ordinary)
+    end
+  end
+
+  [ :schema, :digest ].each do |corruption|
+    test "invalid published prelaunch #{corruption} cannot authorize statement operations" do
+      @savings_cohort.update!(savings_challenge_enabled: false)
+      cohort = Cohort.create!(name: "Invalid prelaunch #{corruption}", status: "enrolling", created_by_user: @savings_owner)
+      membership = cohort.cohort_memberships.create!(user: @savings_user, role: "participant")
+      configuration = cohort.cohort_experience_configuration
+      configuration.update!(draft_config: CohortExperience::Schema::DEFAULT_CONFIG.deep_merge("optional_modules" => { "statements" => false }))
+      publisher = CohortExperience::Publisher.new(configuration: configuration, actor: @savings_owner)
+      digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+      version = publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+      if corruption == :schema
+        version.update_column(:config, { "schema_version" => 99 })
+      else
+        version.update_column(:config_digest, "0" * 64)
+      end
+      refute cohort.cohort_releases.exists?
+      assert_raises(SavingsChallenge::AccessPolicy::Unavailable) do
+        CohortReleases::OperationAccess.require!(household: @savings_household, user: @savings_user, membership: membership, key: "source_review.account.link")
+      end
+    end
+  end
+
   private
   def access!(key)
     CohortReleases::OperationAccess.require!(household: @savings_household, user: @savings_user, key: key, cohort: @savings_cohort)

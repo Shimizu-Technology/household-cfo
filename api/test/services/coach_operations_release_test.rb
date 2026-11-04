@@ -163,7 +163,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       "expected_persona_version_id" => nil,
       "expected_brand_version_id" => nil,
       "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
-      "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
+      "expected_tool_registry_version" => candidate.tool_registry_snapshot.fetch("schema_version")
     }
 
     error = assert_raises(CohortReleases::Sealer::Incomplete) do
@@ -423,7 +423,7 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
       "expected_persona_version_id" => persona_version.id,
       "expected_brand_version_id" => candidate.brand_version&.id,
       "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
-      "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
+      "expected_tool_registry_version" => candidate.tool_registry_snapshot.fetch("schema_version")
     }
   end
 

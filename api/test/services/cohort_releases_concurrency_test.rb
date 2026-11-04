@@ -289,7 +289,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
       expected_persona_version_id: second_persona_version.id,
       expected_brand_version_id: current_candidate.brand_version&.id,
       expected_tool_registry_digest: CohortReleases::Contract.digest(current_candidate.tool_registry_snapshot),
-      expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
+      expected_tool_registry_version: current_candidate.tool_registry_snapshot.fetch("schema_version")
     }
     second_release = CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
       operation_key: "cohort.release.seal",
@@ -553,7 +553,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
       expected_persona_version_id: version.id,
       expected_brand_version_id: candidate.brand_version&.id,
       expected_tool_registry_digest: CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
-      expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
+      expected_tool_registry_version: candidate.tool_registry_snapshot.fetch("schema_version")
     }
     [ owner, cohort, input ]
   end
