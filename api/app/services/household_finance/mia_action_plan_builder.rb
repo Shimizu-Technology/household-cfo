@@ -85,6 +85,12 @@ module HouseholdFinance
         value = entry.dig(:action, :setup_updates, :fixed_expenses)
         entry.dig(:action, :type) == "update_household_setup" && value && Money.cents(value) == intake.fixed_cents
       end
+      estimate_notes = combined_items.filter_map do |item|
+        cents = item.payload.to_h[:minimum_payment_cents]
+        note = intake.estimate_note(:car_minimum, cents) if item.action_type == "create_debt" && item.payload[:debt_type] == "auto_loan" && item.payload[:label] == "Car loan" && cents
+        item.description = [ item.description, note ].join(" ") if note
+        note
+      end
       proposal = MiaActionDraftBuilder::Proposal.new(
         household: household,
         user: user,
@@ -92,7 +98,7 @@ module HouseholdFinance
         draft_type: "action_plan",
         title: "Review #{combined_items.length} household changes",
         summary: "I prepared #{combined_items.length} household #{'change'.pluralize(combined_items.length)} for your review.",
-        rationale: setup_breakdown || "Every selected change is rechecked against the latest approved household data, then applied together or not at all.",
+        rationale: [ setup_breakdown, *estimate_notes, ("Every selected change is rechecked against the latest approved household data, then applied together or not at all." unless setup_breakdown) ].compact.join(" "),
         source_prompt: raw_input,
         items: combined_items,
         metadata: {

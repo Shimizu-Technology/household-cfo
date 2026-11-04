@@ -72,6 +72,13 @@ module HouseholdFinance
       [ fixed, groceries ].compact.join(" ")
     end
 
+    def estimate_note(field, cents)
+      key, label = { primary_income: [ :primary_income, "Primary income" ], flexible_spend: [ :groceries, "Flexible spending" ], car_minimum: [ :car_minimum, "Car minimum" ] }[field]
+      return unless key && amounts && amounts[key] == cents && estimated?(key)
+
+      "#{label} is about #{money(cents)}."
+    end
+
     def fixed_cents
       amounts && amounts.key?(:rent) && amounts.key?(:utilities) ? amounts.fetch(:rent) + amounts.fetch(:utilities) : nil
     end

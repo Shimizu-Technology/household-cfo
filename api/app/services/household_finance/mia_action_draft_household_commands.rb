@@ -75,6 +75,9 @@ module HouseholdFinance
       end
 
       intake = MiaSetupIntake.new(raw_input)
+      estimate_notes = %i[primary_income flexible_spend].filter_map { |key| intake.estimate_note(key, Money.cents(normalized[key])) if normalized.key?(key) }
+      confirmation = items.find { |item| item.action_type == "confirm_household_setup" }
+      confirmation.description = [ confirmation.description, *estimate_notes ].join(" ") if confirmation && estimate_notes.any?
       breakdown = intake.fixed_description if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
       if breakdown && normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == MiaSetupIntake.new(raw_input).fixed_cents
         items.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
@@ -87,7 +90,7 @@ module HouseholdFinance
         draft_type: "household_setup",
         title: "Review your household details",
         summary: "I prepared #{changed.length} household #{'change'.pluralize(changed.length)} for your review.",
-        rationale: [ breakdown, "Review these details before saving them to your household plan." ].compact.join(" "),
+        rationale: [ breakdown, *estimate_notes, "Review these details before saving them to your household plan." ].compact.join(" "),
         items: items,
         metadata: metadata
       )

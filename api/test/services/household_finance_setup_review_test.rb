@@ -160,6 +160,18 @@ class HouseholdFinanceSetupReviewTest < ActiveSupport::TestCase
     assert_includes proposal.items.map(&:description).join(" "), "about $250"
   end
 
+  test "m6 standalone income groceries and car minimum keep their estimate labels" do
+    { primary_income: [ "We bring home about $5,200", 5200 ], flexible_spend: [ "Groceries about $700", 700 ] }.each do |field, (text, value)|
+      proposal = setup_proposal(text, **{ field => value })
+      assert_includes proposal.rationale, "about $#{value == 5200 ? '5,200' : '700'}"
+    end
+    text = "Rent $1,800, utilities $250, and the car loan minimum is about $350."
+    intake = HouseholdFinance::MiaSetupIntake.new(text, context: { setup_status: { complete: false }, active_debts: [] }).call
+    proposal = HouseholdFinance::MiaActionPlanBuilder.new(@household, user: @user, annual_budget_manager: manager, selected_month: 11,
+      raw_input: text, actions: intake.write_plan[:actions]).call.proposal
+    assert_includes proposal.items.find { |item| item.action_type == "create_debt" }.description, "Car minimum is about $350"
+  end
+
   private
 
   def manager
