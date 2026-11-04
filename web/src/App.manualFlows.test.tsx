@@ -104,13 +104,13 @@ describe('transaction review cards', () => {
 
   it('does not credit Mia for manual or bank drafts', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft(), draft({ id: 223, source_type: 'plaid', merchant: 'Bank row' })])} />)
-    expect(screen.getByRole('heading', { name: 'Transactions to review' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Purchases to review' })).toBeTruthy()
     expect(screen.queryByText(/Mia drafted/)).toBeNull()
   })
 
-  it('keeps Mia drafted copy when every draft came from Mia chat', () => {
+  it('keeps the review heading short when every draft came from chat', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft({ source_type: 'manual_chat' })])} />)
-    expect(screen.getByRole('heading', { name: /^\S.* drafted transactions for your approval$/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Purchases to review' })).toBeTruthy()
   })
 
   it('uses a source-neutral category warning on manual and bank rows', () => {

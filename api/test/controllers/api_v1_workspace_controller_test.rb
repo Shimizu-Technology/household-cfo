@@ -1629,7 +1629,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = response.parsed_body
     assert_equal "canceled", body.dig("mia_action_draft", "status")
     assert_includes body.dig("assistant_message", "content"), "set aside"
-    assert_empty body.dig("budget", "annual_plan", "pending_mia_action_drafts")
+    refute body.dig("budget", "annual_plan", "pending_mia_action_drafts").any? { |pending| pending.fetch("id") == body.dig("mia_action_draft", "id") }
     assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
   end
 

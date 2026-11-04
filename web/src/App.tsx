@@ -7458,8 +7458,7 @@ export function TransactionDraftReviewStack({
   emptyTitle?: string
   description?: string
 }) {
-  const { assistantName } = useBrand()
-  const resolvedTitle = title ?? transactionReviewStackTitle(drafts, assistantName)
+  const resolvedTitle = title ?? transactionReviewStackTitle()
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)

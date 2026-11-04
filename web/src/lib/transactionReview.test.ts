@@ -33,10 +33,8 @@ describe('transaction review copy', () => {
     expect(bulkConfirmPhraseMismatchMessage(5, null)).toBeNull()
   })
 
-  it('says Mia drafted only when every draft came from Mia chat', () => {
-    expect(transactionReviewStackTitle([{ source_type: 'manual_chat' }], 'Mia')).toBe('Mia drafted transactions for your approval')
-    expect(transactionReviewStackTitle([{ source_type: 'manual_ui' }], 'Mia')).toBe('Transactions to review')
-    expect(transactionReviewStackTitle([{ source_type: 'manual_chat' }, { source_type: 'plaid' }], 'Mia')).toBe('Transactions to review')
+  it('keeps the purchase review heading short and source-neutral', () => {
+    expect(transactionReviewStackTitle()).toBe('Purchases to review')
   })
 
   it('keeps the uncategorized warning source-neutral for manual and bank rows', () => {

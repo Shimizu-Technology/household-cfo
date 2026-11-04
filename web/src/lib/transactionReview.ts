@@ -47,12 +47,9 @@ export function bulkConfirmPhraseMismatchMessage(count: number, entered: string 
   return `Nothing was confirmed. Type ${phrase} exactly to confirm all ${count}.`
 }
 
-/** "Mia drafted" only when every draft came from Mia chat; manual, bank, and import drafts get neutral copy. */
-export function transactionReviewStackTitle(drafts: Array<Pick<TransactionDraft, 'source_type'>>, assistantName: string) {
-  if (drafts.length > 0 && drafts.every((draft) => draft.source_type === 'manual_chat')) {
-    return `${assistantName} drafted transactions for your approval`
-  }
-  return 'Transactions to review'
+/** Keep the review heading short; the purchase details identify its source. */
+export function transactionReviewStackTitle() {
+  return 'Purchases to review'
 }
 
 export function transactionCategoryWarningCopy(draft: Pick<TransactionDraft, 'source_type' | 'financial_document_import_id'>, assistantName: string) {
