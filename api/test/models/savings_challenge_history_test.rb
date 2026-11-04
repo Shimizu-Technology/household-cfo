@@ -76,6 +76,13 @@ class SavingsChallengeHistoryTest < ActiveSupport::TestCase
     end
   end
 
+  test "evidence cents accept the untouched column default and reject anything assigned" do
+    assert SavingsEntryVersion.new.tap(&:valid?).errors[:evidence_supported_cents].empty?
+    assert SavingsEntryVersion.new(evidence_supported_cents: 0).tap(&:valid?).errors[:evidence_supported_cents].empty?
+    assert_includes SavingsEntryVersion.new(evidence_supported_cents: "0").tap(&:valid?).errors[:evidence_supported_cents], "must remain server-set zero"
+    assert_includes SavingsEntryVersion.new(evidence_supported_cents: 1).tap(&:valid?).errors[:evidence_supported_cents], "must remain server-set zero"
+  end
+
   test "an immutable approved version must publish its stable head atomically and approval sequences cannot collide across kinds" do
     with_savings_runtime do
       savings_enroll

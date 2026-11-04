@@ -55,6 +55,18 @@ class HouseholdFinanceNaturalPurchaseReportTest < ActiveSupport::TestCase
     assert_nil HouseholdFinance::TransactionDraftBuilder.new(nil, "I spent $5 at Shell tomorrow", user: nil).call
   end
 
+  test "date digits are not amounts when a date happens to add up" do
+    # $5 + 06 = 11, the month. Read as amounts, this looks like one purchase in parts.
+    message = "I spent $5 at Shell on 2026-11-06"
+    past = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: { calendar: { today: "2026-11-10" } }, api_key: nil).call
+    assert past&.actionable?, "a past date should read as a purchase"
+    assert_equal 500, HouseholdFinance::Money.chat_cents(past.action[:amount])
+    assert_equal "2026-11-06", past.action[:occurred_on]
+
+    future = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: { calendar: { today: "2026-11-05" } }, api_key: nil).call
+    assert future.clarification?
+  end
+
   test "unbound second prices cannot fall through to a partial legacy draft" do
     message = "I spent $8 at Shell and a backpack 12 at Kings"
     result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: {}, api_key: nil).call
