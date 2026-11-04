@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createAdminPersona, fetchAdminPersonas, fetchAdminPersona, fetchAdminPersonaAssignableCohorts, type AdminPersonaDetail, type AdminPersonaAssignableCohort, type CurrentUser } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
@@ -27,7 +27,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [advancedBusy, setAdvancedBusy] = useState(false)
   const trackAdvancedDirty = useCallback((value: boolean) => { setAdvancedDirty(value); onDirtyChange(value) }, [onDirtyChange])
   if (advanced) return <><Button variant="secondary" disabled={advancedBusy} onClick={async () => {
-    if (advancedDirty && !(await confirmDiscard('Leave without saving these changes?'))) return
+    if (advancedDirty && !(await confirmDiscard('Your changes will be lost.'))) return
     try { window.sessionStorage.removeItem(modeKey) } catch { /* A mode preference never blocks authoring. */ }
     onDirtyChange(false); setAdvanced(null)
   }}>Back to simple setup</Button><CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackAdvancedDirty} onPendingChange={setAdvancedBusy} initialSection={advanced.section} proposedState={advanced.proposal} /></>
@@ -57,7 +57,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
   const showProgramPicker = (currentUser.coach_workspaces?.length ?? 0) > 1 || (currentUser.is_admin && workspaceId === null && (currentUser.coach_workspaces?.length ?? 0) > 0)
   const trackDirty = useCallback((value: boolean) => { setDirty(value); onDirtyChange(value) }, [onDirtyChange])
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  useLayoutEffect(() => () => onDirtyChange(false), [onDirtyChange])
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -84,7 +84,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
 
   async function leave(action: () => void) {
     if (busy || lifecycle.pending) return
-    if (dirty && !(await confirmDiscard('Leave without saving these changes?'))) return
+    if (dirty && !(await confirmDiscard('Your changes will be lost.'))) return
     trackDirty(false)
     setName('Mia')
     action()
@@ -121,7 +121,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button></article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
-      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Describe your assistant first</h3><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
+      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { setArea('assistant'); setTask('voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open advanced settings</Button></details>
   </section>
 }

@@ -5,6 +5,7 @@ require "digest"
 
 module Mia
   class PersonaPreviewer
+    UNAVAILABLE_NOTICE = "The preview didn't come through. Try again in a minute."
     PREVIEW_CONTEXT = {
       preview_mode: true,
       data_basis: "No-write Persona Studio preview. Saved participant and household data is not loaded. The coach-authored sample prompt may contain fictional or user-supplied facts.",
@@ -39,7 +40,7 @@ module Mia
         unless valid_provider_identifier?(model_identifier) && valid_provider_identifier?(provider_request_id)
           return result(
             status: "unavailable", source: "invalid_provider_provenance", reply: nil,
-            notice: "The model response did not include complete provider provenance, so it cannot be saved as publication evidence. Try again before publishing."
+            notice: UNAVAILABLE_NOTICE
           )
         end
 
@@ -55,7 +56,7 @@ module Mia
           status: "unavailable",
           source: source.presence || "model_unavailable",
           reply: nil,
-          notice: "The exact draft compiled successfully, but a behavioral model preview is unavailable right now. No canned reply is being shown as if it answered this test message."
+          notice: UNAVAILABLE_NOTICE
         )
       end
     rescue StandardError => error
@@ -64,7 +65,7 @@ module Mia
         status: "unavailable",
         source: "preview_error",
         reply: nil,
-        notice: "The exact draft compiled successfully, but the behavioral preview could not run. Try again before publishing."
+        notice: UNAVAILABLE_NOTICE
       )
     end
 
@@ -107,7 +108,7 @@ module Mia
         context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
-        notice: "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
+        notice: status == "unavailable" ? notice : "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
       }
     end
   end
