@@ -5,7 +5,7 @@ include PersonaTestHelper
 raise "Set QA_SEED_DB to the dedicated test database" unless Rails.env.test? && ENV["QA_SEED_DB"].to_s.start_with?("household_cfo_qa_") && ActiveRecord::Base.connection_db_config.database == ENV["QA_SEED_DB"]
 raise "Live model calls must be disabled" if ENV["OPENROUTER_API_KEY"].present?
 fixtures = {}
-%w[prelaunch postlaunch v1].each do |state|
+%w[prelaunch postlaunch v1 hidden recovery].each do |state|
   fixtures[state] = {}
   %w[desktop-chrome tablet-768-chrome tablet-1024-chrome mobile-chrome compact-mobile-chrome mobile-webkit].each do |project|
     suffix = SecureRandom.hex(5)
@@ -18,7 +18,12 @@ fixtures = {}
     publish_persona(persona, actor: coach)
     configuration = cohort.cohort_experience_configuration
     configuration.update!(draft_config: CohortReleases::Contract::LEGACY_EXPERIENCE_DEFAULT_V1, last_edited_by_user: coach)
-    if state != "prelaunch"
+    if state == "hidden"
+      configuration.update!(draft_config: CohortExperience::Schema::DEFAULT_CONFIG.deep_merge("optional_modules" => { "statements" => false }))
+      publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
+      digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+      publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    elsif !%w[prelaunch recovery].include?(state)
       publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
       digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
       publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)

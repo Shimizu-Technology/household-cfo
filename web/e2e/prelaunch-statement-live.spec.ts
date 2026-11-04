@@ -54,7 +54,7 @@ test('BOG UI a prelaunch participant finishes a statement against Rails', async 
   await review.getByRole('button', { name: 'Nothing’s missing' }).click()
   const category = review.getByRole('combobox', { name: 'Category for Fictional Market' })
   await category.selectOption({ label: 'Groceries' })
-  const retry = review.getByRole('button', { name: 'Try again', exact: true })
+  const retry = review.getByRole('button', { name: 'Try saving this answer again', exact: true })
   await expect(retry).toBeVisible()
   await expect(category.locator('option:checked')).toHaveText('Groceries')
   if (process.env.HCFO_W14_EVIDENCE_DIR) {

@@ -81,3 +81,14 @@ test('About opens the complete disclosure directly on phones', () => {
   expect(screen.getByText(disclaimer)).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'Files to review' })).toBeNull()
 })
+
+test('unavailable Statements disables the secondary attachment action and explains why', () => {
+  const p = props()
+  const message = "Statements aren't available for your group yet. Please contact your program team."
+  render(<MiaAssistPanels {...p} uploadBlocked={message} />)
+  const attach = screen.getByRole('button', { name: 'Attach a file' })
+  expect(attach).toHaveProperty('disabled', true)
+  expect(attach.title).toBe(message)
+  fireEvent.click(attach)
+  expect(p.onAttach).not.toHaveBeenCalled()
+})

@@ -3282,6 +3282,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function handleMiaAttachmentChange(files: FileList | File[] | null) {
+    if (statementUploadBlocked) { setMiaError(statementUploadBlocked); return }
     if (challengeNotOpen) { setMiaError(CHALLENGE_UPLOADS_CLOSED); return }
     addPendingMiaAttachments(Array.from(files ?? []))
   }
@@ -3321,7 +3322,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string, assertOriginalWorkspace: () => void) {
-    if (statementUploadBlocked) throw new Error(statementUploadBlocked)
+    if (attachments.length > 0 && statementUploadBlocked) throw new Error(statementUploadBlocked)
     const preparedAttachments = [...attachments]
 
     for (const [index, attachment] of attachments.entries()) {
@@ -3404,7 +3405,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     if (pastedFiles.length === 0) return
 
     event.preventDefault()
-    addPendingMiaAttachments(pastedFiles)
+    handleMiaAttachmentChange(pastedFiles)
   }
 
   async function handleDocumentItemUpdate(documentImportId: number, itemId: number, values: DocumentImportItemInput) {
@@ -4121,7 +4122,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               setupContent={isFirstSessionSetup ? <FirstSessionSetupProgress status={data.workspace.setup_status} onStartChat={() => { setAssistPanel(null); startChatFirstSession() }} onShareAll={() => { setAssistPanel(null); shareAllFirstSession() }} onManual={() => { setAssistPanel(null); startManualFirstSession() }} /> : undefined}
               pendingCount={pendingImportsCount} processingCount={processingImportsCount}
               latestSource={latestAppliedImport(documentImports) ? `Latest approved file: ${documentKindLabel(latestAppliedImport(documentImports)!.document_kind)} · ${importPeriodLabel(latestAppliedImport(documentImports)!)}.` : undefined}
-              realWorkspace={isRealWorkspace} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction) || challengeNotOpen}
+              realWorkspace={isRealWorkspace} uploadBlocked={statementUploadBlocked} uploading={Boolean(uploadingKind)} hasMessages={currentMessages.length > 0} busy={miaLoading || Boolean(budgetAction) || challengeNotOpen}
               onAttach={() => miaAttachmentInputRef.current?.click()} onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onGuide={() => setPilotGuideOpen(true)} onFeedback={() => setPilotFeedbackOpen(true)}
               onClearChat={() => { const trigger = visibleChatTrigger(chatMoreTriggerRef.current); if (trigger) handleClearMessagesRequest({ currentTarget: trigger }) }}
