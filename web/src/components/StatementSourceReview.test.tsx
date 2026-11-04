@@ -5,6 +5,7 @@ import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview } fro
 import { participantReviewFixture, sourceReviewFixture } from '../../e2e/sourceReviewFixtures'
 import type { SourceReview } from '../lib/sourceReview'
 import { bindStatementReviewActor, setStatementReviewExpectedUser } from '../lib/statementReviewRecovery'
+import userEvent from '@testing-library/user-event'
 import { StatementSourceReview } from './StatementSourceReview'
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDocumentSourceReview: vi.fn(), mutateStatementReview: vi.fn() }))
 const fetchReview = vi.mocked(fetchDocumentSourceReview)
@@ -28,12 +29,12 @@ describe('statement review a participant can finish', () => {
     mount()
     const choice = await screen.findByRole('combobox', { name: `Category for ${item.merchant}` }) as HTMLSelectElement
     fireEvent.change(choice, { target: { value: '10' } })
-    const retry = await screen.findByRole('button', { name: /^Try again$/ })
+    const retry = await screen.findByRole('button', { name: 'Try saving this answer again' })
     expect(choice.value).toBe('10')
     fireEvent.click(retry)
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
     expect(mutate.mock.calls[1][3]).toEqual(mutate.mock.calls[0][3])
-    expect(mutate.mock.calls[1][4]).toEqual(mutate.mock.calls[0][4])
+    expect(mutate.mock.calls[1][4]).not.toEqual(mutate.mock.calls[0][4])
   })
   it('keeps the review and an open answer when the program temporarily cannot save', async () => {
     mutate.mockRejectedValueOnce(new ApiRequestError('This part of your program is not available right now.', { status: 403, code: 'savings_challenge_unavailable' }))
@@ -50,6 +51,55 @@ describe('statement review a participant can finish', () => {
     expect((within(sheet).getByLabelText('Name') as HTMLInputElement).value).toBe('Payless')
     expect(screen.getByRole('heading', { name: '137 lines from Fictional checking, Sep 1–30.' })).toBeTruthy()
   })
+  it.each(['line', 'account'])('lets keyboard users close the %s sheet and recover the exact uncertain request', async (kind) => {
+    const user = userEvent.setup()
+    mutate.mockRejectedValueOnce(new ApiRequestError('Connection interrupted', { status: 503 }))
+    mount()
+    const trigger = kind === 'line'
+      ? await screen.findByRole('button', { name: 'Edit Fictional entry 1' })
+      : await screen.findByRole('button', { name: 'Change' })
+    await user.click(trigger)
+    const sheet = await screen.findByRole('dialog')
+    await user.click(within(sheet).getByRole('button', { name: kind === 'line' ? 'Leave this line out' : 'Save' }))
+    await within(sheet).findByRole('alert')
+    const close = within(sheet).getByRole('button', { name: 'Close' })
+    expect(close).toHaveProperty('disabled', false)
+    expect(within(sheet).getByText('Close this window to check whether your change saved or try it again.')).toBeTruthy()
+    close.focus()
+    // Wrap the sheet's focus trap in both directions before closing it with Escape.
+    await user.tab({ shift: true })
+    expect(sheet.contains(document.activeElement)).toBe(true)
+    await user.tab()
+    expect(document.activeElement).toBe(close)
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const check = screen.getByRole('button', { name: 'Check again' })
+    await waitFor(() => expect(document.activeElement).toBe(check))
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Try again' }))
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1].slice(0, 5)).toEqual(mutate.mock.calls[0].slice(0, 5))
+  })
+
+  it('clears an unsaved answer only after exact retry succeeds so it cannot overwrite a later edit', async () => {
+    mutate.mockRejectedValueOnce(new ApiRequestError('Interrupted', { status: 503 }))
+    mutate.mockRejectedValueOnce(new ApiRequestError('Still interrupted', { status: 503 }))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Leave it out: Fictional entry 131' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(retry).toHaveProperty('disabled', false))
+    fireEvent.click(retry)
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Try saving this answer again' })).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Yes: Fictional entry 2' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(4))
+    expect((mutate.mock.calls[3][3] as { lines: { decision: string }[] }).lines[0].decision).toBe('as_read')
+    expect(screen.queryByRole('button', { name: 'Try saving this answer again' })).toBeNull()
+  })
+
   it('opens with one summary line: how many lines, which account, which dates, and how many need a look', async () => {
     mount()
     expect(await screen.findByRole('heading', { name: '137 lines from Fictional checking, Sep 1–30.' })).toBeTruthy()

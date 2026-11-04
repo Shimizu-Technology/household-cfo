@@ -31,12 +31,13 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const [coverageFailed, setCoverageFailed] = useState(false)
   const [unsavedAnswer, setUnsavedAnswer] = useState<{ input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' } | null>(null)
   const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
+  const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
   const focusAfter = useRef<number | null | undefined>(undefined)
   const viewKey = `${importId}:${revisionId}:${page}`
   const requestKey = `${viewKey}:${attempt}:${refreshKey}`
-  const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => setAttempt((value) => value + 1) })
+  const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => { setUnsavedAnswer(null); setAttempt((value) => value + 1) } })
   const scoped = result?.data?.participant_review
   const actorReady = !scoped || Boolean(scoped.actor_scope && isStatementReviewActor(scoped.actor_scope))
   // The summary and the questions belong to the whole statement, so they stay on screen while another page of lines loads
@@ -67,6 +68,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
     const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('select, button:not([disabled])')
     ;(next ?? heading.current)?.focus()
   }, [data])
+
+  const pendingRequest = mutation.pendingRequest
+  useEffect(() => {
+    // Once a retained request's sheet closes, put keyboard users on its recovery controls.
+    if (!sheet && pendingRequest && !pendingRequest.working) recoveryControls.current?.querySelector<HTMLButtonElement>('button')?.focus()
+  }, [sheet, pendingRequest])
 
   const review = data?.participant_review
   const plan = review?.plan
@@ -154,7 +161,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   if (!mutation.accessDenied && !data && !error) return <section className="statement-source-review" aria-label="Statement review"><p role="status">Opening your statement…</p></section>
   return (
     <section className="statement-source-review" aria-label="Statement review">
-      {mutation.pendingRequest && !mutation.pendingRequest.working && <div className="statement-notice" role="status">
+      {mutation.pendingRequest && !mutation.pendingRequest.working && <div ref={recoveryControls} className="statement-notice" role="status">
         <p>We’re not sure your last change saved.</p>
         {mutation.pendingRequest.error && <p>{mutation.pendingRequest.error}</p>}
         <div className="statement-answers">
@@ -254,11 +261,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
         </details>
       </>}
 
-      {sheet?.kind === 'line' && <StatementLineSheet key={sheet.line.eventId} line={sheet.line} categories={categories} busy={busy} error={mutation.error}
+      {sheet?.kind === 'line' && <StatementLineSheet key={sheet.line.eventId} line={sheet.line} categories={categories} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
         onClose={() => setSheet(null)}
         onSave={(edit: LineEdit) => { void saveSheet({ event_id: sheet.line.eventId, decision: 'edited', edit }) }}
         onLeaveOut={() => { void saveSheet({ event_id: sheet.line.eventId, decision: 'leave_out' }) }} />}
-      {sheet?.kind === 'account' && data && review && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} reviewed={review.accounts} names={names} busy={busy} error={mutation.error}
+      {sheet?.kind === 'account' && data && review && <StatementAccountSheet accounts={needBasis.length > 1 ? needBasis : data.accounts} reviewed={review.accounts} names={names} busy={busy} canClose={!mutation.pendingRequest?.working} error={mutation.error}
         onClose={() => setSheet(null)} onSave={(changes) => { void saveAccounts(changes) }} />}
     </section>
   )

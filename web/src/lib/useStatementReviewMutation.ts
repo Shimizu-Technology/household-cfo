@@ -37,7 +37,8 @@ export function useStatementReviewMutation({ importId, revisionId, scope, refres
     } catch (failure) {
       if (!isStatementReviewActor(scope)) return false
       const message = participantErrorMessage(failure, 'Could not save the statement review.')
-      const deterministic = failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status) && failure.code !== 'savings_challenge_unavailable'
+      // A first rejection is known not to have saved. A rejected retry cannot settle an earlier uncertain attempt.
+      const deterministic = failure instanceof ApiRequestError && [400,401,403,404,409,422].includes(failure.status) && (failure.code !== 'savings_challenge_unavailable' || !existing)
       if (deterministic) clearStatementReviewRecovery(key)
       else saveStatementReviewRecovery({ scope, importId: targetImport, revisionId: targetRevision, action, input, key, working: false, error: message })
       if (live.current) { setError(message); if (failure instanceof ApiRequestError && [401,403,404].includes(failure.status) && failure.code !== 'savings_challenge_unavailable') setAccessDenied(true) }
