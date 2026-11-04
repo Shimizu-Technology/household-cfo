@@ -28,11 +28,12 @@ describe('statement review a participant can finish', () => {
     mount()
     const choice = await screen.findByRole('combobox', { name: `Category for ${item.merchant}` }) as HTMLSelectElement
     fireEvent.change(choice, { target: { value: '10' } })
-    const retry = await screen.findByRole('button', { name: 'Try saving this answer again' })
+    const retry = await screen.findByRole('button', { name: /^Try again$/ })
     expect(choice.value).toBe('10')
     fireEvent.click(retry)
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
     expect(mutate.mock.calls[1][3]).toEqual(mutate.mock.calls[0][3])
+    expect(mutate.mock.calls[1][4]).toEqual(mutate.mock.calls[0][4])
   })
   it('keeps the review and an open answer when the program temporarily cannot save', async () => {
     mutate.mockRejectedValueOnce(new ApiRequestError('This part of your program is not available right now.', { status: 403, code: 'savings_challenge_unavailable' }))
