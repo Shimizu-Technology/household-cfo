@@ -65,6 +65,8 @@ class InvitationCoachNameTest < ActiveSupport::TestCase
     assert_equal "Mrs. Mel", InvitationCoachName.for(user: recipient, invited_by: coach)
     workspace.coach_profile.update!(display_name: coach.email)
     assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: "shimizu")
+    assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
     workspace.coach_profile.update!(display_name: "shimizu+qa")
     assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
   end

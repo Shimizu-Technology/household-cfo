@@ -60,6 +60,34 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     assert_includes phrase.fetch("prohibited_contexts"), "crisis"
   end
 
+  test "each clause preserves prohibitions including contractions and stop or avoid" do
+    [
+      [ "I can't tell people what to do.", "Tell people what to do." ],
+      [ "I won't suggest waiting 30 days.", "Suggest waiting 30 days." ],
+      [ "Don’t suggest waiting 30 days.", "Suggest waiting 30 days." ],
+      [ "Stop spending on wants.", "Keep spending on wants." ],
+      [ "Avoid shaming clients.", "Shame clients." ],
+      [ "Don't shame them, tell them the numbers.", "Don't tell them the numbers." ],
+      [ "Don't shame them and tell them the numbers.", "Don't tell them the numbers." ]
+    ].each do |quote, claim|
+      refute Mia::PersonaSetup::TextEvidence.supports?(quote, claim), "#{quote} must not support #{claim}"
+    end
+  end
+
+  test "simple punctuation connectors and number equivalents stay supported without inventing a paraphrase" do
+    [
+      [ "I don’t shame", "Don't shame" ],
+      [ "warm but firm", "Be warm and firm" ],
+      [ "Offer two clear steps.", "Offer 2 clear steps." ],
+      [ "I can't tell people what to do.", "Don't tell people what to do." ],
+      [ "Stop spending on wants.", "Don't spend on wants." ],
+      [ "Avoid shaming clients.", "Don't shame clients." ]
+    ].each do |quote, claim|
+      assert Mia::PersonaSetup::TextEvidence.supports?(quote, claim), "#{quote} should support #{claim}"
+    end
+    refute Mia::PersonaSetup::TextEvidence.supports?("warm but firm", "Be empathetic and decisive")
+  end
+
   private
   def operation(path, value, evidence)
     { "op" => "set", "path" => path, "value" => value, "source_basis" => "coach_quote", "evidence_quote" => evidence }

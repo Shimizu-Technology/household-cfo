@@ -26,3 +26,12 @@ it('expires old confirmations and handles unavailable session storage',()=>{
  render(<ProgramCreatedNotice userId={4} workspaceId={7}/>)
  expect(screen.queryByRole('status')).toBeNull()
 })
+
+it('consumes a displayed confirmation so remounting the program does not replay it',()=>{
+ rememberCreatedProgram(4,{id:7,name:'New program'})
+ const first=render(<ProgramCreatedNotice userId={4} workspaceId={7}/>)
+ expect(screen.getByRole('status')).toBeTruthy();first.unmount()
+ render(<ProgramCreatedNotice userId={4} workspaceId={7}/>)
+ expect(screen.queryByRole('status')).toBeNull()
+ expect(sessionStorage.length).toBe(0)
+})

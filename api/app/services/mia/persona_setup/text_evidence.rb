@@ -6,27 +6,32 @@ module Mia
     # voice presets, new prose must keep its factual words, numbers and polarity.
     # Unsupported paraphrases are left out, never silently treated as coach words.
     class TextEvidence
-      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were and then when someone people participant participants client clients coach coaching use using used give say said start starts keep make only followed by].freeze
+      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were do does did and then when someone people participant participants client clients coach coaching use using used give say said start starts make only followed by].freeze
       SYNONYMS = {
         "feeling" => "feel", "feelings" => "feel", "feels" => "feel", "felt" => "feel",
         "shaming" => "shame", "shamed" => "shame", "shames" => "shame",
         "protecting" => "protect", "protects" => "protect",
-        "suggestion" => "suggest", "suggestions" => "suggest", "suggesting" => "suggest",
-        "waiting" => "wait", "waits" => "wait", "days" => "day",
+        "suggestion" => "suggest", "suggestions" => "suggest", "suggesting" => "suggest", "suggests" => "suggest",
+        "spending" => "spend", "waiting" => "wait", "waits" => "wait", "days" => "day",
         "payments" => "payment", "utilities" => "utility", "basics" => "basic",
         "deciding" => "decide", "decisions" => "decide", "choice" => "decide", "choices" => "decide",
         "helping" => "help", "helps" => "help", "steps" => "step",
         "telling" => "tell", "tells" => "tell", "overspending" => "overspend",
         "expenses" => "cost", "costs" => "cost", "prioritize" => "protect",
         "pause" => "wait", "pausing" => "wait", "one" => "1", "first" => "1",
-        "without" => "not", "never" => "not", "no" => "not", "don't" => "not"
+        "two" => "2", "three" => "3", "four" => "4", "five" => "5",
+        "six" => "6", "seven" => "7", "eight" => "8", "nine" => "9", "ten" => "10",
+        "without" => "not", "never" => "not", "no" => "not", "don't" => "not",
+        "can't" => "not", "cannot" => "not", "won't" => "not", "wouldn't" => "not",
+        "doesn't" => "not", "didn't" => "not", "shouldn't" => "not", "couldn't" => "not",
+        "stop" => "not", "avoid" => "not"
       }.freeze
 
       def self.supports?(quote, value)
         return true if value.blank?
 
-        claims = value.split(/[.!?;]|\bbut\b/i).reject(&:blank?)
-        sources = quote.split(/[.!?;]|\bbut\b/i)
+        claims = clauses(value)
+        sources = clauses(quote)
         claims.all? do |claim|
           words = tokens(claim)
           words.any? && sources.any? do |source|
@@ -36,12 +41,19 @@ module Mia
         end
       end
 
+      def self.clauses(text)
+        # Normalize phone punctuation before contraction matching. Polarity is
+        # local: a prohibition in one clause cannot authorize another clause.
+        text.unicode_normalize(:nfkc).tr("‘’", "'").downcase
+          .split(/[,.!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
+      end
+
       def self.tokens(text)
-        text.unicode_normalize(:nfkc).downcase.scan(/[[:alnum:]]+(?:'[[:alpha:]]+)?/)
+        text.scan(/[[:alnum:]]+(?:'[[:alpha:]]+)?/)
           .reject { |word| FILLER.include?(word) }
           .map { |word| SYNONYMS.fetch(word, word) }.uniq
       end
-      private_class_method :tokens
+      private_class_method :clauses, :tokens
     end
   end
 end

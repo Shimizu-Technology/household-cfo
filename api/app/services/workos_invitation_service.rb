@@ -45,16 +45,11 @@ class WorkosInvitationService
     unless @user.invitation_status == "pending" && !@user.revoked?
       raise DeliveryError, "Only pending local invitations can be emailed."
     end
-    creator = @user.invited_by_user || @invited_by
-    inviter_identity = creator&.authentication_identities&.find_by(provider: "workos", issuer: WorkosAuth.issuer)
-    prepare_native_inviter!(inviter_identity, creator) if mode == "native" && inviter_identity
     invitation = pending_invitation
     if invitation
-      @invitation_id = invitation.fetch("id")
-      response = request(:post, "/user_management/invitations/#{@invitation_id}/resend")
+      response = resend_invitation(invitation)
     else
       payload = { email: @user.email }
-      payload[:inviter_user_id] = inviter_identity.subject if inviter_identity
       response = request(:post, "/user_management/invitations", body: payload, recover_duplicate: true)
     end
     validate_invitation!(response)
@@ -76,21 +71,20 @@ class WorkosInvitationService
 
   private
 
-  # Native WorkOS subjects use the provider profile, not User#full_name.
-  # Set only the display name; never alter email, verification or access.
-  def prepare_native_inviter!(identity, creator)
-    id = identity.subject
-    raise DeliveryError, "The inviting coach's account could not be verified." unless id.match?(/\Auser_[A-Za-z0-9]+\z/)
-
-    name = InvitationCoachName.for(user: @user, invited_by: creator)
-    profile = request(:get, "/user_management/users/#{id}")
-    raise DeliveryError, "The inviting coach's account could not be verified." unless profile["id"] == id
-    return if [ profile["first_name"], profile["last_name"] ].compact_blank.join(" ") == name
-
-    updated = request(:put, "/user_management/users/#{id}", body: { first_name: name, last_name: "" })
-    unless updated["id"] == id && [ updated["first_name"], updated["last_name"] ].compact_blank.join(" ") == name
-      raise DeliveryError, "The coach's display name could not be confirmed. Retry the invitation later."
+  # Native subjects use a provider profile or email when an inviter is supplied.
+  # Omit it for a generic subject. Custom emails use our scoped coach display name.
+  def resend_invitation(invitation)
+    @invitation_id = invitation.fetch("id")
+    if !self.class.custom_delivery? && invitation["inviter_user_id"].present?
+      # A legacy invitation still carries its old inviter on resend. Replace it
+      # with a generic invitation; never repair someone's global profile.
+      revoked = request(:post, "/user_management/invitations/#{@invitation_id}/revoke")
+      unless revoked["id"] == @invitation_id && revoked["email"].to_s.strip.downcase == @user.email && revoked["state"] == "revoked" && revoked["organization_id"].blank?
+        raise DeliveryError, "The earlier invitation could not be replaced safely. Refresh its status before retrying."
+      end
+      return request(:post, "/user_management/invitations", body: { email: @user.email })
     end
+    request(:post, "/user_management/invitations/#{@invitation_id}/resend")
   end
 
   def result(sent:, error: nil)
@@ -153,8 +147,7 @@ class WorkosInvitationService
     if recover_duplicate && response.code.in?([ 409, 422 ])
       existing = pending_invitation
       raise DeliveryError, "WorkOS could not create this invitation. Refresh its status before retrying." unless existing
-      @invitation_id = existing.fetch("id")
-      return request(:post, "/user_management/invitations/#{@invitation_id}/resend")
+      return resend_invitation(existing)
     end
     if response.code == 429
       raise DeliveryError, "WorkOS invitations are rate limited. Try again shortly."

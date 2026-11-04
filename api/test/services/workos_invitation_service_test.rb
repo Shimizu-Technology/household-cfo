@@ -29,7 +29,8 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
       posts = @requests.select { |method, _url, _options| method == :post }
       assert_equal 1, posts.length
       payload = JSON.parse(posts.first.last.fetch(:body))
-      assert_equal({ "email" => @invitee.email, "inviter_user_id" => "user_inviter" }, payload)
+      assert_equal({ "email" => @invitee.email }, payload)
+      refute @requests.any? { |_method, url, _| url.include?("/users/") }
       refute payload.key?("organization_id")
       refute payload.key?("role_slug")
       assert_equal false, posts.first.last[:follow_redirects]
@@ -250,25 +251,58 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
     end
   end
 
-  test "native invitation uses coach display name instead of an email alias" do
+  test "native invitation has a generic subject and never depends on a provider profile call" do
     with_workos do
       workspace = CoachWorkspaces::Provisioner.ensure_for!(@inviter)
       workspace.coach_profile.update!(display_name: "Mrs. Mel")
       @inviter.authentication_identities.create!(provider: "workos", issuer: WorkosAuth.issuer, subject: "user_inviter")
-      updates = []
-      stub_method(HTTParty, :get, lambda { |url, **_|
-        WorkosResponse.new(200, url.include?("/users/") ? { "id" => "user_inviter", "first_name" => "shimizu+qa@example.test" } : { "data" => [], "list_metadata" => {} })
-      }) do
-        stub_method(HTTParty, :put, lambda { |_url, **options|
-          updates << JSON.parse(options.fetch(:body))
-          WorkosResponse.new(200, { "id" => "user_inviter", "first_name" => "Mrs. Mel", "last_name" => "" })
+      stub_method(HTTParty, :put, ->(*) { flunk "No WorkOS profile writes" }) do
+        stub_method(HTTParty, :get, lambda { |url, **_|
+          flunk "Invitation must not depend on a profile read" if url.include?("/users/")
+          WorkosResponse.new(200, { "data" => [], "list_metadata" => {} })
         }) do
-          stub_method(HTTParty, :post, WorkosResponse.new(200, invitation)) do
+          stub_method(HTTParty, :post, lambda { |_url, **options|
+            assert_equal({ "email" => @invitee.email }, JSON.parse(options.fetch(:body)))
+            WorkosResponse.new(200, invitation)
+          }) do
             assert WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)[:sent]
           end
         end
       end
-      assert_equal [ { "first_name" => "Mrs. Mel", "last_name" => "" } ], updates
+    end
+  end
+
+  [ false, true ].each do |duplicate|
+    test "native legacy inviter is replaced safely #{duplicate ? 'after a duplicate-create race' : 'on resend'}" do
+      with_workos do
+        legacy = invitation.merge("inviter_user_id" => "user_rawalias")
+        reads = 0
+        posts = []
+        stub_method(HTTParty, :get, lambda { |_url, **_|
+          reads += 1
+          rows = duplicate && reads == 1 ? [] : [ legacy ]
+          WorkosResponse.new(200, { "data" => rows, "list_metadata" => {} })
+        }) do
+          stub_method(HTTParty, :post, lambda { |url, **options|
+            posts << url
+            if duplicate && posts.one?
+              WorkosResponse.new(409, {})
+            elsif url.end_with?("/revoke")
+              WorkosResponse.new(200, legacy.merge("state" => "revoked"))
+            else
+              refute url.end_with?("/resend"), "A legacy inviter must not return in the email subject"
+              assert_equal({ "email" => @invitee.email }, JSON.parse(options.fetch(:body)))
+              WorkosResponse.new(200, invitation.merge("id" => "invitation_replacement"))
+            end
+          }) do
+            result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+            assert result[:sent]
+            assert_equal "invitation_replacement", result[:provider_message_id]
+          end
+        end
+        assert_equal duplicate ? 3 : 2, posts.length
+        assert posts.any? { |url| url.end_with?("/revoke") }
+      end
     end
   end
 

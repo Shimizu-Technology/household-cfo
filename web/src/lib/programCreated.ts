@@ -10,3 +10,7 @@ export function readCreatedProgram(userId: number, workspaceId: number | null): 
     return value?.id === workspaceId && typeof value.name === 'string' && Date.now() - value.at < 600_000 ? value : null
   } catch { return null }
 }
+
+export function clearCreatedProgram(userId: number) {
+  try { sessionStorage.removeItem(key(userId)) } catch { /* Storage may be unavailable. */ }
+}
