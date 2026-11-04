@@ -117,7 +117,7 @@ module HouseholdFinance
       if current.empty?
         specs << {
           operation_key: "income.source.create",
-          input: { label: label, source_type: source_type, amount_cents: cents, cadence: "monthly", historical_baseline: true, year: year }
+          input: { label: label, source_type: source_type, amount_cents: cents, cadence: "monthly", starts_on: PlanCoverage.new(household).starts_on.iso8601, year: year }
         }
         return
       end
@@ -173,7 +173,7 @@ module HouseholdFinance
       if categories.empty?
         specs << {
           operation_key: "budget.category.create",
-          input: { name: label, stack_key: stack_key, monthly_amount_cents: cents, month_numbers: (1..12).to_a, year: year }
+          input: { name: label, stack_key: stack_key, monthly_amount_cents: cents, month_numbers: PlanCoverage.new(household).month_numbers(year), carry_forward: true, year: year }
         }
         return
       end
@@ -182,8 +182,8 @@ module HouseholdFinance
       specs << {
         operation_key: "budget.allocation.set",
         input: {
-          category_id: category.id, year: year,
-          changes: allocations.map { |allocation| { allocation_id: allocation.id, after_cents: cents } }
+          category_id: category.id, year: year, carry_forward: true,
+          changes: allocations.select { |allocation| PlanCoverage.new(household).month_numbers(year).include?(allocation.budget_period.starts_on.month) }.map { |allocation| { allocation_id: allocation.id, after_cents: cents } }
         }
       }
     end

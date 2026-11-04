@@ -169,7 +169,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 6_600, body.fetch("budget").fetch("total_monthly_outflow")
     assert_equal 2_600, body.fetch("budget").fetch("baseline_surplus")
     annual_plan = body.fetch("budget").fetch("annual_plan")
-    current_month = annual_plan.fetch("annual_outlook").fetch("months").fetch(Date.current.month - 1)
+    current_month = annual_plan.fetch("annual_outlook").fetch("months").find { |month| month.fetch("starts_on") == Date.current.beginning_of_month.iso8601 }
     assert_equal 0, annual_plan.fetch("monthly_debt_minimums")
     refute annual_plan.fetch("monthly_debt_minimums_known")
     assert_equal 6_600, current_month.fetch("category_plan")
@@ -231,6 +231,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
   test "manual setup repairs a changed allocation even when the legacy expense total matches" do
     user = create_user(email: "setup-allocation-drift@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    # This established household has covered the full year since January.
+    household.update!(created_at: Date.current.beginning_of_year)
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
     category = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 1_000)
     changed = category.budget_allocations.joins(:budget_period)

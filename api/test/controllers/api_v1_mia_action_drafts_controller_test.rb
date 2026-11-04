@@ -333,9 +333,9 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert HouseholdFinance::SetupStatus.new(household.reload).complete?
     message = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
-    assert_includes message, "Your starting picture is complete."
-    assert_includes message, "What should I focus on first this month?"
-    assert_includes message, "approved numbers"
+    assert_includes message, "Your household setup is complete."
+    assert_includes message, "How am I doing this month?"
+    assert_includes message, "what your plan leaves"
     refute_includes message, "nothing changes until you apply it"
   end
 
@@ -656,9 +656,26 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
-    assert_includes content, "cannot give a readiness, safe-to-spend, or purchase verdict"
-    assert_includes content, "Household name"
+    assert_includes content, "before helping you decide what to spend"
+    assert_includes content, "household name"
     refute_includes content, "Which category"
+  end
+
+  test "a model-supplied setup topic cannot bypass the incomplete purchase guard" do
+    user = create_user(email: "mia-model-false-setup-topic@example.com")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "coaching", confidence: 0.96, continuation: false,
+      resolved_message: "Can I buy a $900 handbag?", needs_clarification: true,
+      clarification: "Which category would this purchase fall under?",
+      topic: { type: "household_setup" }, action: { type: "none" }, source: "model"
+    )
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages", params: { message: "Can I buy a $900 handbag?" }, headers: auth_headers(user), as: :json
+    end
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "before helping you decide what to spend"
+    refute_includes response.parsed_body.dig("assistant_message", "content"), "Which category"
   end
 
   test "complete setup preserves the model clarification instead of answering the financial question" do

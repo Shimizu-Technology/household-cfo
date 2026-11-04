@@ -65,17 +65,50 @@ module HouseholdFinance
       items = typed_setup_items(changed)
       return items if items.is_a?(MiaActionDraftBuilder::Result)
 
+      # The same reviewed goal text completes setup and can establish a target.
+      # Unknown progress stays unknown; approving this never moves money.
+      target = MiaSetupIntake.goal_target(normalized[:primary_goal])
+      if target && changed.any? { |key,| key == :primary_goal }
+        tracked = setup_tracked_goal_item(normalized[:primary_goal], target)
+        return tracked if tracked.is_a?(MiaActionDraftBuilder::Result)
+        items << tracked if tracked
+      end
+
+      intake = MiaSetupIntake.new(raw_input)
+      estimate_notes = %i[primary_income flexible_spend].filter_map { |key| intake.estimate_note(key, Money.cents(normalized[key])) if normalized.key?(key) }
+      confirmation = items.find { |item| item.action_type == "confirm_household_setup" }
+      confirmation.description = [ confirmation.description, *estimate_notes ].join(" ") if confirmation && estimate_notes.any?
+      groceries_included = changed.any? { |key, _before, value| key == :flexible_spend && Money.cents(value) == intake.flexible_cents }
+      breakdown = intake.fixed_description(include_groceries: groceries_included) if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
+      if breakdown
+        items.reject { |item| item.action_type == "confirm_household_setup" }.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
+      end
+
       impact = setup_impact(before_values, normalized)
       metadata = { source: "mia_chat", parser: "model_intent" }
       metadata[:impact] = impact if impact
       proposal_result(
         draft_type: "household_setup",
-        title: changed.one? ? "Update an approved household value" : "Update approved household values",
+        title: "Review your household details",
         summary: "I prepared #{changed.length} household #{'change'.pluralize(changed.length)} for your review.",
-        rationale: "These values shape Mia’s coaching and the Home snapshot. They stay unchanged until you approve this card.",
+        rationale: [ breakdown, *estimate_notes, "Review these details before saving them to your household plan." ].compact.join(" "),
         items: items,
         metadata: metadata
       )
+    end
+
+    def setup_tracked_goal_item(text, target)
+      label = MiaSetupIntake.goal_label(text)
+      existing = household.goals.tracked.active.where(goal_type: "savings").where("LOWER(label) IN (?)", [ text, label ].map(&:downcase)).to_a
+      # An already tracked goal must not leave the primary goal unconfirmed or
+      # create a duplicate. Ambiguous records can be refined in My Money later.
+      return if existing.many?
+      return if existing.one? && existing.first.target_amount_known? && existing.first.target_amount_cents == target
+
+      command = { type: existing.one? ? "update_goal" : "create_goal", goal_name: label, goal_type: "savings",
+        target_amount: Money.dollars(target).to_s, setup_primary_goal: false }
+      command[:goal_id] = existing.first.id if existing.one?
+      setup_item_from_command(command)
     end
 
     def structured_income_schedule_proposal
@@ -376,7 +409,7 @@ module HouseholdFinance
       else
         {
           type: "create_income_source", income_source_name: label, source_type: source_type,
-          amount: after.to_s, cadence: "monthly", effective_on: Date.current.beginning_of_month.iso8601
+          amount: after.to_s, cadence: "monthly", effective_on: PlanCoverage.new(household).starts_on.iso8601
         }
       end
       setup_item_from_command(command)
@@ -395,11 +428,13 @@ module HouseholdFinance
       end
 
       command = if categories.one?
-        { type: "set_allocation", category_id: categories.first.id, category_name: categories.first.name, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+        { type: "set_allocation", category_id: categories.first.id, category_name: categories.first.name, amount: after.to_s, months: PlanCoverage.new(household).month_numbers(annual_budget_manager.year), year: annual_budget_manager.year }
       else
-        { type: "create_category", new_name: label, stack_key: stack_key, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+        { type: "create_category", new_name: label, stack_key: stack_key, amount: after.to_s, months: PlanCoverage.new(household).month_numbers(annual_budget_manager.year), year: annual_budget_manager.year }
       end
-      setup_item_from_command(command)
+      item = setup_item_from_command(command)
+      item.payload[:carry_forward] = true if item.is_a?(MiaActionDraftBuilder::Item)
+      item
     end
 
     def setup_account_item(key, after)

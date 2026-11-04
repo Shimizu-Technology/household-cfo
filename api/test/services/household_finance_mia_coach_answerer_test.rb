@@ -96,9 +96,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Can I buy a $900 handbag?").call
 
-    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
-    assert_includes answer, "Primary goal"
-    assert_includes answer, "enter 0"
+    assert_includes answer, "before helping you decide what to spend"
+    assert_includes answer, "primary goal"
+    assert_includes answer, "Use 0"
     refute_includes answer, "$900"
   end
 
@@ -112,7 +112,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
 
-      assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict", prompt
+      assert_includes answer, "before helping you decide what to spend", prompt
       assert_includes answer, "No financial decision was made and no numbers changed", prompt
       refute_match(/Based on approved household numbers/i, answer, prompt)
     end
@@ -125,7 +125,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [ "What's my safe-to-spend?", "What's my readiness?" ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
 
-      assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict", prompt
+      assert_includes answer, "before helping you decide what to spend", prompt
       refute_match(/approved readiness|monthly safe-to-spend guardrail/i, answer, prompt)
     end
   end
@@ -139,7 +139,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     complete_answer = HouseholdFinance::MiaCoachAnswerer.new(complete_household, "Can I buy a $900 handbag?").guardrail_answer
     capability_answer = HouseholdFinance::MiaCoachAnswerer.new(complete_household, "Make Mia sound like someone from the South").guardrail_answer
 
-    assert_includes incomplete_answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    assert_includes incomplete_answer, "before helping you decide what to spend"
     assert_nil complete_answer
     assert_includes capability_answer, "published assistant persona is assigned through your cohort"
   end
@@ -156,7 +156,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "Should I file married?"
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
-      assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict", prompt
+      assert_includes answer, "before helping you decide what to spend", prompt
       refute_match(/\breadiness is\b/i, answer, prompt)
       refute_match(/\bsafe-to-spend is\b/i, answer, prompt)
     end
@@ -222,7 +222,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which card should I pay off first using avalanche?").call
 
-    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    assert_includes answer, "before helping you decide what to spend"
     refute_includes answer, "Avalanche:"
   end
 
@@ -377,7 +377,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     answer = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $9,000, how much can we save?").call
 
-    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    assert_includes answer, "before helping you decide what to spend"
     refute_includes answer, "Assumption only"
     refute_includes answer, "approved monthly outflow"
   end

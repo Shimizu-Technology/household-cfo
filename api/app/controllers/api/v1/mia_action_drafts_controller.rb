@@ -115,12 +115,12 @@ module Api
         when "income_schedule"
           "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
         when "household_setup"
-          base = "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
+          base = "Your household details are saved."
           "#{base} #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message}"
         when "action_plan"
-          "Applied all reviewed steps in the household action plan. Every step was rechecked against current approved data before the plan committed."
+          "Your reviewed changes are saved. #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message unless HouseholdFinance::SetupStatus.new(draft.household).complete?}".strip
         else
-          "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
+          "Your reviewed changes are saved."
         end
       end
 
@@ -142,7 +142,7 @@ module Api
         when "income_schedule" then "No income timeline changed."
         else "No approved household numbers changed."
         end
-        "Canceled the assistant review draft: #{draft.title}. #{unchanged}"
+        "That review card is canceled. #{unchanged}"
       end
 
       def serialize_action_draft(draft)

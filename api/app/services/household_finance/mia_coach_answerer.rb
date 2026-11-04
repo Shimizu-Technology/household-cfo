@@ -277,7 +277,7 @@ module HouseholdFinance
       return unless setup_dependent_coaching_request?
 
       missing = status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
-      "I cannot give a readiness, safe-to-spend, or purchase verdict until your starting picture is confirmed. I still need #{missing}. No financial decision was made and no numbers changed. Next step: tell me those details here for review, or finish them in Manual setup; enter 0 when an amount does not apply."
+      "I still need #{missing.downcase} before helping you decide what to spend. Tell me what you know and I’ll prepare it for review, or choose Enter my numbers. Use 0 only when an amount does not apply. No financial decision was made and no numbers changed."
     end
 
     def incomplete_debt_minimums_answer

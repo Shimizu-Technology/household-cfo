@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { AnnualBudgetPlanner, HomeWelcomePanel } from './App'
 import { YearOutlook } from './components/YearOutlook'
-import { HomeScreen } from './components/HomeScreen'
+import { HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
-import type { AnnualBudgetPlan, DashboardData } from './api'
+import type { AnnualBudgetPlan, DashboardData, WorkspaceSetupStatus } from './api'
 
 const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const plan: AnnualBudgetPlan = {
@@ -189,3 +189,61 @@ it('locks every editable monthly value until the save and household refresh fini
   expect(amount).toHaveProperty('disabled', false)
   expect(amount).toHaveProperty('value', '4000')
 })
+
+it('shows the shared approved month figures during partial setup and names only missing details', () => {
+  const status: WorkspaceSetupStatus = { complete: false, completed_count: 3, required_count: 5, confirmed_fields: ['primary_income', 'fixed_expenses', 'flexible_spend'], required_fields: [], missing_fields: [{ key: 'household_name', label: 'Household name', confirmed: false }, { key: 'primary_goal', label: 'Primary goal', confirmed: false }] }
+  render(<HomeWelcomePanel onPrimaryAction={vi.fn()} onManualSetup={vi.fn()} answer={{ ...dashboard.month_answer!, money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }} status={status} />)
+  expect(screen.getByRole('heading', { name: 'Your household plan' })).toBeTruthy()
+  for (const value of ['$5,200', '$3,100', '$2,100']) expect(screen.getByText(value)).toBeTruthy()
+  expect(screen.getByText('Still to add: household name, primary goal.')).toBeTruthy()
+  expect(screen.queryByText('Not entered')).toBeNull()
+})
+
+it('uses the shared month answer in Budget and Wealth without treating unknown income as zero', () => {
+  const view = render(<MonthPlanLine answer={{ ...dashboard.month_answer!, period_label: 'November 2026', money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }} />)
+  expect(screen.getByLabelText('Current month plan').textContent).toContain('November 2026 plan: $5,200 money in · $3,100 planned out · $2,100 left.')
+  view.rerender(<MonthPlanLine answer={{ ...dashboard.month_answer!, money_in_cents: null, plan_left_cents: null }} />)
+  expect(screen.getByLabelText('Current month plan').textContent).toContain('Not entered money in')
+  expect(screen.getByLabelText('Current month plan').textContent).not.toContain('$0')
+})
+it('shows the join month and never turns an unknown outlook into a shortfall or zero', () => {
+ const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: null, baseline_surplus: null}))
+ render(<YearOutlook plan={{...plan, plan_starts_on: '2026-11-01', annual_outlook: {...plan.annual_outlook, months}}} />)
+ expect(screen.getByText('Your plan starts in November.')).toBeTruthy()
+ expect(screen.getAllByText('Income not known yet')).toHaveLength(2)
+ expect(screen.queryByText(/short|\$0/)).toBeNull()
+})
+it('labels income on every known outlook group including a confirmed zero', () => {
+ const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: 0, planned_outflow: 0, baseline_surplus: 0}))
+ render(<YearOutlook plan={{...plan, annual_outlook: {...plan.annual_outlook, months}}} />)
+ expect(screen.getByText('$0 planned out · $0 money in')).toBeTruthy()
+})
+
+it('asks for main income when an approved business amount is only a subtotal', () => {
+ const answer = {...dashboard.month_answer!, main_income_missing:true, money_in_cents:null, plan_left_cents:null}
+ const status = {completed_count:4, missing_fields:[{key:'primary_income',label:'Primary monthly income'}]} as WorkspaceSetupStatus
+ render(<HomeWelcomePanel answer={answer} status={status} onPrimaryAction={vi.fn()} onManualSetup={vi.fn()} />)
+ expect(screen.getByText('Still to add: your main income.')).toBeTruthy()
+ expect(screen.getAllByText('Not entered')).toHaveLength(2)
+ expect(screen.queryByText('Still to add: .')).toBeNull()
+})
+
+it('keeps approved pre-start spending on Home while the historical plan stays unknown', () => {
+  const answer = { ...dashboard.month_answer!, year: 2026, month: 10, period_label: 'October 2026', plan_starts_on: '2026-11-01', before_plan_start: true, money_in_cents: null, planned_out_cents: null, plan_left_cents: null, spent_so_far_cents: 12300 }
+  const { container } = render(<HomeScreen dashboard={{ ...dashboard, month_answer: answer }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  expect(container.querySelector('.home-spent')?.textContent).toContain('$123')
+  expect(container.querySelector('.home-money-values')?.textContent).not.toContain('$0')
+  expect(screen.getAllByText('Not entered')).toHaveLength(3)
+})
+
+for (const actual of [123, 0]) {
+  it(`shows pre-start approved spending (${actual}) without inventing a historical plan`, () => {
+    const historicalPlan = { ...plan, plan_starts_on: '2026-11-01', rows: plan.rows.map(row => ({ ...row, months: row.months.map((cell, i) => i === 9 ? { ...cell, planned: 0, actual, remaining: -actual } : cell) })) }
+    const { container } = render(<AnnualBudgetPlanner {...plannerProps()} plan={historicalPlan} />)
+    const historical = screen.getByRole('region', { name: 'Historical spending' })
+    expect(historical.textContent).toContain('October 2026 has no plan to compare against')
+    expect(historical.textContent).toContain(actual ? '$123' : 'Not known yet')
+    expect(container.textContent).not.toMatch(/over now|unplanned|remaining now|\$0 planned/)
+    expect(screen.queryByRole('heading', { name: 'Your spending groups' })).toBeNull()
+  })
+}

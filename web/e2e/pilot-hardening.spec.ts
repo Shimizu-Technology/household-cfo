@@ -4741,15 +4741,12 @@ test('BOG UI household incomplete participants get a short first session, privat
   await expect(feedback).toContainText('were not sent to analytics')
   await feedback.getByRole('button', { name: 'Return to Household CFO' }).click()
 
+  const guidedSetupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia/messages') && request.method() === 'POST')
   await page.getByRole('button', { name: 'Set up with Mia' }).click()
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   await expect(page.locator('.mia-setup-count')).toBeVisible()
   const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
-  await expect(guidedComposer).toBeFocused()
-
-  const guidedSetupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia/messages') && request.method() === 'POST')
-  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(guidedComposer).toHaveValue('')
   const guidedSetupRequest = await guidedSetupRequestPromise
   expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
   await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
@@ -4761,7 +4758,9 @@ test('BOG UI household incomplete participants get a short first session, privat
   await openChatContext(page)
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
-  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
+  await expect(guidedComposer).toHaveValue(/Here is everything I know so far:/)
+  await expect(page.getByText(/Your message and files are waiting here/)).toBeVisible()
+  await guidedComposer.fill('')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()
@@ -13482,4 +13481,101 @@ test('BOG UI Home hides debt recovery when My Money is disabled', async ({ page 
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
+})
+
+test('BOG UI household setup shares approved current-month income and money left on Home Budget and Wealth', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const home = page.locator('.home-money-values')
+  for (const value of ['$5,200', '$3,100', '$2,100']) await expect(home).toContainText(value)
+  for (const section of ['Budget', 'Wealth']) {
+    await openSection(page, section)
+    const summary = page.getByLabel('Current month plan')
+    await expect(summary).toContainText('$5,200 money in')
+    await expect(summary).toContainText('$3,100 planned out')
+    await expect(summary).toContainText('$2,100 left')
+    await expect(summary).toContainText('not a bank balance')
+  }
+})
+
+test.describe('BOG UI household month boundary', () => {
+  test.use({ timezoneId: 'UTC' })
+  test('BOG UI Budget defaults to the dashboard month across a Guam month boundary', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-10-31T15:00:00Z') })
+    const workspace = realWorkspaceData(true)
+    const plan = workspace.budget.annual_plan
+    plan.year = 2026
+    plan.months = plan.months.map((month, index) => ({ ...month,
+      starts_on: `2026-${String(index + 1).padStart(2, '0')}-01`,
+      ends_on: `2026-${String(index + 1).padStart(2, '0')}-${new Date(Date.UTC(2026, index + 1, 0)).getUTCDate()}`,
+    }))
+    plan.income_sources.forEach(source => source.schedule_entries.forEach(entry => {
+      entry.effective_on = entry.effective_on.replace(/^\d{4}/, '2026')
+    }))
+    const outlook = plan.annual_outlook
+    for (const month of [...outlook.months, ...outlook.upcoming_spikes, ...(outlook.next_irregular_month ? [outlook.next_irregular_month] : [])]) {
+      month.starts_on = month.starts_on.replace(/^\d{4}/, '2026')
+    }
+    plan.pending_transaction_drafts.forEach(draft => { draft.occurred_on = draft.occurred_on.replace(/^\d{4}/, '2026') })
+    plan.pending_mia_action_drafts.forEach(draft => { draft.year = 2026 })
+    workspace.dashboard.action_center.current_year = 2026
+    workspace.dashboard.action_center.current_month_index = 10
+    workspace.dashboard.action_center.current_month_label = 'November'
+    workspace.dashboard.month_answer = {...workspace.dashboard.month_answer, period_label: 'November 2026'}
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({json: workspace}))
+    await page.goto('/?pilot_e2e_role=participant#Budget')
+    await expect(page.getByRole('combobox', {name: 'Report month', exact: true})).toHaveValue('10')
+    await expect(page.getByLabel('Current month plan')).toContainText('November 2026')
+    await expect(page.getByRole('button', {name: 'This month', exact: true})).toHaveCount(0)
+    await page.getByRole('combobox', {name: 'Report month', exact: true}).selectOption('9')
+    await expect(page.getByLabel('Current month plan')).toHaveCount(0)
+    await page.getByRole('button', {name: 'This month', exact: true}).click()
+    await expect(page.getByRole('combobox', {name: 'Report month', exact: true})).toHaveValue('10')
+    await expect(page.getByLabel('Current month plan')).toContainText('November 2026')
+  })
+})
+
+test('BOG UI pre-start approved spending agrees across Home Budget and Mia without a plan comparison', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const plan = workspace.budget.annual_plan
+  plan.plan_starts_on = `${plan.year}-11-01`
+  // The server's selected October answer is historical; the plan begins in November.
+  // Use the fixture year throughout rather than coupling this case to the host calendar.
+  workspace.dashboard.action_center.current_month_index = 9
+  workspace.dashboard.action_center.current_month_label = 'October'
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, month: 10,
+    period_label: `October ${plan.year}`, money_in_cents: null, planned_out_cents: null,
+    plan_left_cents: null, spent_so_far_cents: 12300 }
+  plan.monthly_income = Object.fromEntries(plan.months.map(month => [month.id, null])) as typeof plan.monthly_income
+  plan.rows.forEach((row, index) => { row.months[9] = { ...row.months[9], planned: 0, actual: index === 1 ? 123 : 0, remaining: index === 1 ? -123 : 0 } })
+  plan.pending_transaction_drafts = []
+  const answer = `Your plan starts in November ${plan.year}, so October ${plan.year} has no plan to compare against. From your approved statement lines, you spent $123 in October ${plan.year}.`
+  workspace.mia.messages = [
+    { id: 9901, role: 'user', author: 'You', content: 'How did October look?', attachments: [] },
+    { id: 9902, role: 'assistant', author: 'Mia', content: answer, attachments: [] },
+  ]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: {
+    start_on: plan.months[9].starts_on, end_on: plan.months[9].ends_on, period_label: `October ${plan.year}`,
+    totals: { planned: 0, actual: 123, pending: 900, remaining: -123 },
+    categories: [{ id: 2, name: 'Dining out', stack_key: 'discretionary', stack_label: 'Flexible spending', planned: 0, actual: 123, pending: 900, remaining: -123, active: true }],
+    transactions: [], pending_transaction_drafts: [],
+  } } }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.locator('.home-spent')).toContainText('$123')
+  await expect(page.locator('.home-money-values')).not.toContainText('$0')
+  await openSection(page, 'Budget')
+  await expect(page.getByRole('combobox', { name: 'Report month', exact: true })).toHaveValue('9')
+  await expect(page.getByRole('region', { name: 'Historical spending', exact: true })).toContainText(`October ${plan.year} has no plan to compare against`)
+  await expect(page.getByRole('region', { name: 'Historical spending', exact: true })).toContainText('$123')
+  await page.getByText('This month’s spending', { exact: true }).click()
+  const activity = page.getByRole('region', { name: 'Oct activity', exact: true })
+  await expect(activity).toContainText('$123 actual')
+  await expect(activity).not.toContainText('unplanned')
+  await expect(activity).not.toContainText('over now')
+  await expect(activity).not.toContainText('$0 planned')
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.message-row.assistant').last()).toContainText(answer)
 })

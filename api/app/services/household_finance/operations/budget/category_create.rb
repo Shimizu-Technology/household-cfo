@@ -22,8 +22,9 @@ module HouseholdFinance
             stack_key: input[:stack_key].presence || "discretionary",
             monthly_amount_cents: cents,
             month_numbers: months,
+            carry_forward: input[:carry_forward] == true ? true : nil,
             year: input.fetch(:year).to_i
-          }
+          }.compact
         rescue TypeError
           raise ArgumentError, "Planned amount must be a number"
         end
@@ -57,7 +58,7 @@ module HouseholdFinance
             if chosen && expense.fetch("id") == chosen.fetch("id")
               expense.merge(
                 "label" => input.fetch(:name), "stack_key" => input.fetch(:stack_key),
-                "amount_cents" => full_year ? input.fetch(:monthly_amount_cents) : 0,
+                "amount_cents" => (full_year || input[:carry_forward]) ? input.fetch(:monthly_amount_cents) : 0,
                 "cadence" => "monthly", "active" => true
               )
             else
@@ -67,7 +68,7 @@ module HouseholdFinance
           if expenses.empty?
             expenses << {
               label: input.fetch(:name), stack_key: input.fetch(:stack_key),
-              amount_cents: full_year ? input.fetch(:monthly_amount_cents) : 0,
+              amount_cents: (full_year || input[:carry_forward]) ? input.fetch(:monthly_amount_cents) : 0,
               cadence: "monthly", active: true
             }
           end
@@ -98,6 +99,9 @@ module HouseholdFinance
             allocations = category.budget_allocations.joins(:budget_period).where(budget_periods: { starts_on: starts_on }).lock.to_a
             raise ActiveRecord::RecordNotFound, "Budget allocation not found" unless allocations.length == months.size
             allocations.each { |allocation| allocation.update!(planned_amount_cents: input.fetch(:monthly_amount_cents), source: "manual") }
+          end
+          if input[:carry_forward] && !full_year
+            household.expense_items.find_by!(label: category.name, stack_key: category.stack_key).update!(amount_cents: input.fetch(:monthly_amount_cents))
           end
           category
         end

@@ -106,14 +106,16 @@ export function CategoryPressureList({
   limit,
   title = 'Categories needing the closest look',
   eyebrow = 'Category attention',
+  planKnown = true,
 }: {
   positions: BudgetPosition[]
   limit?: number
   title?: string
   eyebrow?: string
+  planKnown?: boolean
 }) {
   const titleId = useId()
-  const activePositions = positions.filter((position) => position.active)
+  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual > 0 || position.pending > 0))
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)
     .slice(0, limit ?? activePositions.length)
@@ -129,7 +131,7 @@ export function CategoryPressureList({
       </div>
       <div className="category-pressure-list">
         {rankedPositions.length === 0 ? (
-          <p className="category-pressure-empty">Add categories to see monthly plan pressure here.</p>
+          <p className="category-pressure-empty">{planKnown ? 'Add categories to see monthly plan pressure here.' : 'Approved spending is not known yet.'}</p>
         ) : rankedPositions.map((position) => {
           const projected = addMoney(position.actual, position.pending)
           const projectedDifference = subtractMoney(position.planned, projected)
@@ -142,20 +144,22 @@ export function CategoryPressureList({
                 </div>
                 <div className="category-pressure-status">
                   {position.pending > 0 && <span>{formatReviewMoney(Math.round((position.pending) * 100))} pending</span>}
-                  <b className={projectedDifference < 0 ? 'negative' : ''}>
+                  {planKnown && <b className={projectedDifference < 0 ? 'negative' : ''}>
                     {position.planned <= 0
                       ? `${formatReviewMoney(Math.round((position.actual) * 100))} unplanned`
                       : projectedDifference < 0
                         ? `${formatReviewMoney(Math.round((Math.abs(projectedDifference)) * 100))} over if approved`
                         : `${formatReviewMoney(Math.round((projectedDifference) * 100))} after pending`}
-                  </b>
+                  </b>}
                 </div>
               </div>
-              <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />
+              {planKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{formatReviewMoney(Math.round((position.actual) * 100))} actual</span>
-                <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
-                <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
+                <span>{planKnown || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                {planKnown && <>
+                  <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
+                  <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
+                </>}
               </div>
             </article>
           )
@@ -187,8 +191,7 @@ export function AnnualCashFlowChart({
     return () => observer.disconnect()
   }, [])
   const months = plan.annual_outlook.months
-  const reportMonthIndex = Math.max(0, Math.min(months.length - 1, selectedMonthIndex))
-  const reportPeriodId = months[reportMonthIndex]?.period_id ?? null
+  const reportPeriodId = months.find(month => month.period_id === plan.months?.[selectedMonthIndex]?.id)?.period_id ?? (plan.months ? months[0]?.period_id : months[selectedMonthIndex]?.period_id) ?? months[0]?.period_id ?? null
   const reportFocusKey = `${plan.year}:${reportPeriodId ?? 'none'}`
   const [chartFocus, setChartFocus] = useState<{
     reportFocusKey: string
@@ -203,10 +206,10 @@ export function AnnualCashFlowChart({
   // close every month, so charting them side by side hid the signal.
   // One linear scale: the area above the midline is sized by the largest surplus
   // and the area below by the largest shortfall, so equal amounts draw equal bars.
-  const largestSurplus = Math.max(0, ...months.map((month) => month.baseline_surplus))
-  const largestShortfall = Math.max(0, ...months.map((month) => -month.baseline_surplus))
+  const largestSurplus = Math.max(0, ...months.map((month) => (month.baseline_surplus ?? 0)))
+  const largestShortfall = Math.max(0, ...months.map((month) => -(month.baseline_surplus ?? 0)))
   const chartRows = largestSurplus === 0 && largestShortfall === 0 ? '1fr 0fr' : `${largestSurplus}fr ${largestShortfall}fr`
-  const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
+  const negativeMonths = months.filter((month) => (month.baseline_surplus ?? 0) < 0)
 
   function previewPeriod(periodId: number) {
     setChartFocus((current) => ({
@@ -233,7 +236,7 @@ export function AnnualCashFlowChart({
         <div>
           <h4 id={titleId}>{compact ? `Your ${plan.year} outlook` : `What’s left each month in ${plan.year}`}</h4>
         </div>
-        <p>{!moneyKnown ? 'Enter your income and plan to see your year.' : negativeMonths.length === 0 ? 'Every planned month has money left over.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
+        <p>{!moneyKnown ? 'Enter your income and plan to see your year.' : negativeMonths.length > 0 ? `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.` : months.some(month => month.baseline_surplus == null) ? 'Some months still need income.' : 'Every planned month has money left over.'}</p>
       </div>
       <div className="annual-cash-flow-legend" aria-hidden="true">
         <span><i className="surplus-swatch" /> Left after the plan</span>
@@ -242,19 +245,20 @@ export function AnnualCashFlowChart({
       <div ref={chart} className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
         <div className={`annual-cash-flow-chart${moneyKnown ? '' : ' is-unknown'}`} style={{ '--cash-flow-rows': chartRows } as CSSProperties}>
           {months.map((month) => {
-            const rowMaximum = month.baseline_surplus >= 0 ? largestSurplus : largestShortfall
-            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs(month.baseline_surplus) / rowMaximum) * 100
+            const rowMaximum = (month.baseline_surplus ?? 0) >= 0 ? largestSurplus : largestShortfall
+            const surplusHeight = rowMaximum === 0 ? 0 : (Math.abs((month.baseline_surplus ?? 0)) / rowMaximum) * 100
             const style = { '--surplus-height': `${surplusHeight}%` } as CSSProperties
             const MonthTarget = narrow ? 'div' : 'button'
+            const monthKnown = moneyKnown && month.income != null && month.baseline_surplus != null
             return (
-              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
+              <article className={`cash-flow-month${(month.baseline_surplus ?? 0) < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
                 <MonthTarget
                   type={narrow ? undefined : 'button'}
                   className="cash-flow-month-trigger"
                   aria-hidden={narrow || undefined}
                   aria-pressed={narrow ? undefined : pinnedPeriodId === month.period_id}
                   aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
-                  aria-label={!moneyKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${formatReviewMoney(Math.round((month.income) * 100))} income, ${formatReviewMoney(Math.round((month.planned_outflow) * 100))} planned outflow, and ${formatReviewMoney(Math.round((Math.abs(month.baseline_surplus)) * 100))} ${month.baseline_surplus < 0 ? 'short' : 'left over'}`}
+                  aria-label={!monthKnown ? `${month.label} ${plan.year}: Not entered` : `${month.label} ${plan.year}: ${formatReviewMoney(Math.round((month.income ?? 0) * 100))} income, ${formatReviewMoney(Math.round((month.planned_outflow) * 100))} planned outflow, and ${formatReviewMoney(Math.round((Math.abs((month.baseline_surplus ?? 0))) * 100))} ${(month.baseline_surplus ?? 0) < 0 ? 'short' : 'left over'}`}
                   onMouseEnter={narrow ? undefined : (event) => {
                     // Focusing a month can scroll another bar beneath a stationary
                     // pointer. Keep the keyboard user's detail on the focused month.
@@ -265,13 +269,13 @@ export function AnnualCashFlowChart({
                   onClick={narrow ? undefined : () => togglePinnedPeriod(month.period_id)}
                 >
                   <div className="cash-flow-bars" aria-hidden="true">
-                    <span className="cash-flow-bar-above">{moneyKnown && month.baseline_surplus > 0 && <i />}</span>
-                    <span className="cash-flow-bar-below">{moneyKnown && month.baseline_surplus < 0 && <i />}</span>
+                    <span className="cash-flow-bar-above">{monthKnown && (month.baseline_surplus ?? 0) > 0 && <i />}</span>
+                    <span className="cash-flow-bar-below">{monthKnown && (month.baseline_surplus ?? 0) < 0 && <i />}</span>
                   </div>
                   <strong>{month.label}</strong>
-                  <span className={`cash-flow-month-summary${month.baseline_surplus < 0 ? ' negative' : ''}`}>
-                    <b>{moneyKnown ? compactCurrency.format(Math.abs(month.baseline_surplus)) : '—'}</b>
-                    {moneyKnown && <small>{month.baseline_surplus < 0 ? 'short' : 'left'}</small>}
+                  <span className={`cash-flow-month-summary${(month.baseline_surplus ?? 0) < 0 ? ' negative' : ''}`}>
+                    <b>{monthKnown ? compactCurrency.format(Math.abs((month.baseline_surplus ?? 0))) : '—'}</b>
+                    {monthKnown && <small>{(month.baseline_surplus ?? 0) < 0 ? 'short' : 'left'}</small>}
                   </span>
                 </MonthTarget>
               </article>
@@ -287,7 +291,7 @@ export function AnnualCashFlowChart({
           {months.map((month) => <option key={month.period_id} value={month.period_id}>{month.label} {plan.year}</option>)}
         </select>
       </label>}
-      {moneyKnown && activeMonth && (
+      {moneyKnown && activeMonth && activeMonth.baseline_surplus != null && activeMonth.income != null && (
         <div className="cash-flow-detail-panel" aria-live="polite">
           <div className="cash-flow-detail-summary">
             <span>{activeMonth.period_id === reportPeriodId ? 'Report month' : 'Chart preview'}</span>

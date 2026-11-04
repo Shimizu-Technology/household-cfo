@@ -35,7 +35,7 @@ import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
 import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
-import { HomeScreen } from './components/HomeScreen'
+import { HomeMoneyValues, HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
 import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
 import { useChallengeChatCards } from './lib/useChallengeChatCards'
@@ -84,7 +84,7 @@ import {
   transactionDraftBudgetImpacts,
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
-import { firstSetupHasUnsavedChanges } from './lib/firstSetupDraft'
+import { firstSetupHasUnsavedChanges, refreshSetupDraft } from './lib/firstSetupDraft'
 import { formatMoneyOrUnknown, moneyCents, sumMoney } from './lib/moneyMath'
 import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
@@ -158,6 +158,7 @@ import type {
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
+  DashboardData,
   BudgetStackKey,
   DocumentImportItem,
   DocumentImportItemInput,
@@ -1070,8 +1071,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     .join('|')
   const pendingMiaActionDrafts = reviewBudget?.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = reviewBudget?.annual_plan
-  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
-  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const currentBudgetYear = data?.dashboard.action_center.current_year ?? new Date().getFullYear()
+  const currentBudgetMonthIndex = data?.dashboard.action_center.current_month_index ?? new Date().getMonth()
+  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? currentBudgetYear
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === currentBudgetYear ? currentBudgetMonthIndex : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
@@ -2150,7 +2153,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   function startChatFirstSession() {
-    openFirstSessionChat('Help me set up my household. Please ask me one simple question at a time.')
+    if (!switchSection('Ask Mia', { focusHeading: false })) return
+    if (question.trim() || pendingMiaAttachments.length > 0) {
+      setMiaError(`Your message and files are waiting here. Send or clear them to start setup with ${assistantName}.`)
+      return
+    }
+    void handleAskMia('Help me set up my household. Please ask me one simple question at a time.')
   }
 
   function shareAllFirstSession() {
@@ -2874,8 +2882,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
       budgetOperationKeysRef.current.complete(signature)
       setData(miaDraftChangesSharedFinancialRecords(draft, selection) ? { type: 'shared_financial_mutation', update: workspace } : { type: 'financial_mutation', update: workspace })
-      if (draft.draft_type === 'household_setup') {
-        setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
+      if (workspace.workspace?.setup_values) {
+        const approved = workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status)
+        const before = data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : null
+        setSetupDraft(current => refreshSetupDraft(current, before, approved))
       }
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -3826,7 +3836,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
           )}
-          {isRealWorkspace && !data.workspace.setup_complete && <HomeWelcomePanel onPrimaryAction={startChatFirstSession} onManualSetup={startManualFirstSession} plan={data.budget.annual_plan} incomeCents={data.dashboard.month_answer?.money_in_cents ?? null} />}
+          {isRealWorkspace && !data.workspace.setup_complete && <HomeWelcomePanel onPrimaryAction={startChatFirstSession} onManualSetup={startManualFirstSession} plan={data.budget.annual_plan} answer={data.dashboard.month_answer} status={data.workspace.setup_status} />}
           {data.workspace.setup_complete && (
             <HomeScreen
               dashboard={data.dashboard}
@@ -4464,6 +4474,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {activeSection === 'Budget' && budgetForView && (
         <section className="screen-grid budget-screen">
           <div className="screen-heading"><h2 data-page-heading tabIndex={-1}>Budget</h2></div>
+          {selectedBudgetYear === data.dashboard.action_center.current_year && selectedBudgetMonthIndex === data.dashboard.action_center.current_month_index && <MonthPlanLine answer={data.dashboard.month_answer} />}
           {isRealWorkspace && !data.workspace.setup_complete && <div className="budget-setup-prompt">
             <p>Enter your income and spending plan to see how your year looks.</p>
             <Button onClick={startChatFirstSession}>Set up with {assistantName}</Button>
@@ -4522,6 +4533,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             title="Your wealth"
             copy={data.wealth.guidance}
           />
+          <MonthPlanLine answer={data.dashboard.month_answer} />
 
           <div className="metric-row">
             <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} />
@@ -4893,14 +4905,19 @@ function ScreenHeading({ title, copy }: { eyebrow: string; title: string; copy: 
   )
 }
 
-export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, incomeCents = null }: { onPrimaryAction: () => void; onManualSetup: () => void; plan?: AnnualBudgetPlan; incomeCents?: number | null }) {
+export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, answer, status }: { onPrimaryAction: () => void; onManualSetup: () => void; plan?: AnnualBudgetPlan; answer?: DashboardData['month_answer']; status?: WorkspaceSetupStatus }) {
   const { assistantName } = useBrand()
+  const started = (status?.completed_count ?? 0) > 0
+  const missingFields = status?.missing_fields.filter(field => !answer?.main_income_missing || field.key !== 'primary_income') ?? []
   return <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
-    <h2 id="home-welcome-title" data-page-heading tabIndex={-1}>Welcome to your household plan.</h2>
-    <p>Start with your money in and money out; {assistantName} will help you one question at a time.</p>
+    <h2 id="home-welcome-title" data-page-heading tabIndex={-1}>{started ? 'Your household plan' : 'Welcome to your household plan.'}</h2>
+    <p>{started ? 'Your approved numbers so far. You can finish the rest one question at a time.' : `Start with your money in and money out; ${assistantName} will help you one question at a time.`}</p>
+    <HomeMoneyValues answer={answer} />
+    {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
+    {answer?.main_income_missing && <p>Still to add: your main income.</p>}
+    {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
-    <dl className="home-unknown-money"><div><dt>Money in</dt><dd>{incomeCents === null ? 'Not entered' : formatReviewMoney(incomeCents)}</dd></div><div><dt>Your plan</dt><dd>Not entered</dd></div></dl>
-    {plan && <YearOutlook plan={plan} moneyKnown={false} />}
+    {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
   </section>
 }
 
@@ -8080,6 +8097,7 @@ export function CurrentMonthActivityPanel({
   loading,
   error,
   reopen,
+  planKnown = true,
 }: {
   plan: AnnualBudgetPlan
   currentMonthIndex: number
@@ -8087,6 +8105,7 @@ export function CurrentMonthActivityPanel({
   loading: boolean
   error: string | null
   reopen?: LedgerReopenControls
+  planKnown?: boolean
 }) {
   const month = plan.months[currentMonthIndex]
   const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
@@ -8102,17 +8121,18 @@ export function CurrentMonthActivityPanel({
     <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
       <div className="current-month-activity-heading">
         <div>
-          <h4>Planned, actual, and pending review</h4>
+          <h4>{planKnown ? 'Planned, actual, and pending review' : 'Approved spending and pending review'}</h4>
         </div>
         {loading ? <span>Loading report</span> : totalPending > 0 && <span>{formatReviewMoney(Math.round((totalPending) * 100))} waiting for review</span>}
       </div>
       {error && <p className="setup-error" role="alert">{error}</p>}
       <CategoryPressureList
         positions={positions}
+        planKnown={planKnown}
         title="Spending by category"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} planKnown={planKnown} />}
       {visibleSpendingReport && reopen && <IgnoredTransactionList drafts={visibleSpendingReport.ignored_drafts ?? []} {...reopen} />}
     </section>
   )
@@ -8120,13 +8140,13 @@ export function CurrentMonthActivityPanel({
 
 type LedgerReopenControls = { action: string | null; disabled: boolean; onReopen: (draft: TransactionDraft) => void }
 
-function SpendingReportLedger({ report, reopen }: { report: SpendingReport; reopen?: LedgerReopenControls }) {
+function SpendingReportLedger({ report, reopen, planKnown = true }: { report: SpendingReport; reopen?: LedgerReopenControls; planKnown?: boolean }) {
   return (
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{formatReviewMoney(Math.round((report.totals.actual) * 100))} actual</strong>
-        <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>
+        <strong>{planKnown || report.totals.actual > 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
+        {planKnown && <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>}
         <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>
       <TransactionLedger
@@ -8375,6 +8395,9 @@ export function AnnualBudgetPlanner({
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
   )
+  const beforePlanStart = Boolean(plan.plan_starts_on && plan.months[currentMonthIndex]?.starts_on < plan.plan_starts_on)
+  const approvedSpending = budgetPositionTotals(currentPositions).actual
+  const calendarMonth = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
@@ -8410,9 +8433,9 @@ export function AnnualBudgetPlanner({
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
   const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
   const archivedCategories = plan.archived_categories ?? []
-  const today = new Date()
-  const currentCalendarYear = today.getFullYear()
-  const currentCalendarMonthIndex = today.getMonth()
+  const today = guamTodayIso()
+  const currentCalendarYear = Number(today.slice(0, 4))
+  const currentCalendarMonthIndex = Number(today.slice(5, 7)) - 1
   const isViewingCurrentYear = plan.year === currentCalendarYear
   const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
 
@@ -8837,12 +8860,16 @@ export function AnnualBudgetPlanner({
         </section>
       )}
 
-      {planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
+      {beforePlanStart && <section aria-label="Historical spending">
+        <p>Your plan starts in {calendarMonth(plan.plan_starts_on!)}, so {calendarMonth(plan.months[currentMonthIndex].starts_on)} has no plan to compare against.</p>
+        <p>Approved spending: <strong>{approvedSpending > 0 ? formatReviewMoney(Math.round(approvedSpending * 100)) : 'Not known yet'}</strong></p>
+      </section>}
+      {!beforePlanStart && planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
 
       {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
       {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
 
-      {planKnown && <details className="budget-detail-disclosure">
+      {(beforePlanStart || planKnown) && <details className="budget-detail-disclosure">
         <summary>
           <span><strong>This month’s spending</strong><small>What you’ve spent in each category.</small></span>
           <b>{currentPositions.length} categories</b>
@@ -8850,6 +8877,7 @@ export function AnnualBudgetPlanner({
         <CurrentMonthActivityPanel
           plan={plan}
           currentMonthIndex={currentMonthIndex}
+          planKnown={!beforePlanStart}
           spendingReport={spendingReport}
           loading={spendingReportLoading}
           error={spendingReportError}

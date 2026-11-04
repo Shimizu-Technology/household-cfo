@@ -80,14 +80,29 @@ module HouseholdFinance
       return validation("This plan expands to more than #{MAX_ACTIONS} review steps. Split it into smaller plans. Nothing changed.") if combined_items.length > MAX_ACTIONS
       return validation("Two requested changes target the same saved record. Ask for one change at a time and review it before requesting the next one. Nothing changed.") if conflicting_targets?(combined_items, combined_action_indexes)
 
+      intake = MiaSetupIntake.new(raw_input)
+      groceries_included = combined_items.any? do |item|
+        value = item.payload.to_h.dig(:expected_values, "flexible_spend")
+        item.action_type == "confirm_household_setup" && value && Money.cents(value) == intake.flexible_cents
+      end
+      setup_breakdown = intake.fixed_description(include_groceries: groceries_included) if normalized.any? do |entry|
+        value = entry.dig(:action, :setup_updates, :fixed_expenses)
+        entry.dig(:action, :type) == "update_household_setup" && value && Money.cents(value) == intake.fixed_cents
+      end
+      estimate_notes = combined_items.filter_map do |item|
+        cents = item.payload.to_h[:minimum_payment_cents]
+        note = intake.estimate_note(:car_minimum, cents) if item.action_type == "create_debt" && item.payload[:debt_type] == "auto_loan" && item.payload[:label] == "Car loan" && cents
+        item.description = [ item.description, note ].join(" ") if note
+        note
+      end
       proposal = MiaActionDraftBuilder::Proposal.new(
         household: household,
         user: user,
         year: annual_budget_manager.year,
         draft_type: "action_plan",
         title: "Review #{combined_items.length} household changes",
-        summary: "I prepared an ordered plan from #{actions.length} parts of your request. Apply all, or select a dependency-safe subset.",
-        rationale: "Every selected change is rechecked against the latest approved household data, then applied together or not at all.",
+        summary: "I prepared #{combined_items.length} household #{'change'.pluralize(combined_items.length)} for your review.",
+        rationale: [ setup_breakdown, *estimate_notes, ("Every selected change is rechecked against the latest approved household data, then applied together or not at all." unless setup_breakdown) ].compact.join(" "),
         source_prompt: raw_input,
         items: combined_items,
         metadata: {

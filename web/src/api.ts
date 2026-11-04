@@ -443,6 +443,9 @@ export type MiaMonthAnswer = {
   year: number
   month: number
   period_label: string
+  plan_starts_on?: string
+  before_plan_start?: boolean
+  main_income_missing?: boolean
   money_in_cents: number | null
   planned_out_cents: number | null
   spent_so_far_cents: number | null
@@ -715,7 +718,8 @@ export type AnnualBudgetPlan = {
   year: number
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
-  monthly_income: Record<number, number>
+  plan_starts_on?: string
+  monthly_income: Record<number, number | null>
   monthly_debt_minimums: number
   monthly_debt_minimums_known?: boolean
   income_sources: IncomeTimelineSource[]
@@ -766,11 +770,11 @@ export type AnnualOutlookMonth = {
   period_id: number
   label: string
   starts_on: string
-  income: number
+  income: number | null
   category_plan: number
   debt_minimums: number
   planned_outflow: number
-  baseline_surplus: number
+  baseline_surplus: number | null
   expected_irregular: number
   expected_contributors: Array<{ name: string; amount: number }>
   amount_above_typical?: number

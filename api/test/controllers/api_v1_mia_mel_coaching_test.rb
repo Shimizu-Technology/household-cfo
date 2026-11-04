@@ -197,6 +197,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   end
 
   test "an incomplete annual review list cannot establish no reviews in an older month" do
+    @household.update!(created_at: Date.new(2026, 1, 1))
     plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).read_only_plan_data
     plan[:pending_transaction_drafts] = []
     plan[:pending_transaction_drafts_meta] = { total_count: 501, returned_count: 500, truncated: true }

@@ -5,7 +5,7 @@ module HouseholdFinance
   # Planned out includes debt minimums. Spent so far is confirmed category
   # spending, so it is compared with category budgets, never with bank cash.
   class MiaMonthAnswer
-    QUESTION = /\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b/i
+    QUESTION = /\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b/i
 
     def self.question?(message)
       message.to_s.match?(QUESTION)
@@ -54,22 +54,33 @@ module HouseholdFinance
         active = rows.select { |row| row.fetch(:active, true) }
         period = Array(plan[:months])[month - 1].to_h
         approved = plan.fetch(:plan_available, true)
-        allocations_known = approved && active.all? { |row| cell(row).present? && !cell(row)[:allocation_missing] }
         fields = SetupStatus.new(household).confirmed_field_keys
-        income_known = %w[primary_income business_income].all? { |field| fields.include?(field) }
+        costs_known = { "fixed_expenses" => "non_discretionary", "flexible_spend" => "discretionary" }.all? do |field, stack|
+          fields.include?(field) || active.any? { |row| row[:stack_key] == stack }
+        end
+        allocations_known = approved && Date.new(year, month, 1) >= PlanCoverage.new(household).starts_on && costs_known && active.all? { |row| cell(row).present? && !cell(row)[:allocation_missing] }
+        # Business income is optional. Its unconfirmed absence must not hide an
+        # approved source or a deliberately confirmed primary-income zero.
+        income_known = PlanCoverage.new(household).income_known?(Date.new(year, month, 1))
+        before_start = Date.new(year, month, 1) < PlanCoverage.new(household).starts_on
         incomes = plan[:monthly_income].to_h
         income_value = incomes[period[:id]] || incomes[period[:id].to_s]
         income = approved && income_known && !income_value.nil? ? Money.cents(income_value) : nil
         categories = allocations_known ? active.sum { |row| Money.cents(cell(row)[:planned]) } : nil
-        debt = plan[:monthly_debt_minimums_known] ? Money.cents(plan[:monthly_debt_minimums]) : nil
+        debt = !before_start && plan[:monthly_debt_minimums_known] ? Money.cents(plan[:monthly_debt_minimums]) : nil
         planned = categories && debt ? categories + debt : nil
-        actual = approved ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
+        # These cells are uncapped SQL aggregates of approved category splits,
+        # independent of the capped recent/pending transaction lists.
+        actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
+        actual = nil if before_start && actual&.zero?
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
         pending_unknown = truncated
         snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false).call
         readiness_known = income && planned && snapshot[:liquid_assets_known] && SetupStatus.new(household).complete?
         {
+          plan_starts_on: PlanCoverage.new(household).starts_on.iso8601, before_plan_start: before_start,
+          main_income_missing: !income_known && !fields.include?("primary_income"),
           year: year, month: month, period_label: Date.new(year, month, 1).strftime("%B %Y"),
           money_in_cents: income, planned_out_cents: planned, category_plan_cents: categories,
           debt_minimums_cents: debt, spent_so_far_cents: actual,
@@ -92,9 +103,19 @@ module HouseholdFinance
       facts = call
       return [ facts[:clarification], next_move ].compact_blank.join(" ") if facts[:clarification]
 
+      if facts[:before_plan_start]
+        start = Date.iso8601(facts[:plan_starts_on]).strftime("%B %Y")
+        spending = if facts[:spent_so_far_cents].nil?
+          "Approved spending for #{facts[:period_label]} is not known yet."
+        else
+          "From your approved statement lines, you spent #{money(facts[:spent_so_far_cents])} in #{facts[:period_label]}."
+        end
+        return "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}"
+      end
+
       left = facts[:plan_left_cents]
       plan_line = if left.nil?
-        "For #{facts[:period_label]}, I still need the missing income or planned costs to say what your plan leaves"
+        facts[:main_income_missing] ? "For #{facts[:period_label]}, still to add: your main income; I cannot total your money in yet" : "For #{facts[:period_label]}, I still need the missing income or planned costs to say what your plan leaves"
       elsif left.negative?
         "Your plan is short by #{money(-left)} for #{facts[:period_label]}"
       else

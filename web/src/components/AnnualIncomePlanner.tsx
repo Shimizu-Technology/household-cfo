@@ -284,7 +284,7 @@ export function AnnualIncomePlanner({
           <h4 id="annual-income-title">Pay changes</h4>
           <p>Set your pay once. It carries forward until you change it.</p>
         </div>
-        <span>{plan.income_sources.length === 0 ? 'Annual income not entered' : `${formatReviewMoney(Math.round((sumMoney(Object.values(plan.monthly_income))) * 100))} annual income`}</span>
+        <span>{plan.income_sources.length === 0 || Object.values(plan.monthly_income).some(value => value == null) ? 'Annual income not fully known' : `${formatReviewMoney(Math.round((sumMoney(Object.values(plan.monthly_income).filter((value): value is number => value != null))) * 100))} annual income`}</span>
       </div>
 
       {plan.income_sources.length === 0 ? (

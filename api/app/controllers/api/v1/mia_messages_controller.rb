@@ -1679,10 +1679,12 @@ module Api
         annual_plan = read_only_result.annual_plan if read_only_result
         direct_answer = read_only_result&.answer
         if direct_answer.blank? && intent_result.clarification?
-          direct_answer = coaching_guardrail_answer(
-            resolved_content,
-            annual_budget_manager: annual_budget_manager
-          ).presence || clarification_answer(intent_result)
+          setup_question = intent_result.source == "deterministic" && intent_result.topic.to_h[:type] == "household_setup"
+          direct_answer = if setup_question
+            clarification_answer(intent_result)
+          else
+            coaching_guardrail_answer(resolved_content, annual_budget_manager: annual_budget_manager).presence || clarification_answer(intent_result)
+          end
         end
         pending_draft_answer = pending_guardrail_answer(content)
         action_result = nil
@@ -2368,6 +2370,13 @@ module Api
         ).call
 
         answer_packet[:available_product_modules] = module_guidance.context
+        setup = HouseholdFinance::SetupStatus.new(current_household)
+        if mia_action_result&.proposal && !setup.complete?
+          answer_packet[:household_setup] = {
+            still_to_add: setup.as_json[:missing_fields].map { |field| field[:label] },
+            next_action: "Check and apply this review card. Ask only for the next missing setup essential after approval; optional debt balances can wait."
+          }
+        end
         narrator = HouseholdFinance::MiaNarrator.new(
           user_message: content,
           history: history,

@@ -27,7 +27,7 @@ module HouseholdFinance
           if category_id.zero?
             category_id = scoped_allocations.where(id: changes.first.fetch(:allocation_id)).pick(:budget_category_id).to_i
           end
-          { category_id: category_id, changes: changes, year: input.fetch(:year).to_i }
+          { category_id: category_id, changes: changes, carry_forward: input[:carry_forward] == true ? true : nil, year: input.fetch(:year).to_i }.compact
         end
 
         def subject_for(input, lock:)
@@ -81,7 +81,7 @@ module HouseholdFinance
             end,
             expenses: before.fetch("expenses")
           }
-          sync = uniform_full_year_amount(predicted.fetch(:allocations), input.fetch(:year))
+          sync = recurring_setup_amount(predicted.fetch(:allocations), input) || uniform_full_year_amount(predicted.fetch(:allocations), input.fetch(:year))
           predicted[:expenses] = synced_expense_prediction(before.fetch("expenses"), before.fetch("category"), sync) if sync
           predicted
         end
@@ -97,10 +97,8 @@ module HouseholdFinance
             allocation = allocations.fetch(change.fetch(:allocation_id)) { raise ActiveRecord::RecordNotFound, "Budget allocation not found" }
             allocation.update!(planned_amount_cents: change.fetch(:after_cents), source: "manual")
           end
-          sync = uniform_full_year_amount(
-            allocations.values.map { |allocation| allocation_snapshot(allocation.reload) },
-            input.fetch(:year)
-          )
+          snapshots = allocations.values.map { |allocation| allocation_snapshot(allocation.reload) }
+          sync = recurring_setup_amount(snapshots, input) || uniform_full_year_amount(snapshots, input.fetch(:year))
           sync_expense_item!(prepared.before_snapshot.fetch("expenses"), sync) if sync
           allocations.fetch(input.fetch(:changes).first.fetch(:allocation_id))
         end
@@ -114,6 +112,14 @@ module HouseholdFinance
           return true if predicted == actual
 
           raise ArgumentError, "The budget allocation result did not match the reviewed change. Nothing changed."
+        end
+
+        def recurring_setup_amount(allocations, input)
+          return unless input[:carry_forward]
+
+          months = PlanCoverage.new(household).month_numbers(input.fetch(:year))
+          values = allocations.map(&:stringify_keys).select { |allocation| months.include?(allocation.fetch("month")) }.map { |allocation| allocation.fetch("planned_amount_cents") }.uniq
+          values.sole if values.one?
         end
 
         def scoped_allocations
