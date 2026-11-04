@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { ProgramCreatedNotice, rememberCreatedProgram } from './ProgramCreatedNotice'
+import { ProgramCreatedNotice } from './ProgramCreatedNotice'
+import { rememberCreatedProgram } from '../lib/programCreated'
 beforeEach(()=>sessionStorage.clear())
 afterEach(()=>{cleanup();vi.restoreAllMocks()})
 it('keeps a saved confirmation through the entire staff app remount',()=>{

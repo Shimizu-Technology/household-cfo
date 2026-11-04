@@ -91,3 +91,30 @@ test('Coach Studio live follow-ups recover a lost atomic launch response and con
   expect(saved.status()).toBe(200)
   expect(JSON.stringify(await saved.json())).toContain(name)
 })
+
+test('Coach Studio live voice proposal labels exact coach wording and suggestions separately', async ({page,context},info)=>{
+ test.skip(!fixtures?._voice || !live || !api,'Requires the recorded W16 setup turn')
+ test.setTimeout(120_000)
+ const voice=fixtures._voice
+ await context.route(`${api}/**`,async route=>{
+  const headers={...route.request().headers(),Authorization:`Bearer test_token_${voice.coach_id}`}
+  if(new URL(route.request().url()).pathname==='/api/v1/auth/me'){
+   const response=await route.fetch({headers});const payload=await response.json()
+   return route.fulfill({response,json:{...payload,user:{...payload.user,clerk_id:'e2e_coach'}}})
+  }
+  return route.continue({headers})
+ })
+ if(info.project.name==='desktop-chrome') await page.setViewportSize({width:1366,height:900})
+ await page.goto(`${live}/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio`)
+ await page.getByLabel('Program',{exact:true}).selectOption(String(voice.workspace_id))
+ await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Your assistant',exact:true}).click()
+ await expect(page.getByText('Your voice suggestions')).toBeVisible({timeout:60_000})
+ await page.getByText('Review each suggestion',{exact:true}).click()
+ await expect(page.getByText('Coach said',{exact:true}).first()).toBeVisible()
+ await expect(page.getByText('Suggested from what you said',{exact:true}).first()).toBeVisible()
+ const exact=await page.locator('.persona-proposal-change').evaluateAll(rows=>rows.filter(row=>row.querySelector('header span')?.textContent==='Coach said').map(row=>({value:row.querySelector('.coach-suggestion-value')?.textContent,quote:row.querySelector('blockquote')?.textContent})))
+ expect(exact.length).toBeGreaterThan(0)
+ for(const row of exact) expect(row.quote).toContain(row.value)
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ if(evidence){await mkdir(evidence,{recursive:true});await page.screenshot({path:`${evidence}/${info.project.name}-voice-source-labels.png`,fullPage:true,scale:'css'})}
+})

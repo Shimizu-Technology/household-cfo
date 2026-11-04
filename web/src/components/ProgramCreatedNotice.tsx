@@ -1,13 +1,7 @@
 import { useState } from 'react'
+import { readCreatedProgram } from '../lib/programCreated'
 
-const key = (userId: number) => `hcfo.programCreated:${userId}`
-export function rememberCreatedProgram(userId: number | undefined, workspace: {id:number;name:string}) {
-  if (userId == null) return
-  try { sessionStorage.setItem(key(userId),JSON.stringify({...workspace,at:Date.now()})) } catch { /* The selected program still confirms the saved outcome. */ }
-}
-export function ProgramCreatedNotice({userId,workspaceId}:{userId:number;workspaceId:number|null}) {
-  const [created] = useState<{id:number;name:string;at:number}|null>(()=>{
-    try { const value=JSON.parse(sessionStorage.getItem(key(userId))??'null');return value?.id===workspaceId && typeof value.name==='string' && Date.now()-value.at<600_000 ? value : null } catch {return null}
-  })
+export function ProgramCreatedNotice({ userId, workspaceId }: { userId: number; workspaceId: number | null }) {
+  const [created] = useState(() => readCreatedProgram(userId, workspaceId))
   return created ? <p role="status" className="coach-studio-alert is-success">{created.name} was created and selected. You can now set up its assistant, appearance and groups.</p> : null
 }

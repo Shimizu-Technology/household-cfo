@@ -7,7 +7,7 @@ import {
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
-import { rememberCreatedProgram } from './ProgramCreatedNotice'
+import { rememberCreatedProgram } from '../lib/programCreated'
 import { Button } from './Button'
 import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
