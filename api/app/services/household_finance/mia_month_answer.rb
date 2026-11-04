@@ -54,9 +54,14 @@ module HouseholdFinance
         active = rows.select { |row| row.fetch(:active, true) }
         period = Array(plan[:months])[month - 1].to_h
         approved = plan.fetch(:plan_available, true)
-        allocations_known = approved && active.all? { |row| cell(row).present? && !cell(row)[:allocation_missing] }
         fields = SetupStatus.new(household).confirmed_field_keys
-        income_known = %w[primary_income business_income].all? { |field| fields.include?(field) }
+        costs_known = { "fixed_expenses" => "non_discretionary", "flexible_spend" => "discretionary" }.all? do |field, stack|
+          fields.include?(field) || active.any? { |row| row[:stack_key] == stack }
+        end
+        allocations_known = approved && costs_known && active.all? { |row| cell(row).present? && !cell(row)[:allocation_missing] }
+        # Business income is optional. Its unconfirmed absence must not hide an
+        # approved source or a deliberately confirmed primary-income zero.
+        income_known = fields.include?("primary_income") || Array(plan[:income_sources]).any?
         incomes = plan[:monthly_income].to_h
         income_value = incomes[period[:id]] || incomes[period[:id].to_s]
         income = approved && income_known && !income_value.nil? ? Money.cents(income_value) : nil

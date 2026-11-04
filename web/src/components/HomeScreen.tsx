@@ -34,11 +34,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
       <p>{actionCenter.current_month_label}{actionCenter.current_year !== Number(guamTodayIso().slice(0, 4)) ? ` ${actionCenter.current_year}` : ''}</p>
     </div>
     <section className="home-month-answer" aria-label="Your month in money">
-      <dl className="home-money-values">
-        <MoneyValue label="Money in" cents={answer?.money_in_cents} />
-        <MoneyValue label="Money out · planned" cents={answer?.planned_out_cents} />
-        <MoneyValue label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
-      </dl>
+      <HomeMoneyValues answer={answer} />
       <p className="home-plan-caveat">{left == null ? 'Add the missing income or planned costs to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
       {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="text-button" onClick={onOpenDebt}>Add debt minimums</button>}
       <p className="home-spent">Spent so far this month: <strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
@@ -57,6 +53,26 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
       {canAskMia && actionCenter.mia_action_review_count > 0 && <button type="button" className="text-button" onClick={onReviewMiaActions}>{actionCenter.mia_action_review_count} {assistantName} change{actionCenter.mia_action_review_count === 1 ? '' : 's'} waiting for review</button>}
     </div>}
   </section>
+}
+
+export function HomeMoneyValues({ answer }: { answer?: DashboardData['month_answer'] }) {
+  const left = answer?.plan_left_cents
+  return <dl className="home-money-values">
+    <MoneyValue label="Money in" cents={answer?.money_in_cents} />
+    <MoneyValue label="Money out · planned" cents={answer?.planned_out_cents} />
+    <MoneyValue label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
+  </dl>
+}
+
+/** The current month answer can travel with plan details without recalculation. */
+export function MonthPlanLine({ answer }: { answer?: DashboardData['month_answer'] }) {
+  if (!answer || (answer.money_in_cents == null && answer.planned_out_cents == null)) return null
+  const money = (value: number | null | undefined) => value == null ? 'Not entered' : formatReviewMoney(value)
+  const left = answer.plan_left_cents
+  return <p className="month-plan-line" aria-label="Current month plan">
+    {answer.period_label} plan: <strong>{money(answer.money_in_cents)}</strong> money in · <strong>{money(answer.planned_out_cents)}</strong> planned out · <strong>{money(left == null ? left : Math.abs(left))}</strong> {left != null && left < 0 ? 'short' : 'left'}.
+    {' '}Plan figures, not a bank balance.
+  </p>
 }
 
 function MoneyValue({ label, cents }: { label: string; cents: number | null | undefined }) {

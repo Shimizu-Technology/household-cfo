@@ -49,7 +49,13 @@ module HouseholdFinance
     end
 
     def setup_request_message(value)
-      after_apply_message if self.class.setup_request?(value)
+      return after_apply_message if self.class.setup_request?(value)
+      return unless value.to_s.squish.match?(/\Awhat (?:else )?do you (?:still )?need from me to finish (?:setting up|setup)\??\z/i)
+
+      return complete_message if setup_status.complete?
+
+      missing = setup_status.as_json[:missing_fields].map { |field| field[:label].downcase }.to_sentence
+      "Still to add: #{missing}. #{after_apply_message}"
     end
 
     def next_missing_field
@@ -65,7 +71,7 @@ module HouseholdFinance
     end
 
     def complete_message
-      "Your starting picture is complete. For your first coaching step, ask me “What should I focus on first this month?” and I’ll use your approved numbers."
+      "Your household setup is complete. Ask me “How am I doing this month?” to see what your plan leaves."
     end
   end
 end

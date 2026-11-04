@@ -4741,15 +4741,12 @@ test('BOG UI household incomplete participants get a short first session, privat
   await expect(feedback).toContainText('were not sent to analytics')
   await feedback.getByRole('button', { name: 'Return to Household CFO' }).click()
 
+  const guidedSetupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia/messages') && request.method() === 'POST')
   await page.getByRole('button', { name: 'Set up with Mia' }).click()
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   await expect(page.locator('.mia-setup-count')).toBeVisible()
   const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
-  await expect(guidedComposer).toBeFocused()
-
-  const guidedSetupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia/messages') && request.method() === 'POST')
-  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(guidedComposer).toHaveValue('')
   const guidedSetupRequest = await guidedSetupRequestPromise
   expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
   await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
@@ -4761,7 +4758,9 @@ test('BOG UI household incomplete participants get a short first session, privat
   await openChatContext(page)
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
-  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
+  await expect(guidedComposer).toHaveValue(/Here is everything I know so far:/)
+  await expect(page.getByText(/Your message and files are waiting here/)).toBeVisible()
+  await guidedComposer.fill('')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Show setup options' }).click()
   await page.getByRole('button', { name: 'Enter manually' }).click()
@@ -13422,4 +13421,21 @@ test('BOG UI Home hides debt recovery when My Money is disabled', async ({ page 
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
+})
+
+test('BOG UI household setup shares approved current-month income and money left on Home Budget and Wealth', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const home = page.locator('.home-money-values')
+  for (const value of ['$5,200', '$3,100', '$2,100']) await expect(home).toContainText(value)
+  for (const section of ['Budget', 'Wealth']) {
+    await openSection(page, section)
+    const summary = page.getByLabel('Current month plan')
+    await expect(summary).toContainText('$5,200 money in')
+    await expect(summary).toContainText('$3,100 planned out')
+    await expect(summary).toContainText('$2,100 left')
+    await expect(summary).toContainText('not a bank balance')
+  }
 })

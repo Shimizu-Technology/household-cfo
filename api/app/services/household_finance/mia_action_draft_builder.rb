@@ -101,7 +101,34 @@ module HouseholdFinance
             }
           )
 
+          supersede_setup_reviews!(draft, source_chat_message)
+
           draft
+        end
+      end
+
+      private
+
+      def supersede_setup_reviews!(replacement, source_message)
+        return unless draft_type == "household_setup"
+
+        fields = items.select { |item| item.action_type == "confirm_household_setup" }.flat_map { |item| item.payload[:confirmed_fields] }.map(&:to_s)
+        return if fields.empty?
+
+        # Only fully replaced setup cards from this same person and conversation
+        # are superseded. Unrelated and partly applied work stays available.
+        candidates = household.mia_action_drafts.pending.where(draft_type: "household_setup", requested_by_user: user)
+          .where.not(id: replacement.id).joins(:source_chat_message)
+          .where(chat_messages: { chat_session_id: source_message.chat_session_id })
+        candidates.each do |previous|
+          previous_fields = previous.mia_action_items.where(action_type: "confirm_household_setup").flat_map { |item| Array(item.payload["confirmed_fields"]) }
+          next if previous_fields.empty? || (previous_fields - fields).any?
+          # A card that also proposes a tracked goal must not lose that goal.
+          next if previous.mia_action_items.where(action_type: "create_goal").exists?
+
+          membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+          result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: membership).call(idempotency_key: "superseded:#{previous.id}:#{replacement.id}")
+          raise ArgumentError, result.errors.join(", ") unless result.success?
         end
       end
     end

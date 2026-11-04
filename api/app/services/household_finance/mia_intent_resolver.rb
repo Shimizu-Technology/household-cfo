@@ -107,6 +107,7 @@ module HouseholdFinance
     HOUSEHOLD_NAME_CLAUSE_SOURCE = "(?:we|we['’]re|we['’]ll|i['’]m|cuz|because|since|(?:our|my)\\s+#{HOUSEHOLD_NAME_TOPIC_SOURCE})"
     HOUSEHOLD_NAME_STOP_SOURCE = "(?=\\s*[.;,!?]|\\s+#{HOUSEHOLD_NAME_FILLER_SOURCE}(?![[:alnum:]])|\\s+(?:and|but|so|plus)\\s+(?:i|also|then|(?:the\\s+)?#{HOUSEHOLD_NAME_TOPIC_SOURCE}|#{HOUSEHOLD_NAME_CLAUSE_SOURCE})(?![[:alnum:]])|\\s+#{HOUSEHOLD_NAME_CLAUSE_SOURCE}(?![[:alnum:]])|\\s*\\z)"
     DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS = [
+      Regexp.new("\\b(?:call|name)\\s+it\\s+(?:the\\s+)?(.+?)#{HOUSEHOLD_NAME_STOP_SOURCE}", Regexp::IGNORECASE),
       Regexp.new("\\b(?:our\\s+)?household\\s+(?:name\\s+)?(?:is\\s+)?(?:called|named)\\s+(.+?)#{HOUSEHOLD_NAME_STOP_SOURCE}", Regexp::IGNORECASE),
       Regexp.new("\\bcall\\s+(?:us|(?:my|our)\\s+household)\\s+(.+?)#{HOUSEHOLD_NAME_STOP_SOURCE}", Regexp::IGNORECASE)
     ].freeze
@@ -217,6 +218,9 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
+      intake = MiaSetupIntake.new(raw_user_message, context: context).call unless read_only_request
+      return intake if intake
+
       if !read_only_request && MiaMonthAnswer.question?(user_message)
         report_text = raw_user_message.split(/(?<=[.!?])\s+/).map do |sentence|
           question = sentence.match(MiaMonthAnswer::QUESTION)
@@ -232,12 +236,16 @@ module HouseholdFinance
         return purchase if purchase
       end
 
-      setup_result = deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
+      setup_result = setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
       return read_only_request ? explicit_read_only_result : deterministic_purchase_result if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
+      if result.action.to_h[:type] == "create_goal" && context.dig(:conversation, :active_thread, :type) == "household_setup" &&
+          Array(context.dig(:setup_status, :missing_fields)).any? { |field| field[:key].to_s == "primary_goal" }
+        result.action[:setup_primary_goal] = true
+      end
       if read_only_request && (!result.intent.in?(READ_ONLY_INTENTS) || result.actionable? || result.clarification?)
         return explicit_read_only_result
       end
@@ -640,7 +648,8 @@ module HouseholdFinance
     end
 
     def cleaned_household_name(raw)
-      name = raw.to_s.squish
+      unwrapped = raw.to_s.squish.sub(/\A(?:(?:call|name)\s+it\s+(?:the\s+)?|it['’]s\s+the\s+)/i, "")
+      name = household_name_from_reply(unwrapped).squish
       filler = /(?:[^[:alnum:]]+|\s+#{HOUSEHOLD_NAME_FILLER_SOURCE})\z/i
       name = name.sub(filler, "") while name.match?(filler)
       name = name.gsub(/\A["“'‘]+|["”'’]+\z/, "").squish
@@ -698,6 +707,13 @@ module HouseholdFinance
       end
     end
 
+    def setup_goal_result
+      return unless Array(context.dig(:setup_status, :missing_fields)).any? { |field| field[:key].to_s == "primary_goal" }
+      return unless MiaSetupIntake.goal_target(user_message)
+
+      setup_reply_result("primary_goal", user_message.sub(/[.!]\z/, ""))
+    end
+
     def next_missing_setup_field
       Array(context.dig(:setup_status, :missing_fields)).first.to_h.deep_symbolize_keys[:key].to_s.presence
     end
@@ -739,7 +755,7 @@ module HouseholdFinance
       return if field == "household_name" && user_message.include?("$")
       return user_message unless field == "household_name"
 
-      name = cleaned_household_name(household_name_from_reply(user_message))
+      name = cleaned_household_name(user_message)
       name if name.present? && household_name_shape?(name) && !name.match?(HOUSEHOLD_NAME_SENTENCE_START_PATTERN)
     end
 

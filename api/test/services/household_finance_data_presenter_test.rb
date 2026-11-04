@@ -13,7 +13,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       expected = HouseholdFinance::MiaMonthAnswer.for_question(household, "How am I doing this month?").call
       assert_equal expected, dashboard.fetch(:month_answer)
       assert_nil expected[:money_in_cents]
-      assert_equal 0, expected[:planned_out_cents]
+      assert_nil expected[:planned_out_cents], "missing setup costs are unknown, even when a different year already has empty periods"
       assert_nil expected[:runway_months]
       assert_includes HouseholdFinance::MiaMonthAnswer.for_question(household, "How am I doing this month?").response, expected.fetch(:readiness_guidance)
     end

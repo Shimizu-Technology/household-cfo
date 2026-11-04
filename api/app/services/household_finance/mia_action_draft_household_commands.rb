@@ -65,17 +65,45 @@ module HouseholdFinance
       items = typed_setup_items(changed)
       return items if items.is_a?(MiaActionDraftBuilder::Result)
 
+      # The same reviewed goal text completes setup and can establish a target.
+      # Unknown progress stays unknown; approving this never moves money.
+      target = MiaSetupIntake.goal_target(normalized[:primary_goal])
+      if target && !confirmed_fields.include?("primary_goal")
+        tracked = setup_tracked_goal_item(normalized[:primary_goal], target)
+        return tracked if tracked.is_a?(MiaActionDraftBuilder::Result)
+        items << tracked if tracked
+      end
+
+      breakdown = MiaSetupIntake.new(raw_input).fixed_description
+      if breakdown && normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == MiaSetupIntake.new(raw_input).fixed_cents
+        items.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
+      end
+
       impact = setup_impact(before_values, normalized)
       metadata = { source: "mia_chat", parser: "model_intent" }
       metadata[:impact] = impact if impact
       proposal_result(
         draft_type: "household_setup",
-        title: changed.one? ? "Update an approved household value" : "Update approved household values",
+        title: "Review your household details",
         summary: "I prepared #{changed.length} household #{'change'.pluralize(changed.length)} for your review.",
-        rationale: "These values shape Mia’s coaching and the Home snapshot. They stay unchanged until you approve this card.",
+        rationale: [ breakdown, "Review these details before saving them to your household plan." ].compact.join(" "),
         items: items,
         metadata: metadata
       )
+    end
+
+    def setup_tracked_goal_item(text, target)
+      label = MiaSetupIntake.goal_label(text)
+      existing = household.goals.tracked.active.where(goal_type: "savings").where("LOWER(label) IN (?)", [ text, label ].map(&:downcase)).to_a
+      # An already tracked goal must not leave the primary goal unconfirmed or
+      # create a duplicate. Ambiguous records can be refined in My Money later.
+      return if existing.many?
+      return if existing.one? && existing.first.target_amount_known? && existing.first.target_amount_cents == target
+
+      command = { type: existing.one? ? "update_goal" : "create_goal", goal_name: label, goal_type: "savings",
+        target_amount: Money.dollars(target).to_s, setup_primary_goal: false }
+      command[:goal_id] = existing.first.id if existing.one?
+      setup_item_from_command(command)
     end
 
     def structured_income_schedule_proposal

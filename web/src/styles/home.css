@@ -7,6 +7,7 @@
 .home-screen > .home-heading p { margin: 0; color: var(--muted); }
 .home-welcome-panel { display: block; padding: 24px 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .home-welcome-panel > p { max-width: 55ch; }
+.home-welcome-panel .home-money-values { margin-block: 24px; }
 .home-welcome-actions { display: flex; gap: 12px; align-items: center; }
 .home-unknown-money { display: flex; gap: 32px; margin-top: 24px; }
 .home-unknown-money dd { margin: 4px 0; font-weight: 600; }
@@ -31,6 +32,8 @@
 .home-welcome-actions .button { box-shadow: none; }
 
 .home-money-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 0; }
+.month-plan-line { margin: 0; color: var(--muted); font-size: var(--text-sm); line-height: 1.6; }
+.month-plan-line strong { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .home-money-values > div { min-width: 0; }
 .home-money-values dt { font-size: var(--text-sm); }
 .home-money-values dd { margin: 8px 0 0; font: var(--weight-semibold) clamp(24px, 3vw, 36px)/1.15 var(--font-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }

@@ -19,7 +19,12 @@ module HouseholdFinance
         target_record_type: "Goal", target_record_id: nil, payload: payload,
         before_snapshot: {}, after_snapshot: payload.merge(active: true, record_kind: "tracked")
       )
-      proposal_result(draft_type: "goal_plan", title: "Add tracked goal", summary: "I prepared #{label} for your review.", rationale: "The goal records your approved target and progress only after you apply this card. It does not move money or change runway or safe-to-spend.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+      items = [ item ]
+      setup_goal = command[:setup_primary_goal] == true && !SetupStatus.new(household).confirmed_field_keys.include?("primary_goal")
+      if setup_goal
+        items = typed_setup_items([ [ :primary_goal, household.primary_goal.to_s, raw_input.to_s.squish, true ] ]) + items
+      end
+      proposal_result(draft_type: setup_goal ? "household_setup" : "goal_plan", title: "Review your goal", summary: "I prepared #{label} for your review.", rationale: setup_goal ? "Save this as your main household goal and track the target shown below. No money moves." : "The goal records your approved target and progress only after you apply this card. It does not move money or change runway or safe-to-spend.", items: items, metadata: { source: "mia_chat", parser: "model_intent" })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end

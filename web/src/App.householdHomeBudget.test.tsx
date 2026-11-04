@@ -4,9 +4,9 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
 import { AnnualBudgetPlanner, HomeWelcomePanel } from './App'
 import { YearOutlook } from './components/YearOutlook'
-import { HomeScreen } from './components/HomeScreen'
+import { HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { ExpenseStackOverview, MonthPlanSummary } from './components/BudgetVisuals'
-import type { AnnualBudgetPlan, DashboardData } from './api'
+import type { AnnualBudgetPlan, DashboardData, WorkspaceSetupStatus } from './api'
 
 const labels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const plan: AnnualBudgetPlan = {
@@ -188,4 +188,21 @@ it('locks every editable monthly value until the save and household refresh fini
   view.rerender(<AnnualBudgetPlanner {...props} />)
   expect(amount).toHaveProperty('disabled', false)
   expect(amount).toHaveProperty('value', '4000')
+})
+
+it('shows the shared approved month figures during partial setup and names only missing details', () => {
+  const status: WorkspaceSetupStatus = { complete: false, completed_count: 3, required_count: 5, confirmed_fields: ['primary_income', 'fixed_expenses', 'flexible_spend'], required_fields: [], missing_fields: [{ key: 'household_name', label: 'Household name', confirmed: false }, { key: 'primary_goal', label: 'Primary goal', confirmed: false }] }
+  render(<HomeWelcomePanel onPrimaryAction={vi.fn()} onManualSetup={vi.fn()} answer={{ ...dashboard.month_answer!, money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }} status={status} />)
+  expect(screen.getByRole('heading', { name: 'Your household plan' })).toBeTruthy()
+  for (const value of ['$5,200', '$3,100', '$2,100']) expect(screen.getByText(value)).toBeTruthy()
+  expect(screen.getByText('Still to add: household name, primary goal.')).toBeTruthy()
+  expect(screen.queryByText('Not entered')).toBeNull()
+})
+
+it('uses the shared month answer in Budget and Wealth without treating unknown income as zero', () => {
+  const view = render(<MonthPlanLine answer={{ ...dashboard.month_answer!, period_label: 'November 2026', money_in_cents: 520000, planned_out_cents: 310000, plan_left_cents: 210000 }} />)
+  expect(screen.getByLabelText('Current month plan').textContent).toContain('November 2026 plan: $5,200 money in · $3,100 planned out · $2,100 left.')
+  view.rerender(<MonthPlanLine answer={{ ...dashboard.month_answer!, money_in_cents: null, plan_left_cents: null }} />)
+  expect(screen.getByLabelText('Current month plan').textContent).toContain('Not entered money in')
+  expect(screen.getByLabelText('Current month plan').textContent).not.toContain('$0')
 })
