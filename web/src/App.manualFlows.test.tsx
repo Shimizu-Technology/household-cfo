@@ -56,6 +56,7 @@ describe('transaction review cards', () => {
     const { container } = render(<TransactionDraftReviewStack {...props} />)
     expect(container.querySelector('.mia-change-headline .mia-change-figure')?.textContent).toBe('$25')
     expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
+    expect(screen.getByText("McDonald's", { exact: true })).toBeTruthy()
     expect(container.textContent).not.toMatch(/Actuals do not change|Confirm only if|split, and category/)
     fireEvent.click(screen.getByRole('button', { name: "Confirm McDonald's $25 on Oct 4" }))
     expect(props.onConfirm).toHaveBeenCalledWith(expect.objectContaining({ id: 220 }))
