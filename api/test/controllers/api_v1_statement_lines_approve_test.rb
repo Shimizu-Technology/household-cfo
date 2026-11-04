@@ -17,6 +17,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     @user = User.create!(clerk_id: "lines-#{SecureRandom.hex(8)}", email: "lines-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 0)
+    @clothing = @household.budget_categories.create!(name: "Clothing", stack_key: "discretionary", sort_order: 1)
     @source = build_source
     @events = @source[:revision].financial_source_events.includes(:financial_source_evidence).order(:position).index_by { |event| merchant_of(event) }
     suggest(@events.fetch("Payless"), @groceries)
@@ -51,6 +52,24 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       revision.define_singleton_method(:reconciliation) { report }
       assert_equal expected, presenter.plan_summary.fetch(:totals_check), report.inspect
     end
+  end
+
+  test "a household's single active stack category is suggested and waits for confirmation" do
+    @clothing.update!(active: false)
+    @groceries.update!(name: "Flexible spending")
+    plan = review_plan
+    ross = plan.fetch("attention").find { |row| row["merchant"] == "Ross" }
+    assert_equal "suggested_category", ross.fetch("kind")
+    assert_equal "Was this Flexible spending?", ross.fetch("question")
+    assert_equal @groceries.id, ross.fetch("category_id")
+    assert_equal %w[Yes Change], ross.fetch("answers").pluck("label")
+    assert_not_includes plan.fetch("ready_event_ids"), ross.fetch("event_id")
+    assert_empty @household.household_transactions
+
+    approve_lines({ lines: [ { event_id: ross.fetch("event_id"), decision: "as_read", shown: ross.slice("event_type", "category_id") } ] })
+    assert_response :success, response.body
+    assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
+    assert_equal 500, @household.household_transactions.sole.total_amount_cents
   end
 
   test "approving the rest links the account, saves exactly those lines and counts only categorized spending" do
