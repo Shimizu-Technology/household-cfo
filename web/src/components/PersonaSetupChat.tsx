@@ -176,7 +176,7 @@ export function PersonaSetupChat({
         }
         const latestTurn = returnedSession?.turns.at(-1)
         setError(latestTurn?.status === 'failed'
-          ? 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
+          ? latestTurn.assistant_message || 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
           : setupErrorMessage(caught, 'Mia could not prepare this proposal. Try again.'))
       }
     } finally {

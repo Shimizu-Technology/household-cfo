@@ -49,14 +49,17 @@ it('retains the selected area after an account refresh without retaining private
  expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
 })
 
-it('starts describing a default assistant from People without a separate name or create screen',async()=>{
+it('switches areas immediately while creating the default assistant from People',async()=>{
  api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{id:42,name:'Only group',assignable:true}]);
- api.createAdminPersona.mockResolvedValue({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
+ let finishCreate!:(value:unknown)=>void;
+ api.createAdminPersona.mockReturnValue(new Promise(resolve=>{finishCreate=resolve}));
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- const start=await screen.findByRole('button',{name:'Describe your assistant'});
- fireEvent.click(start);
- await screen.findByText('Describe with transcripts');
+ fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
+ expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
  expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Mia',description:''});
+ expect(screen.getByLabelText('Assistant name')).toHaveProperty('disabled',true);
+ finishCreate({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
+ await screen.findByText('Describe with transcripts');
  expect(screen.queryByLabelText('Assistant name')).toBeNull();
  expect(screen.getAllByText('Advanced / history',{selector:'summary'})).toHaveLength(1);
 })
@@ -72,4 +75,14 @@ it('keeps unsaved group work when the coach declines to leave for quick assistan
   expect(api.createAdminPersona).not.toHaveBeenCalled();
   expect(screen.getByText('People and invitations')).toBeTruthy();
  }finally{confirm.mockRestore()}
+})
+
+it('opens an existing assistant from the People checklist',async()=>{
+ api.fetchAdminPersonas.mockResolvedValue([{id:8,status:'draft'}]);
+ api.fetchAdminPersona.mockResolvedValue({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
+ await screen.findByText('Describe with transcripts');
+ expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
+ expect(api.createAdminPersona).not.toHaveBeenCalled();
 })
