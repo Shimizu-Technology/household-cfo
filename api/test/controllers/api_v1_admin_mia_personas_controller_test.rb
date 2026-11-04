@@ -233,7 +233,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "unavailable", response.parsed_body.dig("preview", "status")
     assert_equal "deterministic_fallback", response.parsed_body.dig("preview", "source")
     assert_nil response.parsed_body.dig("preview", "sample_reply")
-    assert_includes response.parsed_body.dig("preview", "notice"), "No canned reply"
+    assert_equal "The preview didn't come through. Try again in a minute.", response.parsed_body.dig("preview", "notice")
     assert_match(/\A[0-9a-f]{64}\z/, response.parsed_body.dig("preview", "digest"))
     assert_nil persona.reload.preview_digest
 

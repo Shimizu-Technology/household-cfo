@@ -56,7 +56,9 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const selected = groups.find((group) => group.id === selectedId) ?? null
   const groupDirty = !!selected && !!draft && JSON.stringify(draftFor(selected)) !== JSON.stringify(draft)
   const dirty = groupDirty || newName.trim().length > 0 || email.trim().length > 0
-  useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
+  // Publish the saved baseline before controls become interactive again. A
+  // passive effect can leave the parent guarding navigation with stale dirt.
+  useLayoutEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
 
   const load = useCallback(async (preferredId?: number | null) => {
     const [nextGroups, nextUsers] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers()])

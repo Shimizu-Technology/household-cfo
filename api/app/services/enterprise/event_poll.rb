@@ -10,58 +10,63 @@ module Enterprise
     def self.call(client: Client.new, max_pages: 10)
       EnterpriseSyncCursor.insert_all([ { name: "workos" } ], unique_by: :index_enterprise_sync_cursors_on_name)
       cursor = EnterpriseSyncCursor.find_by!(name: "workos")
-      # A session advisory lock excludes other pollers without holding a SQL
-      # transaction or cursor row lock across provider requests.
-      ActiveRecord::Base.connection_pool.with_connection do |connection|
-        locked = connection.select_value("SELECT pg_try_advisory_lock(721164203985142)")
-        return unless locked
-        begin
-          cursor.reload
-          checkpoint = cursor.cursor
-          recovered = false
-          if expired_checkpoint?(cursor)
-            checkpoint = rebaseline!(cursor, client: client)
-            recovered = true
-          end
-          seen_checkpoints = Set.new([ checkpoint ])
-          inbox = []
-          max_pages.times do
-            begin
-              page = read_page(checkpoint, client: client)
-            rescue Client::CursorRejected
-              raise if recovered
-              checkpoint = rebaseline!(cursor, client: client)
-              recovered = true
-              seen_checkpoints = Set.new([ checkpoint ])
-              inbox.clear
-              page = read_page(checkpoint, client: client)
-            end
-            events = page.fetch("data")
-            break if events.empty?
-            new_cursor = events.last.fetch("id")
-            raise Client::Unavailable, "WorkOS events cursor did not advance" if seen_checkpoints.include?(new_cursor)
-            seen_checkpoints.add(new_cursor)
-            inbox.concat(events)
-            checkpoint = new_cursor
-          end
-          # Validate the bounded feed before writing anything. Inbox and cursor
-          # commit together; an outage or cycle can never skip pending events.
-          cursor.with_lock do
-            inbox.each do |data|
-              EnterpriseSyncEvent.find_or_create_by!(workos_event_id: data.fetch("id")) do |event|
-                event.assign_attributes(event_type: data.fetch("event"), payload: data.fetch("data"), occurred_at: Time.iso8601(data.fetch("created_at")))
-              end
-            end
-            cursor.update!(cursor: checkpoint, last_polled_at: Time.current, last_error: nil)
-          end
-        rescue StandardError => error
-          cursor.update_columns(last_error: error.class.name, updated_at: Time.current)
-          raise
-        ensure
-          connection.execute("SELECT pg_advisory_unlock(721164203985142)")
+      # The admission connection owns only the transaction lock. Keep cursor
+      # writes and reconciliation on their original connection so partial
+      # security recovery and failure metadata retain their own commits.
+      HouseholdFinance::TransactionLockConnection.with_connection do |connection|
+        connection.transaction do
+          locked = connection.uncached { connection.select_value("SELECT pg_try_advisory_xact_lock(721164203985142)") }
+          return unless locked
+
+          poll_locked(cursor, client: client, max_pages: max_pages)
         end
       end
     end
+
+    def self.poll_locked(cursor, client:, max_pages:)
+      cursor.reload
+      checkpoint = cursor.cursor
+      recovered = false
+      if expired_checkpoint?(cursor)
+        checkpoint = rebaseline!(cursor, client: client)
+        recovered = true
+      end
+      seen_checkpoints = Set.new([ checkpoint ])
+      inbox = []
+      max_pages.times do
+        begin
+          page = read_page(checkpoint, client: client)
+        rescue Client::CursorRejected
+          raise if recovered
+          checkpoint = rebaseline!(cursor, client: client)
+          recovered = true
+          seen_checkpoints = Set.new([ checkpoint ])
+          inbox.clear
+          page = read_page(checkpoint, client: client)
+        end
+        events = page.fetch("data")
+        break if events.empty?
+        new_cursor = events.last.fetch("id")
+        raise Client::Unavailable, "WorkOS events cursor did not advance" if seen_checkpoints.include?(new_cursor)
+        seen_checkpoints.add(new_cursor)
+        inbox.concat(events)
+        checkpoint = new_cursor
+      end
+      # Validate the bounded feed before writing anything. Inbox and cursor
+      # commit together; an outage or cycle can never skip pending events.
+      cursor.with_lock do
+        inbox.each do |data|
+          EnterpriseSyncEvent.find_or_create_by!(workos_event_id: data.fetch("id")) do |event|
+            event.assign_attributes(event_type: data.fetch("event"), payload: data.fetch("data"), occurred_at: Time.iso8601(data.fetch("created_at")))
+          end
+        end
+        cursor.update!(cursor: checkpoint, last_polled_at: Time.current, last_error: nil)
+      end
+    rescue StandardError => error
+      cursor.update_columns(last_error: error.class.name, updated_at: Time.current)
+      raise
+    end
+    private_class_method :poll_locked
 
     def self.read_page(checkpoint, client:)
       if checkpoint.to_s.start_with?(REPLAY_PREFIX)

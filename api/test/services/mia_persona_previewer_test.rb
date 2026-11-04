@@ -51,7 +51,7 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     assert_equal "unavailable", result.fetch(:status)
     assert_equal "invalid_provider_provenance", result.fetch(:source)
     assert_nil result.fetch(:sample_reply)
-    assert_includes result.fetch(:notice), "provider provenance"
+    assert_equal "The preview didn't come through. Try again in a minute.", result.fetch(:notice)
   end
 
   test "does not present a deterministic fallback as the answer to the coach test message" do
@@ -69,7 +69,7 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     assert_equal "unavailable", result.fetch(:status)
     assert_equal "deterministic_fallback", result.fetch(:source)
     assert_nil result.fetch(:sample_reply)
-    assert_includes result.fetch(:notice), "No canned reply"
+    assert_equal "The preview didn't come through. Try again in a minute.", result.fetch(:notice)
   end
 
   test "shows the deterministic crisis boundary without authorizing publication" do

@@ -33,22 +33,27 @@ module HouseholdFinance
       attempted = false
 
       loop do
+        admitted = false
+        result = nil
         connection_pool.with_connection do |connection|
           next if wait_ms.positive? && monotonic_time >= deadline
 
-          attempted = true
-          slot = acquire(connection)
-          if slot && (wait_ms.zero? || monotonic_time < deadline)
-            instrument(admitted: true, waited_ms: elapsed_ms(started_at))
-            begin
-              return yield
-            ensure
-              release(connection, slot)
+          # Transaction pooling can switch PostgreSQL sessions between SQL
+          # statements. Keep the slot and provider call in one transaction;
+          # PostgreSQL releases the lock on commit or rollback, including errors.
+          with_lock_connection(connection) do |lock_connection|
+            lock_connection.transaction(requires_new: true) do
+              attempted = true
+              slot = acquire(lock_connection)
+              if slot && (wait_ms.zero? || monotonic_time < deadline)
+                instrument(admitted: true, waited_ms: elapsed_ms(started_at))
+                admitted = true
+                result = yield
+              end
             end
-          elsif slot
-            release(connection, slot)
           end
         end
+        return result if admitted
 
         remaining = deadline - monotonic_time
         break if remaining <= 0
@@ -71,6 +76,15 @@ module HouseholdFinance
 
     attr_reader :call_site, :provider, :limit, :wait_ms, :connection_pool
 
+    def with_lock_connection(connection)
+      # A savepoint commit retains transaction advisory locks until the outer
+      # commit. Open an independent connection for nested callers so the slot
+      # ends with this call, even when acquired after the admission deadline.
+      return yield connection unless connection.transaction_open?
+
+      TransactionLockConnection.with_connection(pool: connection_pool) { |lock_connection| yield lock_connection }
+    end
+
     # Structured log + Sentry warning so fallbacks (canned replies or "busy"
     # errors, depending on the caller) are visible and countable per call site.
     # Never include participant content: only the call site, reason, and timing.
@@ -91,17 +105,15 @@ module HouseholdFinance
     end
 
     def acquire(connection)
-      (1..limit).find do |slot|
-        ActiveModel::Type::Boolean.new.cast(
-          connection.select_value("SELECT pg_try_advisory_lock(#{provider_key}, #{slot})")
-        )
+      # These SELECTs have side effects. A cached true would falsely admit a
+      # request without a lock; a cached false would hide a newly free slot.
+      connection.uncached do
+        (1..limit).find do |slot|
+          ActiveModel::Type::Boolean.new.cast(
+            connection.select_value("SELECT pg_try_advisory_xact_lock(#{provider_key}, #{slot})")
+          )
+        end
       end
-    end
-
-    def release(connection, slot)
-      connection.select_value("SELECT pg_advisory_unlock(#{provider_key}, #{slot})")
-    rescue ActiveRecord::ActiveRecordError => e
-      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] provider slot release failed: #{e.class}: #{e.message}")
     end
 
     def provider_key
