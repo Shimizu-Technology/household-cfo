@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   ApiRequestError,
   archiveAdminPersona,
@@ -281,7 +281,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     if (createOpen) window.requestAnimationFrame(() => createNameRef.current?.focus())
   }, [createOpen])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDirtyChange(studioDirty)
   }, [studioDirty, onDirtyChange])
 
@@ -295,7 +295,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     })
   }, [conflict, error])
 
-  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  useLayoutEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   useEffect(() => {
     if (!studioDirty) return

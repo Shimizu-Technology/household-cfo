@@ -44,6 +44,18 @@ describe('one reviewed coach group publication', () => {
     mocks.fetchCohortRolloutStudio.mockResolvedValue({...roster,open_rollout:{id:6}})
     await expect(reviewCoachGroup(group)).rejects.toThrow('existing group update')
   })
+  it('explains the empty live-group update requirement before publishing any settings', async () => {
+    mocks.fetchCohortRolloutStudio.mockResolvedValue({...roster,active_release:{id:10},current_roster:{participants:[],digest:'empty'}})
+    await expect(reviewCoachGroup(group)).rejects.toThrow('Add a participant to Practice people in People before updating its live tools.')
+    expect(mocks.sealCohortRelease).not.toHaveBeenCalled()
+    expect(mocks.planCohortRollout).not.toHaveBeenCalled()
+  })
+  it('allows the first launch of a reviewed empty group', async () => {
+    mocks.fetchCohortRolloutStudio.mockResolvedValue({...roster,current_roster:{participants:[],digest:'roster'}})
+    const review=await reviewCoachGroup(group)
+    await publishCoachGroup(review,8,9,'request',()=>true)
+    expect(mocks.launchCohortRelease).toHaveBeenCalledTimes(1)
+  })
   it('uses the reviewed published tools and appearance, then advances the existing controlled rollout gates', async () => {
     const active = { ...roster, active_release: { id: 10 } }
     mocks.fetchCohortRolloutStudio.mockResolvedValue(active)

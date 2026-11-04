@@ -18,6 +18,35 @@ const ready = {ready:true,candidate:{manifest_digest:'candidate',draft_revision:
 function Harness({onChange=vi.fn()}:{onChange?:(value:AdminPersonaDetail)=>void}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={onChange} /> }
 beforeEach(() => {vi.resetAllMocks();settingsApi.reviewCoachSettings.mockResolvedValue({brand:{preview:{brand:{}}},tools:[]});settingsApi.publishCoachSettings.mockResolvedValue({brandVersionId:5,toolVersionIds:{42:4}});api.previewAdminPersona.mockResolvedValue({behavioral_preview_evidence:ready.behavioral_preview_evidence});api.runAdminPersonaEvaluation.mockResolvedValue({evaluation_run:{id:4,status:'passed',passed:true,results:[],run_digest:'run',candidate_digest:'candidate'}});api.fetchAdminPersonaReleaseReadiness.mockResolvedValue(ready);api.fetchAdminPersona.mockResolvedValue(persona);api.publishAdminPersona.mockResolvedValue({persona:{...persona,published_version:{id:9}}});groupApi.reviewCoachGroup.mockResolvedValue({group,participantIds:[7]})})
 afterEach(cleanup)
+it('explains the first voice requirement and gives a direct way back to save it',()=>{
+ const edit=vi.fn();function FirstPublish(){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} onEditVoice={edit}/>}
+ render(<FirstPublish/>);
+ expect(screen.getByText(/You can use the standard voice or edit it first/)).toBeTruthy();
+ fireEvent.click(screen.getByRole('button',{name:'Edit assistant’s voice'}));expect(edit).toHaveBeenCalledTimes(1);
+ expect(api.publishAdminPersona).not.toHaveBeenCalled();
+})
+it('keeps a failed preview plain and retryable without publishing or showing a canned answer',async()=>{
+ api.previewAdminPersona.mockResolvedValueOnce({preview:{status:'unavailable',notice:'Internal provenance and exact draft compilation details.'},behavioral_preview_evidence:null});
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ expect((await screen.findByRole('alert')).textContent).toBe("The preview didn't come through. Try again in a minute.");
+ expect(screen.queryByText(/Internal provenance/)).toBeNull();expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled();expect(settingsApi.reviewCoachSettings).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false);
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));await screen.findByText('Review before going live');
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(3);
+})
+it('names the saved Savings Challenge in the tools review',async()=>{
+ settingsApi.reviewCoachSettings.mockResolvedValue({brand:{preview:{brand:{}}},tools:[{configuration:{cohort:{id:42,name:'Practice people'},draft:{experience_mode:'savings_challenge'}},preview:{modules:[]}}]});
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ await screen.findByText('Review before going live');expect(screen.getByText('90-day Savings Challenge')).toBeTruthy();
+})
+it('uses the same plain recovery when the preview request fails',async()=>{
+ api.previewAdminPersona.mockRejectedValueOnce(new Error('Internal provider gateway failure'));
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ expect((await screen.findByRole('alert')).textContent).toBe("The preview didn't come through. Try again in a minute.");
+ expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false);
+ expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled();
+})
 it('combines explicit approval of displayed answers and phrases with going live',async()=>{
  const onChange=vi.fn();render(<Harness onChange={onChange}/>);
  fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));

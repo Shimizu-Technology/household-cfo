@@ -5345,6 +5345,27 @@ test('Coach Studio warns before discarding an unsaved creation form on a view ch
   await expect(form.getByLabel('Internal description')).toHaveValue('')
 })
 
+test('Coach Studio simple preview failure offers a plain retry and a route to save the voice', async ({ page }) => {
+  let previews = 0
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', route => {
+    previews += 1
+    return route.fulfill({ json: { persona: personaDetailFixture(), preview: { status: 'unavailable', notice: 'Internal provider provenance and compilation details.' }, behavioral_preview_evidence: null } })
+  })
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  const areas = page.getByRole('navigation', { name: 'Coach Studio areas', exact: true })
+  await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+  await expect(page.getByText(/You can use the standard voice or edit it first/)).toBeVisible()
+  await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveText("The preview didn't come through. Try again in a minute.")
+  await expect(page.getByText(/Internal provider provenance/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Approve and go live', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+  await expect.poll(() => previews).toBe(2)
+  await expect(page.getByRole('button', { name: 'Edit assistant’s voice' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Edit assistant’s voice' }).click()
+  await expect(page.getByLabel('Message Mia', { exact: true })).toBeVisible()
+})
+
 test('Coach Studio simple voice review keeps the palette, privacy and proposal state clear', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   const areas = page.getByRole('navigation', { name: 'Coach Studio areas', exact: true })

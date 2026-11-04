@@ -2,16 +2,28 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
+import { useLayoutEffect } from 'react'
 import { CoachStudio } from './CoachStudio'
-const auth=vi.hoisted(()=>({workspaceId:1}))
+const auth=vi.hoisted(()=>({workspaceId:1,initialAdvancedDirty:false}))
 const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaAssignableCohorts:vi.fn()}))
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
-vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:({embedded,onDirtyChange}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void})=><><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button></>}))
+vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({embedded,onDirtyChange}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void}){useLayoutEffect(()=>{if(!embedded&&auth.initialAdvancedDirty)onDirtyChange(true)},[embedded,onDirtyChange]);return <><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button></>}}))
 vi.mock('./CoachProgramSettings',()=>({CoachProgramSettings:()=>null}));vi.mock('./CohortExperienceStudio',()=>({CohortExperienceStudio:()=>null}));vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}));
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
-beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
+beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
 afterEach(cleanup)
+it('keeps the next editor dirty when the previous editor unmounts',async()=>{
+ const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true;
+ try{
+  render(<CoachStudio currentUser={user} onDirtyChange={dirty}/>);await screen.findByText('Get your program ready');
+  fireEvent.click(screen.getByText('Advanced / history',{selector:'summary'}));
+  fireEvent.click(screen.getByRole('button',{name:'Open advanced settings'}));
+  await screen.findByText('Full settings and history');expect(dirty).toHaveBeenLastCalledWith(true);
+  fireEvent.click(screen.getByRole('button',{name:'Back to simple setup'}));
+  expect(confirm).toHaveBeenCalledWith('Your changes will be lost.');expect(screen.getByText('Full settings and history')).toBeTruthy();
+ }finally{confirm.mockRestore()}
+})
 it('has three default areas and a short setup checklist without release terminology',async()=>{
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
  const areas=screen.getByRole('navigation',{name:'Coach Studio areas'});
@@ -68,7 +80,7 @@ it('keeps unsaved group work when the coach declines to leave for quick assistan
   await screen.findByText('Get your program ready');
   fireEvent.click(screen.getByRole('button',{name:'Unsaved group edit'}));
   fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}));
-  expect(confirm).toHaveBeenCalledWith('Leave without saving these changes?');
+  expect(confirm).toHaveBeenCalledWith('Your changes will be lost.');
   expect(api.createAdminPersona).not.toHaveBeenCalled();
   expect(screen.getByText('People and invitations')).toBeTruthy();
  }finally{confirm.mockRestore()}

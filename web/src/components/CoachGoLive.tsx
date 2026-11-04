@@ -7,7 +7,8 @@ import { Button } from './Button'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
-export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; autoPreview?: boolean }) {
+const previewUnavailableNotice = "The preview didn't come through. Try again in a minute."
+export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
@@ -40,9 +41,9 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
         for (const question of samples) {
           if (!current()) return
           setStatus('Preparing an example answer…')
-          const result = await previewAdminPersona(source.id, source.draft_revision!, question)
+          const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch(() => { throw new Error(previewUnavailableNotice) })
           if (!current()) return
-          if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice || 'This preview could not be verified. Try again before publishing.')
+          if (!result.behavioral_preview_evidence?.valid) throw new Error(previewUnavailableNotice)
           if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
           lastEvidence = result.behavioral_preview_evidence
           results.push({ question, answer: result.behavioral_preview_evidence.output })
@@ -157,12 +158,13 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, auto
   const voiceChanges = (reviewedPersona ?? persona).has_unpublished_changes !== false
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>{voiceChanges ? 'Hear your assistant, then go live' : 'Review changes, then go live'}</h3><p>{voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
+    {!persona.published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
     <fieldset disabled={busy}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     {groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>
     {groups.length > 0 && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
-      {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4><p>{item.preview.modules.filter((module) => module.enabled).map((module) => module.label).join(' · ')}</p><p>Hidden: {item.preview.modules.filter((module) => !module.enabled).map((module) => module.label).join(', ') || 'None'}</p></section>)}</>}
+      {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4><p>{item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}</p><p>{item.preview.modules.filter((module) => module.enabled).map((module) => module.label).join(' · ')}</p><p>Hidden: {item.preview.modules.filter((module) => !module.enabled).map((module) => module.label).join(', ') || 'None'}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>For: {readiness.candidate.audience_snapshot.audience}<br />Community context: {readiness.candidate.audience_snapshot.culture.context}</p>}
       {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
       {readiness?.phrase_audience_reviews.map((item) => <div className="coach-phrase-approval" key={item.artifact_id}><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.map((context) => context.replaceAll('_', ' ')).join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></div>)}

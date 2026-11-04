@@ -233,7 +233,7 @@ export function CohortExperienceStudio({
       setConfiguration(next)
       setDraft(next.draft)
       setPreview(null)
-      setNotice('Participant-tools draft saved. Preview this exact draft before publishing.')
+      setNotice(simple ? 'Tools saved. Review them in Go live.' : 'Participant-tools draft saved. Preview this exact draft before publishing.')
     } catch (caught) {
       if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The participant-tools draft could not be saved.'))
     } finally {
