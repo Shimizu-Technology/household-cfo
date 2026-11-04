@@ -286,7 +286,7 @@ class MiaParticipantRuntimeCutoverTest < ActiveSupport::TestCase
     assert_equal "safe_default", runtime.brand.fetch(:mode)
     assert_equal false, runtime.brand.fetch(:available)
     assert_equal "Household CFO", runtime.brand.dig(:config, "product_name")
-    assert_equal %w[home review ask_mia budget profile wealth statements].sort,
+    assert_equal %w[home ask_mia].sort,
       runtime.capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
     household = HouseholdFinance::WorkspaceResolver.new(participant).household
     refute FinancialDocuments::StatementAccess.available?(household: household, user: participant, membership: membership)

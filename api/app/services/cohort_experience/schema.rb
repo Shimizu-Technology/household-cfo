@@ -17,6 +17,10 @@ module CohortExperience
       "optional_modules" => MODULE_DEFAULTS,
       "module_order" => [].freeze
     }.freeze
+    # A corrupt published choice must never grant tools the coach may have disabled.
+    RESTRICTED_CONFIG = DEFAULT_CONFIG.merge(
+      "optional_modules" => CONFIGURABLE_MODULES.index_with(false).freeze
+    ).freeze
     LEGACY_CONFIG = {
       "schema_version" => 1,
       "optional_modules" => OPTIONAL_MODULES.index_with(true).freeze

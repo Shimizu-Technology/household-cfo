@@ -46,7 +46,7 @@ class CohortExperienceEffectiveCapabilitiesResolverTest < ActiveSupport::TestCas
     refute modules.fetch("cfo_filter").fetch(:enabled)
   end
 
-  test "malformed published configuration safely exposes current household defaults" do
+  test "malformed published configuration keeps optional tools closed" do
     coach = create_user("coach")
     participant = create_user("participant")
     cohort = Cohort.create!(name: "Malformed #{SecureRandom.hex(3)}", status: "active", created_by_user: coach)
@@ -61,7 +61,7 @@ class CohortExperienceEffectiveCapabilitiesResolverTest < ActiveSupport::TestCas
 
     assert_equal "safe_default", capabilities.fetch(:source)
     assert capabilities.fetch(:modules).select { |item| item.fetch(:core) }.all? { |item| item.fetch(:enabled) }
-    assert_equal %w[home review ask_mia budget profile wealth statements].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
+    assert_equal %w[home ask_mia].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
   end
 
   test "published version from another configuration fails closed" do
@@ -80,7 +80,7 @@ class CohortExperienceEffectiveCapabilitiesResolverTest < ActiveSupport::TestCas
     capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership).call
 
     assert_equal "safe_default", capabilities.fetch(:source)
-    assert_equal %w[home review ask_mia budget profile wealth statements].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
+    assert_equal %w[home ask_mia].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
   end
 
   test "published version with a mismatched canonical digest fails closed" do
@@ -98,7 +98,7 @@ class CohortExperienceEffectiveCapabilitiesResolverTest < ActiveSupport::TestCas
     capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership).call
 
     assert_equal "safe_default", capabilities.fetch(:source)
-    assert_equal %w[home review ask_mia budget profile wealth statements].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
+    assert_equal %w[home ask_mia].sort, capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }.sort
   end
 
   private
