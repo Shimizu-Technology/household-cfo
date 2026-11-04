@@ -1551,6 +1551,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   end
 
   def with_net_http_start_stub(response, requests = [], start_options = [])
+    previous_wait = ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"]
+    ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = "0"
     singleton = class << Net::HTTP; self; end
     original = singleton.instance_method(:start)
     singleton.define_method(:start) do |*_args, **kwargs, &block|
@@ -1564,6 +1566,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
     yield
   ensure
+    ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = previous_wait
     singleton.send(:remove_method, :start) if singleton.method_defined?(:start)
     singleton.define_method(:start, original)
   end

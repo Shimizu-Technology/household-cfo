@@ -67,10 +67,15 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
         end
       end
     end
+    previous_wait = ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"]
     begin
+      # The provider is stubbed. Host scheduling must not consume its deadline;
+      # an immediate real slot attempt still preserves admission coverage.
+      ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = "0"
       HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, build)
       post_message("I went to Ross again")
     ensure
+      ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = previous_wait
       HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, original)
     end
     assert_equal version.id, selected.version_id
