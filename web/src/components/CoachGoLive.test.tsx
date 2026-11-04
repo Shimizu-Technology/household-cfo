@@ -40,8 +40,8 @@ it('names the saved Savings Challenge in the tools review',async()=>{
  render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
  await screen.findByText('Review before going live');expect(screen.getByText('90-day Savings Challenge')).toBeTruthy();
 })
-it('uses the same plain recovery when the preview request fails',async()=>{
- api.previewAdminPersona.mockRejectedValueOnce(new Error('Internal provider gateway failure'));
+it('uses the same plain recovery when the preview request times out',async()=>{
+ api.previewAdminPersona.mockRejectedValueOnce(Object.assign(new Error('Internal timeout detail'),{name:'ApiDeadlineError'}));
  render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
  expect((await screen.findByRole('alert')).textContent).toBe("The preview didn't come through. Try again in a minute.");
  expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false);
@@ -63,6 +63,12 @@ it.each([408,429,502,503,504])('offers a timed retry for unavailable or timeout 
  api.previewAdminPersona.mockRejectedValueOnce(Object.assign(new Error('Internal gateway details'),{status}));
  render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
  expect((await screen.findByRole('alert')).textContent).toBe("The preview didn't come through. Try again in a minute.");
+})
+it('keeps an unexpected preview error plain without promising a timed recovery',async()=>{
+ api.previewAdminPersona.mockRejectedValueOnce(new Error('Unexpected response parser detail'));
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ expect((await screen.findByRole('alert')).textContent).toBe('The preview could not finish. Reopen your assistant and try again.');
+ expect(api.publishAdminPersona).not.toHaveBeenCalled();
 })
 it('combines explicit approval of displayed answers and phrases with going live',async()=>{
  const onChange=vi.fn();render(<Harness onChange={onChange}/>);

@@ -13,7 +13,7 @@ function previewFailureNotice(error: unknown): string {
   if (status === 401 || status === 403) return 'You don’t have permission to preview this assistant. Ask your workspace owner for access.'
   if (status === 409) return 'Your voice changed. Reopen it and preview the latest saved version.'
   if (status === 422) return 'The voice needs attention. Open it to review the highlighted fields.'
-  if (status == null || status === 408 || status === 429 || (typeof status === 'number' && status >= 500)) return previewUnavailableNotice
+  if ((error instanceof Error && error.name === 'ApiDeadlineError') || status === 408 || status === 429 || (typeof status === 'number' && status >= 500)) return previewUnavailableNotice
   return 'The preview could not finish. Reopen your assistant and try again.'
 }
 export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean }) {
