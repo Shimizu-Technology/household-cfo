@@ -33,6 +33,8 @@ module Demo
     }.freeze
     PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
     UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
+    MONETARY_APPROVAL_PATTERN = /#{MONEY_AMOUNT_PATTERN.source}\s+(?:fits\b|(?:is|looks)\s+(?:fine|okay|ok|affordable|safe)\b)/i.freeze
+    CONDITIONAL_ANSWER_PATTERN = /(?:\A|[.!?;,\n]|\b(?:and|but|because|so|then))\s*(?:yes\b(?!\s+or\s+no)|(?:it|that)\s+does\b|you\s+can\b|go\s+ahead\b|(?:(?:it|that|this|the\s+(?:purchase|expense|trip))(?:['’]s|\s+is)|is)\s+(?:fine|okay|ok|affordable|safe)\b)/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -331,7 +333,7 @@ module Demo
     # Which check a model reply failed, for the log; nil when it passed.
     def generic_claim_rejection(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return "scenario_conclusion" if unsupported_scenario_conclusion?(content)
+      return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
       return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
       return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
@@ -342,9 +344,18 @@ module Demo
       "readiness_mismatch" if approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
     end
 
-    def unsupported_scenario_conclusion?(content)
-      content.to_s.to_enum(:scan, UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN).any? do
+    def unsupported_scenario_conclusion?(content, preview: false)
+      conclusions = Regexp.union(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN, MONETARY_APPROVAL_PATTERN)
+      content.to_s.to_enum(:scan, conclusions).any? do
         match = Regexp.last_match
+        # No-household-data previews can ask an unanswered decision question.
+        # Participants retain the stricter check; neither context may answer
+        # the question with an unverified approval later in the reply.
+        preceding = content.to_s[0...match.begin(0)]
+        conditional = preceding.match?(/\b(?:whether|if)\s+\z/i) && !preceding.match?(/\bas\s+if\s+\z/i)
+        answer_window = content.to_s[match.end(0)..].split(/[.!?\n]/, 3).first(2).join(".")
+        next false if preview && conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)
+
         # A review habit is safe only when the same clause does not claim that
         # a purchase or spending decision works.
         following_clause = content.to_s[match.end(0)..].to_s.split(/[.!?\n]/, 2).first.to_s

@@ -79,6 +79,26 @@ class EnterpriseSyncConcurrencyTest < ActiveSupport::TestCase
     assert_equal 1, EnterpriseSyncEvent.where(workos_event_id: "event_complete").count
   end
 
+  test "poll admission uses an uncached transaction lock on a separate connection" do
+    queries = []
+    subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |*args|
+      payload = args.last
+      queries << payload if payload[:sql].include?("advisory")
+    end
+    @client.before_events = lambda do
+      assert_equal 0, ActiveRecord::Base.connection.open_transactions
+      assert_equal 1, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid <> pg_backend_pid() AND classid = 167909 AND objid = 540281078").to_i
+    end
+    ActiveRecord::Base.cache { 2.times { Enterprise::EventPoll.call(client: @client) } }
+    lock_queries = queries.select { |payload| payload[:sql].include?("pg_try_advisory_xact_lock(721164203985142)") }
+    assert_equal 2, lock_queries.length
+    refute lock_queries.any? { |payload| payload[:cached] }
+    refute queries.any? { |payload| payload[:sql].include?("pg_advisory_unlock") }
+    assert_equal 0, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = 167909 AND objid = 540281078").to_i
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+  end
+
   test "parallel event claims do not hold inbox locks and an older active snapshot cannot undo deactivation" do
     started = Queue.new
     older = SnapshotClient.new(@organization.workos_organization_id, status: "active")
