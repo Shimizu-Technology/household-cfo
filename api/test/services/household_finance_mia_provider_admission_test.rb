@@ -45,6 +45,43 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     assert_equal :reused, HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { :reused }
   end
 
+  test "holds a transaction lock during the provider call and releases it before returning" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "transaction-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0)
+    connection = ActiveRecord::Base.connection
+    locks = -> { connection.uncached { connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()").to_i } }
+    before = locks.call
+    assert_equal :ok, admission.call {
+      assert connection.transaction_open?, "transaction pooling must pin the backend for the provider call"
+      assert_equal before + 1, locks.call
+      :ok
+    }
+    assert_equal before, locks.call
+  end
+
+  test "query caching cannot replay an admission after another connection takes its slot" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "cache-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0)
+    entered = Queue.new
+    release = Queue.new
+    thread = nil
+    ActiveRecord::Base.cache do
+      assert_equal :first, admission.call { :first }
+      thread = Thread.new do
+        admission.call { entered << true; release.pop }
+      end
+      Timeout.timeout(3) { entered.pop }
+      assert_nil admission.call { flunk("a cached acquisition must not bypass the occupied slot") }
+    end
+  ensure
+    release << true
+    thread&.join(3)
+  end
+
+  test "a database error inside an admitted call rolls back its lock without an unlock query" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "rollback-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0)
+    assert_nil admission.call { ActiveRecord::Base.connection.execute("SELECT missing_w11_function()") }
+    assert_equal :reused, admission.call { :reused }
+  end
+
 
   test "waits briefly for a busy provider slot before falling back" do
     admission = HouseholdFinance::MiaProviderAdmission.new(provider: "waiting-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 500)
@@ -53,7 +90,6 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
       attempts += 1
       attempts >= 3 ? 1 : nil
     end
-    admission.define_singleton_method(:release) { |_connection, _slot| true }
 
     assert_equal :admitted_after_wait, admission.call { :admitted_after_wait }
     assert_operator attempts, :>=, 3
@@ -65,7 +101,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
 
       def with_connection
         @checked_out = true
-        yield Object.new
+        yield Class.new { def transaction(**); yield; end }.new
       ensure
         @checked_out = false
       end
@@ -93,7 +129,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     fake_pool = Class.new do
       def with_connection
         sleep(0.08)
-        yield Object.new
+        yield Class.new { def transaction(**); yield; end }.new
       end
     end.new
     admission = HouseholdFinance::MiaProviderAdmission.new(
@@ -117,7 +153,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
   test "releases a slot acquired after the admission deadline without calling the provider" do
     fake_pool = Class.new do
       def with_connection
-        yield Object.new
+        yield Class.new { def transaction(**); yield; end }.new
       end
     end.new
     admission = HouseholdFinance::MiaProviderAdmission.new(
@@ -127,13 +163,21 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
       connection_pool: fake_pool
     )
     times = [ 0.0, 0.01, 0.05, 0.05, 0.05 ]
-    released_slots = []
+    transactions = []
     admission.define_singleton_method(:monotonic_time) { times.shift || 0.05 }
     admission.define_singleton_method(:acquire) { |_connection| 1 }
-    admission.define_singleton_method(:release) { |_connection, slot| released_slots << slot }
+    fake_pool.define_singleton_method(:with_connection) do |&block|
+      connection = Object.new
+      connection.define_singleton_method(:transaction) do |**_, &transaction|
+        transactions << :began
+        transaction.call
+        transactions << :ended
+      end
+      block.call(connection)
+    end
 
     assert_nil admission.call { flunk("late admission must not run the provider block") }
-    assert_equal [ 1 ], released_slots
+    assert_equal [ :began, :ended ], transactions
   end
 
   test "falls back after the bounded wait without invoking the provider" do

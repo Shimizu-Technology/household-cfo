@@ -345,6 +345,13 @@ module Demo
     def unsupported_scenario_conclusion?(content)
       content.to_s.to_enum(:scan, UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN).any? do
         match = Regexp.last_match
+        # Asking whether a purchase fits is a decision check, not a finding
+        # that it does fit. Scope this to the immediately preceding words:
+        # a later assertion in the same reply still has to pass on its own.
+        preceding = content.to_s[0...match.begin(0)]
+        conditional = preceding.match?(/\b(?:whether|if)\s+\z/i) && !preceding.match?(/\bas\s+if\s+\z/i)
+        next false if conditional
+
         # A review habit is safe only when the same clause does not claim that
         # a purchase or spending decision works.
         following_clause = content.to_s[match.end(0)..].to_s.split(/[.!?\n]/, 2).first.to_s

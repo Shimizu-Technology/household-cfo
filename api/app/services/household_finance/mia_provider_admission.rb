@@ -33,22 +33,25 @@ module HouseholdFinance
       attempted = false
 
       loop do
+        admitted = false
+        result = nil
         connection_pool.with_connection do |connection|
           next if wait_ms.positive? && monotonic_time >= deadline
 
-          attempted = true
-          slot = acquire(connection)
-          if slot && (wait_ms.zero? || monotonic_time < deadline)
-            instrument(admitted: true, waited_ms: elapsed_ms(started_at))
-            begin
-              return yield
-            ensure
-              release(connection, slot)
+          # Transaction pooling can switch PostgreSQL sessions between SQL
+          # statements. Keep the slot and provider call in one transaction;
+          # PostgreSQL releases the lock on commit or rollback, including errors.
+          connection.transaction(requires_new: true) do
+            attempted = true
+            slot = acquire(connection)
+            if slot && (wait_ms.zero? || monotonic_time < deadline)
+              instrument(admitted: true, waited_ms: elapsed_ms(started_at))
+              admitted = true
+              result = yield
             end
-          elsif slot
-            release(connection, slot)
           end
         end
+        return result if admitted
 
         remaining = deadline - monotonic_time
         break if remaining <= 0
@@ -91,17 +94,15 @@ module HouseholdFinance
     end
 
     def acquire(connection)
-      (1..limit).find do |slot|
-        ActiveModel::Type::Boolean.new.cast(
-          connection.select_value("SELECT pg_try_advisory_lock(#{provider_key}, #{slot})")
-        )
+      # These SELECTs have side effects. A cached true would falsely admit a
+      # request without a lock; a cached false would hide a newly free slot.
+      connection.uncached do
+        (1..limit).find do |slot|
+          ActiveModel::Type::Boolean.new.cast(
+            connection.select_value("SELECT pg_try_advisory_xact_lock(#{provider_key}, #{slot})")
+          )
+        end
       end
-    end
-
-    def release(connection, slot)
-      connection.select_value("SELECT pg_advisory_unlock(#{provider_key}, #{slot})")
-    rescue ActiveRecord::ActiveRecordError => e
-      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] provider slot release failed: #{e.class}: #{e.message}")
     end
 
     def provider_key

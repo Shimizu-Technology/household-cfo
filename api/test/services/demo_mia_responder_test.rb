@@ -1,6 +1,39 @@
 require "test_helper"
 
 class DemoMiaResponderTest < ActiveSupport::TestCase
+  test "recorded coach preview asks whether the purchase fits without claiming it does" do
+    reply = file_fixture("mia_preview_decision.txt").read.strip
+    responder = stubbed_model_responder(reply)
+    responder.define_singleton_method(:openrouter_response) do |*_args, **_options|
+      @response_source = "live_model"
+      reply
+    end
+    context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
+
+    assert_nil responder.send(:generic_claim_rejection, reply, context: context,
+      user_message: "I want to spend $100 this weekend. How can I decide?")
+    assert_equal reply, responder.call("I want to spend $100 this weekend. How can I decide?", context: context)
+    assert_equal "live_model", responder.response_source
+  end
+
+  test "conditional checks are not affordability findings in either preview or participant replies" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    [ { metrics: {} }, Mia::PersonaPreviewer::PREVIEW_CONTEXT ].each do |context|
+      [ "Check whether it fits your plan.", "Ask whether you can afford it.", "If it fits your plan, consider the tradeoff first." ].each do |reply|
+        assert_nil responder.send(:generic_claim_rejection, reply, context: context.to_json), reply
+      end
+      [ "It fits your plan.", "You can afford it.", "Check whether it fits. You can afford it.",
+        "If it fits your plan, that works for the purchase.", "Check if it fits; it fits your budget.",
+        "Ask whether you can afford it, because you can afford it.", "It looks as if it fits your plan." ].each do |reply|
+        assert_equal "scenario_conclusion", responder.send(:generic_claim_rejection, reply, context: context.to_json), reply
+      end
+      assert_equal "unverified_amount", responder.send(:generic_claim_rejection,
+        "Check whether it fits your plan. Your income is $999.", context: context.to_json)
+      assert_equal "readiness_mismatch", responder.send(:generic_claim_rejection,
+        "Check whether it fits your plan. Your readiness is green.", context: context.to_json)
+    end
+  end
+
   test "review scheduling references do not assert purchase affordability" do
     responder = Demo::MiaResponder.new(api_key: nil)
     context = JSON.generate(Mia::PersonaPreviewer::PREVIEW_CONTEXT)
