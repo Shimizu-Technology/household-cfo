@@ -75,6 +75,15 @@ describe('transaction review cards', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm Payless $18.47 on Oct 4' })).toBeTruthy())
   })
 
+  it('keeps the search when the first review is resolved', () => {
+    const drafts = [draft({ merchant: 'Payless', id: 1 }), draft({ merchant: 'Shell', id: 2 }), ...Array.from({ length: 5 }, (_, index) => draft({ id: index + 3 }))]
+    const props = stackProps(drafts, { compact: true })
+    const { rerender } = render(<TransactionDraftReviewStack {...props} />)
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Shell' } })
+    rerender(<TransactionDraftReviewStack {...props} drafts={drafts.slice(1)} />)
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('Shell')
+  })
+
   it('names every repeated card button for its own transaction while keeping the visible text short', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft(), draft({ id: 221, merchant: 'Shell', amount: 40, amount_cents: 4000 })])} />)
 

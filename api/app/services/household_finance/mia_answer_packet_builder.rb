@@ -105,7 +105,7 @@ module HouseholdFinance
     end
 
     def category_period
-      return unless selected_month.to_i.between?(1, 12)
+      return unless selected_month.to_i.between?(1, 12) && annual_plan_year.to_i.between?(2000, 2100)
 
       date = Date.new(annual_plan_year.to_i, selected_month.to_i, 1)
       { unit: "month", year: date.year, month: date.month, label: date.strftime("%B %Y") }

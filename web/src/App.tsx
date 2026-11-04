@@ -7464,14 +7464,15 @@ export function TransactionDraftReviewStack({
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
-  const newestDraftId = drafts[0]?.id
-  const previousNewestDraftId = useRef(newestDraftId)
+  const previousDraftIds = useRef(new Set(drafts.map((draft) => draft.id)))
   useLayoutEffect(() => {
-    if (newestDraftId == null || previousNewestDraftId.current === newestDraftId) return
-    previousNewestDraftId.current = newestDraftId
+    const newestDraftId = drafts[0]?.id
+    const added = newestDraftId != null && !previousDraftIds.current.has(newestDraftId)
+    previousDraftIds.current = new Set(drafts.map((draft) => draft.id))
+    if (!added) return
     setQuery('')
     setPage(0)
-  }, [newestDraftId])
+  }, [drafts])
   const filteredDrafts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     if (!normalizedQuery) return drafts
@@ -7790,7 +7791,7 @@ function TransactionDraftReviewCard({
 
     const cleanedSplits = splits.filter((split) => split.id || split.amount || split.budget_category_id || split.category_name || split.stack_key || split.notes)
     if (cleanedSplits.length === 0) {
-      setEditError('Add at least one split before saving this draft.')
+      setEditError('Choose at least one category before saving this purchase.')
       return
     }
 
@@ -7855,7 +7856,7 @@ function TransactionDraftReviewCard({
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
             <div>
-              <strong>{splitsNeedingCategory.length} split{splitsNeedingCategory.length === 1 ? '' : 's'} need{splitsNeedingCategory.length === 1 ? 's' : ''} a category</strong>
+              <strong>Choose a category for {splitsNeedingCategory.length} item{splitsNeedingCategory.length === 1 ? '' : 's'}</strong>
               <p>{categoryWarningCopy}</p>
             </div>
             {!editing && onUpdate && <button type="button" className="secondary-button" aria-label={`Review categories for ${itemName}`} disabled={actionsDisabled} onClick={() => {
@@ -7898,7 +7899,7 @@ function TransactionDraftReviewCard({
             {splits.map((split, index) => (
               <div className="transaction-split-editor" key={split.id ?? `new-${index}`}>
                 <label>
-                  <span>Split amount</span>
+                  <span>Category amount</span>
                   <input type="number" min="0.01" step="0.01" value={split.amount} onChange={(event) => updateSplit(index, { amount: event.currentTarget.value })} />
                 </label>
                 <label>
@@ -7940,8 +7941,8 @@ function TransactionDraftReviewCard({
             ))}
           </div>
           <div className="transaction-draft-edit-actions">
-            <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
-            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
+            <button type="button" className="secondary-button" onClick={addSplit}>Add category</button>
+            {splitMismatch && <span className="transaction-draft-disabled-reason">Category amounts total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
             {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
             <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
             <button type="button" disabled={Boolean(action) || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>

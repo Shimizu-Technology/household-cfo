@@ -29,6 +29,10 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     wrong = "Your plan leaves breathing room. Your cushion needs building. Review the 2 purchases waiting for you."
     assert_equal packet[:fallback_response], narrate(missing, packet, "How am I doing this month?")
     assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    repeated = "Your plan leaves breathing room. You have 18 purchases waiting. Review the 18 purchases waiting for you."
+    assert_equal packet[:fallback_response], narrate(repeated, packet, "How am I doing this month?")
+    misplaced = "Your plan leaves breathing room. Review the 18 purchases waiting for you. Add your account balances."
+    assert_equal packet[:fallback_response], narrate(misplaced, packet, "How am I doing this month?")
     assert_equal packet[:fallback_response], narrate(packet[:fallback_response], packet, "How am I doing this month?")
     packet[:annual_plan_summary][:month_answer] = { pending_count: nil, pending_list_truncated: true }
     assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")

@@ -347,15 +347,17 @@ module HouseholdFinance
       count = facts.key?(:pending_review_count) ? facts[:pending_review_count] : facts[:pending_count]
       return false if count == 0
 
-      review = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).select { |sentence| sentence.match?(/\breview\b/i) }
+      sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
+      review = sentences.select { |sentence| sentence.match?(/\breview\b/i) }
       return true unless review.one?
+      return true unless review.first == sentences.last
       return true unless review.first.match?(/\b(?:review|check|look)\b/i)
       if count.nil?
         return true if review.first.match?(/\b\d+\s+(?:purchases?|reviews?|transactions?)\b/i)
         return !review.first.match?(/\b(?:incomplete|unknown|not (?:yet )?known|don['’]?t know|may be|might be)\b/i)
       end
 
-      !review.first.match?(/\b#{count}\s+(?:purchases?|transactions?)\b/i)
+      content.scan(/\b#{count}\s+(?:purchases?|transactions?)\b/i).length != 1
     end
 
     # A reported win supplies an outcome, not evidence of its causes or an

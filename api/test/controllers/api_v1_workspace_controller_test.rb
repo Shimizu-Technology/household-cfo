@@ -1605,6 +1605,32 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 8, change.fetch("month")
     assert_equal 90_000, change.fetch("after_cents")
     assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
+
+    # Another tab can dismiss a visible review while the optional provider is
+    # running. The returned card and persisted reply must reflect that outcome.
+    cancel_during_narration = lambda do |**attributes|
+      original_narrator.call(**attributes.merge(api_key: "")).tap do |narrator|
+        narrator.define_singleton_method(:call) do
+          pending = household.mia_action_drafts.pending.recent_first.first!
+          result = HouseholdFinance::MiaActionDraftCanceler.new(pending, user: user).call(idempotency_key: "during-narration")
+          raise result.errors.join(", ") unless result.success?
+          "The budget change is ready for you to review."
+        end
+      end
+    end
+    with_singleton_stub(HouseholdFinance::MiaNarrator, :new, cancel_during_narration) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+          params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+          headers: auth_headers(user), as: :json
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "canceled", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "set aside"
+    assert_empty body.dig("budget", "annual_plan", "pending_mia_action_drafts")
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
   end
 
   test "a failed attached action draft rolls back newly prepared plan records" do

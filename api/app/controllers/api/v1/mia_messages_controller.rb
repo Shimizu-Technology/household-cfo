@@ -966,8 +966,19 @@ module Api
           # If enrichment fails, the complete, factual reply and its review
           # remain saved together. Never undo a valid draft for a wording error.
           begin
-            assistant_message.with_lock do
+            current_household.with_lock do
+              HouseholdFinance::FinancialGenerationGuard.request!(current_household)
               chat_session_scope.authorize!
+              mia_action_draft.reload
+              if mia_action_draft.status != "pending"
+                status = case mia_action_draft.status
+                when "applied" then "That change was already confirmed while I was preparing this reply."
+                when "partially_applied" then "Part of that change was confirmed while I was preparing this reply. Check the remaining changes on the card."
+                else "That review was set aside while I was preparing this reply."
+                end
+                narrated = [ evidence_content, status ].compact_blank.join(" ")
+                @used_coach_content = []
+              end
               assistant_message.update!(content: with_wellbeing_check(content, narrated).to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
               persist_content_citations(assistant_message)
             end
@@ -986,7 +997,7 @@ module Api
           intent_result: intent_result,
           user_message: user_message,
           assistant_message: assistant_message,
-          mia_action_draft: mia_action_draft,
+          mia_action_draft: mia_action_draft&.reviewable? ? mia_action_draft : nil,
           transaction_draft: nil,
           persona_context_id: current_participant_runtime.continuity_id
         )

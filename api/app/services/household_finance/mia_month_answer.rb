@@ -111,7 +111,7 @@ module HouseholdFinance
         else
           "From your approved statement lines, you spent #{money(facts[:spent_so_far_cents])} in #{facts[:period_label]}."
         end
-        return [ "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}", review_next_step(facts) ].compact.join(" ")
+        return [ "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}", review_next_step(facts, next_move: next_move) ].compact.join(" ")
       end
 
       left = facts[:plan_left_cents]
@@ -125,10 +125,7 @@ module HouseholdFinance
       spent = facts[:spent_so_far_cents]
       spent_line = spent.nil? ? "spent so far is not known yet" : "you’ve spent #{money(spent)} so far"
       cushion_line = facts[:readiness_guidance]
-      review_line = review_next_step(facts)
-      if next_move.present?
-        review_line = review_line ? "#{next_move.sub(/[.!?]\z/, '')}; #{review_line.sub(/\A./, &:downcase)}" : next_move
-      end
+      review_line = review_next_step(facts, next_move: next_move)
       review_line ||= "Check the next bill due before deciding where any money left should go."
       caveat = left.nil? ? "" : "; this is a plan figure, not a bank balance or permission to spend"
       "#{plan_line}#{caveat}, and #{spent_line}. #{cushion_line} #{review_line}"
@@ -138,13 +135,16 @@ module HouseholdFinance
 
     attr_reader :household, :plan, :month
 
-    def review_next_step(facts)
+    def review_next_step(facts, next_move: nil)
       count = facts[:pending_review_count]
-      if count.nil?
+      review = if count.nil?
         "The review list is incomplete, so check the purchases waiting there before deciding what comes next."
       elsif count.positive?
         "Review the #{count} #{'purchase'.pluralize(count)} waiting for you before deciding what comes next."
       end
+      return review unless next_move.present?
+
+      review ? "#{next_move.sub(/[.!?]\z/, '')}; #{review.sub(/\A./, &:downcase)}" : next_move
     end
 
     def cushion_guidance(tone, left)

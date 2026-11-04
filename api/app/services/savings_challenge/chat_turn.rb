@@ -207,7 +207,7 @@ module SavingsChallenge
       return false if !suggestion && amounts.empty? && @message.match?(/\?|\A\s*(?:can|should|could|would|what|how)\b/i)
       # The requested destination wins even when the old amount alone has a
       # dollar sign. "Be $500 instead of $400" also names a destination.
-      replacement = @message[/\b(?:to|at|be|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
+      replacement = @message[/\b(?:to|at|be|save|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
       chosen = replacement || (amounts.first if amounts.one?)
       @goal_cents = if malformed
         nil
