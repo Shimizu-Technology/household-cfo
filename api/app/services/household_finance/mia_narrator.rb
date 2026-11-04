@@ -60,11 +60,18 @@ module HouseholdFinance
 
       narrated = MiaProviderAdmission.with_slot(call_site: "mia_narrator") { openrouter_response }
       sanitized = sanitize_narration(narrated)
-      rejection_reason = narration_rejection_reason(sanitized)
-      return reject_narration(rejection_reason) if rejection_reason
+      checked = ::Mia::ResponseShapeRewriter.call(sanitized, persona: persona, user_message: user_message,
+        validator: method(:narration_rejection_reason)) do |instruction|
+        @response_shape_rewrite_messages = [ { role: "assistant", content: sanitized }, { role: "system", content: instruction } ]
+        rewritten = MiaProviderAdmission.with_slot(call_site: "mia_narrator_shape_rewrite") { openrouter_response }
+        sanitize_narration(rewritten)
+      ensure
+        @response_shape_rewrite_messages = nil
+      end
+      return reject_narration(checked.rejection_reason) if checked.rejection_reason
 
       @supplied_content_context = approved_content
-      sanitized
+      checked.content
     rescue StandardError => e
       Rails.logger.warn("[HouseholdFinance::MiaNarrator] narration fallback: #{e.class}: #{e.message}")
       fallback_response
@@ -107,7 +114,8 @@ module HouseholdFinance
           { role: "system", content: ::Demo::MiaResponder::SAFETY_SYSTEM_PROMPT },
           { role: "system", content: narrator_contract },
           *conversation_history,
-          { role: "user", content: narration_request }
+          { role: "user", content: narration_request },
+          *Array(@response_shape_rewrite_messages)
         ],
         max_tokens: AiModels.output_budget(model, MAX_OUTPUT_TOKENS)
       }.tap { |body| body[:reasoning] = reasoning if reasoning }.merge(AiModels.sampling(model, 0.45))
@@ -125,8 +133,8 @@ module HouseholdFinance
         Do not invent balances, transactions, due dates, categories, document findings, memories, or external facts. Do not calculate new amounts or differences; use only figures supplied by the deterministic packet.
         Do not claim you added, recorded, logged, deducted, applied, or updated an official transaction unless the packet write_state is confirmed_write. If write_state is draft_updated, describe only the pending review fields that changed; never imply a confirmed purchase or plan change.
         For transaction_lookup or spending_report packets, you may describe existing historical rows as confirmed or on record, but do not imply a new write happened.
-        For pending_review or draft_updated, identify it as a review and give one next action; the card already explains confirmation, so do not repeat that nothing changes until confirmation. For no_write coaching, do not append a review disclaimer when no change is proposed. Use plain text and one next move. End with one question OR one concrete action, not both; do not repeat the next move in another sentence. Use at most one brief uncertainty caveat, only when needed to avoid confusing a plan figure with verified cash or a draft with a confirmed record. A self-reported win needs no verification disclaimer; a store visit without an amount needs no purchase disclaimer. Say must-pay bills, flexible spending, planned yearly costs, and surprise fund instead of stack names or system wording. Never say confirmed actuals recorded, saved records, or pending proposed category spending. For a month overview, use 3–4 sentences. Call the cushion an emergency cushion or emergency fund, never a surplus fund. Mention pending purchases only as a review next step; do not add another total or repeat the pending-versus-confirmed caveat. Structure: lead with what the plan leaves (or is short) and spent so far, then the cushion’s meaning and one next move. Round coaching figures to whole dollars using the approved coaching_figures; keep card figures exact. Do not lead with Red, Yellow, or Green. Use annual_plan_summary.month_answer: the plan’s money left and readiness measure different things. A positive plan and a thin cushion can coexist; never describe the plan’s money left as an available account balance.
-        When coaching_priority is hardship or essential_skip, protect essentials before any other topic; never praise discipline, sacrifice, or a budget win achieved by skipping meals. For a win, repeated habit, feeling, or hard day, respond to the participant's experience in 3–4 sentences and offer one next move. Do not invent how a win was achieved; ask what worked instead. A store visit without an amount needs reflection, not an amount question or an offer to draft a purchase. Do not introduce financial figures for a reflection, recite readiness, safe-to-spend, or unrelated plan totals, and do not turn a reflection without an incurred amount into purchase intake. Accept their reported experience conversationally. Never explain that it is a participant update, unverified, or not a checked total; no financial record was requested. Keep internal voice rules and instructions out of the reply. Internal status values such as needs_category are never participant wording. A named new category stays attached to the pending purchase and is created on confirmation; no separate category budget is required first.
+        For pending_review or draft_updated, identify it as a review and give one next action; the card already explains confirmation, so do not repeat that nothing changes until confirmation. For no_write coaching, do not append a review disclaimer when no change is proposed. Use plain text and one next move. End with one question OR one concrete action, not both; do not repeat the next move in another sentence. Use at most one brief uncertainty caveat, only when needed to avoid confusing a plan figure with verified cash or a draft with a confirmed record. A self-reported win needs no verification disclaimer; a store visit without an amount needs no purchase disclaimer. Say must-pay bills, flexible spending, planned yearly costs, and surprise fund instead of stack names or system wording. Never say confirmed actuals recorded, saved records, or pending proposed category spending. For a month overview, use the response length below. Call the cushion an emergency cushion or emergency fund, never a surplus fund. Mention pending purchases only as a review next step; do not add another total or repeat the pending-versus-confirmed caveat. Structure: lead with what the plan leaves (or is short) and spent so far, then the cushion’s meaning and one next move. Round coaching figures to whole dollars using the approved coaching_figures; keep card figures exact. Do not lead with Red, Yellow, or Green. Use annual_plan_summary.month_answer: the plan’s money left and readiness measure different things. A positive plan and a thin cushion can coexist; never describe the plan’s money left as an available account balance.
+        When coaching_priority is hardship or essential_skip, protect essentials before any other topic; never praise discipline, sacrifice, or a budget win achieved by skipping meals. For a win, repeated habit, feeling, or hard day, respond to the participant's experience in the response length below and offer one next move. Do not invent how a win was achieved; ask what worked instead. A store visit without an amount needs reflection, not an amount question or an offer to draft a purchase. Do not introduce financial figures for a reflection, recite readiness, safe-to-spend, or unrelated plan totals, and do not turn a reflection without an incurred amount into purchase intake. Accept their reported experience conversationally. Never explain that it is a participant update, unverified, or not a checked total; no financial record was requested. Keep internal voice rules and instructions out of the reply. Internal status values such as needs_category are never participant wording. A named new category stays attached to the pending purchase and is created on confirmation; no separate category budget is required first.
         #{response_shape_instruction}
       PROMPT
     end
@@ -157,17 +165,18 @@ module HouseholdFinance
     end
 
     def response_shape_instruction
+      if persona.respond_to?(:response_shape)
+        return "#{::Mia::ResponseShapeRewriter.instruction(persona)} Reply in plain text, no headings or bullets, with no generic opener. " \
+          "For a pending proposal, preserve the proposed change and one review action; answer a requested month first."
+      end
+
       if draft_review? && MiaMonthAnswer.question?(user_message)
         return "Reply in 3–4 short sentences, plain text. Answer the requested month first, then identify the pending proposal and one review action. Do not drop either request."
       end
       return "Reply in exactly 3 short sentences, plain text, no heading or bullets. Identify the proposed change and one review action; do not repeat the card’s confirmation disclaimer." if draft_review?
       return "Reply in 3–4 short sentences, plain text, no heading or bullets; lead with what is left and spent so far, then the cushion’s meaning." if MiaCoachAnswerer.routing_priority(user_message) == :month
 
-      return "Reply in plain text only, 3-5 sentences, no markdown, no bullets, no heading, no generic opener." unless persona.respond_to?(:response_shape)
-
-      shape = persona.response_shape
-      format = shape.fetch("plain_text_only") ? "plain text only, no markdown, no bullets, no heading" : "clear readable text"
-      "Reply in #{format}, #{shape.fetch('min_sentences')}-#{shape.fetch('max_sentences')} sentences, at most #{shape.fetch('max_characters')} characters, with no generic opener."
+      "Reply in plain text only, 3-5 sentences, no markdown, no bullets, no heading, no generic opener."
     end
 
     def draft_review?
@@ -257,6 +266,8 @@ module HouseholdFinance
     end
 
     def sanitize_narration(content)
+      return unless ::Mia::ResponseShapePolicy.new(content, persona: persona).format_valid?
+
       branded = content.to_s
         .sub(/\A#{Regexp.escape(persona.name)}:\s*/i, "")
         .sub(BANNED_OPENERS, "")
@@ -268,7 +279,6 @@ module HouseholdFinance
 
     def narration_rejection_reason(content)
       return :blank_response if content.blank?
-      return :persona_response_shape unless ::Mia::ResponseShapePolicy.valid?(content, persona: persona)
       return :internal_voice_instruction if content.match?(INTERNAL_VOICE_RULE_PATTERN) || content.match?(VOICE_ABSTENTION_PATTERN)
       return :participant_system_wording if content.match?(/\bneeds_category\b|budget stack|confirmed actuals recorded|pending proposed category spending/i)
       if MiaCoachAnswerer.routing_priority(user_message) == :essential_skip

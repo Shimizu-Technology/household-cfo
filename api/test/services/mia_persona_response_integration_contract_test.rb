@@ -168,7 +168,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     )
     narrator.define_singleton_method(:openrouter_response) { "Only one sentence." }
 
-    assert_equal :persona_response_shape, narrator.send(:narration_rejection_reason, "Only one sentence.")
+    refute Mia::ResponseShapePolicy.valid?("Only one sentence.", persona: @runtime)
     assert_equal "Review the confirmed plan first.", narrator.call
   end
 
