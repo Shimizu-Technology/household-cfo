@@ -26,6 +26,7 @@ class HouseholdFinanceIncomeOperationsTest < ActiveSupport::TestCase
 
   test "source archive preserves earlier months and restore is undo only" do
     travel_to Date.new(2026, 10, 15) do
+      @household.update!(created_at: Date.new(2026, 1, 1))
       source = @household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 500_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1))
       @runner.run(operation_key: "income.source.archive", input: { source_id: source.id, ends_on: "2026-10-01", year: 2026 }, idempotency_key: "archive")
 

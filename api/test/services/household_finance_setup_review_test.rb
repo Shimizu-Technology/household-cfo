@@ -172,6 +172,67 @@ class HouseholdFinanceSetupReviewTest < ActiveSupport::TestCase
     assert_includes proposal.items.find { |item| item.action_type == "create_debt" }.description, "Car minimum is about $350"
   end
 
+  test "CR setup values preserve saved costs when the current allocation is missing" do
+    save_manual(fixed_expenses: 2050)
+    category = @household.budget_categories.find_by!(stack_key: "non_discretionary")
+    category.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 11, 1) }).destroy!
+    values = HouseholdFinance::DataPresenter.new(@household).setup_values
+    assert_equal 2050, values[:fixed_expenses]
+    save_manual(**values.slice(:fixed_expenses))
+    assert_equal 205000, @household.expense_items.find_by!(stack_key: "non_discretionary").amount_cents
+    assert_equal 2050, HouseholdFinance::DataPresenter.new(@household).setup_values[:fixed_expenses]
+  end
+
+  test "CR a confirmation only card keeps its confirmation explanation" do
+    save_manual(fixed_expenses: 2050)
+    category = @household.budget_categories.find_by!(stack_key: "non_discretionary")
+    @household.expense_items.find_by!(stack_key: "non_discretionary").update!(label: "Monthly bills")
+    category.update!(name: "Monthly bills")
+    @household.update!(confirmed_setup_fields: [])
+    proposal = setup_proposal("Rent $1,800 and utilities $250", fixed_expenses: 2050)
+    confirmation = proposal.items.find { |item| item.action_type == "confirm_household_setup" }
+    assert_includes confirmation.description, "Record only these reviewed fields"
+    assert_includes proposal.rationale, "rent $1,800 + utilities $250"
+  end
+
+  test "CR selected month income knowledge and amount include the same midmonth job" do
+    @household.income_sources.create!(label: "Job", source_type: "job", amount_cents: 520000, cadence: "monthly", starts_on: Date.new(2026, 11, 15))
+    context = JSON.parse(HouseholdFinance::MiaContextBuilder.new(@household, annual_plan: manager.plan_data, reference_month: 11).call)
+    assert_equal true, context.dig("metrics", "monthly_income_known")
+    assert_equal "$5,200", context.dig("metrics", "monthly_income")
+  end
+
+  test "CR call it only names a household while that name is missing" do
+    complete = { setup_status: { complete: true, missing_fields: [] } }
+    [ "Call it Pets.", "Name it Pets.", "Call it #{'Pets ' * 40}." ].each do |text|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: text, context: complete, api_key: nil).call
+      refute_equal "household_setup", result&.topic&.dig(:type), text
+      assert_nil result&.action&.dig(:setup_updates, :household_name), text
+    end
+    missing = { setup_status: { complete: false, missing_fields: [ { key: "household_name" } ] } }
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Call it Pets.", context: missing, api_key: nil).call
+    assert_equal "Pets", result.action.dig(:setup_updates, :household_name)
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Call our household Pets.", context: complete, api_key: nil).call
+    assert_equal "Pets", result.action.dig(:setup_updates, :household_name)
+  end
+
+  test "CR unicode car whitespace returns to the validated planner" do
+    result = HouseholdFinance::MiaSetupIntake.new("Rent $1,800, utilities $250, and the car loan minimum\u00a0$350.",
+      context: { setup_status: { complete: false }, active_debts: [] }).call
+    assert_nil result
+  end
+
+  test "CR a confirmed primary zero survives a future optional income source" do
+    save_manual(primary_income: 0)
+    @household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 100000, cadence: "monthly", starts_on: Date.new(2026, 12, 1))
+    assert_equal 0, month_answer[:money_in_cents]
+    @household.update!(confirmed_setup_fields: [])
+    assert_nil month_answer[:money_in_cents]
+    @household.update!(confirmed_setup_fields: [ "primary_income" ])
+    @household.income_sources.create!(label: "Future job", source_type: "job", amount_cents: 520000, cadence: "monthly", starts_on: Date.new(2026, 12, 1))
+    assert_nil month_answer[:money_in_cents]
+  end
+
   private
 
   def manager

@@ -18,7 +18,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
       assert_response :created
       plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
-      assert_equal [ 1_000 ] * 7 + [ 1_200 ] * 5, monthly_income_values(plan)
+      assert_equal [ nil ] * 6 + [ 1_000 ] + [ 1_200 ] * 5, monthly_income_values(plan)
       assert_equal "2026-08-01", plan.fetch("income_sources").first.fetch("schedule_entries").first.fetch("effective_on")
 
       post "/api/v1/income_schedule_entries?year=2026",
@@ -28,7 +28,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       assert_response :created
       plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
       assert_equal 1_700, monthly_income_values(plan).last
-      assert_equal 13_500, monthly_income_values(plan).sum
+      assert_equal 7_500, monthly_income_values(plan).compact.sum
 
       post "/api/v1/income_schedule_entries?year=2026",
         params: { income_schedule_entry: { income_source_id: source_id, entry_type: "recurring_change", amount: 0, cadence: "monthly", effective_on: "2026-10-01" } },
@@ -36,10 +36,10 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
       assert_response :created
       plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
-      assert_equal [ 1_000 ] * 7 + [ 1_200, 1_200, 0, 0, 500 ], monthly_income_values(plan)
+      assert_equal [ nil ] * 6 + [ 1_000, 1_200, 1_200, 0, 0, 500 ], monthly_income_values(plan)
 
       prior_plan = HouseholdFinance::AnnualBudgetManager.new(user.households.first, year: 2025).plan_data
-      assert_equal [ 1_000 ] * 12, prior_plan.fetch(:monthly_income).values
+      assert_equal [ nil ] * 12, prior_plan.fetch(:monthly_income).values
     end
   end
 
@@ -112,6 +112,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   test "participant can edit and remove a scheduled income change" do
     user = create_user(email: "income-edit@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(created_at: Date.new(2026, 1, 1))
     source = household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
     entry = source.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 120_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
 
@@ -172,12 +173,14 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     annual_plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
     assert_equal Date.current.year, annual_plan.fetch("year")
     assert_equal 12, annual_plan.fetch("months").length
-    first_month_id = annual_plan.fetch("months").first.fetch("id").to_s
-    assert_equal 8_000, annual_plan.fetch("monthly_income").fetch(first_month_id)
+    current_month_id = annual_plan.fetch("months").fetch(Date.current.month - 1).fetch("id").to_s
+    assert_equal 8_000, annual_plan.fetch("monthly_income").fetch(current_month_id)
+    assert annual_plan.fetch("monthly_income").values.first(Date.current.month - 1).all?(&:nil?)
 
     fixed_row = annual_plan.fetch("rows").find { |row| row.fetch("name") == "Fixed essentials" }
     assert fixed_row.present?
-    assert_equal 4_000, fixed_row.fetch("months").first.fetch("planned")
+    assert_equal 4_000, fixed_row.fetch("months").fetch(Date.current.month - 1).fetch("planned")
+    assert_equal [ 0 ] * (Date.current.month - 1), fixed_row.fetch("months").first(Date.current.month - 1).pluck("planned")
   end
 
   test "participant can add a budget category and edit a monthly allocation" do

@@ -23,7 +23,7 @@ module HouseholdFinance
       primary_confirmed = primary_confirmed.include?("primary_income")
       return false unless primary_confirmed || current.any? { |source| source.source_type == "job" }
 
-      sources.empty? ? primary_confirmed : current.any?
+      current.any? || (primary_confirmed && sources.all? { |source| source.source_type != "job" && source.starts_on && source.starts_on > date.end_of_month })
     end
 
     private

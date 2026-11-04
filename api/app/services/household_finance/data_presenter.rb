@@ -271,16 +271,15 @@ module HouseholdFinance
     end
 
     def setup_values
-      stacks = SnapshotBuilder.new(household, ensure_plan: false).call.fetch(:stack_totals_cents)
       {
         household_name: household.name,
         primary_goal: household.primary_goal.to_s,
         primary_income: dollars(income_by_type("job")),
         business_income: dollars(income_by_type("business")),
-        fixed_expenses: dollars(stacks.fetch("non_discretionary")),
-        flexible_spend: dollars(stacks.fetch("discretionary")),
-        expected_sinking_fund: dollars(stacks.fetch("sinking_expected")),
-        unexpected_sinking_fund: dollars(stacks.fetch("sinking_unexpected")),
+        fixed_expenses: dollars(expenses_by_stack("non_discretionary")),
+        flexible_spend: dollars(expenses_by_stack("discretionary")),
+        expected_sinking_fund: dollars(expenses_by_stack("sinking_expected")),
+        unexpected_sinking_fund: dollars(expenses_by_stack("sinking_unexpected")),
         emergency_fund: account_type_known?("emergency_fund") ? dollars(account_by_type("emergency_fund")) : nil,
         other_assets: account_type_known?("other") ? dollars(account_by_type("other")) : nil,
         credit_card_debt: debt_portfolio.balance_known? ? dollars(debt_portfolio.total_balance_cents) : nil,

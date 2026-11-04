@@ -580,11 +580,16 @@ module HouseholdFinance
       text.match?(primary) && !text.match?(/\b(?:monthly\s+(?:take[ -]?home(?:\s+(?:pay|income))?|income)|primary\s+monthly\s+income)\b|#{primary.source}\s*(?:(?:a|each|per)\s+month|monthly)\b/i)
     end
 
+    def deterministic_household_name_patterns
+      missing_name = Array(context.dig(:setup_status, :missing_fields)).any? { |field| field[:key].to_s == "household_name" }
+      missing_name ? DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS : DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.drop(1)
+    end
+
     def complete_setup_statement?
       # The shortcut must account for the whole message, including bare numbers.
       # Unrecognized clauses belong to the validated planner, not a partial draft.
       text = normalized_user_message
-      text_patterns = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
+      text_patterns = deterministic_household_name_patterns + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
       text_spans = text_patterns.flat_map { |pattern| text.to_enum(:scan, pattern).map { Regexp.last_match.begin(0)...Regexp.last_match.end(0) } }
       money_spans = DETERMINISTIC_SETUP_MONEY_PATTERNS.values.flat_map { |pattern| text.to_enum(:scan, pattern).map { Regexp.last_match.begin(0)...Regexp.last_match.end(0) } }
       return false if text_spans.any? { |span| money_spans.any? { |money| span.begin < money.end && money.begin < span.end } }
@@ -593,7 +598,7 @@ module HouseholdFinance
       remainder.sub!(/\A(?:here is everything i know so far(?: for the starting household picture)?|for (?:our )?(?:starting picture|setup))[.:,]\s*/i, "")
       remainder.sub!(/\APlease keep these as proposed values for review because I want to verify every number before anything changes\.\s*/i, "")
       patterns = DETERMINISTIC_SETUP_MONEY_PATTERNS.values +
-        DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
+        deterministic_household_name_patterns + [ DETERMINISTIC_PRIMARY_GOAL_PATTERN ]
       patterns.each { |pattern| remainder.gsub!(pattern, " ") }
       remainder.match?(/\A(?:[\s,.;!]|\b(?:my|our|and|we|i|monthly|a month|each month|per month|ok|okay|so|also|then|#{HOUSEHOLD_NAME_FILLER_SOURCE})\b)*\z/i)
     end
@@ -611,7 +616,7 @@ module HouseholdFinance
         end
       end
 
-      household_names = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.flat_map do |pattern|
+      household_names = deterministic_household_name_patterns.flat_map do |pattern|
         user_message.scan(pattern).flatten.map { |raw| cleaned_household_name(bounded(raw, 120)) }
       end.reject(&:blank?).uniq
       if household_names.any? { |name| !household_name_shape?(name) }
@@ -674,7 +679,7 @@ module HouseholdFinance
     end
 
     def oversized_setup_text_field
-      names = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.flat_map { |pattern| user_message.scan(pattern).flatten }
+      names = deterministic_household_name_patterns.flat_map { |pattern| user_message.scan(pattern).flatten }
       return :household_name if names.any? { |name| normalized_bounded_text(name).length > setup_text_limit(:household_name) }
       :primary_goal if user_message.scan(DETERMINISTIC_PRIMARY_GOAL_PATTERN).flatten.any? { |goal| normalized_bounded_text(goal).length > setup_text_limit(:primary_goal) }
     end

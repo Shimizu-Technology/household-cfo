@@ -1071,8 +1071,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     .join('|')
   const pendingMiaActionDrafts = reviewBudget?.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = reviewBudget?.annual_plan
-  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? new Date().getFullYear()
-  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const currentBudgetYear = data?.dashboard.action_center.current_year ?? new Date().getFullYear()
+  const currentBudgetMonthIndex = data?.dashboard.action_center.current_month_index ?? new Date().getMonth()
+  const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? currentBudgetYear
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === currentBudgetYear ? currentBudgetMonthIndex : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
@@ -8425,9 +8427,9 @@ export function AnnualBudgetPlanner({
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
   const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
   const archivedCategories = plan.archived_categories ?? []
-  const today = new Date()
-  const currentCalendarYear = today.getFullYear()
-  const currentCalendarMonthIndex = today.getMonth()
+  const today = guamTodayIso()
+  const currentCalendarYear = Number(today.slice(0, 4))
+  const currentCalendarMonthIndex = Number(today.slice(5, 7)) - 1
   const isViewingCurrentYear = plan.year === currentCalendarYear
   const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
 

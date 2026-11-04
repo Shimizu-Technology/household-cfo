@@ -232,7 +232,7 @@ export function AnnualCashFlowChart({
         <div>
           <h4 id={titleId}>{compact ? `Your ${plan.year} outlook` : `What’s left each month in ${plan.year}`}</h4>
         </div>
-        <p>{!moneyKnown ? 'Enter your income and plan to see your year.' : negativeMonths.length === 0 ? 'Every planned month has money left over.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.`}</p>
+        <p>{!moneyKnown ? 'Enter your income and plan to see your year.' : negativeMonths.length > 0 ? `${negativeMonths.length} planned month${negativeMonths.length === 1 ? ' needs' : 's need'} attention.` : months.some(month => month.baseline_surplus == null) ? 'Some months still need income.' : 'Every planned month has money left over.'}</p>
       </div>
       <div className="annual-cash-flow-legend" aria-hidden="true">
         <span><i className="surplus-swatch" /> Left after the plan</span>

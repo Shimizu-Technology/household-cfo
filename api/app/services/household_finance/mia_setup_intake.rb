@@ -51,6 +51,7 @@ module HouseholdFinance
         return unless context.dig(:debt_tracking, :mode).to_s != "summary" && Array(context[:active_debts]).empty?
 
         car = message.match(PATTERNS.fetch(:car_minimum))
+        return unless car
         # Sources are exact, disjoint participant spans, just like model plans.
         return if message[car.end(0)..].to_s.gsub(MiaSetupGuide::SETUP_REQUEST, "").delete(".,! ").present?
         plan = { actions: [

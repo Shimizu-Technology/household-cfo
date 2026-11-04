@@ -62,4 +62,12 @@ it('keeps unknown income off the surplus scale and detail panel', () => {
  expect(screen.getByRole('button', {name:'Nov 2026: Not entered'})).toBeTruthy()
  expect(container.querySelector('.cash-flow-month-summary')?.textContent).toBe('—')
  expect(container.querySelector('.cash-flow-detail-panel')).toBeNull()
+ expect(screen.queryByText('Every planned month has money left over.')).toBeNull()
+})
+
+it('keeps a known shortfall visible while another month is unknown', () => {
+ const unknown = {...month(11, 'Nov', 0), income: null, baseline_surplus: null}
+ render(<AnnualCashFlowChart plan={planWith([unknown, month(12, 'Dec', -200)])} />)
+ expect(screen.getByText('1 planned month needs attention.')).toBeTruthy()
+ expect(screen.queryByText('Every planned month has money left over.')).toBeNull()
 })

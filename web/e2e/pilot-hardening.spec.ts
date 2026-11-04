@@ -13439,3 +13439,25 @@ test('BOG UI household setup shares approved current-month income and money left
     await expect(summary).toContainText('not a bank balance')
   }
 })
+
+test.describe('BOG UI household month boundary', () => {
+  test.use({ timezoneId: 'UTC' })
+  test('BOG UI Budget defaults to the dashboard month across a Guam month boundary', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-10-31T15:00:00Z') })
+    const workspace = realWorkspaceData(true)
+    workspace.dashboard.action_center.current_year = 2026
+    workspace.dashboard.action_center.current_month_index = 10
+    workspace.dashboard.action_center.current_month_label = 'November'
+    workspace.dashboard.month_answer = {...workspace.dashboard.month_answer, period_label: 'November 2026'}
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({json: workspace}))
+    await page.goto('/?pilot_e2e_role=participant#Budget')
+    await expect(page.getByRole('combobox', {name: 'Report month', exact: true})).toHaveValue('10')
+    await expect(page.getByLabel('Current month plan')).toContainText('November 2026')
+    await expect(page.getByRole('button', {name: 'This month', exact: true})).toHaveCount(0)
+    await page.getByRole('combobox', {name: 'Report month', exact: true}).selectOption('9')
+    await expect(page.getByLabel('Current month plan')).toHaveCount(0)
+    await page.getByRole('button', {name: 'This month', exact: true}).click()
+    await expect(page.getByRole('combobox', {name: 'Report month', exact: true})).toHaveValue('10')
+    await expect(page.getByLabel('Current month plan')).toContainText('November 2026')
+  })
+})

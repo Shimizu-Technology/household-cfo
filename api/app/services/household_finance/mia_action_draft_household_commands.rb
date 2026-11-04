@@ -79,8 +79,8 @@ module HouseholdFinance
       confirmation = items.find { |item| item.action_type == "confirm_household_setup" }
       confirmation.description = [ confirmation.description, *estimate_notes ].join(" ") if confirmation && estimate_notes.any?
       breakdown = intake.fixed_description if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
-      if breakdown && normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == MiaSetupIntake.new(raw_input).fixed_cents
-        items.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
+      if breakdown
+        items.reject { |item| item.action_type == "confirm_household_setup" }.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
       end
 
       impact = setup_impact(before_values, normalized)

@@ -30,7 +30,7 @@ module HouseholdFinance
     end
 
     def snapshot_reference_date
-      Date.new(snapshot_budget_manager.year, @reference_month, 1)
+      Date.new(snapshot_budget_manager.year, @reference_month, 1).end_of_month
     end
 
     def context_payload
