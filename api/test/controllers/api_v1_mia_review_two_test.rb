@@ -136,6 +136,7 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
   end
 
   test "unknown plan opening names the requested period without a cash hedge" do
+    @household.update!(created_at: Date.new(2025, 1, 1))
     plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2025).read_only_plan_data.merge(plan_available: false)
     answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: plan, month: 9)
     assert_match(/\AFor September 2025/, answer.response)
