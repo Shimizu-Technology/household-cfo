@@ -5366,6 +5366,23 @@ test('Coach Studio simple preview failure offers a plain retry and a route to sa
   await expect(page.getByLabel('Message Mia', { exact: true })).toBeVisible()
 })
 
+for (const [status, message] of [
+  [403, 'You don’t have permission to preview this assistant. Ask your workspace owner for access.'],
+  [409, 'Your voice changed. Reopen it and preview the latest saved version.'],
+] as const) {
+  test(`Coach Studio preview HTTP ${status} explains how to recover without a timed retry`, async ({ page }) => {
+    await page.route('http://api.test/api/v1/admin/personas/81/preview', route => route.fulfill({ status, json: { error: 'Internal permission or draft details' } }))
+    await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+    const areas = page.getByRole('navigation', { name: 'Coach Studio areas', exact: true })
+    await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+    await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+    await expect(page.getByRole('alert')).toHaveText(message)
+    await expect(page.getByRole('button', { name: 'Approve and go live', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  })
+}
+
 test('Coach Studio simple voice review keeps the palette, privacy and proposal state clear', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   const areas = page.getByRole('navigation', { name: 'Coach Studio areas', exact: true })

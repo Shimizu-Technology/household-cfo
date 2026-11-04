@@ -47,6 +47,23 @@ it('uses the same plain recovery when the preview request fails',async()=>{
  expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false);
  expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled();
 })
+it.each([
+ [403, 'You don’t have permission to preview this assistant. Ask your workspace owner for access.'],
+ [409, 'Your voice changed. Reopen it and preview the latest saved version.'],
+ [422, 'The voice needs attention. Open it to review the highlighted fields.'],
+])('explains preview HTTP %s without promising a timed retry',async(status,message)=>{
+ api.previewAdminPersona.mockRejectedValueOnce(Object.assign(new Error('Internal permission or draft details'),{status}));
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ expect((await screen.findByRole('alert')).textContent).toBe(message);
+ expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled();
+ expect(api.publishAdminPersona).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false);
+})
+it.each([408,429,502,503,504])('offers a timed retry for unavailable or timeout HTTP %s',async(status)=>{
+ api.previewAdminPersona.mockRejectedValueOnce(Object.assign(new Error('Internal gateway details'),{status}));
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));
+ expect((await screen.findByRole('alert')).textContent).toBe("The preview didn't come through. Try again in a minute.");
+})
 it('combines explicit approval of displayed answers and phrases with going live',async()=>{
  const onChange=vi.fn();render(<Harness onChange={onChange}/>);
  fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));

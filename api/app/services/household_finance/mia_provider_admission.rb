@@ -41,13 +41,15 @@ module HouseholdFinance
           # Transaction pooling can switch PostgreSQL sessions between SQL
           # statements. Keep the slot and provider call in one transaction;
           # PostgreSQL releases the lock on commit or rollback, including errors.
-          connection.transaction(requires_new: true) do
-            attempted = true
-            slot = acquire(connection)
-            if slot && (wait_ms.zero? || monotonic_time < deadline)
-              instrument(admitted: true, waited_ms: elapsed_ms(started_at))
-              admitted = true
-              result = yield
+          with_lock_connection(connection) do |lock_connection|
+            lock_connection.transaction(requires_new: true) do
+              attempted = true
+              slot = acquire(lock_connection)
+              if slot && (wait_ms.zero? || monotonic_time < deadline)
+                instrument(admitted: true, waited_ms: elapsed_ms(started_at))
+                admitted = true
+                result = yield
+              end
             end
           end
         end
@@ -73,6 +75,15 @@ module HouseholdFinance
     private
 
     attr_reader :call_site, :provider, :limit, :wait_ms, :connection_pool
+
+    def with_lock_connection(connection)
+      # A savepoint commit retains transaction advisory locks until the outer
+      # commit. Open an independent connection for nested callers so the slot
+      # ends with this call, even when acquired after the admission deadline.
+      return yield connection unless connection.transaction_open?
+
+      TransactionLockConnection.with_connection(pool: connection_pool) { |lock_connection| yield lock_connection }
+    end
 
     # Structured log + Sentry warning so fallbacks (canned replies or "busy"
     # errors, depending on the caller) are visible and countable per call site.

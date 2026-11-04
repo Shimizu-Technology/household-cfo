@@ -8,6 +8,14 @@ import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLi
 
 const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
 const previewUnavailableNotice = "The preview didn't come through. Try again in a minute."
+function previewFailureNotice(error: unknown): string {
+  const status = error && typeof error === 'object' && 'status' in error ? error.status : null
+  if (status === 401 || status === 403) return 'You don’t have permission to preview this assistant. Ask your workspace owner for access.'
+  if (status === 409) return 'Your voice changed. Reopen it and preview the latest saved version.'
+  if (status === 422) return 'The voice needs attention. Open it to review the highlighted fields.'
+  if (status == null || status === 408 || status === 429 || (typeof status === 'number' && status >= 500)) return previewUnavailableNotice
+  return 'The preview could not finish. Reopen your assistant and try again.'
+}
 export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
@@ -41,7 +49,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         for (const question of samples) {
           if (!current()) return
           setStatus('Preparing an example answer…')
-          const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch(() => { throw new Error(previewUnavailableNotice) })
+          const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch((error: unknown) => { throw new Error(previewFailureNotice(error)) })
           if (!current()) return
           if (!result.behavioral_preview_evidence?.valid) throw new Error(previewUnavailableNotice)
           if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')

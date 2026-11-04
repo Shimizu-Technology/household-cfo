@@ -45,6 +45,35 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     assert_equal :reused, HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { :reused }
   end
 
+  [ :success, :error, :late ].each do |outcome|
+    test "nested #{outcome} admission releases its slot before the outer transaction commits" do
+      provider = "nested-#{outcome}-#{SecureRandom.hex(6)}"
+      admission = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: outcome == :late ? 40 : 0)
+      if outcome == :late
+        times = [ 0.0, 0.01, 0.05, 0.05, 0.05 ]
+        admission.define_singleton_method(:monotonic_time) { times.shift || 0.05 }
+      end
+      ActiveRecord::Base.transaction do
+        if outcome == :error
+          assert_raises(RuntimeError) { admission.call { raise "provider failed" } }
+        elsif outcome == :late
+          assert_nil admission.call { flunk("late admission must not call the provider") }
+        else
+          assert_equal :ok, admission.call {
+            assert_nil Thread.new {
+              HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { :incorrectly_admitted }
+            }.value
+            :ok
+          }
+        end
+        assert ActiveRecord::Base.connection.transaction_open?
+        assert_equal :reused, Thread.new {
+          HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { :reused }
+        }.value, "the outer transaction must not retain the provider slot"
+      end
+    end
+  end
+
   test "holds a transaction lock during the provider call and releases it before returning" do
     admission = HouseholdFinance::MiaProviderAdmission.new(provider: "transaction-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 0)
     connection = ActiveRecord::Base.connection
@@ -101,7 +130,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
 
       def with_connection
         @checked_out = true
-        yield Class.new { def transaction(**); yield; end }.new
+        yield Class.new { def transaction_open? = false; def transaction(**); yield; end }.new
       ensure
         @checked_out = false
       end
@@ -129,7 +158,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     fake_pool = Class.new do
       def with_connection
         sleep(0.08)
-        yield Class.new { def transaction(**); yield; end }.new
+        yield Class.new { def transaction_open? = false; def transaction(**); yield; end }.new
       end
     end.new
     admission = HouseholdFinance::MiaProviderAdmission.new(
@@ -153,7 +182,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
   test "releases a slot acquired after the admission deadline without calling the provider" do
     fake_pool = Class.new do
       def with_connection
-        yield Class.new { def transaction(**); yield; end }.new
+        yield Class.new { def transaction_open? = false; def transaction(**); yield; end }.new
       end
     end.new
     admission = HouseholdFinance::MiaProviderAdmission.new(
@@ -168,6 +197,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     admission.define_singleton_method(:acquire) { |_connection| 1 }
     fake_pool.define_singleton_method(:with_connection) do |&block|
       connection = Object.new
+      connection.define_singleton_method(:transaction_open?) { false }
       connection.define_singleton_method(:transaction) do |**_, &transaction|
         transactions << :began
         transaction.call
