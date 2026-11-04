@@ -24,18 +24,7 @@ module SpendingPatterns
       selected_actuals = actuals_scope.where(occurred_on: start..finish)
         .includes(transaction_splits: :budget_category).to_a
       rows = selected_source.select { |row| eligible_ids.include?(row.id) }.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
-      selected_ids = selected_source.map(&:id)
-      refund_groups = reviewed[:economic_groups].select { |group| group[:kind] == "refund" }
-      rows.each do |row|
-        next unless row[:source_version_id]
-        refund = refund_groups.sum do |group|
-          purchase = group[:members].find { |member| member[:role] == "original_purchase" }
-          credit = group[:members].find { |member| member[:role] == "refund" }
-          purchase && credit && purchase[:version_id] == row[:source_version_id] && selected_ids.include?(credit[:version_id]) ? credit[:allocation_cents] : 0
-        end
-        row[:amount_cents] = [ row[:amount_cents] - refund, 0 ].max
-        row[:splits].each { |split| split[:amount_cents] = row[:amount_cents] }
-      end
+      RefundNetting.call(rows, source: selected_source, reviewed: reviewed)
       rows.reject! { |row| row[:amount_cents].zero? }
       # All source classifications inform observed coverage; income-only months
       # are not represented as months with no spending.
@@ -54,7 +43,7 @@ module SpendingPatterns
       end.select { |row| row[:monthly_impact_cents].positive? }
       { window: { start_on: start.iso8601, end_on: finish.iso8601 },
         coverage: { status: "partial", months: months, accounts: selected_source.map { |row| row.source_tracked_account.label }.uniq.sort,
-          account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Reviewed linked refunds are deducted; unlinked refunds, missing months, accounts and unreviewed uploads may change these patterns." },
+          account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Reviewed linked and same-merchant refunds are deducted; missing months, accounts and unreviewed uploads may change these patterns." },
         purchase_count: rows.length, observed_spending_cents: rows.any? ? rows.sum { |row| row[:amount_cents] } : nil,
         merchants: merchants, discretionary_merchants: flexible_merchants, discretionary_categories: categories,
         small_purchase_clusters: clusters(rows), possible_subscriptions: recurring(rows), candidate_changes: choices,

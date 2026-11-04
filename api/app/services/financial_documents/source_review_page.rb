@@ -22,6 +22,7 @@ module FinancialDocuments
       revision = @import.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
       raise StaleRevision, "The extraction changed. Reload this document before reviewing it." unless revision && revision.id.to_s == @revision_id
 
+      SavingsChallenge::Daily::ReviewCategories.ensure!(household: @import.household, user: @user)
       presenter = SourceAccountingPresenter.new(revision, include_evidence: @import.source_available?)
       all = revision.financial_source_events.where(household_id: @import.household_id)
       grouped = all.group(:row_kind).count

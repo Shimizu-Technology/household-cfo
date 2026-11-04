@@ -1,4 +1,5 @@
 require "test_helper"
+require_relative "../support/savings_challenge_test_support"
 
 # Lets one test make the household lock look busy; inert unless switched on.
 module LockWaitSwitch
@@ -9,6 +10,7 @@ Household.prepend(LockWaitSwitch)
 
 # "Approve the rest" must save exactly the lines that looked right, all or none, and be safe to repeat.
 class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
+  include SavingsChallengeTestSupport
   setup do
     @user = User.create!(clerk_id: "lines-#{SecureRandom.hex(8)}", email: "lines-#{SecureRandom.hex(8)}@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
@@ -458,11 +460,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   # LockWaitSwitch stands in for Postgres timing out on the lock; the SQL assertion below checks the bounded wait is really asked for.
   test "a page that waits too long for the household lock saves nothing and says so" do
+    lines = as_read([ @events.fetch("Payroll").id ])
     LockWaitSwitch.on = true
     statements = []
     watcher = ActiveSupport::Notifications.subscribe("sql.active_record") { |*, payload| statements << payload[:sql] }
     begin
-      approve_lines({ lines: as_read([ @events.fetch("Payroll").id ]) })
+      approve_lines({ lines: lines })
     ensure
       LockWaitSwitch.on = false
       ActiveSupport::Notifications.unsubscribe(watcher)
@@ -694,7 +697,116 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 100, FinancialDocuments::SourceReview::LineApprover::MAX_LINES
   end
 
+  test "challenge first review creates private everyday choices once without building a budget" do
+    with_budgetless_challenge do
+      2.times { review_plan }
+      assert_equal [ [ "Bills & essentials", "non_discretionary" ], [ "Everyday spending", "discretionary" ] ], @household.budget_categories.order(:name).pluck(:name, :stack_key)
+      assert_empty @household.budget_years
+      executions = @household.household_operation_executions.where(operation_key: "savings.daily.category.create")
+      assert_equal 2, executions.count
+      assert executions.all? { |execution| execution.normalized_input.empty? && execution.after_snapshot.empty? }
+      assert_empty @household.household_transactions
+    end
+  end
+
+  test "challenge merchant suggestions wait for explicit one tap approval then patterns find Ross and Kmart" do
+    with_budgetless_challenge do
+      @source = build_source(rows: [ [ "Ross", -12000, "purchase", 1 ], [ "Kmart", -9000, "purchase", 2 ], [ "GPA power", -18000, "purchase", 3 ], [ "Mystery shop", -500, "purchase", 4 ] ])
+      plan = review_plan
+      rows = plan.fetch("attention").index_by { |row| row.fetch("merchant") }
+      assert_equal "Everyday spending", rows.fetch("Ross").fetch("category_name")
+      assert_equal "Everyday spending", rows.fetch("Kmart").fetch("category_name")
+      assert_equal "Bills & essentials", rows.fetch("GPA power").fetch("category_name")
+      assert_nil rows.fetch("Mystery shop").fetch("category_id")
+      assert_empty plan.fetch("ready")
+      assert_empty @household.household_transactions
+      assert_nil SourceReviewHead.find_by(financial_source_event_id: rows.fetch("Ross").fetch("event_id"))
+      %w[Ross Kmart].each do |name|
+        row = rows.fetch(name)
+        approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
+        assert_response :success, response.body
+      end
+      patterns = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call
+      assert_equal %w[Ross Kmart], patterns.fetch(:discretionary_merchants).pluck(:label)
+      assert_equal [ 12000, 9000 ], patterns.fetch(:discretionary_merchants).pluck(:total_cents)
+    end
+  end
+
+  test "challenge bill and everyday hints are defaults and preserve earlier approved choices" do
+    with_budgetless_challenge do
+      bills = [ "Rent", "GPA power", "GWA water", "GTA internet", "Docomo phone" ]
+      everyday = [ "Ross", "Kmart", "Jamba", "McDonald's", "Port of Mocha", "Amazon" ]
+      @source = build_source(rows: (bills + everyday).each_with_index.map { |name, i| [ name, -1000 - i, "purchase", i + 1 ] })
+      rows = review_plan.fetch("attention")
+      assert_equal bills + everyday, rows.pluck("merchant")
+      rows.each do |row|
+        assert_equal "suggested_category", row.fetch("kind")
+        assert_equal(bills.include?(row.fetch("merchant")) ? "Bills & essentials" : "Everyday spending", row.fetch("category_name"))
+        assert_equal %w[Yes Change], row.fetch("answers").pluck("label")
+      end
+      assert_empty @household.household_transactions
+      ross = rows.find { |row| row["merchant"] == "Ross" }
+      bills_id = @household.budget_categories.find_by!(name: "Bills & essentials").id
+      approve_lines({ lines: [ { event_id: ross.fetch("event_id"), decision: "edited", edit: { kind: "spending", category_id: bills_id } } ] })
+      assert_response :success
+      @source = build_source(rows: [ [ "Ross", -1500, "purchase", 15 ] ])
+      row = review_plan.fetch("attention").sole
+      assert_equal "still_category", row.fetch("kind")
+      assert_equal bills_id, row.fetch("category_id")
+    end
+  end
+
+  test "one tap confirmation of a statement refund nets the merchant in patterns" do
+    with_budgetless_challenge do
+      @source = build_source(rows: [ [ "Ross", -5525, "purchase", 1 ], [ "Kmart", -3175, "purchase", 2 ], [ "Amazon Marketplace", -3899, "purchase", 3 ], [ "Amazon refund order DEMO-8001", 1299, "refund", 4 ] ])
+      rows = review_plan.fetch("attention").index_by { |row| row.fetch("merchant") }
+      [ "Ross", "Kmart", "Amazon Marketplace" ].each do |name|
+        row = rows.fetch(name)
+        approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
+        assert_response :success, response.body
+      end
+      analyze = -> { SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call }
+      assert_equal [ "Ross", "Amazon Marketplace", "Kmart" ], analyze.call[:discretionary_merchants].pluck(:label)
+      row = rows.fetch("Amazon refund order DEMO-8001")
+      assert_equal "refund", row.fetch("kind")
+      approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
+      assert_response :success, response.body
+      assert_equal [ "Ross", "Kmart", "Amazon Marketplace" ], analyze.call[:discretionary_merchants].pluck(:label)
+      assert_equal [ 5525, 3175, 2600 ], analyze.call[:discretionary_merchants].pluck(:total_cents)
+    end
+  end
+
+  test "challenge lines previously saved without a category can be corrected and counted" do
+    with_budgetless_challenge do
+      @source = build_source(rows: [ [ "Ross", -12000, "purchase", 1 ] ])
+      event = @source[:revision].financial_source_events.sole
+      approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: nil } } ] })
+      assert_response :success
+      assert_empty @household.household_transactions
+      review_plan
+      category = @household.budget_categories.find_by!(name: "Everyday spending")
+      approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
+      assert_response :success, response.body
+      assert_equal 12000, @household.household_transactions.sole.total_amount_cents
+      assert_equal [ "Ross" ], SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call.fetch(:discretionary_merchants).pluck(:label)
+    end
+  end
+
   private
+
+  def with_budgetless_challenge
+    travel_to Time.utc(2026, 11, 4, 2)
+    setup_savings_context
+    @user, @household = @savings_user, @savings_household
+    with_savings_runtime do
+      savings_enroll
+      assert_empty @household.budget_categories
+      @source = build_source
+      yield
+    end
+  ensure
+    travel_back
+  end
 
   def with_page_limit(count)
     approver = FinancialDocuments::SourceReview::LineApprover

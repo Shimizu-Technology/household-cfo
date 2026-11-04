@@ -15,8 +15,9 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved }: {
   importId: number; revisionId: number; refreshKey: string
+  onSaved?: () => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
 }) {
@@ -32,6 +33,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const [result, setResult] = useState<{ key: string; data?: SourceReview; error?: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
+  const savedCallback = useRef(onSaved)
+  useEffect(() => { savedCallback.current = onSaved }, [onSaved])
   const focusAfter = useRef<number | null | undefined>(undefined)
   const viewKey = `${importId}:${revisionId}:${page}`
   const requestKey = `${viewKey}:${attempt}:${refreshKey}`
@@ -77,6 +80,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
   const said = coverageAnswer ?? plan?.coverage.answer ?? null
   // Only what the server recorded counts as answered: the next step opens after the save that records it.
   const recorded = plan?.coverage.answer ?? null
+  const finished = Boolean(plan && plan.total > 0 && plan.done === plan.total && plan.attention.length === 0 && plan.ready.length === 0 && (!plan.coverage.question || recorded))
+  useEffect(() => { if (finished) savedCallback.current?.() }, [finished, recorded])
   const askCoverage = Boolean(plan?.coverage.question) && plan?.total !== 0
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
@@ -205,7 +210,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next }
             <p className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
             <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
               {item.answers.map((choice) => item.kind === 'no_category' && choice.id === 'edit'
-                ? <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value="" disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>
+                ? categories.length > 0 && categories.length <= 3
+                  ? categories.map((category) => <Button key={category.id} variant="secondary" disabled={busy || needBasis.length > 0} aria-label={`${category.name}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, 'edit', category.id)}>{category.name}</Button>)
+                  : categories.length === 0
+                    ? <Button key={choice.id} variant="secondary" disabled={busy || needBasis.length > 0} onClick={() => answer(item, index, 'edit')}>Choose a category</Button>
+                    : <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value="" disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>
                   <option value="">{choice.label}</option>
                   {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                 </select>

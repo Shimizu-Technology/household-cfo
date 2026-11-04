@@ -93,6 +93,7 @@ module FinancialDocuments
         # A copy of a row she already approved can only be left out; it cannot be counted twice.
         answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
+        question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
         { event_id: event.id, kind: line.kind, event_type: event.event_type, question: question, answers: answers,
           merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id] }

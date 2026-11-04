@@ -19,6 +19,7 @@ module FinancialDocuments
         refund: "Is this a refund?",
         no_category: "What was this for?",
         # Asked with her own earlier category for the same merchant: "Still Dining out?"
+        suggested_category: nil,
         still_category: nil
       }.freeze
       ANSWERS = {
@@ -28,6 +29,7 @@ module FinancialDocuments
         card_payment: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         refund: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
         no_category: [ { id: "edit", label: "Choose one" }, { id: "leave_out", label: "Leave it out" } ],
+        suggested_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ],
         still_category: [ { id: "keep", label: "Yes" }, { id: "edit", label: "Change" } ]
       }.freeze
 
@@ -78,6 +80,10 @@ module FinancialDocuments
 
       attr_reader :household, :revision, :unlinked_account_ids
 
+      def review_categories
+        @review_categories ||= household.budget_categories.active.ordered.to_a
+      end
+
       def build
         events = revision.financial_source_events.includes(:financial_source_evidence).order(:position, :id).to_a
         heads = SourceReviewHead.where(household: household, financial_source_event_id: events.map(&:id)).includes(approved_version: { source_account_identity_version: :source_account_review_head }).index_by(&:financial_source_event_id)
@@ -89,6 +95,8 @@ module FinancialDocuments
           merchant = self.class.merchant_for(event)
           guess = suggestions[event.id]
           guess = nil unless categories.include?(guess)
+          default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant)
+          guess ||= default
           chosen = earlier[event.id]
           chosen = nil unless categories.include?(chosen)
           # What she chose before for this merchant beats the reader's guess; if they disagree she is asked, not overruled.
@@ -97,6 +105,7 @@ module FinancialDocuments
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
+          kind = :suggested_category if kind.nil? && default && category_id == default
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && guess.nil?,
             done: done?(heads[event.id]&.approved_version))
         end
