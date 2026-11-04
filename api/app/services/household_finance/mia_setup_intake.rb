@@ -65,11 +65,11 @@ module HouseholdFinance
         topic: { type: "household_setup", title: "Household setup" }, action: action, write_plan: plan, read_only_plan: {}, source: "deterministic")
     end
 
-    def fixed_description
+    def fixed_description(include_groceries: true)
       return unless fixed_cents
 
       fixed = "Fixed essentials #{estimated?(:rent) || estimated?(:utilities) ? 'about ' : ''}#{money(fixed_cents)} (rent #{stated_amount(:rent)} + utilities #{stated_amount(:utilities)})."
-      groceries = "Groceries #{stated_amount(:groceries)} go under flexible spending." if amounts.key?(:groceries)
+      groceries = "Groceries #{stated_amount(:groceries)} go under flexible spending." if include_groceries && amounts.key?(:groceries)
       [ fixed, groceries ].compact.join(" ")
     end
 
@@ -78,6 +78,10 @@ module HouseholdFinance
       return unless key && amounts && amounts[key] == cents && estimated?(key)
 
       "#{label} is about #{money(cents)}."
+    end
+
+    def flexible_cents
+      amounts && amounts[:groceries]
     end
 
     def fixed_cents

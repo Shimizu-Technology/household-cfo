@@ -23,11 +23,27 @@ module HouseholdFinance
       primary_confirmed = primary_confirmed.include?("primary_income")
       return false unless primary_confirmed || current.any? { |source| source.source_type == "job" }
 
-      current.any? || (primary_confirmed && sources.all? { |source| source.source_type != "job" && source.starts_on && source.starts_on > date.end_of_month })
+      current.any? || (primary_confirmed && sources.all? do |source|
+        (source.ends_on && source.ends_on <= date.end_of_month) ||
+          (source.starts_on && source.starts_on > date.end_of_month && (source.source_type != "job" || explicit_primary_zero?))
+      end)
     end
 
     private
 
     attr_reader :household
+
+    # Confirmation flags alone do not distinguish an explicit zero from a
+    # previously confirmed salary. Read the latest reviewed primary value.
+    def explicit_primary_zero?
+      return @explicit_primary_zero if defined?(@explicit_primary_zero)
+
+      confirmation = household.household_operation_executions.current_picture
+        .where(operation_key: "profile.setup_confirmation.update")
+        .where("normalized_input -> 'confirmed_fields' ? :field", field: "primary_income")
+        .order(completed_at: :desc, id: :desc).first
+      value = confirmation&.normalized_input&.dig("expected_values", "primary_income")
+      @explicit_primary_zero = value.present? && Money.cents(value).zero?
+    end
   end
 end

@@ -8097,6 +8097,7 @@ export function CurrentMonthActivityPanel({
   loading,
   error,
   reopen,
+  planKnown = true,
 }: {
   plan: AnnualBudgetPlan
   currentMonthIndex: number
@@ -8104,6 +8105,7 @@ export function CurrentMonthActivityPanel({
   loading: boolean
   error: string | null
   reopen?: LedgerReopenControls
+  planKnown?: boolean
 }) {
   const month = plan.months[currentMonthIndex]
   const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
@@ -8119,17 +8121,18 @@ export function CurrentMonthActivityPanel({
     <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
       <div className="current-month-activity-heading">
         <div>
-          <h4>Planned, actual, and pending review</h4>
+          <h4>{planKnown ? 'Planned, actual, and pending review' : 'Approved spending and pending review'}</h4>
         </div>
         {loading ? <span>Loading report</span> : totalPending > 0 && <span>{formatReviewMoney(Math.round((totalPending) * 100))} waiting for review</span>}
       </div>
       {error && <p className="setup-error" role="alert">{error}</p>}
       <CategoryPressureList
         positions={positions}
+        planKnown={planKnown}
         title="Spending by category"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} planKnown={planKnown} />}
       {visibleSpendingReport && reopen && <IgnoredTransactionList drafts={visibleSpendingReport.ignored_drafts ?? []} {...reopen} />}
     </section>
   )
@@ -8137,13 +8140,13 @@ export function CurrentMonthActivityPanel({
 
 type LedgerReopenControls = { action: string | null; disabled: boolean; onReopen: (draft: TransactionDraft) => void }
 
-function SpendingReportLedger({ report, reopen }: { report: SpendingReport; reopen?: LedgerReopenControls }) {
+function SpendingReportLedger({ report, reopen, planKnown = true }: { report: SpendingReport; reopen?: LedgerReopenControls; planKnown?: boolean }) {
   return (
     <div className="spending-report-ledger">
       <div className="spending-report-summary">
         <span>{report.period_label}</span>
-        <strong>{formatReviewMoney(Math.round((report.totals.actual) * 100))} actual</strong>
-        <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>
+        <strong>{planKnown || report.totals.actual > 0 ? `${formatReviewMoney(Math.round(report.totals.actual * 100))} actual` : 'Approved spending not known yet'}</strong>
+        {planKnown && <span>{formatReviewMoney(Math.round((report.totals.planned) * 100))} planned</span>}
         <span>{formatReviewMoney(Math.round((report.totals.pending) * 100))} pending</span>
       </div>
       <TransactionLedger
@@ -8392,6 +8395,9 @@ export function AnnualBudgetPlanner({
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
   )
+  const beforePlanStart = Boolean(plan.plan_starts_on && plan.months[currentMonthIndex]?.starts_on < plan.plan_starts_on)
+  const approvedSpending = budgetPositionTotals(currentPositions).actual
+  const calendarMonth = (date: string) => new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
@@ -8854,12 +8860,16 @@ export function AnnualBudgetPlanner({
         </section>
       )}
 
-      {planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
+      {beforePlanStart && <section aria-label="Historical spending">
+        <p>Your plan starts in {calendarMonth(plan.plan_starts_on!)}, so {calendarMonth(plan.months[currentMonthIndex].starts_on)} has no plan to compare against.</p>
+        <p>Approved spending: <strong>{approvedSpending > 0 ? formatReviewMoney(Math.round(approvedSpending * 100)) : 'Not known yet'}</strong></p>
+      </section>}
+      {!beforePlanStart && planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
 
       {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
       {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
 
-      {planKnown && <details className="budget-detail-disclosure">
+      {(beforePlanStart || planKnown) && <details className="budget-detail-disclosure">
         <summary>
           <span><strong>This month’s spending</strong><small>What you’ve spent in each category.</small></span>
           <b>{currentPositions.length} categories</b>
@@ -8867,6 +8877,7 @@ export function AnnualBudgetPlanner({
         <CurrentMonthActivityPanel
           plan={plan}
           currentMonthIndex={currentMonthIndex}
+          planKnown={!beforePlanStart}
           spendingReport={spendingReport}
           loading={spendingReportLoading}
           error={spendingReportError}

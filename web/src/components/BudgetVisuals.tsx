@@ -106,14 +106,16 @@ export function CategoryPressureList({
   limit,
   title = 'Categories needing the closest look',
   eyebrow = 'Category attention',
+  planKnown = true,
 }: {
   positions: BudgetPosition[]
   limit?: number
   title?: string
   eyebrow?: string
+  planKnown?: boolean
 }) {
   const titleId = useId()
-  const activePositions = positions.filter((position) => position.active)
+  const activePositions = positions.filter((position) => position.active && (planKnown || position.actual > 0 || position.pending > 0))
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)
     .slice(0, limit ?? activePositions.length)
@@ -129,7 +131,7 @@ export function CategoryPressureList({
       </div>
       <div className="category-pressure-list">
         {rankedPositions.length === 0 ? (
-          <p className="category-pressure-empty">Add categories to see monthly plan pressure here.</p>
+          <p className="category-pressure-empty">{planKnown ? 'Add categories to see monthly plan pressure here.' : 'Approved spending is not known yet.'}</p>
         ) : rankedPositions.map((position) => {
           const projected = addMoney(position.actual, position.pending)
           const projectedDifference = subtractMoney(position.planned, projected)
@@ -142,20 +144,22 @@ export function CategoryPressureList({
                 </div>
                 <div className="category-pressure-status">
                   {position.pending > 0 && <span>{formatReviewMoney(Math.round((position.pending) * 100))} pending</span>}
-                  <b className={projectedDifference < 0 ? 'negative' : ''}>
+                  {planKnown && <b className={projectedDifference < 0 ? 'negative' : ''}>
                     {position.planned <= 0
                       ? `${formatReviewMoney(Math.round((position.actual) * 100))} unplanned`
                       : projectedDifference < 0
                         ? `${formatReviewMoney(Math.round((Math.abs(projectedDifference)) * 100))} over if approved`
                         : `${formatReviewMoney(Math.round((projectedDifference) * 100))} after pending`}
-                  </b>
+                  </b>}
                 </div>
               </div>
-              <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />
+              {planKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{formatReviewMoney(Math.round((position.actual) * 100))} actual</span>
-                <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
-                <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
+                <span>{planKnown || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                {planKnown && <>
+                  <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
+                  <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
+                </>}
               </div>
             </article>
           )

@@ -230,6 +230,132 @@ class HouseholdFinanceSetupReviewTest < ActiveSupport::TestCase
     assert_nil month_answer[:money_in_cents]
     @household.update!(confirmed_setup_fields: [ "primary_income" ])
     @household.income_sources.create!(label: "Future job", source_type: "job", amount_cents: 520000, cadence: "monthly", starts_on: Date.new(2026, 12, 1))
+    assert_equal 0, month_answer[:money_in_cents]
+  end
+
+  test "R2 L1 pre start approved spending survives without a plan comparison" do
+    save_manual(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
+    october = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 10, 1))
+    category = @household.budget_categories.find_by!(stack_key: "discretionary")
+    transaction = @household.household_transactions.create!(budget_period: october, occurred_on: october.starts_on,
+      merchant: "Approved October groceries", total_amount_cents: 12345, source_type: "statement", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 12345)
+    @household.transaction_drafts.create!(occurred_on: october.starts_on, merchant: "Pending October groceries", total_amount_cents: 90000,
+      budget_category: category, source_type: "statement", status: "pending")
+    answer = HouseholdFinance::MiaMonthAnswer.for_question(@household, "How did October look?")
+    assert_equal 12345, answer.call[:spent_so_far_cents]
+    assert_nil answer.call[:money_in_cents]
+    assert_nil answer.call[:planned_out_cents]
+    assert_nil answer.call[:plan_left_cents]
+    assert_includes answer.response, "October 2026 has no plan to compare against"
+    assert_includes answer.response, "From your approved statement lines, you spent $123 in October 2026."
+    refute_includes answer.response, "$900"
+    overview = HouseholdFinance::BudgetQuestionAnswerer.new("Explain my October budget", annual_plan: manager.plan_data).call
+    assert_includes overview, "$123"
+    assert_equal 123.45, manager.plan_data[:rows].find { |row| row[:id] == category.id }[:months][9][:actual]
+  end
+
+  test "R2 L1 pre start absent or pending only spending stays unknown" do
+    save_manual(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
+    [ false, true ].each do |pending|
+      if pending
+        @household.transaction_drafts.create!(occurred_on: Date.new(2026, 10, 1), merchant: "Pending October groceries", total_amount_cents: 90000,
+          budget_category: @household.budget_categories.find_by!(stack_key: "discretionary"), source_type: "statement", status: "pending")
+      end
+      answer = HouseholdFinance::MiaMonthAnswer.for_question(@household, "How did October look?")
+      assert_nil answer.call[:spent_so_far_cents]
+      refute_match(/\$[0-9]/, answer.response)
+      assert_includes answer.response, "Approved spending for October 2026 is not known yet"
+    end
+  end
+
+  test "R2 C1 changing a confirmed primary goal updates its tracked target only after approval" do
+    save_manual(primary_goal: "Build a $1,000 emergency cushion")
+    goal = @household.goals.create!(label: "Emergency cushion", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100000, target_amount_known: true)
+    draft = persist(setup_proposal("Build a $2,000 emergency cushion", primary_goal: "Build a $2,000 emergency cushion"))
+    assert draft.mia_action_items.exists?(action_type: "update_goal")
+    assert_equal 100000, goal.reload.target_amount_cents
+    applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call(idempotency_key: SecureRandom.uuid)
+    assert applied.success?, applied.errors.inspect
+    assert_equal "Build a $2,000 emergency cushion", @household.reload.primary_goal
+    assert_equal 200000, goal.reload.target_amount_cents
+    assert_equal 1, @household.goals.tracked.count
+    proposal = setup_proposal("Save a $2,000 emergency cushion", primary_goal: "Save a $2,000 emergency cushion")
+    refute proposal.items.any? { |item| item.action_type.in?(%w[create_goal update_goal]) }
+  end
+
+  [ :setup_proposal, :plan ].each do |builder|
+    test "R2 C2 #{builder} cards mention only groceries that they save" do
+      text = "Rent $1,800, utilities $250, groceries $700"
+      [ {}, { flexible_spend: 600 }, { flexible_spend: 700 } ].each do |extra|
+        proposal = send(builder, text, fixed_expenses: 2050, **extra)
+        assert_includes proposal.rationale, "rent $1,800 + utilities $250"
+        descriptions = [ proposal.rationale, *proposal.items.map(&:description) ].join(" ")
+        if extra[:flexible_spend] == 700
+          assert_includes descriptions, "Groceries $700 go under flexible spending"
+        else
+          refute_includes descriptions, "Groceries $700 go under flexible spending"
+        end
+      end
+    end
+  end
+
+  test "R2 C3 a confirmed primary and explicitly ended job establish known zero" do
+    save_manual(primary_income: 5200)
+    @household.income_sources.sole.update!(ends_on: Date.new(2026, 11, 1))
+    assert_equal 0, month_answer[:money_in_cents]
+    assert_equal 0, manager.plan_data[:annual_outlook][:months].first[:income]
+  end
+
+  test "R2 C3 confirmed nonzero primary plus only a future job remains unknown" do
+    save_manual(primary_income: 5200)
+    @household.income_sources.sole.update!(starts_on: Date.new(2026, 12, 1))
+    assert_nil month_answer[:money_in_cents]
+  end
+
+  test "R2 C3 explicit primary zero plus a future job stays known zero" do
+    save_manual(primary_income: 0)
+    @household.income_sources.create!(label: "Future job", source_type: "job", amount_cents: 520000, cadence: "monthly", starts_on: Date.new(2026, 12, 1))
+    assert_equal 0, month_answer[:money_in_cents]
+  end
+
+  test "R2 L1 approved totals do not rely on truncated transaction lists" do
+    save_manual(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
+    october = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 10, 1))
+    category = @household.budget_categories.find_by!(stack_key: "discretionary")
+    9.times do |index|
+      transaction = @household.household_transactions.create!(budget_period: october, occurred_on: october.starts_on,
+        merchant: "Approved #{index}", total_amount_cents: 1000, source_type: "statement", status: "reconciled")
+      transaction.transaction_splits.create!(budget_category: category, amount_cents: 1000)
+    end
+    ignored = @household.household_transactions.create!(budget_period: october, occurred_on: october.starts_on,
+      merchant: "Ignored", total_amount_cents: 99900, source_type: "statement", status: "ignored")
+    ignored.transaction_splits.create!(budget_category: category, amount_cents: 99900)
+    data = manager.plan_data
+    assert_equal 8, data[:recent_transactions].size
+    data[:pending_transaction_drafts_meta][:truncated] = true
+    answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: data, month: 10)
+    assert_equal 9000, answer.call[:spent_so_far_cents]
+    assert_nil answer.call[:pending_cents]
+    assert_includes answer.response, "you spent $90"
+  end
+
+  test "R2 C2 already saved groceries are not described as a new update" do
+    save_manual(flexible_spend: 700)
+    [ :setup_proposal, :plan ].each do |builder|
+      proposal = send(builder, "Rent $1,800, utilities $250, groceries $700", fixed_expenses: 2050, flexible_spend: 700)
+      refute_includes [ proposal.rationale, *proposal.items.map(&:description) ].join(" "), "Groceries $700 go under flexible spending"
+    end
+  end
+
+  test "R2 C3 latest primary confirmation and generation determine explicit zero" do
+    save_manual(primary_income: 0)
+    save_manual(primary_income: 5200)
+    @household.income_sources.sole.update!(starts_on: Date.new(2026, 12, 1))
+    assert_nil month_answer[:money_in_cents]
+    save_manual(primary_income: 0)
+    assert_equal 0, month_answer[:money_in_cents]
+    @household.household_operation_executions.update_all(financial_generation: @household.financial_generation - 1)
     assert_nil month_answer[:money_in_cents]
   end
 

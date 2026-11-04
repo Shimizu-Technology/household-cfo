@@ -81,7 +81,11 @@ module HouseholdFinance
       return validation("Two requested changes target the same saved record. Ask for one change at a time and review it before requesting the next one. Nothing changed.") if conflicting_targets?(combined_items, combined_action_indexes)
 
       intake = MiaSetupIntake.new(raw_input)
-      setup_breakdown = intake.fixed_description if normalized.any? do |entry|
+      groceries_included = combined_items.any? do |item|
+        value = item.payload.to_h.dig(:expected_values, "flexible_spend")
+        item.action_type == "confirm_household_setup" && value && Money.cents(value) == intake.flexible_cents
+      end
+      setup_breakdown = intake.fixed_description(include_groceries: groceries_included) if normalized.any? do |entry|
         value = entry.dig(:action, :setup_updates, :fixed_expenses)
         entry.dig(:action, :type) == "update_household_setup" && value && Money.cents(value) == intake.fixed_cents
       end

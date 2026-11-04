@@ -69,7 +69,10 @@ module HouseholdFinance
         categories = allocations_known ? active.sum { |row| Money.cents(cell(row)[:planned]) } : nil
         debt = !before_start && plan[:monthly_debt_minimums_known] ? Money.cents(plan[:monthly_debt_minimums]) : nil
         planned = categories && debt ? categories + debt : nil
-        actual = approved && !before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
+        # These cells are uncapped SQL aggregates of approved category splits,
+        # independent of the capped recent/pending transaction lists.
+        actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
+        actual = nil if before_start && actual&.zero?
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
         pending_unknown = truncated
@@ -100,7 +103,15 @@ module HouseholdFinance
       facts = call
       return [ facts[:clarification], next_move ].compact_blank.join(" ") if facts[:clarification]
 
-      return "Your plan starts in #{Date.iso8601(facts[:plan_starts_on]).strftime("%B %Y")}. #{facts[:period_label]} is before you started, so its income and planned costs are not known." if facts[:before_plan_start]
+      if facts[:before_plan_start]
+        start = Date.iso8601(facts[:plan_starts_on]).strftime("%B %Y")
+        spending = if facts[:spent_so_far_cents].nil?
+          "Approved spending for #{facts[:period_label]} is not known yet."
+        else
+          "From your approved statement lines, you spent #{money(facts[:spent_so_far_cents])} in #{facts[:period_label]}."
+        end
+        return "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}"
+      end
 
       left = facts[:plan_left_cents]
       plan_line = if left.nil?

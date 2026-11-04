@@ -227,3 +227,23 @@ it('asks for main income when an approved business amount is only a subtotal', (
  expect(screen.getAllByText('Not entered')).toHaveLength(2)
  expect(screen.queryByText('Still to add: .')).toBeNull()
 })
+
+it('keeps approved pre-start spending on Home while the historical plan stays unknown', () => {
+  const answer = { ...dashboard.month_answer!, year: 2026, month: 10, period_label: 'October 2026', plan_starts_on: '2026-11-01', before_plan_start: true, money_in_cents: null, planned_out_cents: null, plan_left_cents: null, spent_so_far_cents: 12300 }
+  const { container } = render(<HomeScreen dashboard={{ ...dashboard, month_answer: answer }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  expect(container.querySelector('.home-spent')?.textContent).toContain('$123')
+  expect(container.querySelector('.home-money-values')?.textContent).not.toContain('$0')
+  expect(screen.getAllByText('Not entered')).toHaveLength(3)
+})
+
+for (const actual of [123, 0]) {
+  it(`shows pre-start approved spending (${actual}) without inventing a historical plan`, () => {
+    const historicalPlan = { ...plan, plan_starts_on: '2026-11-01', rows: plan.rows.map(row => ({ ...row, months: row.months.map((cell, i) => i === 9 ? { ...cell, planned: 0, actual, remaining: -actual } : cell) })) }
+    const { container } = render(<AnnualBudgetPlanner {...plannerProps()} plan={historicalPlan} />)
+    const historical = screen.getByRole('region', { name: 'Historical spending' })
+    expect(historical.textContent).toContain('October 2026 has no plan to compare against')
+    expect(historical.textContent).toContain(actual ? '$123' : 'Not known yet')
+    expect(container.textContent).not.toMatch(/over now|unplanned|remaining now|\$0 planned/)
+    expect(screen.queryByRole('heading', { name: 'Your spending groups' })).toBeNull()
+  })
+}

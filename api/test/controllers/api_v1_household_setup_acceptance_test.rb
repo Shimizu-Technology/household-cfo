@@ -69,6 +69,27 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     refute_match(/short|\$0/, reply)
   end
 
+  test "R2 approved October spending agrees between Mia and the Budget report after a November join" do
+    post_message(NUMBERS)
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    period = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 10, 1))
+    category = @household.budget_categories.find_by!(stack_key: "discretionary")
+    transaction = @household.household_transactions.create!(budget_period: period, occurred_on: period.starts_on,
+      merchant: "Approved October groceries", total_amount_cents: 12300, source_type: "statement", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 12300)
+    @household.transaction_drafts.create!(occurred_on: period.starts_on, merchant: "Pending October groceries", total_amount_cents: 90000,
+      budget_category: category, source_type: "statement", status: "pending")
+    post_message("How did October look?")
+    assert_equal 12300, response.parsed_body.dig("month_answer", "spent_so_far_cents")
+    assert_nil response.parsed_body.dig("month_answer", "money_in_cents")
+    assert_includes reply, "From your approved statement lines, you spent $123 in October 2026."
+    refute_includes reply, "$900"
+    get "/api/v1/spending_report?start_on=2026-10-01&end_on=2026-10-31", headers: headers
+    assert_response :success
+    assert_equal 123, response.parsed_body.dig("spending_report", "totals", "actual")
+    assert_equal 900, response.parsed_body.dig("spending_report", "totals", "pending")
+  end
+
   test "manual setup with only the five required fields does not require optional business income" do
     @household.debts.create!(label: "Car loan", debt_type: "auto_loan", minimum_payment_cents: 35000, minimum_payment_known: true, balance_known: false)
     patch "/api/v1/workspace/setup", params: { workspace: {

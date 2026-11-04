@@ -154,33 +154,36 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "workspace setup seeds the annual budget from expense stack values" do
-    user = create_user(email: "annual-seed@example.com")
+    travel_to Date.new(2026, 7, 15) do
+      user = create_user(email: "annual-seed@example.com")
 
-    patch "/api/v1/workspace/setup",
-      params: {
-        workspace: {
-          primary_income: 8_000,
-          fixed_expenses: 4_000,
-          flexible_spend: 1_200,
-          expected_sinking_fund: 300,
-          unexpected_sinking_fund: 200
-        }
-      },
-      headers: auth_headers(user),
-      as: :json
+      patch "/api/v1/workspace/setup",
+        params: {
+          workspace: {
+            primary_income: 8_000,
+            fixed_expenses: 4_000,
+            flexible_spend: 1_200,
+            expected_sinking_fund: 300,
+            unexpected_sinking_fund: 200
+          }
+        },
+        headers: auth_headers(user),
+        as: :json
 
-    assert_response :success
-    annual_plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
-    assert_equal Date.current.year, annual_plan.fetch("year")
-    assert_equal 12, annual_plan.fetch("months").length
-    current_month_id = annual_plan.fetch("months").fetch(Date.current.month - 1).fetch("id").to_s
-    assert_equal 8_000, annual_plan.fetch("monthly_income").fetch(current_month_id)
-    assert annual_plan.fetch("monthly_income").values.first(Date.current.month - 1).all?(&:nil?)
+      assert_response :success
+      annual_plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+      assert_equal Date.current.year, annual_plan.fetch("year")
+      assert_equal 12, annual_plan.fetch("months").length
+      current_month_id = annual_plan.fetch("months").fetch(Date.current.month - 1).fetch("id").to_s
+      assert_equal 8_000, annual_plan.fetch("monthly_income").fetch(current_month_id)
+      assert annual_plan.fetch("monthly_income").values.first(Date.current.month - 1).all?(&:nil?)
 
-    fixed_row = annual_plan.fetch("rows").find { |row| row.fetch("name") == "Fixed essentials" }
-    assert fixed_row.present?
-    assert_equal 4_000, fixed_row.fetch("months").fetch(Date.current.month - 1).fetch("planned")
-    assert_equal [ 0 ] * (Date.current.month - 1), fixed_row.fetch("months").first(Date.current.month - 1).pluck("planned")
+      fixed_row = annual_plan.fetch("rows").find { |row| row.fetch("name") == "Fixed essentials" }
+      assert fixed_row.present?
+      assert_equal 4_000, fixed_row.fetch("months").fetch(Date.current.month - 1).fetch("planned")
+      assert_equal [ 0 ] * (Date.current.month - 1), fixed_row.fetch("months").first(Date.current.month - 1).pluck("planned")
+      assert_equal 6, annual_plan.fetch("monthly_income").values.first(Date.current.month - 1).length
+    end
   end
 
   test "participant can add a budget category and edit a monthly allocation" do

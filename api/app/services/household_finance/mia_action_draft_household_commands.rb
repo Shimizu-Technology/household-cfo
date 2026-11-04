@@ -68,7 +68,7 @@ module HouseholdFinance
       # The same reviewed goal text completes setup and can establish a target.
       # Unknown progress stays unknown; approving this never moves money.
       target = MiaSetupIntake.goal_target(normalized[:primary_goal])
-      if target && !confirmed_fields.include?("primary_goal")
+      if target && changed.any? { |key,| key == :primary_goal }
         tracked = setup_tracked_goal_item(normalized[:primary_goal], target)
         return tracked if tracked.is_a?(MiaActionDraftBuilder::Result)
         items << tracked if tracked
@@ -78,7 +78,8 @@ module HouseholdFinance
       estimate_notes = %i[primary_income flexible_spend].filter_map { |key| intake.estimate_note(key, Money.cents(normalized[key])) if normalized.key?(key) }
       confirmation = items.find { |item| item.action_type == "confirm_household_setup" }
       confirmation.description = [ confirmation.description, *estimate_notes ].join(" ") if confirmation && estimate_notes.any?
-      breakdown = intake.fixed_description if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
+      groceries_included = changed.any? { |key, _before, value| key == :flexible_spend && Money.cents(value) == intake.flexible_cents }
+      breakdown = intake.fixed_description(include_groceries: groceries_included) if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
       if breakdown
         items.reject { |item| item.action_type == "confirm_household_setup" }.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
       end
