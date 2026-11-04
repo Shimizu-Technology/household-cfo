@@ -31,7 +31,7 @@ module SpendingPatterns
     end
 
     def self.merchant_key(value)
-      text = FinancialDocuments::MerchantNormalizer.call(value).to_s.downcase.squish
+      text = MerchantName.call(value).to_s.unicode_normalize(:nfkc).downcase.squish
       return if text.blank? || text == "unnamed purchase"
       # A known purchase descriptor and its bank refund/order descriptor name the
       # same merchant. Keep unrelated names (for example Amazon Cafe) separate.
@@ -45,9 +45,15 @@ module SpendingPatterns
       return 0 if amount.zero?
       remaining = amount
       row[:splits].each_with_index do |split, index|
-        reduction = index == row[:splits].length - 1 ? remaining : amount * split[:amount_cents] / before
+        reduction = [ index == row[:splits].length - 1 ? remaining : amount * split[:amount_cents] / before, split[:amount_cents] ].min
         split[:amount_cents] -= reduction
         remaining -= reduction
+      end
+      row[:splits].reverse_each do |split|
+        reduction = [ remaining, split[:amount_cents] ].min
+        split[:amount_cents] -= reduction
+        remaining -= reduction
+        break if remaining.zero?
       end
       row[:amount_cents] -= amount
       amount

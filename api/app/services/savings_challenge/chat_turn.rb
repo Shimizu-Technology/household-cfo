@@ -19,7 +19,7 @@ module SavingsChallenge
     def self.special?(message, session:)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
       message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(PROGRESS) ||
-        ((message.match?(STANDALONE_AMOUNT) || message.match?(BARE_AMOUNT)) && goal_conversation?(session)) ||
+        amount_reply?(message, session: session) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
     end
@@ -32,6 +32,13 @@ module SavingsChallenge
 
       session.active_topic["type"].in?(GOAL_TOPICS) ||
         SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }, kind: "goal", status: "pending").exists?
+    end
+
+    def self.amount_reply?(message, session:)
+      return false unless goal_conversation?(session)
+      message.match?(STANDALONE_AMOUNT) || (message.match?(BARE_AMOUNT) &&
+        (session.active_topic["type"] == "challenge_goal" ||
+          SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }, kind: "goal", status: "pending").exists?))
     end
 
     def self.money_report?(message)
@@ -189,8 +196,9 @@ module SavingsChallenge
       suggestion = @message.match?(GOAL) && @message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)
       return false if @message.match?(/\b(?:household|paid|spent|saved|set aside|withdrew|card balance)\b/i)
       return false if @message.match?(/\bdebt\b/i) && !@message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
-      standalone = (@message.match?(STANDALONE_AMOUNT) || @message.match?(BARE_AMOUNT)) && self.class.goal_conversation?(@session)
+      standalone = self.class.amount_reply?(@message, session: @session)
       return false unless @message.match?(GOAL_CHANGE) || @message.match?(GOAL_DESIRE) || standalone || suggestion
+      malformed = @message.match?(/(?:\$\s*|\b(?:to|at|be|save)\s+)[0-9][0-9,]*\.\d{3,}/i)
       amounts = @message.scan(/\$\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/).flatten
       amounts = @message.scan(/\b(?:to|at|of|be|save)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i).flatten if amounts.empty?
       amounts = [ @message.match(BARE_AMOUNT)[1] ] if amounts.empty? && standalone && @message.match?(BARE_AMOUNT)
@@ -203,7 +211,9 @@ module SavingsChallenge
       else
         amounts.first
       end
-      @goal_cents = if chosen
+      @goal_cents = if malformed
+        nil
+      elsif chosen
         HouseholdFinance::Money.chat_cents(chosen) rescue nil
       elsif suggestion && amounts.empty?
         50_000

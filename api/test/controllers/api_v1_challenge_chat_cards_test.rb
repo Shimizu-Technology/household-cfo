@@ -46,6 +46,23 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
   end
 
+  test "bare amount after patterns is not a goal but a pending goal supplies context" do
+    ask "What patterns do you see?", "patterns-context"
+    refute SavingsChallenge::ChatTurn.special?("500", session: ChatSession.order(:id).last)
+    ask "500", "merchant-answer"
+    assert_nil response.parsed_body["challenge_chat_card"]
+    ask "Set my goal to $300", "pending-context"
+    ChatSession.order(:id).last.update!(active_topic: { type: "challenge_patterns" })
+    ask "500", "pending-answer"
+    assert_equal 50_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+  end
+
+  test "malformed replacement cannot select the old amount" do
+    ask "Set my goal to $500.259 instead of $400", "malformed-replacement"
+    assert_nil response.parsed_body["challenge_chat_card"]
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "What comfortable amount"
+  end
+
   test "target amounts retain cents and reject malformed decimals rather than truncating" do
     ask "Set my target to $500.25.", "cents-target"
     assert_equal 50_025, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")

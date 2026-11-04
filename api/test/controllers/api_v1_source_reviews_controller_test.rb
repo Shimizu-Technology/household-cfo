@@ -8,6 +8,17 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     @source = build_source
   end
 
+  test "unavailable optional categories do not block statement rows" do
+    service = SavingsChallenge::Daily::ReviewCategories
+    original = service.method(:ensure!)
+    service.define_singleton_method(:ensure!) { |**| raise SavingsChallenge::AccessPolicy::Unavailable, "Paused" }
+    review_get
+    assert_response :success
+    assert_equal 1, response.parsed_body.dig("source_review", "counts", "all")
+  ensure
+    service.define_singleton_method(:ensure!, original) if original
+  end
+
   test "participant approves account and row independently with replay safe redacted audit" do
     review_get
     assert_response :success

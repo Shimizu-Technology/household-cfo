@@ -105,8 +105,8 @@ module FinancialDocuments
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
-          kind = :suggested_category if kind.nil? && default && category_id == default
-          Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && guess.nil?,
+          kind = :suggested_category if kind.nil? && default && chosen.nil? && category_id == default
+          Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             done: done?(heads[event.id]&.approved_version))
         end
       end

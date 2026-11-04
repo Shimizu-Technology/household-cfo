@@ -63,6 +63,21 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 334, result[:discretionary_categories].sole[:total_cents]
   end
 
+  test "review suffix refund nets only the normalized merchant" do
+    purchase("Island Table - Tamuning (includes tip)", 2000)
+    purchase("Island Table Cafe", 1000)
+    reviewed("Island Table - Tamuning", 500)
+    assert_equal 1500, analyze[:discretionary_merchants].find { |row| row[:label] == "Island Table" }[:total_cents]
+    assert_equal 1000, analyze[:discretionary_merchants].find { |row| row[:label] == "Island Table Cafe" }[:total_cents]
+  end
+
+  test "rounding cannot overdraw a tiny final split" do
+    row = { amount_cents: 10, splits: [ { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 3 }, { amount_cents: 1 } ] }
+    assert_equal 9, SpendingPatterns::RefundNetting.send(:deduct!, row, 9)
+    assert row[:splits].all? { |split| split[:amount_cents] >= 0 }
+    assert_equal 1, row[:splits].sum { |split| split[:amount_cents] }
+  end
+
   private
 
   def analyze = SpendingPatterns::Analyzer.new(@savings_household, today: Date.new(2026, 11, 4)).call
