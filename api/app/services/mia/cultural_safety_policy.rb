@@ -178,6 +178,11 @@ module Mia
         return false if clause.match?(IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN)
         return false if clause.match?(SAFE_PROGRAM_OUTCOME_PATTERN)
 
+        # An individual overspending condition is not a demographic subject.
+        # Remove only that condition, then check the remaining claim normally;
+        # a trailing stereotype (including an unfamiliar group) stays visible.
+        clause = clause.gsub(/\b(?:when|if)\s+(?:someone|somebody|(?:a|the|one)\s+(?:participant|client|person|household))\s+is\s+about\s+to\s+overspend\b/i, "")
+          .sub(/\A[\s,]+/, "")
         marker = clause.match(CLAIM_SIGNAL_PATTERN)
         return false unless marker
 

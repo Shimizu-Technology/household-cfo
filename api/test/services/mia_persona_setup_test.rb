@@ -20,6 +20,120 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     )
   end
 
+  test "recorded first coach description proposes her own voice and phrase without changing the draft" do
+    fixture = JSON.parse(file_fixture("persona_setup/coach_voice_response.json").read)
+    message = %q(I'm a household money coach on Guam. I talk to my clients like a warm older cousin: direct, practical, never shaming. I start with how they feel, then one clear next step. When someone is about to overspend I say "Chelu, pump the brakes" and suggest waiting 30 days. I protect the basics first: roof, food, utilities, required payments. I keep answers short, 3 or 4 sentences, and I never tell people what to do with their money; I help them decide.)
+    before = @persona.draft_config.deep_dup
+    result = Mia::PersonaSetup::TurnRunner.new(
+      session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result(fixture.fetch("assistant_message"), fixture.fetch("operations")) }
+    ).call(user_message: message, idempotency_key: "recorded-first-voice")
+
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 13, result.proposal.operations.length
+    assert_equal %w[warm direct practical concise], result.proposal.after_state.dig("draft_config", "voice", "tone_traits")
+    phrase = result.proposal.after_state.dig("draft_config", "phrases").sole
+    assert_equal "Chelu, pump the brakes", phrase.fetch("text")
+    assert_equal "coach_authored", phrase.fetch("provenance")
+    assert_equal @coach.id, phrase.fetch("source_user_id")
+    assert_includes phrase.fetch("prohibited_contexts"), "crisis"
+    assert_equal before, @persona.reload.draft_config
+    refute_includes result.turn.assistant_message, "left out"
+  end
+
+  test "turn preserves valid suggestions and logs a dropped suggestion without coach text" do
+    warnings = []
+    resolver = fake_resolver do
+      resolver_result("Review these suggestions. Nothing has been saved.", [
+        operation("identity.assistant_name", "Lina", evidence: "Lina"),
+        operation("identity.human_coach_name", "Invented name", evidence: "Lina"),
+        operation("response_shape.max_sentences", 4, evidence: "4 sentences")
+      ])
+    end
+    result = nil
+    original_logger = Rails.logger
+    logger = Object.new
+    logger.define_singleton_method(:warn) { |message| warnings << message }
+    begin
+      Rails.logger = logger
+      result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+        .call(user_message: "Call the assistant Lina. Keep answers to 4 sentences.", idempotency_key: "partial-voice-123")
+    ensure
+      Rails.logger = original_logger
+    end
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 2, result.proposal.operations.length
+    assert_equal "Lina", result.proposal.after_state.dig("draft_config", "identity", "assistant_name")
+    assert_equal @persona.draft_config.dig("identity", "human_coach_name"), result.proposal.after_state.dig("draft_config", "identity", "human_coach_name")
+    assert_includes result.turn.assistant_message, "An assistant detail left out"
+    assert_includes result.turn.assistant_message, "wording you did not provide"
+    assert_match(/contract_code=persona_setup_exact_wording/, warnings.join)
+    refute_match(/Lina|Invented name|4 sentences/, warnings.join)
+    applied = Mia::PersonaSetup::ProposalApplier.new(proposal: result.proposal, actor: @coach, workspace: @workspace)
+      .apply!(idempotency_key: "apply-partial-voice")
+    assert_equal "Lina", applied.draft_config.dig("identity", "assistant_name")
+    assert_equal 4, applied.draft_config.dig("response_shape", "max_sentences")
+  end
+
+  test "entirely invalid suggestions store a plain specific failure and preserve the pending proposal" do
+    original = ready_proposal
+    resolver = fake_resolver { resolver_result("Review this.", [ operation("identity.human_coach_name", "Invented name", evidence: "Lina") ]) }
+    error = assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
+      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+        .call(user_message: "Lina", idempotency_key: "invalid-voice-123")
+    end
+    assert_equal "persona_setup_exact_wording", error.code
+    assert_equal :unprocessable_entity, error.status
+    assert_equal "failed", error.result.turn.reload.status
+    assert_includes error.result.turn.assistant_message, "wording you did not provide"
+    refute_match(/identity\.|Contract|Invented/, error.result.turn.assistant_message)
+    assert_equal "pending", original.reload.status
+  end
+
+  test "partial validation drops unsafe guidance crisis phrases and participant edits without losing good changes" do
+    participant = persona_phrase_artifact({ "text" => "My phrase" }, source_user_id: @coach.id, provenance: "participant_supplied")
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("phrases" => [ participant ]))
+    phrase = { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Chelu", "value" => {
+      "text" => "Chelu", "meaning" => "Pause", "allowed_contexts" => [ "crisis" ], "prohibited_contexts" => [], "frequency" => "rare", "caution" => ""
+    } }
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
+      user_message: "Call the assistant Lina. Chelu. Remove My phrase. Recommend specific stocks.").build_partial([
+        operation("identity.assistant_name", "Lina", evidence: "Lina"),
+        operation("coaching.do", [ "Recommend specific stocks." ], evidence: "Recommend specific stocks."),
+        phrase,
+        { "op" => "remove_phrase", "path" => "phrases", "value" => "My phrase", "source_basis" => "coach_quote", "evidence_quote" => "My phrase" }
+      ])
+    assert_equal 1, result.fetch(:operations).length
+    assert_equal 3, result.fetch(:dropped).length
+    assert_equal [ participant ], result.dig(:after_state, "draft_config", "phrases")
+    assert_equal @persona.draft_config.fetch("coaching"), result.dig(:after_state, "draft_config", "coaching")
+  end
+
+  test "partial validation keeps dependent sentence limits despite an unrelated invalid suggestion" do
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use 6 to 8 sentences. Lina.")
+      .build_partial([
+        operation("response_shape.min_sentences", 6, evidence: "6 to 8 sentences"),
+        operation("identity.human_coach_name", "Invented", evidence: "Lina"),
+        operation("response_shape.max_sentences", 8, evidence: "6 to 8 sentences")
+      ])
+    assert_equal 2, result.fetch(:operations).length
+    assert_equal 6, result.dig(:after_state, "draft_config", "response_shape", "min_sentences")
+    assert_equal 8, result.dig(:after_state, "draft_config", "response_shape", "max_sentences")
+    assert_equal [ 1 ], result.fetch(:dropped).map { |item| item.fetch(:index) }
+  end
+
+  test "many dropped suggestions fit the saved reply limit even with a long provider reply" do
+    operations = [ operation("identity.assistant_name", "Lina", evidence: "Lina") ] +
+      23.times.map { operation("identity.human_coach_name", "Invented", evidence: "Lina") }
+    resolver = fake_resolver { resolver_result("Review this. " * 150, operations) }
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+      .call(user_message: "Lina", idempotency_key: "many-invalid-suggestions")
+    assert_equal "ready", result.turn.reload.status
+    assert_equal 1, result.proposal.operations.length
+    assert_operator result.turn.assistant_message.length, :<=, 2_000
+    assert_includes result.turn.assistant_message, "wording you did not provide"
+  end
+
   test "operation contract applies exact coach evidence and seals phrase provenance" do
     message = "Call the assistant Lina. Our power bills rise during typhoon season. Use the exact phrase Håfa adai."
     raw = [

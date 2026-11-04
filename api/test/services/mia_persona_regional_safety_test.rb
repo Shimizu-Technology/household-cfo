@@ -6,6 +6,23 @@ require_relative "../support/persona_test_helper"
 class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
+  test "individual coaching conditions are not group stereotypes and never exempt demographic claims" do
+    [
+      "Suggest waiting 30 days when someone is about to overspend.",
+      "A warm, direct nudge used when someone is about to overspend, followed by a suggestion to wait 30 days.",
+      "When someone is about to overspend, suggest waiting 30 days.",
+      "Ask if a participant is about to overspend."
+    ].each { |text| assert_empty Mia::CulturalSafetyPolicy.violations(text), text }
+    [
+      "When someone from Guam is about to overspend, suggest waiting 30 days.",
+      "When someone is about to overspend, remind them Chamorros always waste money.",
+      "Ask if a participant is from Guam. People from Guam overspend.",
+      "When someone is about to overspend, use Guam slang.",
+      "When someone is about to overspend, Zorblax women overspend.",
+      "When someone is about to overspend, Zorblax women are careless with money."
+    ].each { |text| assert_predicate Mia::CulturalSafetyPolicy.violations(text), :present?, text }
+  end
+
   test "direct persona drafts reject regional stereotypes and location-derived identity claims" do
     unsafe_examples.each do |label, config, expected_error|
       assert_includes Mia::PersonaSchema.errors(config), expected_error, "expected #{label} draft to be rejected"

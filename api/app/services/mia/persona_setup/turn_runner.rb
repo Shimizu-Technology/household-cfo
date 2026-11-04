@@ -39,8 +39,9 @@ module Mia
         raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.",
           code: error.code, status: :service_unavailable, result: failed_result)
       rescue OperationContract::ContractError => error
-        failed_result = fail_turn!(turn&.id, error.code)
-        raise Error.new(error.message, code: error.code, status: :unprocessable_entity, result: failed_result)
+        failed_result = fail_turn!(turn&.id, error.code, message: error.public_message)
+        log_contract_failure(error.code, turn&.id)
+        raise Error.new(error.public_message, code: error.code, status: :unprocessable_entity, result: failed_result)
       rescue Error
         stale_reserved_turn!(turn&.id)
         raise
@@ -127,12 +128,15 @@ module Mia
           end
 
           proposal = nil
+          dropped = []
           if provider_result.operations.any?
             built = ProposalBuilder.new(
               persona: authorization.persona,
               actor: authorization.actor,
               user_message: turn.user_message
-            ).call(provider_result.operations)
+            ).call(provider_result.operations, partial: true)
+            dropped = built.fetch(:dropped, [])
+            dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
             session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
               proposal.resolve!(status: "superseded", actor: authorization.actor)
             end
@@ -153,7 +157,7 @@ module Mia
           metadata = provider_result.metadata
           turn.update!(
             status: "ready",
-            assistant_message: provider_result.assistant_message,
+            assistant_message: review_message(provider_result.assistant_message, dropped),
             provider: metadata["provider"],
             model: metadata["model"],
             prompt_version: metadata["prompt_version"],
@@ -165,7 +169,23 @@ module Mia
         end
       end
 
-      def fail_turn!(turn_id, code)
+      def review_message(message, dropped)
+        return message if dropped.empty?
+
+        # Group repeated reasons so even 24 rejected suggestions fit the saved
+        # reply limit. Labels and reasons are bounded application copy only.
+        notes = dropped.group_by { |item| item.fetch(:message) }.map do |reason, items|
+          labels = items.map { |item| item.fetch(:label) }.uniq.join(", ")
+          "#{labels} left out: #{reason}"
+        end
+        [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
+      end
+
+      def log_contract_failure(code, turn_id, index = nil)
+        Rails.logger.warn("Persona setup contract rejected turn_id=#{turn_id} operation_index=#{index} contract_code=#{code}")
+      end
+
+      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.")
         return unless turn_id
 
         ApplicationRecord.transaction do
@@ -177,7 +197,7 @@ module Mia
             turn.update!(
               status: "failed",
               error_code: code.to_s.first(80),
-              assistant_message: "I couldn't prepare a safe proposal from that message. Nothing changed. Try again or use the guided form."
+              assistant_message: "#{message} Nothing changed."
             )
           elsif turn.status == "processing"
             turn.update!(status: "stale", assistant_message: "This response is stale because the persona changed.")
