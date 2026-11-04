@@ -20,7 +20,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     )
   end
 
-  test "recorded first coach description proposes her own voice and phrase without changing the draft" do
+  test "recorded first coach description preserves supported suggestions and reports unsupported detail" do
     fixture = JSON.parse(file_fixture("persona_setup/coach_voice_response.json").read)
     message = %q(I'm a household money coach on Guam. I talk to my clients like a warm older cousin: direct, practical, never shaming. I start with how they feel, then one clear next step. When someone is about to overspend I say "Chelu, pump the brakes" and suggest waiting 30 days. I protect the basics first: roof, food, utilities, required payments. I keep answers short, 3 or 4 sentences, and I never tell people what to do with their money; I help them decide.)
     before = @persona.draft_config.deep_dup
@@ -30,14 +30,10 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     ).call(user_message: message, idempotency_key: "recorded-first-voice")
 
     assert_equal "ready", result.turn.reload.status
-    assert_equal 11, result.proposal.operations.length
+    assert_equal 5, result.proposal.operations.length
     assert_equal before.dig("voice", "tone_traits"), result.proposal.after_state.dig("draft_config", "voice", "tone_traits")
     assert_equal before.dig("voice", "language_style"), result.proposal.after_state.dig("draft_config", "voice", "language_style")
-    phrase = result.proposal.after_state.dig("draft_config", "phrases").sole
-    assert_equal "Chelu, pump the brakes", phrase.fetch("text")
-    assert_equal "coach_authored", phrase.fetch("provenance")
-    assert_equal @coach.id, phrase.fetch("source_user_id")
-    assert_includes phrase.fetch("prohibited_contexts"), "crisis"
+    assert_empty result.proposal.after_state.dig("draft_config", "phrases")
     assert_equal before, @persona.reload.draft_config
     assert_includes result.turn.assistant_message, "Left out:"
   end
@@ -136,12 +132,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   end
 
   test "operation contract applies exact coach evidence and seals phrase provenance" do
-    message = "Call the assistant Lina. Our power bills rise during typhoon season. Use the exact phrase Håfa adai."
+    message = "Call the assistant Lina. Our power bills rise during typhoon season. Use the exact phrase Håfa adai. A reviewed welcome greeting."
     raw = [
       operation("identity.assistant_name", "Lina", evidence: "Lina"),
       operation("culture.local_realities", [ "Our power bills rise during typhoon season." ], evidence: "Our power bills rise during typhoon season."),
       {
-        "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai",
+        "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai. A reviewed welcome greeting.",
         "value" => {
           "text" => "Håfa adai", "meaning" => "A reviewed welcome greeting.",
           "allowed_contexts" => [ "greeting" ], "prohibited_contexts" => [ "crisis" ],
@@ -176,7 +172,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     malformed_values.each do |value|
       error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
         Mia::PersonaSetup::OperationContract.new(
-          actor: @coach, user_message: "Use the exact phrase Håfa adai.", persona: @persona
+          actor: @coach, user_message: "Use the exact phrase Håfa adai. A reviewed welcome greeting.", persona: @persona
         ).build([ {
           "op" => "add_phrase", "path" => "phrases", "value" => value,
           "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai"
@@ -265,7 +261,11 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
         current = path.split(".").reduce(@persona.draft_config) { |target, key| target.to_h[key] }
         "Remove #{Array(current).map { |item| item.delete_suffix('.').sub(/\A(?:Use|Keep|Prefer|Be|Explain) /, '') }.join(', ')}. Use #{Array(value).join('; ')}"
       else
-        exact ? Array(value).first.to_s : "approved"
+        if path.start_with?("coaching.", "curriculum.")
+          value.is_a?(String) ? value : value.to_json
+        else
+          exact ? Array(value).first.to_s : "approved"
+        end
       end
       message = path.start_with?("voice.") ? "approved voice tone #{evidence}" : "approved #{evidence}"
       result = begin
@@ -503,7 +503,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   test "operation contract rejects duplicate mutation targets before sealing" do
     contract = Mia::PersonaSetup::OperationContract.new(
       actor: @coach,
-      user_message: "Use a warm tone and call the phrase Håfa adai.",
+      user_message: "Use a warm tone and call the phrase Håfa adai. Greeting.",
       persona: @persona
     )
 
@@ -521,7 +521,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     }
     duplicate_phrase = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       contract.build([
-        { "op" => "add_phrase", "path" => "phrases", "value" => phrase, "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai" },
+        { "op" => "add_phrase", "path" => "phrases", "value" => phrase, "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai. Greeting." },
         { "op" => "remove_phrase", "path" => "phrases", "value" => "Håfa adai", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai" }
       ])
     end
@@ -571,14 +571,14 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   end
 
   test "operation contract rejects an aggregate payload that exceeds the sealed proposal limit" do
-    evidence = "approved voice #{'e' * 470}"
+    evidence = "approved voice e #{'e' * 470}"
     operations = Mia::PersonaSetup::OperationContract::SET_PATHS.first(24).map do |path|
       value = if path == "description"
         @persona.description
       else
         path.split(".").reduce(@persona.draft_config) { |target, key| target.to_h[key] }
       end
-      value = 10.times.map { { "participant" => "y" * 600, "assistant" => "z" * 1_200 } } if path == "curriculum.examples"
+      value = 10.times.map { { "participant" => ("e " * 300).strip, "assistant" => ("e " * 600).strip } } if path == "curriculum.examples"
       operation(path, value, evidence:)
     end
 
@@ -833,7 +833,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
 
   test "phrase provenance preserves the authorized role at capture after a staff role change" do
     operation = {
-      "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai",
+      "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai. A reviewed welcome greeting.",
       "value" => {
         "text" => "Håfa adai", "meaning" => "A reviewed welcome greeting.",
         "allowed_contexts" => [ "greeting" ], "prohibited_contexts" => [ "crisis" ],
@@ -845,7 +845,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       actor: @coach,
       workspace: @workspace,
       resolver: fake_resolver { resolver_result("Review this phrase.", [ operation ]) }
-    ).call(user_message: "Use the exact phrase Håfa adai.", idempotency_key: "role-capture-turn")
+    ).call(user_message: "Use the exact phrase Håfa adai. A reviewed welcome greeting.", idempotency_key: "role-capture-turn")
     @coach.update!(role: "admin")
 
     persona = Mia::PersonaSetup::ProposalApplier.new(

@@ -250,6 +250,28 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "native invitation uses coach display name instead of an email alias" do
+    with_workos do
+      workspace = CoachWorkspaces::Provisioner.ensure_for!(@inviter)
+      workspace.coach_profile.update!(display_name: "Mrs. Mel")
+      @inviter.authentication_identities.create!(provider: "workos", issuer: WorkosAuth.issuer, subject: "user_inviter")
+      updates = []
+      stub_method(HTTParty, :get, lambda { |url, **_|
+        WorkosResponse.new(200, url.include?("/users/") ? { "id" => "user_inviter", "first_name" => "shimizu+qa@example.test" } : { "data" => [], "list_metadata" => {} })
+      }) do
+        stub_method(HTTParty, :put, lambda { |_url, **options|
+          updates << JSON.parse(options.fetch(:body))
+          WorkosResponse.new(200, { "id" => "user_inviter", "first_name" => "Mrs. Mel", "last_name" => "" })
+        }) do
+          stub_method(HTTParty, :post, WorkosResponse.new(200, invitation)) do
+            assert WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)[:sent]
+          end
+        end
+      end
+      assert_equal [ { "first_name" => "Mrs. Mel", "last_name" => "" } ], updates
+    end
+  end
+
   private
 
   def invitation
@@ -261,7 +283,12 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
   def with_http(rows, response, code: 200, &block)
     stub_method(HTTParty, :get, lambda { |url, **options|
       @requests << [ :get, url, options ]
-      WorkosResponse.new(200, url.end_with?("/invitation_native") ? invitation : { "data" => rows, "list_metadata" => {} })
+      data = if url.include?("/users/")
+        { "id" => "user_inviter", "first_name" => "Your coaching team", "last_name" => "" }
+      else
+        url.end_with?("/invitation_native") ? invitation : { "data" => rows, "list_metadata" => {} }
+      end
+      WorkosResponse.new(200, data)
     }) do
       stub_method(HTTParty, :post, lambda { |url, **options|
         @requests << [ :post, url, options ]
@@ -287,7 +314,9 @@ class WorkosInvitationControllerTest < ActionDispatch::IntegrationTest
       cohort = Cohort.create!(name: "Invited program", created_by_user: actor)
       target.cohort_memberships.create!(cohort: cohort, role: "participant")
       gets = lambda do |url, **_options|
-        data = if url.include?("/sso/jwks/")
+        data = if url.include?("/users/")
+          { "id" => "user_test", "email" => actor.email, "email_verified" => true, "first_name" => "your coach", "last_name" => "" }
+        elsif url.include?("/sso/jwks/")
           { "keys" => [ @signing_jwk.export.deep_stringify_keys ] }
         else
           { "data" => [], "list_metadata" => {} }
@@ -301,7 +330,7 @@ class WorkosInvitationControllerTest < ActionDispatch::IntegrationTest
           stub_method(Resend::Emails, :send, ->(*) { flunk "Native provider sends only one invitation email" }) do
             post "/api/v1/admin/users/#{target.id}/resend_invitation", headers: { "Authorization" => "Bearer #{workos_token}" }
             assert_response :success
-            assert response.parsed_body.fetch("invitation_sent")
+            assert response.parsed_body.fetch("invitation_sent"), response.body
             assert_equal "workos", target.invitation_email_attempts.last.provider
             assert_equal "invitation_controller", target.reload.invitation_email_provider_id
             assert_equal "pending", target.invitation_status

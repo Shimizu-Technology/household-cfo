@@ -31,7 +31,7 @@ class UserInviteEmailService
       WorkosInvitationService.send_invite(user: user, invited_by: invited_by) do |token, recipient|
         link = WorkosInvitationService.acceptance_url(frontend_url, token)
         begin
-          response = Resend::Emails.send({ from: from_email, to: recipient.email, subject: "You're invited to Household CFO Method",
+          response = Resend::Emails.send({ from: from_email, to: recipient.email, subject: "#{InvitationCoachName.for(user: recipient, invited_by: invited_by)} invited you to Household CFO Method",
             html: invite_html(user: recipient, invited_by: invited_by, button_link: link, display_url: link),
             text: invite_text(user: recipient, invited_by: invited_by, button_link: link) })
         rescue StandardError
@@ -77,7 +77,7 @@ class UserInviteEmailService
     end
 
     def invite_text(user:, invited_by:, button_link:)
-      inviter = invited_by&.full_name.presence || invited_by&.email.presence || "A Household CFO admin"
+      inviter = InvitationCoachName.for(user: user, invited_by: invited_by)
 
       <<~TEXT.squish
         #{inviter} invited you to #{BRAND_NAME} as #{user.role}. Open #{button_link} and sign up or sign in using #{user.email}. If you were not expecting this invitation, you can ignore this email.
@@ -85,7 +85,7 @@ class UserInviteEmailService
     end
 
     def invite_html(user:, invited_by:, button_link:, display_url:)
-      inviter = h(invited_by&.full_name.presence || invited_by&.email.presence || "A Household CFO admin")
+      inviter = h(InvitationCoachName.for(user: user, invited_by: invited_by))
       role = h(user.role.to_s.titleize)
       invited_email = h(user.email)
       button_href = h(button_link)

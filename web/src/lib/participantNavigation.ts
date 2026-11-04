@@ -50,3 +50,12 @@ export function partitionParticipantSections(sections: string[], savingsChalleng
   const secondary = visible.filter((section) => !primary.includes(section))
   return { primary, secondary }
 }
+
+/** Shared displayed labels for participant navigation and the coach's review. */
+export function participantSectionLabel(section: string, savingsChallenge = false, assistantName = 'Mia', compact = false) {
+  if (savingsChallenge && section === 'Home') return 'Savings'
+  if (section === 'Ask Mia') return compact ? assistantName.split(/\s+/)[0] : `Ask ${assistantName}`
+  if (compact && section === 'My Profile') return 'Profile'
+  if (compact && section === 'My Money') return 'Money'
+  return section
+}

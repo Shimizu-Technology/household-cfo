@@ -66,7 +66,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
       const ownerNote = created.owner_invitation
         ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : created.owner_invitation.delivery?.status === 'skipped' ? '. No email was sent; share their sign-in link yourself' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
-      const savedNotice = `${created.name} was created.${ownerNote} Choose it in the program selector to finish its assistant and branding.`
+      const savedNotice = `${created.name} was created.${ownerNote} You can now set up its assistant and branding.`
       setNotice(savedNotice)
       try { await refreshCurrentUser() }
       catch { if (mounted.current) setNotice(`${created.name} was created, but the program selector could not refresh. Reload to find this program; do not create it again.`) }

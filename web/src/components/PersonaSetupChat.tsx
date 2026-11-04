@@ -404,7 +404,7 @@ export function PersonaSetupChat({
 function ProposalChange({ change, compact = false }: { change: AdminPersonaSetupChange; compact?: boolean }) {
   return (
     <article className="persona-proposal-change">
-      <header><strong>{change.label}</strong><span>{change.source_basis === 'coach_quote' ? 'Coach said' : 'Mia drafted'}</span></header>
+      <header><strong>{change.label}</strong><span>{proposalSourceLabel(change)}</span></header>
       {compact && <p className="coach-suggestion-value">{displayValue(change.after)}</p>}
       {compact ? <details><summary>Original wording and source</summary><p>{displayValue(change.before)}</p>{change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</details> : <><dl>
         <div><dt>Before</dt><dd>{displayValue(change.before)}</dd></div>
@@ -448,4 +448,13 @@ function setupSessionFromError(error: unknown, expectedSessionId: number) {
   const value = error.payload.session
   if (!value || typeof value !== 'object' || !('id' in value) || value.id !== expectedSessionId) return null
   return value as AdminPersonaSetupSession
+}
+
+function proposalSourceLabel(change: AdminPersonaSetupChange): string {
+  if (change.source_basis === 'mia_drafted') return 'Mia drafted'
+  const values = (value: unknown): string[] => typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(values) : value && typeof value === 'object' ? Object.values(value).flatMap(values) : []
+  const wording = values(change.after)
+  if (wording.length && wording.every(value => value && change.evidence_quote.includes(value))) return 'Coach said'
+  if (wording.length && wording.every(value => ["Use the participant's confirmed information.", 'Use only confirmed participant information.'].includes(value))) return 'Standard guidance'
+  return 'Suggested from what you said'
 }

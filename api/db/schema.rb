@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_02_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -754,6 +754,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_02_120000) do
     t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_sources_workspace_matches_scope"
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_sources_scope_valid"
     t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying, 'verifying'::character varying, 'upload_cleanup'::character varying, 'queued'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'failed'::character varying, 'deletion_pending'::character varying, 'deletion_failed'::character varying, 'source_deleted'::character varying, 'upload_cleanup_failed'::character varying]::text[])", name: "coach_content_sources_status_valid"
+  end
+
+  create_table "coach_launch_receipts", force: :cascade do |t|
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "request_digest", null: false
+    t.string "request_key", null: false
+    t.jsonb "result", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["coach_persona_id"], name: "index_coach_launch_receipts_on_coach_persona_id"
+    t.index ["coach_workspace_id", "user_id", "request_key"], name: "coach_launch_receipts_request", unique: true
+    t.index ["coach_workspace_id"], name: "index_coach_launch_receipts_on_coach_workspace_id"
+    t.index ["user_id"], name: "index_coach_launch_receipts_on_user_id"
   end
 
   create_table "coach_operation_executions", force: :cascade do |t|
@@ -3976,6 +3991,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_02_120000) do
   add_foreign_key "coach_content_sources", "coach_workspaces"
   add_foreign_key "coach_content_sources", "users", column: "created_by_user_id"
   add_foreign_key "coach_content_sources", "users", column: "source_deleted_by_user_id"
+  add_foreign_key "coach_launch_receipts", "coach_personas"
+  add_foreign_key "coach_launch_receipts", "coach_workspaces"
+  add_foreign_key "coach_launch_receipts", "users"
   add_foreign_key "coach_operation_executions", "coach_workspaces", on_delete: :restrict
   add_foreign_key "coach_operation_executions", "cohort_releases", column: ["cohort_release_id", "actor_user_id", "actor_role_snapshot"], primary_key: ["id", "released_by_user_id", "actor_role_snapshot"], name: "fk_coach_operations_release_actor", on_delete: :restrict
   add_foreign_key "coach_operation_executions", "cohort_releases", column: ["cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_coach_operations_release", on_delete: :restrict

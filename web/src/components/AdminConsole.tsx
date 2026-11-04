@@ -34,11 +34,12 @@ const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
 }
 
 export function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
-  const { activeCoachWorkspaceId } = useAuthContext()
-  return <AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} />
+  const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
+  const [createdNotice, setCreatedNotice] = useState('')
+  return <>{createdNotice && <p role="status" className="coach-studio-alert is-success">{createdNotice}</p>}<AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { setCreatedNotice(`${workspace.name} was created and selected. You can now set up its assistant, appearance and groups.`); selectCoachWorkspace(workspace.id) }} /></>
 }
 
-function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
+function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: { id: number; name: string }) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
@@ -480,7 +481,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       {adminMutationPending && <p className="admin-muted" role="status">{loading ? 'Loading program data…' : 'Please wait for the current change to finish before continuing.'}</p>}
 
       <div hidden={area !== 'programs'}>
-      {currentUser.is_admin && <CreateCoachProgram firstProgram={coachWorkspaces.length === 0} key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
+      {currentUser.is_admin && <CreateCoachProgram onCreated={onProgramCreated} firstProgram={coachWorkspaces.length === 0} key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
 
       {adminDraftsDirty && <p className="admin-muted">Save or discard your access, invitation or cohort changes before creating a program.</p>}
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />

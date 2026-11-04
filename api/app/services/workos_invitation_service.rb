@@ -45,14 +45,15 @@ class WorkosInvitationService
     unless @user.invitation_status == "pending" && !@user.revoked?
       raise DeliveryError, "Only pending local invitations can be emailed."
     end
+    creator = @user.invited_by_user || @invited_by
+    inviter_identity = creator&.authentication_identities&.find_by(provider: "workos", issuer: WorkosAuth.issuer)
+    prepare_native_inviter!(inviter_identity, creator) if mode == "native" && inviter_identity
     invitation = pending_invitation
     if invitation
       @invitation_id = invitation.fetch("id")
       response = request(:post, "/user_management/invitations/#{@invitation_id}/resend")
     else
       payload = { email: @user.email }
-      creator = @user.invited_by_user || @invited_by
-      inviter_identity = creator&.authentication_identities&.find_by(provider: "workos", issuer: WorkosAuth.issuer)
       payload[:inviter_user_id] = inviter_identity.subject if inviter_identity
       response = request(:post, "/user_management/invitations", body: payload, recover_duplicate: true)
     end
@@ -74,6 +75,23 @@ class WorkosInvitationService
   end
 
   private
+
+  # Native WorkOS subjects use the provider profile, not User#full_name.
+  # Set only the display name; never alter email, verification or access.
+  def prepare_native_inviter!(identity, creator)
+    id = identity.subject
+    raise DeliveryError, "The inviting coach's account could not be verified." unless id.match?(/\Auser_[A-Za-z0-9]+\z/)
+
+    name = InvitationCoachName.for(user: @user, invited_by: creator)
+    profile = request(:get, "/user_management/users/#{id}")
+    raise DeliveryError, "The inviting coach's account could not be verified." unless profile["id"] == id
+    return if [ profile["first_name"], profile["last_name"] ].compact_blank.join(" ") == name
+
+    updated = request(:put, "/user_management/users/#{id}", body: { first_name: name, last_name: "" })
+    unless updated["id"] == id && [ updated["first_name"], updated["last_name"] ].compact_blank.join(" ") == name
+      raise DeliveryError, "The coach's display name could not be confirmed. Retry the invitation later."
+    end
+  end
 
   def result(sent:, error: nil)
     # Tokens and acceptance URLs are deliberately absent from results and audit data.

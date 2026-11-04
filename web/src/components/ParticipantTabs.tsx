@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useBrand } from '../contexts/brandContextValue'
-import { partitionParticipantSections, PARTICIPANT_TOOL_SECTIONS } from '../lib/participantNavigation'
+import { partitionParticipantSections, participantSectionLabel, PARTICIPANT_TOOL_SECTIONS } from '../lib/participantNavigation'
 
 import '../styles/participantNavigation.css'
 
@@ -26,11 +26,6 @@ const sectionDescriptions: Record<string, string> = {
   Optionality: 'Compare choices against stability and runway.',
   'Coach Studio': 'Daily coaching and program settings.',
   Admin: 'Manage pilot access and cohort operations.',
-}
-
-const compactLabels: Record<string, string> = {
-  'My Profile': 'Profile',
-  'My Money': 'Money',
 }
 
 const sectionIconPaths: Record<string, string> = {
@@ -186,12 +181,7 @@ function ParticipantNavigation({ sections, activeSection, onChange, savingsChall
     setMoreOpen(true)
   }
 
-  const sectionLabel = (section: string, compact = false) => {
-    if (savingsChallenge && section === 'Home') return 'Savings'
-    if (savingsChallenge && section === 'Statements') return 'Statements'
-    if (section === 'Ask Mia') return compact ? shortAssistantName(assistantName) : `Ask ${assistantName}`
-    return compact ? compactLabels[section] ?? section : section
-  }
+  const sectionLabel = (section: string, compact = false) => participantSectionLabel(section, savingsChallenge, compact ? shortAssistantName(assistantName) : assistantName, compact)
 
   return (
     <div className={`tabs-shell${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>

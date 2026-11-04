@@ -435,3 +435,16 @@ describe('PersonaSetupChat', () => {
   })
 
 })
+
+it('reserves Coach said for exact wording and labels suggestions and standard guidance plainly', async () => {
+  const proposed = proposalSession()
+  const changes = proposed.proposal!.grouped_changes[0].changes
+  changes.push({ ...changes[0], path:'coaching.method',label:'Method',after:'Start with how the participant feels.',evidence_quote:'I start with how they feel.' })
+  changes.push({ ...changes[0], path:'coaching.do',label:'Do',after:["Use the participant's confirmed information."],evidence_quote:'I help them decide.' })
+  apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
+  render(<Harness/>)
+  await userEvent.click(await screen.findByText('Review each suggestion',{selector:'summary'}))
+  expect(screen.getAllByText('Coach said')).toHaveLength(1)
+  expect(screen.getByText('Suggested from what you said')).toBeTruthy()
+  expect(screen.getByText('Standard guidance')).toBeTruthy()
+})

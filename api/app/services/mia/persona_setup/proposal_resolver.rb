@@ -149,6 +149,7 @@ module Mia
                 do/do_not guidance, and curriculum.examples with mia_drafted. Cite exact evidence from the transcript
                 for every such suggestion. For typed voice descriptions and transcripts, use the allowed enum values for voice fields, even if the source uses other
                 words. Cite the coach’s actual description of how they speak; preset voice values need not be verbatim quotes.
+                For coaching fields, curriculum content and phrase meanings, every detail must be supported by the cited quote, including numbers, instructions and negation. Use a complete quote for the whole suggestion; prefer the coach’s wording over elaborate paraphrases. Never cite just a phrase to invent its meaning.
                 Every new voice choice must be supported by that operation's quote, including every part of a compound preset.
                 Respect negation: no humor cannot support lighthearted. Preserve existing array choices unless the coach explicitly asks to remove them.
                 Never remove respectful just because the coach describes other traits. Short answers alone do not imply conversational language.

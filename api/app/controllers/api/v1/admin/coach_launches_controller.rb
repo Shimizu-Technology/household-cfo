@@ -1,0 +1,33 @@
+# frozen_string_literal: true
+
+module Api
+  module V1
+    module Admin
+      class CoachLaunchesController < BaseController
+        before_action :authenticate_user!
+        before_action :require_staff!
+        before_action :require_selected_coach_workspace!
+
+        def create
+          policy = Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
+          persona = policy.publishable_personas.find(params[:id])
+          result = CoachLaunches::Publisher.new(persona:, actor: current_user,
+            review: params.require(:review).to_unsafe_h, request_key: request.headers["Idempotency-Key"]).call!
+          render json: { persona: Mia::PersonaStudioSerializer.new(persona.reload, policy:).detail, launch: result }
+        rescue ActiveRecord::RecordNotFound
+          render json: { error: "Ask a program owner to review and publish this update." }, status: :forbidden
+        rescue CoachLaunches::Publisher::Conflict, Branding::Publisher::PublicationError,
+          CohortExperience::Publisher::PublicationError, Mia::PersonaPublisher::PublicationError,
+          Mia::PersonaRelease::AudienceAttester::Error, Mia::PersonaRelease::RunApprover::Error,
+          CoachOperations::Runner::Error, CohortReleases::Sealer::Stale,
+          CohortReleases::Sealer::Incomplete, CohortReleases::Sealer::ReadOnly,
+          CohortRollouts::StateMachine::Error, CohortReleases::InitialLauncher::Conflict,
+          CohortReleases::InitialLauncher::Incomplete, Mia::PersonaAssignmentCompatibility::Conflict,
+          ActiveRecord::RecordInvalid, KeyError, ActionController::ParameterMissing => error
+          Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
+          render json: { error: "This update could not go live. Nothing changed. Review the latest assistant, settings and people before trying again." }, status: :conflict
+        end
+      end
+    end
+  end
+end

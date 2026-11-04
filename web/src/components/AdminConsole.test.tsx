@@ -10,7 +10,7 @@ vi.mock('../setupHelpApi', () => supportMocks)
 const authScope = vi.hoisted(() => ({ workspaceId: 2 as number | null, selectCoachWorkspace: vi.fn() }))
 vi.mock('../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: authScope.workspaceId, selectCoachWorkspace: authScope.selectCoachWorkspace }) }))
 vi.mock('./PilotFeedbackInbox', () => ({ PilotFeedbackInbox: () => <section>Private support inbox</section> }))
-vi.mock('./CoachProgramSettings', () => ({ CreateCoachProgram: () => <section>Create program controls</section> }))
+vi.mock('./CoachProgramSettings', () => ({ CreateCoachProgram: ({onCreated}:{onCreated?:(workspace:{id:number;name:string})=>void}) => <section>Create program controls<button onClick={()=>onCreated?.({id:3,name:'New coach program'})}>Complete creation</button></section> }))
 const cohort = { id: 10, name: 'BOG 90 day challenge', status: 'enrolling', starts_on: null, ends_on: null, notes: '', updated_at: '2026-10-04T12:00:00Z' } as AdminCohort
 const people = Array.from({ length: 30 }, (_, index) => ({ id: 40 + index, email: `participant${index}@example.test`, full_name: `Participant ${String(index).padStart(2, '0')}`, role: 'participant', invitation_status: 'accepted', cohorts: [{ id: 100 + index, role: 'participant', cohort: { id: 10, name: cohort.name, status: 'enrolling' } }], invite_email: { workspace_scoped: true, status: 'not_sent', last_attempted_at: null }, workspace: { setup_complete: false, setup_status: 'not_started', signed_in: true, has_pending_review_work: false, last_safe_activity_at: null } })) as AdminUser[]
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); authScope.workspaceId = 2; supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminCohorts.mockImplementation(async () => structuredClone([cohort])); mocks.fetchAdminUsers.mockImplementation(async () => structuredClone(people)); mocks.fetchAdminPlaidHealth.mockResolvedValue({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] }); vi.spyOn(window, 'confirm').mockReturnValue(false) })
@@ -326,4 +326,15 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     expect(screen.getByLabelText('Email')).toHaveProperty('value', '')
   })
 
+})
+
+it('selects a created program and keeps its confirmation after switching program scope', async () => {
+  const view = render(<AdminConsole currentUser={actor}/>)
+  await screen.findAllByText('Participant 00', {}, {timeout:3000})
+  fireEvent.click(screen.getByRole('button',{name:'Programs & rules',exact:true}))
+  fireEvent.click(screen.getByRole('button',{name:'Complete creation'}))
+  expect(authScope.selectCoachWorkspace).toHaveBeenCalledWith(3)
+  authScope.workspaceId=3
+  view.rerender(<AdminConsole currentUser={{...actor,coach_workspaces:[...actor.coach_workspaces!,{id:3,name:'New coach program'}] } as CurrentUser}/>)
+  expect(screen.getByText(/New coach program was created and selected/)).toBeTruthy()
 })

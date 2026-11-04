@@ -45,6 +45,7 @@ module Mia
           {
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
+            "persona_setup_text_evidence" => "The suggestion added details beyond its supporting words.",
             "persona_setup_voice_evidence" => "Please describe which voice choices you want to add or remove.",
             "persona_setup_drafting_not_requested" => "Please ask for a coaching philosophy before Mia writes one.",
             "persona_setup_crisis_phrase" => "Coaching phrases cannot be used during crisis support.",
@@ -60,6 +61,8 @@ module Mia
           case code
           when "persona_setup_evidence_missing", "persona_setup_exact_wording"
             "This suggestion used wording you did not provide. Please include the exact words you want."
+          when "persona_setup_text_evidence"
+            "Please include the words that support this coaching or teaching suggestion."
           when "persona_setup_voice_evidence"
             "Please describe how you speak to clients, such as warm, direct, or brief. A place name alone cannot describe your voice."
           when "persona_setup_drafting_not_requested"
@@ -221,7 +224,7 @@ module Mia
             unless evidence.present? && user_message.include?(evidence)
               raise ContractError.new("A transcript suggestion must cite exact source wording.", code: "persona_setup_evidence_missing")
             end
-            return unless path.start_with?("voice.")
+
           else
             allowed = op == "set" && path.in?(MIA_DRAFTABLE_PATHS)
             requested = user_message.match?(/\b(?:draft|suggest|propose|help me write|create|come up with)\b/i) &&
@@ -241,6 +244,24 @@ module Mia
             next if text.blank? || user_message.include?(text)
 
             raise ContractError.new("Names, community facts, and phrases must appear exactly in the coach's message.", code: "persona_setup_exact_wording")
+          end
+        end
+        if path.start_with?("coaching.", "curriculum.") || op == "add_phrase"
+          # Explicitly requested creative philosophy is labelled Mia drafted.
+          unless source == "mia_drafted" && !transcript_request?
+            values = if op == "add_phrase"
+              [ value.fetch("meaning") ]
+            elsif path.start_with?("curriculum.")
+              current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+              added = Array(value) - Array(current)
+              added.flat_map { |item| item.is_a?(Hash) ? item.except("title").values : item }
+            else
+              current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+              exact_strings(value) - exact_strings(current)
+            end
+            unless exact_strings(values).all? { |item| TextEvidence.supports?(evidence, item) }
+              raise ContractError.new("The suggestion must be supported by its cited words.", code: "persona_setup_text_evidence")
+            end
           end
         end
         return unless path.start_with?("voice.")

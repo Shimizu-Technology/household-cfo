@@ -55,3 +55,17 @@ class UserInviteEmailServiceTest < ActiveSupport::TestCase
     end
   end
 end
+
+class InvitationCoachNameTest < ActiveSupport::TestCase
+  test 'uses explicit coach display name and never falls back to an email alias' do
+    coach = User.create!(clerk_id: 'name_coach', email: 'shimizu+qa@example.test', role: 'coach', invitation_status: 'accepted')
+    recipient = User.create!(clerk_id: 'name_recipient', email: 'recipient@example.test')
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(coach)
+    workspace.coach_profile.update!(display_name: 'Mrs. Mel')
+    assert_equal 'Mrs. Mel', InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: coach.email)
+    assert_equal 'Your coaching team', InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: 'shimizu+qa')
+    assert_equal 'Your coaching team', InvitationCoachName.for(user: recipient, invited_by: coach)
+  end
+end
