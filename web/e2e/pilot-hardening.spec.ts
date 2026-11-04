@@ -9377,7 +9377,7 @@ test('BOG UI removing an original file or deleting an upload asks first and send
 async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string, selectionRegression = false) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
-    document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
+    document_date: null, period_start_on: selectionRegression ? null : '2026-09-01', period_end_on: selectionRegression ? null : '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
   }
