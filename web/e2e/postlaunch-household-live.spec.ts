@@ -163,7 +163,7 @@ for (const state of ['v1', 'hidden']) {
   })
 }
 
-test('BOG UI statement line and account sheets preserve uncertain saves and keyboard recovery against Rails', async ({ page, context, request }, info) => {
+test('BOG UI statement line and account sheets preserve uncertain saves and keyboard recovery against Rails', async ({ page, context, request, browserName }, info) => {
   test.skip(!live || !api || !fixtures, 'Requires dedicated synthetic fixtures and local Rails')
   test.setTimeout(180_000)
   const fixture = fixtures.recovery[info.project.name]
@@ -213,10 +213,13 @@ test('BOG UI statement line and account sheets preserve uncertain saves and keyb
     await page.keyboard.press('Enter')
     await expect(review).toContainText('No committed result found. Retry the exact saved request.')
     await expect(check).toBeFocused()
-    await page.keyboard.press('Tab')
+    // Safari's Option-Tab includes buttons when its native keyboard setting skips them.
+    await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
     const retry = review.getByRole('button', { name: 'Try again', exact: true })
     await expect(retry).toBeFocused()
+    const savedResponse = page.waitForResponse(response => response.url().includes('/review/approve_lines') && response.request().method() === 'POST')
     await page.keyboard.press('Enter')
+    expect((await savedResponse).status()).toBe(200)
     await expect(review.getByText('We’re not sure your last change saved.')).toHaveCount(0)
     expect(keys).toHaveLength(2)
     expect(keys[1]).toBe(keys[0])
