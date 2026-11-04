@@ -36,6 +36,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
       preview = flow.preview
       flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+      @user.update!(role: "participant")
       assert_no_difference "FinancialDocumentImport.count" do
         post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user).merge("X-Financial-Generation" => "1"), as: :json
         assert_response :conflict
@@ -54,6 +55,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       flow = HouseholdFinance::FinancialRestart::Flow.new(@household, user: @user)
       preview = flow.preview
       flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
+      @user.update!(role: "participant")
       post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" }, headers: auth_headers(@user).merge("X-Financial-Generation" => "1")
       assert_response :created
       current = FinancialDocumentImport.last
