@@ -5360,6 +5360,8 @@ test('Coach Studio People checklist opens the assistant area before creation com
   const areas = page.getByRole('navigation', { name: 'Coach Studio areas' })
   await expect(areas.getByRole('button', { name: 'Your assistant', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByLabel('Assistant name', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Your assistant', exact: true })).toBeFocused()
+  await expect(page.getByRole('status').filter({hasText:'Creating your assistant'})).toBeVisible()
   finishCreate()
   await expect(page.getByLabel('Message Mia', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

@@ -178,28 +178,26 @@ module Mia
         return false if clause.match?(IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN)
         return false if clause.match?(SAFE_PROGRAM_OUTCOME_PATTERN)
 
-        # An individual overspending condition is not a demographic subject.
-        # Remove only that condition, then check the remaining claim normally;
-        # a trailing stereotype (including an unfamiliar group) stays visible.
-        clause = clause.gsub(/\b(?:when|if)\s+(?:someone|somebody|(?:a|the|one)\s+(?:participant|client|person|household))\s+is\s+about\s+to\s+overspend\b/i, "")
+        # Generic people are not demographic groups. Remove their subject,
+        # retaining the rest of the clause so any actual group label/claim still
+        # reaches the same checks, including unfamiliar identities.
+        clause = clause.gsub(/\b(?:someone|somebody|(?:a|the|one)\s+(?:participant|client|person|household)|they)\b(?!\s+(?:from|of|in|on)\b)/i, "")
           .sub(/\A[\s,]+/, "")
-        marker = clause.match(CLAIM_SIGNAL_PATTERN)
-        return false unless marker
+        clause.to_enum(:scan, CLAIM_SIGNAL_PATTERN).any? do
+          marker = Regexp.last_match
+          subject = clause[0...marker.begin(0)].to_s.split(/\b(?:and|because|when|if|then|that)\b|,/i).last.to_s.strip
+          next false if subject.blank? || subject.match?(SAFE_GENERIC_GROUP_SUBJECT_PATTERN)
 
-        subject = clause[0...marker.begin(0)].to_s
-          .sub(/[,\s]+\z/, "")
-          .strip
-        return false if subject.blank? || subject.match?(SAFE_GENERIC_GROUP_SUBJECT_PATTERN)
+          normalized = subject.sub(GROUP_QUANTIFIER_PATTERN, "").strip
+          words = normalized.scan(/[[:alnum:]'’\-]+/)
+          next false unless words.length.between?(1, 6)
+          next false if normalized.match?(NONPERSON_SUBJECT_PATTERN)
 
-        normalized = subject.sub(GROUP_QUANTIFIER_PATTERN, "").strip
-        words = normalized.scan(/[[:alnum:]'’\-]+/)
-        return false unless words.length.between?(1, 6)
-        return false if normalized.match?(NONPERSON_SUBJECT_PATTERN)
-
-        normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
-          normalized.match?(/\b#{CURATED_GROUP_IDENTITY_PATTERN}\z/ix) ||
-          normalized.match?(CURATED_HUMAN_IDENTITY_PATTERN) ||
-          normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
+          normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
+            normalized.match?(/\b#{CURATED_GROUP_IDENTITY_PATTERN}\z/ix) ||
+            normalized.match?(CURATED_HUMAN_IDENTITY_PATTERN) ||
+            normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
+        end
       end
 
       def claim_clauses(text)

@@ -45,7 +45,7 @@ module Mia
           {
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
-            "persona_setup_voice_evidence" => "Please describe how you speak, beyond a place or identity.",
+            "persona_setup_voice_evidence" => "Please describe which voice choices you want to add or remove.",
             "persona_setup_drafting_not_requested" => "Please ask for a coaching philosophy before Mia writes one.",
             "persona_setup_crisis_phrase" => "Coaching phrases cannot be used during crisis support.",
             "persona_setup_participant_phrase" => "A participant’s own phrase must stay unchanged.",
@@ -221,12 +221,13 @@ module Mia
             unless evidence.present? && user_message.include?(evidence)
               raise ContractError.new("A transcript suggestion must cite exact source wording.", code: "persona_setup_evidence_missing")
             end
-            return
+            return unless path.start_with?("voice.")
+          else
+            allowed = op == "set" && path.in?(MIA_DRAFTABLE_PATHS)
+            requested = user_message.match?(/\b(?:draft|suggest|propose|help me write|create|come up with)\b/i) &&
+              user_message.match?(/\b(?:coaching\s+)?philosoph(?:y|ies)\b/i)
+            raise ContractError.new("Mia can draft only a coaching philosophy after an explicit philosophy request.", code: "persona_setup_drafting_not_requested") unless allowed && requested
           end
-          allowed = op == "set" && path.in?(MIA_DRAFTABLE_PATHS)
-          requested = user_message.match?(/\b(?:draft|suggest|propose|help me write|create|come up with)\b/i) &&
-            user_message.match?(/\b(?:coaching\s+)?philosoph(?:y|ies)\b/i)
-          raise ContractError.new("Mia can draft only a coaching philosophy after an explicit philosophy request.", code: "persona_setup_drafting_not_requested") unless allowed && requested
         end
 
         if RESTRICTED_EXACT_PATHS.include?(path) || op == "add_phrase"
@@ -244,34 +245,33 @@ module Mia
         end
         return unless path.start_with?("voice.")
 
-        voice_request = user_message.match?(/\b(?:voice|tone|style|wording|language|warm|direct|calm|formal|concise|encouraging|lighthearted|patient)\b/i)
-        raise ContractError.new("A location label alone cannot authorize a voice or dialect change.", code: "persona_setup_voice_evidence") unless source == "coach_quote" && voice_request
+        current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+        added = exact_strings(value) - exact_strings(current)
+        removed = value.is_a?(Array) && current.is_a?(Array) ? exact_strings(current) - exact_strings(value) : []
+        return if added.empty? && removed.empty?
 
-        # Preset wording is a representation of the coach's description, not a
-        # literal quote. Require real voice evidence, never identity alone; the
-        # finite choices and all participant/cultural safety checks still apply.
-        return if descriptive_voice_evidence?(evidence)
-
-        changed_exact_strings(path, value).each do |text|
-          next if text.blank? || (user_message.include?(text) && evidence.include?(text))
-
-          raise ContractError.new("Every voice value must appear exactly in the coach's wording and cited evidence.", code: "persona_setup_voice_evidence")
+        supported = (source == "coach_quote" || transcript_request?) &&
+          CulturalSafetyPolicy.violations(evidence, field: :style_instruction).empty? &&
+          added.all? { |item| VoiceEvidence.supports?(evidence, item) } &&
+          removed.all? { |item| VoiceEvidence.supports?(evidence, item, removal: true) }
+        unless supported
+          raise ContractError.new("Each added voice choice needs supporting words; removing one needs an explicit request.", code: "persona_setup_voice_evidence")
         end
       end
 
       def suggestion_label(operation)
-        path = operation.is_a?(Hash) ? operation["path"].to_s : ""
-        {
-          "voice" => "A voice suggestion", "culture" => "A community description",
-          "coaching" => "A coaching suggestion", "phrases" => "A phrase suggestion",
-          "curriculum" => "A teaching suggestion", "response_shape" => "An answer length suggestion",
-          "identity" => "An assistant detail", "description" => "An assistant description"
-        }.fetch(path.split(".").first, "One suggestion")
-      end
+        value = operation.is_a?(Hash) ? operation["value"] : nil
+        # Bound the excerpt so all 24 rejected operations fit the reply limit.
+        preview = exact_strings(value).join("; ").squish
+        return preview.truncate(48) if preview.present?
 
-      def descriptive_voice_evidence?(evidence)
-        evidence.match?(/\b(?:warm|direct|calm|formal|concise|brief|short|encouraging|lighthearted|patient|practical|gentle|conversational|plain|never shaming|next step)\b/i) &&
-          CulturalSafetyPolicy.violations(evidence, field: :style_instruction).empty?
+        path = operation.is_a?(Hash) ? operation["path"] : nil
+        {
+          "response_shape.min_sentences" => "Shortest answer: #{value} sentences",
+          "response_shape.max_sentences" => "Longest answer: #{value} sentences",
+          "response_shape.max_characters" => "Longest answer: #{value} characters",
+          "response_shape.plain_text_only" => "Plain text answers: #{value ? 'yes' : 'no'}"
+        }.fetch(path, "One suggestion").truncate(48)
       end
 
       def transcript_request?

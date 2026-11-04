@@ -7,7 +7,7 @@ const auth=vi.hoisted(()=>({workspaceId:1}))
 const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaAssignableCohorts:vi.fn()}))
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
-vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:({embedded,onDirtyChange}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void})=><><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button></>}))
+vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:({embedded,onDirtyChange,onPendingChange,onGroupsChanged}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void;onPendingChange?:(pending:boolean)=>void;onGroupsChanged?:()=>void})=><><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button><button onClick={()=>onPendingChange?.(true)}>Start group mutation</button><button onClick={()=>{onGroupsChanged?.();onPendingChange?.(false)}}>Finish group mutation</button></>}))
 vi.mock('./CoachProgramSettings',()=>({CoachProgramSettings:()=>null}));vi.mock('./CohortExperienceStudio',()=>({CohortExperienceStudio:()=>null}));vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}));
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
 beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
@@ -85,4 +85,41 @@ it('opens an existing assistant from the People checklist',async()=>{
  await screen.findByText('Describe with transcripts');
  expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
  expect(api.createAdminPersona).not.toHaveBeenCalled();
+})
+
+it('review CodeRabbit focuses the assistant destination immediately and announces creation progress',async()=>{
+ let finishCreate!:(value:unknown)=>void;
+ api.createAdminPersona.mockReturnValue(new Promise(resolve=>{finishCreate=resolve}));
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
+ const destination=screen.getByRole('heading',{name:'Your assistant'});
+ expect(document.activeElement).toBe(destination);
+ expect(screen.getByRole('status').textContent).toContain('Creating your assistant');
+ screen.getByText('More settings',{selector:'summary'}).focus();
+ const focused=document.activeElement;
+ finishCreate({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
+ await screen.findByText('Describe with transcripts');
+ expect(document.activeElement).toBe(focused);
+})
+
+it('review CodeRabbit blocks checklist navigation during group mutations and refreshes saved groups',async()=>{
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
+ await screen.findByText('Get your program ready');
+ fireEvent.click(screen.getByRole('button',{name:'Start group mutation'}));
+ expect(screen.getByRole('button',{name:'Describe your assistant'})).toHaveProperty('disabled',true);
+ fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}));
+ expect(api.createAdminPersona).not.toHaveBeenCalled();
+ expect(screen.getByText('People and invitations')).toBeTruthy();
+ api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{id:42,name:'Saved group',assignable:true}]);
+ fireEvent.click(screen.getByRole('button',{name:'Finish group mutation'}));
+ await waitFor(()=>expect(api.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Describe your assistant'})).toHaveProperty('disabled',false));
+})
+
+it('review CodeRabbit announces creation progress while the name is locked',async()=>{
+ api.createAdminPersona.mockReturnValue(new Promise(()=>{}));
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
+ expect(screen.getByLabelText('Assistant name')).toHaveProperty('disabled',true);
+ expect(screen.getByRole('status').textContent).toContain('Creating your assistant');
 })

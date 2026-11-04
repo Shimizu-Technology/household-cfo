@@ -172,20 +172,21 @@ module Mia
       def review_message(message, dropped)
         return message if dropped.empty?
 
-        # Group repeated reasons so even 24 rejected suggestions fit the saved
-        # reply limit. Labels and reasons are bounded application copy only.
-        notes = dropped.group_by { |item| item.fetch(:message) }.map do |reason, items|
-          labels = items.map { |item| item.fetch(:label) }.uniq.join(", ")
-          "#{labels} left out: #{reason}"
-        end
-        [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
+        notes = dropped.map { |item| "Left out: ‘#{item.fetch(:label)}’ — #{item.fetch(:message)}" }.uniq
+        # Preserve every item name; group reasons separately to fit 2,000 chars.
+        labels = dropped.map { |item| "‘#{item.fetch(:label)}’" }.uniq.join(", ")
+        reasons = dropped.map { |item| item.fetch(:message) }.uniq.join(" ")
+        full = [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
+        return full if full.length <= 2_000
+
+        "Review the suggestions below. Nothing has been saved.\n\nLeft out: #{labels}. #{reasons.truncate(500)}"
       end
 
       def log_contract_failure(code, turn_id, index = nil)
         Rails.logger.warn("Persona setup contract rejected turn_id=#{turn_id} operation_index=#{index} contract_code=#{code}")
       end
 
-      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.")
+      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Try again or use Guided setup.")
         return unless turn_id
 
         ApplicationRecord.transaction do

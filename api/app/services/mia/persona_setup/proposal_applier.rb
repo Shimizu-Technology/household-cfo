@@ -153,6 +153,9 @@ module Mia
       end
 
       def verify_seal!(proposal, persona)
+        unless proposal.prompt_version == ProposalBuilder::PROMPT_VERSION && proposal.schema_version == ProposalBuilder::SCHEMA_VERSION
+          raise Error.new("Please send that again so Mia can prepare fresh suggestions. Nothing changed.", code: "persona_setup_stale")
+        end
         current_state = PersonaDraftUpdater.state_for(persona)
         expected_digest = ProposalBuilder.digest_for(
           persona:,
