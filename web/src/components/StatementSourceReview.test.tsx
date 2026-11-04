@@ -20,8 +20,51 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('lets a budgetless participant choose an everyday category in one tap and refreshes the upload badge', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Bills & essentials' }, { id: 71, name: 'Everyday spending' }]
+    data.participant_review!.plan.attention = [{ event_id: 4007, kind: 'no_category', event_type: 'purchase', question: 'What was this for?', answers: [{ id: 'edit', label: 'Choose one' }, { id: 'leave_out', label: 'Leave it out' }], merchant: 'Mystery shop', posted_on: '2026-09-05', signed_amount_cents: -500, category_id: null, category_name: null }]
+    fetchReview.mockResolvedValue(data)
+    const saved = vi.fn()
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} />)
+    const choice = await screen.findByRole('button', { name: 'Everyday spending: Mystery shop' })
+    expect(screen.queryByRole('combobox', { name: 'Category for Mystery shop' })).toBeNull()
+    fireEvent.click(choice)
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [{ event_id: 4007, decision: 'edited', edit: { kind: 'spending', merchant: 'Mystery shop', posted_on: '2026-09-05', amount_cents: 500, category_id: 71 } }] })
+    expect(saved).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the parent upload after saving a review so its status is read back', async () => {
+    const saved = vi.fn()
+    const data = participantReviewFixture()
+    fetchReview.mockResolvedValue(data)
+    mutate.mockImplementation(async () => {
+      const complete = participantReviewFixture()
+      complete.participant_review!.plan = { ...complete.participant_review!.plan, done: 137, attention: [], ready: [], ready_event_ids: [], coverage: { question: null, answer: null } }
+      fetchReview.mockResolvedValue(complete)
+      return { result: { approved: 100, left_out: 0, unchanged: 0, complete: true } }
+    })
+    render(<StatementSourceReview importId={1203} revisionId={88} refreshKey="first" onSaved={saved} />)
+    expect(saved).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
+  })
+
+  it('never renders an empty category dropdown', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = []
+    data.participant_review!.plan.attention = [{ event_id: 4007, kind: 'no_category', event_type: 'purchase', question: 'What was this for?', answers: [{ id: 'edit', label: 'Choose one' }], merchant: 'Mystery shop', posted_on: '2026-09-05', signed_amount_cents: -500, category_id: null, category_name: null }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    expect(screen.queryByRole('combobox', { name: /^Category for/ })).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Choose a category' }).length).toBeGreaterThan(0)
+  })
+
   it('keeps an unsaved category answer and lets her retry it', async () => {
     const data = participantReviewFixture()
+    data.participant_review!.categories.push({ id: 12, name: 'Transport' }, { id: 13, name: 'Other' }, { id: 14, name: 'Dining' })
     const item = data.participant_review!.plan.attention[0]
     item.kind = 'no_category'; item.question = 'What was this for?'; item.answers = [{ id: 'edit', label: 'Choose one' }]
     fetchReview.mockResolvedValue(data)

@@ -47,7 +47,8 @@ module Api
       end
 
       def source_review
-        review = @document_import.with_lock do
+        review = current_household.with_lock do
+          @document_import.lock!
           FinancialDocuments::SourceReviewPage.new(@document_import,
             revision_id: params[:revision_id], page: params.fetch(:page, "1"),
             per_page: params.fetch(:per_page, "50"), filter: params.fetch(:filter, "all"), user: current_user)

@@ -51,6 +51,7 @@
 .statement-pager { display: flex; gap: .5rem; align-items: center; justify-content: space-between; margin-top: .75rem; font-size: var(--text-sm); }
 
 @media (max-width: 420px) {
+  .statement-answers { grid-template-columns: minmax(0, 1fr); }
   .statement-table { font-size: var(--text-xs); }
   /* Too narrow for four columns: the date moves under the name and the amount keeps room. */
   .statement-date-cell { display: none; }

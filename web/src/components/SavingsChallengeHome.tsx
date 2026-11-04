@@ -1,7 +1,7 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement, type ReactNode } from 'react'
 import { OpeningProgress } from './WorkspaceOpening'
 import { ApiRequestError, type SavingsPageOptions, approveSavingsEntry, approveSavingsPlan, attestSavingsZero, enrollSavingsChallenge, fetchSavingsChallenge, fetchSavingsPage, stageSavingsEntry, stageSavingsPlan, type SavingsCollection } from '../api'
-import { savingsDefaultDate, savingsDollars, savingsFundingLabel, savingsFundingOptions, savingsInputCents, savingsInputDollars, type SavingsChallenge, type SavingsEntry, type SavingsEntryVersion, type SavingsEntryDraft, type SavingsFundingSource, type SavingsMutation, type SavingsPage, type SavingsPlanDraft, type SavingsIntake, type SavingsCalendar } from '../lib/savingsChallenge'
+import { savingsDefaultDate, savingsDollars, savingsTargetDollars, savingsFundingLabel, savingsFundingOptions, savingsInputCents, savingsInputDollars, type SavingsChallenge, type SavingsEntry, type SavingsEntryVersion, type SavingsEntryDraft, type SavingsFundingSource, type SavingsMutation, type SavingsPage, type SavingsPlanDraft, type SavingsIntake, type SavingsCalendar } from '../lib/savingsChallenge'
 import { useBrand } from '../contexts/brandContextValue'
 import { ComfortablePlanChoices, ComfortablePlanSummary, type ComfortablePlanState } from './ComfortablePlanChoices'
 import { SavingsPlanApprovalReview } from './SavingsPlanApprovalReview'
@@ -288,7 +288,7 @@ function SavingsChallengeHomeBody({ dailyRefreshToken, onDay, onCheckpoint, onOp
   function openZero() { setEntryOpen(true); setZeroOpen(true); setFocusRequest('zero') }
   const checkInOpen = calendar?.phase === 'active'
   const planHistory = challenge?.enrollment && planOpen ? <SavingsHistory<SavingsPlanDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'plan_drafts' ? `plan:${reviewAnchor.id}` : 'plan'} focusRecordId={reviewAnchor?.collection === 'plan_drafts' ? reviewAnchor.id : undefined} collection="plan_drafts" label="Target changes" hideWhenEmpty revision={revision} enabled={!busy} render={(draft) => <>
-    <p><strong>{draft.target_cents === null ? 'Choose my target later' : savingsDollars(draft.target_cents)}</strong> · {statusWord(draft.status)}</p>
+    <p><strong>{draft.target_cents === null ? 'Choose my target later' : savingsTargetDollars(draft.target_cents)}</strong> · {statusWord(draft.status)}</p>
     {draft.reason && <p>{draft.reason}</p>}
     {draft.status === 'pending' && <SavingsPlanApprovalReview key={`${draft.id}:${draft.lock_version}:${revision}`} draft={draft} disabled={busy || loading || readFailed || planMutation.needsRefresh || Boolean(planMutation.pending && !(planMutation.freshAction?.action === 'plan_approve' && planMutation.freshAction.draftId === draft.id)) || retry !== null || homeMutation.pending !== null} onApprove={() => {if(homeMutation.isPending())return;const input={accepted:true as const,expected_draft_lock_version:draft.lock_version,expected_plan_version_id:draft.base_plan_version_id};if(participantScope)void planMutation.perform('plan_approve',input,draft.id);else stage((key,signal)=>approveSavingsPlan(draft.id,input,key,signal))}}/>}
   </>} /> : null
@@ -325,7 +325,7 @@ function SavingsChallengeHomeBody({ dailyRefreshToken, onDay, onCheckpoint, onOp
         <h3 ref={progressHeadingRef} tabIndex={-1}>Set aside so far</h3>
         <p className={reported === null ? 'savings-total savings-total--words' : 'savings-total'}>{reported === null ? 'No amounts added yet' : savingsDollars(reported)}</p>
         <p className="savings-target-line">{plan?.target_cents != null
-          ? <>of {savingsDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}{pendingPlans > 0 && <> · <button type="button" className="savings-link" onClick={openWaitingTarget}>new target waiting</button></>}</>
+          ? <>of {savingsTargetDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}{pendingPlans > 0 && <> · <button type="button" className="savings-link" onClick={openWaitingTarget}>new target waiting</button></>}</>
           : pendingPlans > 0
             ? <><span>Target waiting for you to confirm</span> — <button type="button" className="savings-link" onClick={openWaitingTarget}>review it</button></>
             : !plan
@@ -387,7 +387,7 @@ function SavingsChallengeHomeBody({ dailyRefreshToken, onDay, onCheckpoint, onOp
     {/* Wait for the first read so rows don't flash in before the summary. */}
     {(challenge || !loading) && <><div className="savings-rows">
       {challenge?.enrollment && <details className="savings-row-group" open={planOpen} onToggle={event => setPlanOpen(event.currentTarget.open)}>
-        <summary className="savings-row"><SavingsRowContent label="Your target & spending choices" count={pendingPlans ? `${pendingPlans} to review` : undefined} description={!plan ? `Choose ${suggested} or an amount that fits you` : plan.target_cents === null ? 'Choose a target whenever you’re ready' : `Your target is ${savingsDollars(plan.target_cents)}. Change it or add spending choices.`} /></summary>
+        <summary className="savings-row"><SavingsRowContent label="Your target & spending choices" count={pendingPlans ? `${pendingPlans} to review` : undefined} description={!plan ? `Choose ${suggested} or an amount that fits you` : plan.target_cents === null ? 'Choose a target whenever you’re ready' : `Your target is ${savingsTargetDollars(plan.target_cents)}. Change it or add spending choices.`} /></summary>
         <section className="savings-row-body" aria-label="Savings target plan">
           <h3 ref={targetHeadingRef} tabIndex={-1}>{plan ? 'Change your target' : 'Choose your target'}</h3>
           <p>{suggested} is the suggested target. You can pick a smaller amount, or decide later.</p>

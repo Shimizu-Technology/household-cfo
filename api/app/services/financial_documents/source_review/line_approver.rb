@@ -132,7 +132,7 @@ module FinancialDocuments
         stale = Domain::StaleReview.new("This line changed while you were reviewing it. Nothing was saved. Refresh and try again.")
         case decision
         when "as_read"
-          raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category]))
+          raise stale unless !line.done && (line.ready? || line.kind.in?(%i[transfer card_payment refund still_category suggested_category]))
           # "Yes" to "Still Dining out?" confirms the category she was asked about and nothing else: the line keeps its kind.
           check_shown!(line, entry)
         when "different"

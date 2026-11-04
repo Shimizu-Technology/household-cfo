@@ -12,6 +12,19 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     @identity = link(@source)
   end
 
+  test "previous default category is ready as before on the next statement" do
+    @category.update!(name: "Everyday spending", stack_key: "discretionary")
+    approve(stage(@source[:events].sole, merchant: "Ross"))
+    fresh = source([ movement(-1200) ])
+    event = fresh[:events].sole
+    event.financial_source_evidence.update!(payload: event.financial_source_evidence.payload.merge("merchant" => "Ross"))
+    link(fresh)
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision]).lines.sole
+    assert line.ready?, line.kind.inspect
+    assert line.as_before
+    assert_equal @category.id, line.category_id
+  end
+
   test "reviewed zero activity statement can be complete while a blank or hidden movement cannot" do
     @source = source([ movement(0, type: "unknown") ])
     account = account_input(@source)

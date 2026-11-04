@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { updateChallengeChatCard } from '../api'
 import type { ChallengeChatCard } from '../lib/challengeChatCards'
-import { savingsDollars, savingsInputCents, savingsInputDollars } from '../lib/savingsChallenge'
+import { savingsTargetDollars, savingsInputCents, savingsInputDollars } from '../lib/savingsChallenge'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import './MiaDailyCheckIn.css'
 
@@ -27,9 +27,9 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
     catch (failure) { setError(participantErrorMessage(failure, 'We couldn’t confirm your choice. Try again; it won’t save twice.')) }
     finally { setBusy(false) }
   }
-  if (saved) return <section className="mia-daily-card is-saved" aria-label="Your challenge goal"><h3>Goal saved: {savingsDollars(target)}</h3><p role="status">This is now your goal for the whole 90 days. You can see it in Savings.</p><button type="button" className="mia-daily-dismiss" onClick={onDone}>Done</button></section>
+  if (saved) return <section className="mia-daily-card is-saved" aria-label="Your challenge goal"><h3>Goal saved: {savingsTargetDollars(target)}</h3><p role="status">This is now your goal for the whole 90 days. You can see it in Savings.</p><button type="button" className="mia-daily-dismiss" onClick={onDone}>Done</button></section>
   return <section className="mia-daily-card" aria-label="Your challenge goal" aria-busy={busy}>
-    <h3>{savingsDollars(target)} over your 90 days?</h3>
+    <h3>{savingsTargetDollars(target)} over your 90 days?</h3>
     <p>A cushion to keep surprises off the card. Choose an amount that leaves room for essentials and required payments.</p>
     {editing && <form onSubmit={event => {
       event.preventDefault()
@@ -37,7 +37,7 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
     }}><label>New goal in dollars<input inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} disabled={busy} /></label><button type="submit" className="secondary-button" disabled={busy}>Review this amount</button></form>}
     {error && <p role="alert">{error}</p>}
     <div className="mia-daily-actions">
-      <button type="button" className="mia-daily-save" disabled={busy} onClick={() => void act('approve_goal')}>{busy ? 'Saving…' : `Yes, set my goal to ${savingsDollars(target)}`}</button>
+      <button type="button" className="mia-daily-save" disabled={busy} onClick={() => void act('approve_goal')}>{busy ? 'Saving…' : `Yes, set my goal to ${savingsTargetDollars(target)}`}</button>
       <button type="button" className="secondary-button" disabled={busy} onClick={() => setEditing(value => !value)}>Change amount</button>
       <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void act('dismiss')}>Not now</button>
     </div>

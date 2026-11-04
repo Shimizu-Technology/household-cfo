@@ -7,7 +7,7 @@ import { statementCents } from './participantSourceReview'
 export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep'
 export type PlanAttention = {
   event_id: number
-  kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category'
+  kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>

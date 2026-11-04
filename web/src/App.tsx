@@ -4407,6 +4407,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
+            onStatementSaved={() => { void refreshDocumentImports({ quiet: true }) }}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4451,6 +4452,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
+            onStatementSaved={() => { void refreshDocumentImports({ quiet: true }) }}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5065,6 +5067,7 @@ function DocumentImportWorkspace({
   onReviewBaseline,
   onAskMia,
   onReturnToStart,
+  onStatementSaved,
   sectionRef,
   isRealWorkspace,
   imports,
@@ -5101,6 +5104,7 @@ function DocumentImportWorkspace({
   uploadScope: string
   onReviewBaseline?: () => void
   onAskMia?: () => void
+  onStatementSaved?: () => void
   onReturnToStart?: () => void
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
@@ -5204,6 +5208,7 @@ function DocumentImportWorkspace({
           uploading={Boolean(uploadingKind)}
           onReviewBaseline={onReviewBaseline}
           onAskMia={onAskMia}
+          onStatementSaved={onStatementSaved}
         />}
       </div>
 
@@ -5448,6 +5453,7 @@ export function DocumentReviewPanel({
   uploading,
   onReviewBaseline,
   onAskMia,
+  onStatementSaved,
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
@@ -5474,6 +5480,7 @@ export function DocumentReviewPanel({
   uploading: boolean
   onReviewBaseline?: () => void
   onAskMia?: () => void
+  onStatementSaved?: () => void
 }) {
   const { assistantName } = useBrand()
   if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
@@ -5584,6 +5591,7 @@ export function DocumentReviewPanel({
           key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`}
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
+          onSaved={onStatementSaved}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
           next={[...(onAskMia ? [{ label: `See what ${assistantName} notices`, run: onAskMia }] : []), ...(onReviewBaseline ? [{ label: 'Open your spending snapshot', run: onReviewBaseline }] : [])]}
         />
