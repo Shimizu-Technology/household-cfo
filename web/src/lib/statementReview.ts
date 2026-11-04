@@ -23,6 +23,7 @@ export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 export type StatementPlan = {
   total: number
   done: number
+  without_category?: number
   ready_event_ids: number[]
   ready: PlanReady[]
   coverage: { question: string | null; answer: CoverageAnswer | null }
@@ -107,6 +108,20 @@ export function statementHeadline(accounts: SourceAccount[], names: Record<numbe
   return `${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line' : 'lines'} from ${describeAccounts(accounts, names)}${period ? `, ${period}` : ''}.`
 }
 
+export type StatementProgress = Pick<StatementPlan, 'total' | 'done' | 'without_category' | 'coverage'> & { ready: number; attention: number }
+
+export function statementProgress(plan: StatementPlan): StatementProgress {
+  return { ...plan, ready: plan.ready.length, attention: plan.attention.length }
+}
+
+export function statementProgressStatus(progress: StatementProgress): string {
+  if (progress.total === 0) return 'No lines to review'
+  if (progress.ready > 0 || progress.attention > 0 || progress.done < progress.total) return progress.done > 0 ? 'Some lines saved' : 'Ready to review'
+  if (progress.coverage.answer === 'something_missing') return 'Saved · something may be missing'
+  if (progress.coverage.question && !progress.coverage.answer) return 'Saved · check for missing lines'
+  return progress.without_category ? 'Saved · some without a category' : 'Saved'
+}
+
 export function statementCounts(plan: StatementPlan): { open: number; page: number; attention: number; sentence: string; action: string | null } {
   const attention = plan.attention.length
   const open = plan.ready.length
@@ -119,7 +134,7 @@ export function statementCounts(plan: StatementPlan): { open: number; page: numb
   if (open > 0 && attention > 0) return { open, page, attention, sentence: `${open} look right. ${look}`, action: open === 1 ? 'Approve the other one' : `Approve the other ${open}` }
   if (open > 0) return { open, page, attention, sentence: open === 1 ? 'It looks right.' : `All ${open} look right.`, action: open === 1 ? 'Approve it' : `Approve all ${open}` }
   if (attention > 0) return { open, page, attention, sentence: `${plan.done} saved. ${attention === 1 ? '1 still needs' : `${attention} still need`} a quick look.`, action: null }
-  return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.`, action: null }
+  return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.${plan.without_category ? ` ${plan.without_category} ${plan.without_category === 1 ? 'has' : 'have'} no category yet.` : ''}`, action: null }
 }
 
 /** "Dining out · as before": a category that comes only from what she chose for this shop earlier says so. */

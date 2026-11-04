@@ -17,7 +17,8 @@ module Api
             current_household,
             user: current_user,
             attributes: setup_params,
-            idempotency_key: request_idempotency_key
+            idempotency_key: request_idempotency_key,
+            expected_revision: request.headers["X-Setup-Revision"].to_s
           ).call
           workspace_data = current_workspace_data
           record_setup_save!(workspace_data.dig(:workspace, :setup_complete)) unless result.replayed?
@@ -28,6 +29,8 @@ module Api
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       rescue HouseholdFinance::Operations::Runner::IdempotencyConflict => e
+        render_operation_error(e)
+      rescue HouseholdFinance::Operations::Base::ConcurrentEdit => e
         render_operation_error(e)
       rescue ArgumentError => e
         render json: { errors: [ e.message ] }, status: :unprocessable_entity

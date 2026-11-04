@@ -1,7 +1,12 @@
+import { statementProgressStatus } from './statementReview'
 import type { DocumentImportItem, FinancialDocumentImport } from '../api'
 
 export function documentNeedsReview(documentImport: FinancialDocumentImport): boolean {
   if (documentImport.context_paused_by_restart) return false
+  if (documentImport.statement_review) {
+    const progress = documentImport.statement_review
+    return progress.ready > 0 || progress.attention > 0 || progress.done < progress.total || Boolean(progress.coverage.question && !progress.coverage.answer) || progress.coverage.answer === 'something_missing'
+  }
   return documentImport.metadata?.source_accounting_review_pending === true
     || documentImport.status === 'needs_review'
     || documentImport.status === 'partially_applied'
@@ -40,4 +45,9 @@ export function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
   return documentImport.items
     .filter((item) => item.selected && !item.ignored && !item.applied_at && !itemNeedsPayFrequency(item))
     .map((item) => item.id)
+}
+
+export function uploadStatusLabel(documentImport: FinancialDocumentImport): string {
+  if (!['uploaded', 'queued', 'processing', 'failed', 'source_deleted'].includes(documentImport.status) && documentImport.statement_review) return statementProgressStatus(documentImport.statement_review)
+  return { uploaded: 'Waiting to read', queued: 'Waiting to read', processing: 'Reading', needs_review: 'Ready to review', partially_applied: 'Some saved', applied: 'Saved', nothing_applied: 'Nothing saved', failed: 'Couldn’t read this file', source_deleted: 'Original file removed' }[documentImport.status]
 }

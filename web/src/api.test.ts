@@ -475,10 +475,11 @@ describe('manual setup idempotency contract', () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ workspace: {} }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await saveWorkspaceSetup({ household_name: 'Typed Household' }, 'workspace-setup-attempt')
+    await saveWorkspaceSetup({ household_name: 'Typed Household' }, 'workspace-setup-attempt', 'loaded-revision')
 
     const request = fetchMock.mock.calls[0][1] as RequestInit
     expect((request.headers as Record<string, string>)['Idempotency-Key']).toBe('workspace-setup-attempt')
+    expect((request.headers as Record<string, string>)['X-Setup-Revision']).toBe('loaded-revision')
   })
 })
 

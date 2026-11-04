@@ -784,10 +784,22 @@ module Api
           applied_by: serialize_user_reference(document_import.applied_by_user),
           source_deleted_by: serialize_user_reference(document_import.source_deleted_by_user),
           metadata: safe_import_metadata(document_import.metadata),
+          statement_review: statement_review_progress(document_import),
           items: ordered_items_for(document_import).map { |item| serialize_item(item) },
           transaction_drafts: ordered_transaction_drafts_for(document_import, include_details: include_details).map { |draft| serialize_transaction_draft(draft, include_details: include_details) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
+      end
+
+      # Read from the same current approvals and coverage answer as the statement
+      # screen. Import-processing status alone cannot describe a reviewed statement.
+      def statement_review_progress(document_import)
+        return unless document_import.current_financial_picture? && document_import.metadata["source_accounting_contract_version"] == FinancialDocuments::AccountingContract::VERSION
+        revision = document_import.financial_extraction_revisions.find_by(id: document_import.metadata["source_accounting_revision_id"])
+        return unless revision
+
+        plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document_import.household, revision, user: current_user).plan_summary
+        plan.slice(:total, :done, :without_category, :coverage).merge(ready: plan[:ready].length, attention: plan[:attention].length)
       end
 
       def ordered_items_for(document_import)

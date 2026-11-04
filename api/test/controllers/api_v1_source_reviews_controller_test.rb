@@ -183,6 +183,33 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "ignored", HouseholdTransaction.find(old_actual.fetch("id")).status
   end
 
+
+  test "upload history progress and statement summary read the same current approvals including no category" do
+    document = @source[:import]
+    document.update!(metadata: document.metadata.merge("source_accounting_contract_version" => FinancialDocuments::AccountingContract::VERSION))
+    get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    assert_response :success
+    assert_equal 0, response.parsed_body.dig("document_import", "statement_review", "done")
+    mutate("account_link", account_input)
+    identity = response.parsed_body.fetch("record")
+    input = stage_input(identity.fetch("id"))
+    input[:facts][:budget_category_id] = nil
+    mutate("stage", input)
+    mutate("approve", approval_input(response.parsed_body.fetch("record")))
+    assert_response :success
+    review_get
+    plan = response.parsed_body.dig("source_review", "participant_review", "plan")
+    assert_equal 1, plan.fetch("done")
+    assert_equal 1, plan.fetch("without_category")
+    get "/api/v1/document_imports", headers: auth_headers(@user)
+    assert_response :success
+    progress = response.parsed_body.fetch("document_imports").find { |row| row["id"] == document.id }.fetch("statement_review")
+    assert_equal plan.slice("total", "done", "without_category", "coverage"), progress.slice("total", "done", "without_category", "coverage")
+    assert_equal 0, progress.fetch("attention")
+    assert_equal 0, progress.fetch("ready")
+    assert_not_includes response.body, document.s3_key
+  end
+
   def approval_input(draft)
     { draft_id: draft.fetch("id"), draft_lock_version: draft.fetch("lock_version"), draft_digest: draft.fetch("digest") }
   end

@@ -9374,20 +9374,26 @@ test('BOG UI removing an original file or deleting an upload asks first and send
   await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source', '/api/v1/document_imports/1201'])
 })
 
-async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string) {
+async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string, selectionRegression = false) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
   }
+  let finished = false
+  const currentSource = () => finished ? { ...source, status: 'applied', updated_at: '2026-10-02T01:00:00Z', metadata: { ...source.metadata, source_accounting_review_pending: false } } : source
+  if (selectionRegression) await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    finished = true
+    return route.fulfill({ json: { result: { approved: 137, left_out: 0, unchanged: 0, complete: true } } })
+  })
   await page.route('http://api.test/api/v1/workspace', (route) => {
     const workspace = realWorkspaceData(true)
     if (coachName) workspace.profile.coach.name = coachName
     return route.fulfill({ json: workspace })
   })
-  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [source] } }))
-  await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: source } }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [currentSource(), ...(selectionRegression ? [{ ...source, id: 1204, filename: 'Another-pending-statement.pdf' }] : [])] } }))
+  await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: currentSource() } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_url', (route) => route.fulfill({ json: { authenticated_content: true, url: '/api/v1/document_imports/1203/source_content', download_url: '/api/v1/document_imports/1203/source_content?download=1', expires_in: 0, filename: source.filename, content_type: 'application/pdf', inline_supported: true } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
     const query = new URL(route.request().url()).searchParams
@@ -9395,11 +9401,20 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
     expect(query.get('per_page')).toBe('50')
     const currentPage = Number(query.get('page'))
     if (failSecondPage && currentPage === 2) return route.fulfill({ status: 409, json: { error: 'Extraction revision changed. Refresh the import.' } })
+    if (selectionRegression && finished) {
+      const complete = participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)
+      complete.participant_review!.plan = { ...complete.participant_review!.plan, done: 137, ready: [], ready_event_ids: [], attention: [], coverage: { question: null, answer: null } }
+      return route.fulfill({ json: { source_review: complete } })
+    }
     return route.fulfill({ json: { source_review: participant ? participant(participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)) : participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
   })
-  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await openChatContext(page)
-  await page.getByRole('button', { name: 'Review files', exact: true }).click()
+  if (selectionRegression) {
+    await page.goto('/?pilot_e2e_role=participant#Statements')
+  } else {
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await openChatContext(page)
+    await page.getByRole('button', { name: 'Review files', exact: true }).click()
+  }
   return page.getByRole('region', { name: 'Statement review', exact: true })
 }
 
@@ -13578,4 +13593,68 @@ test('BOG UI pre-start approved spending agrees across Home Budget and Mia witho
   await expect(activity).not.toContainText('$0 planned')
   await openSection(page, 'Ask Mia')
   await expect(page.locator('.message-row.assistant').last()).toContainText(answer)
+})
+
+test('BOG UI W18 finished implicitly selected statement stays visible beside another pending upload', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, undefined, undefined, true)
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect(review).toContainText('All 137 lines are saved.')
+  await expect(page.locator('.document-history-card.active')).toContainText('Fictional-137-row-statement.pdf')
+  await expect(page.locator('.document-history-card')).toHaveCount(2)
+  await expect(review.getByRole('heading')).toContainText('137 lines from Fictional checking')
+})
+
+test('BOG UI W18 a later successful Home refresh clears the earlier saved-change warning', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const monthIndex = workspace.dashboard.action_center.current_month_index
+  const monthLabel = workspace.budget.annual_plan.months[monthIndex].label
+  let saves = 0
+  await page.route('http://api.test/api/v1/workspace', route => saves === 1
+    ? route.fulfill({ status: 503, json: { errors: ['Synthetic refresh outage'] } })
+    : route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/budget_allocations/**', route => {
+    saves += 1
+    workspace.budget.annual_plan.rows[0].months[monthIndex].planned = Number(route.request().postDataJSON().allocation.planned_amount)
+    workspace.dashboard.month_answer.plan_left_cents = 930000
+    return route.fulfill({ json: { budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  async function saveAmount(amount: string) {
+    await page.getByRole('button', { name: 'Manage manually', exact: true }).click()
+    await page.getByRole('button', { name: 'Edit monthly plan', exact: true }).click()
+    const month = page.getByRole('combobox', { name: 'Edit month', exact: true })
+    if (await month.isVisible()) await month.selectOption(String(monthIndex))
+    await page.getByRole('spinbutton', { name: 'Fixed essentials planned for ' + monthLabel, exact: true }).fill(amount)
+    await page.getByRole('button', { name: 'Save 1 change', exact: true }).click()
+  }
+  await saveAmount('1400')
+  const warning = page.getByRole('alert').filter({ hasText: 'current household view could not refresh' })
+  await expect(warning).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Manage manually', exact: true })).toBeEnabled()
+  await saveAmount('1500')
+  await expect.poll(() => saves).toBe(2)
+  await expect(warning).toHaveCount(0)
+  await openSection(page, 'Home')
+  await expect(page.locator('.home-money-values')).toContainText('$9,300')
+})
+
+test('BOG UI W18 a new version waits for an unsent message and reloads only after it is cleared', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  let newer = false
+  await page.route('**/version.json', route => newer ? route.fulfill({ json: { version: 'synthetic-new-deploy' } }) : route.fallback())
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const message = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await message.fill('Keep this unsent question for me')
+  newer = true
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(page.getByText('A newer version is ready.', { exact: true })).toBeVisible()
+  await expect(message).toHaveValue('Keep this unsent question for me')
+  const reload = page.getByRole('button', { name: 'Reload', exact: true })
+  await reload.click()
+  await expect(page.getByText('Save or cancel your open changes, then reload.', { exact: true })).toBeVisible()
+  await expect(message).toHaveValue('Keep this unsent question for me')
+  await message.fill('')
+  await Promise.all([page.waitForEvent('load'), reload.click()])
+  await expect(message).toHaveValue('')
 })

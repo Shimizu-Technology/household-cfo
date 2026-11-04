@@ -53,7 +53,7 @@ class ApiV1AmountLimitsTest < ActionDispatch::IntegrationTest
   end
 
   test "setup names a too-large whole number plainly instead of a decimal-places error" do
-    patch "/api/v1/workspace/setup", params: { workspace: { fixed_expenses: "999999999999999" } }, headers: headers, as: :json
+    patch "/api/v1/workspace/setup", params: { workspace: { fixed_expenses: "999999999999999" } }, headers: headers.merge(setup_revision_header(@user)), as: :json
     assert_limit_error "Fixed essentials"
     refute_includes response.parsed_body.fetch("errors").join, "decimal places"
   end
@@ -110,5 +110,9 @@ class ApiV1AmountLimitsTest < ActionDispatch::IntegrationTest
     message = response.parsed_body.fetch("errors").join(" ")
     assert_includes message, label
     assert_includes message, LIMIT_COPY
+  end
+  def setup_revision_header(user)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    { "X-Setup-Revision" => HouseholdFinance::SetupRevision.for(household.reload) }
   end
 end

@@ -78,6 +78,13 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (!sheet && pendingRequest && !pendingRequest.working) recoveryControls.current?.querySelector<HTMLButtonElement>('button')?.focus()
   }, [sheet, pendingRequest])
 
+  useEffect(() => {
+    if (!unsavedAnswer && !coverageFailed) return
+    const prevent = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', prevent)
+    return () => window.removeEventListener('beforeunload', prevent)
+  }, [unsavedAnswer, coverageFailed])
+
   const review = data?.participant_review
   const plan = review?.plan
   const busy = mutation.busy
@@ -222,7 +229,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             <div className="statement-answers" role="group" aria-labelledby={`statement-question-${item.event_id}`}>
               {item.answers.map((choice) => item.kind === 'no_category' && choice.id === 'edit'
                 ? categories.length > 0 && categories.length <= 3
-                  ? categories.map((category) => <Button key={category.id} variant="secondary" disabled={busy || needBasis.length > 0} aria-label={`${category.name}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, 'edit', category.id)}>{category.name}</Button>)
+                  ? categories.map((category) => <Button key={category.id} variant={unsavedAnswer?.eventId === item.event_id && unsavedAnswer.categoryId === category.id ? 'primary' : 'secondary'} aria-pressed={unsavedAnswer?.eventId === item.event_id && unsavedAnswer.categoryId === category.id} disabled={busy || needBasis.length > 0} aria-label={`${category.name}: ${item.merchant ?? 'this line'}`} onClick={() => answer(item, index, 'edit', category.id)}>{category.name}</Button>)
                   : categories.length === 0
                     ? <Button key={choice.id} variant="secondary" disabled={busy || needBasis.length > 0} onClick={() => answer(item, index, 'edit')}>Choose a category</Button>
                     : <select key={choice.id} aria-label={`Category for ${item.merchant ?? 'this line'}`} value={unsavedAnswer?.eventId === item.event_id ? unsavedAnswer.categoryId ?? '' : ''} disabled={busy || needBasis.length > 0} onChange={(event) => { if (event.target.value) answer(item, index, 'edit', Number(event.target.value)) }}>

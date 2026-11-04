@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FinancialDocumentImport } from '../api'
-import { documentNeedsReview, latestAppliedImport, transactionReviewCoverage } from './documentReview'
+import { documentNeedsReview, uploadStatusLabel, latestAppliedImport, transactionReviewCoverage } from './documentReview'
 
 function statement(status: FinancialDocumentImport['status'], statuses: string[]): FinancialDocumentImport {
   return { status, transaction_drafts: statuses.map((status, id) => ({ id, status })) } as FinancialDocumentImport
@@ -41,5 +41,26 @@ describe('retained document history after restarting', () => {
     expect(latestAppliedImport(all)?.id).toBe(1)
     expect(latestAppliedImport([paused])).toBeNull()
     expect(all).toHaveLength(2)
+  })
+})
+
+describe('statement status follows current saved lines rather than import processing', () => {
+  it.each(['needs_review', 'partially_applied'] as const)('calls all approved lines saved despite legacy %s', status => {
+    const source = { ...statement(status, []), statement_review: { total: 27, done: 27, ready: 0, attention: 0, without_category: 0, coverage: { question: null, answer: null } } } as FinancialDocumentImport
+    expect(uploadStatusLabel(source)).toBe('Saved')
+    expect(documentNeedsReview(source)).toBe(false)
+    source.statement_review!.without_category = 13
+    expect(uploadStatusLabel(source)).toBe('Saved · some without a category')
+    expect(documentNeedsReview(source)).toBe(false)
+    source.statement_review!.coverage = { question: 'Is anything missing?', answer: null }
+    expect(uploadStatusLabel(source)).toBe('Saved · check for missing lines')
+    expect(documentNeedsReview(source)).toBe(true)
+    source.statement_review!.coverage.answer = 'something_missing'
+    expect(uploadStatusLabel(source)).toBe('Saved · something may be missing')
+    expect(documentNeedsReview(source)).toBe(true)
+    source.statement_review!.done = 26
+    source.statement_review!.attention = 1
+    expect(uploadStatusLabel(source)).toBe('Some lines saved')
+    expect(documentNeedsReview(source)).toBe(true)
   })
 })

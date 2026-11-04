@@ -54,6 +54,7 @@ module HouseholdFinance
         setup_complete: status.complete?,
         setup_status: status.as_json,
         setup_values: setup_values,
+        setup_revision: SetupRevision.for(household, values: setup_values),
         income_sources: household_income_sources,
         accounts: account_records,
         asset_portfolio: asset_portfolio.as_json,
