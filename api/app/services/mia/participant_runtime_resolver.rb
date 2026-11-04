@@ -133,8 +133,8 @@ module Mia
         membership: membership,
         cohort: membership.cohort,
         release: nil,
-        persona: Persona.neutral,
-        capabilities: CohortExperience::EffectiveCapabilitiesResolver.safe_default_payload(cohort_membership: membership, standalone: true),
+        persona: PersonaResolver.new(user: user, cohort_membership: membership).call,
+        capabilities: CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership).call,
         brand: Branding::RuntimeResolver.for_membership(membership),
         source: "prelaunch_default"
       )

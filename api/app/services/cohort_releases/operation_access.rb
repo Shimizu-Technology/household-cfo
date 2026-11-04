@@ -30,6 +30,10 @@ module CohortReleases
         allowed = runtime.membership&.id == membership.id && runtime.cohort_id == membership.cohort_id &&
           ToolContracts.supported_snapshot?(snapshot, version: version) &&
           snapshot.fetch("operations").include?({ "key" => key, "version" => HouseholdFinance::Operations::Registry.fetch(key)::VERSION })
+        if key.start_with?("source_review.")
+          module_id = runtime.capabilities[:schema_version] == 4 ? "statements" : "profile"
+          allowed &&= runtime.capabilities.fetch(:modules).any? { |item| item[:id] == module_id && item[:enabled] }
+        end
       else
         # Standalone participant tools use the current deployed contract. A
         # removed pilot membership cannot become this standalone exception.
