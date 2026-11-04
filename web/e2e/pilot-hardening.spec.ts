@@ -8325,7 +8325,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   await expect(card.getByRole('button', { name: /^Confirm / })).toBeDisabled()
 
   await card.getByRole('button', { name: /^Review categories/ }).click()
-  const categorySelects = card.getByLabel('Category', { exact: true })
+  const categorySelects = card.getByRole('combobox', { name: 'Category', exact: true })
   await expect(categorySelects).toHaveCount(4)
   await expect(categorySelects.nth(1)).toBeFocused()
   await categorySelects.nth(1).selectOption('1')
@@ -8334,7 +8334,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   await card.getByRole('button', { name: 'Remove' }).nth(2).click()
   await card.getByRole('button', { name: 'Add category' }).click()
   await card.getByLabel('Category amount').last().fill('11.25')
-  await card.getByLabel('Category', { exact: true }).last().selectOption('4')
+  await card.getByRole('combobox', { name: 'Category', exact: true }).last().selectOption('4')
   await card.getByLabel('Notes').last().fill('Reviewed replacement line')
   const updateRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/191') && request.method() === 'PATCH')
   await card.getByRole('button', { name: 'Save draft' }).click()
@@ -8451,7 +8451,7 @@ test('receipt category corrections refresh the selected import immediately', asy
   await openSection(page, 'Statements')
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await card.getByRole('button', { name: /^Review categories/ }).click()
-  await card.getByLabel('Category', { exact: true }).selectOption('2')
+  await card.getByRole('combobox', { name: 'Category', exact: true }).selectOption('2')
   await card.getByRole('button', { name: 'Save draft' }).click()
 
   await expect(card.getByText(/splits? need/)).toHaveCount(0)
@@ -9496,7 +9496,7 @@ test('BOG UI a statement that cannot prove nothing is missing asks her, and a ca
   // The line opens on the category the list shows for it.
   await historyRow.getByRole('button').click()
   const sheet = page.getByRole('dialog')
-  await expect(sheet.getByLabel('Category', { exact: true })).toHaveValue('31')
+  await expect(sheet.getByLabel('Category')).toHaveValue('31')
   await sheet.getByRole('button', { name: 'Close', exact: true }).click()
   await review.getByRole('button', { name: 'Something’s missing', exact: true }).click()
   await expect(review.getByRole('button', { name: 'Something’s missing', exact: true })).toHaveAttribute('aria-pressed', 'true')
