@@ -25,6 +25,7 @@ module SpendingPatterns
         .includes(transaction_splits: :budget_category).to_a
       rows = selected_source.select { |row| eligible_ids.include?(row.id) }.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
       RefundNetting.call(rows, source: selected_source, reviewed: reviewed)
+      rows.each { |row| row[:merchant] = MerchantName.call(row[:merchant]) }
       rows.reject! { |row| row[:amount_cents].zero? }
       # All source classifications inform observed coverage; income-only months
       # are not represented as months with no spending.

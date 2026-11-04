@@ -29,11 +29,13 @@ module SavingsChallenge
 
       # Only these broad defaults get broad merchant hints. A participant's
       # detailed budget and previously approved choices keep their own meaning.
-      def self.suggestion(categories, merchant)
+      def self.suggestion(categories, merchant, event_type: "purchase")
+        return unless event_type == "purchase"
         text = merchant.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
-        stack = if text.match?(/\b(?:rent|mortgage|power|gpa|water|gwa|waterworks|internet|phone|docomo|gta)\b/)
+        return if text.match?(/\b(?:transfers?|payments?|fees?|refunds?|reversals?)\b/)
+        stack = if text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta)\b/)
           "non_discretionary"
-        elsif text.match?(/\b(?:ross|kmart|k mart|jamba|mcdonald\w*|port of mocha|amazon)\b/)
+        elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
           "discretionary"
         end
         return unless stack

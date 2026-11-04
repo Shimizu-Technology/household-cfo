@@ -15,6 +15,45 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  [ "I'd like my goal to be $500 by the end of the 90 days.", "Set my challenge target to $500.",
+    "Set my goal to $500.", "I want to save $500" ].each_with_index do |message, index|
+    test "explicit target phrasing #{index} returns an honest pending chat card" do
+      assert_no_difference [ "SavingsPlanDraft.count", "SavingsPlanVersion.count", "SavingsEntryVersion.count" ] do
+        ask message, "explicit-target-#{index}"
+      end
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert card, response.parsed_body.inspect
+      assert_equal "goal", card["kind"]
+      assert_equal "pending", card["status"]
+      assert_equal 50_000, card.dig("input", "target_cents")
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "I've set up a $500 target for you to confirm below"
+      refute_match(/nothing (?:has )?changed/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+      get "/api/v1/savings_challenge/chat_cards", headers: auth
+      assert_equal card, response.parsed_body.fetch("records").sole
+      confirm(card)
+      assert_equal 50_000, @savings_enrollment.reload.current_accepted_plan_version.target_cents
+    end
+  end
+
+  test "a bare amount answers the target question without patterns or a previous card" do
+    ask "Set my challenge target", "ask-target"
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "What comfortable amount"
+    assert_nil response.parsed_body["challenge_chat_card"]
+    ask "$500", "answer-target"
+    assert_equal 50_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "I've set up a $500 target for you to confirm below"
+    assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+  end
+
+  test "target amounts retain cents and reject malformed decimals rather than truncating" do
+    ask "Set my target to $500.25.", "cents-target"
+    assert_equal 50_025, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    ask "Set my target to $500.259", "invalid-target"
+    assert_nil response.parsed_body["challenge_chat_card"]
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "What comfortable amount"
+  end
+
   test "a fresh read restores check-in inputs, feelings and interrupted keys; dismiss and replay cannot resurrect it" do
     ask "Today I spent $14.75 at Kmart on snacks for the kids. I felt rushed when I bought it and now I feel guilty.", "daily"
     card = response.parsed_body.fetch("challenge_chat_card")
@@ -59,7 +98,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     revision = response.parsed_body.fetch("challenge_chat_card")
     assert_equal 40_000, revision.dig("input", "target_cents")
     assert_equal 50_000, @savings_enrollment.reload.current_accepted_plan_version.target_cents
-    assert_includes response.parsed_body.dig("assistant_message", "content"), "Your proposed goal is $400 over your 90 days."
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "I've set up a $400 target for you to confirm below"
     refute_includes response.parsed_body.dig("assistant_message", "content"), "$400.00"
     confirm(revision)
     assert_equal 40_000, @savings_enrollment.reload.current_accepted_plan_version.target_cents

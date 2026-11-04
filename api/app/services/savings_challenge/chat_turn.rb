@@ -5,6 +5,11 @@ module SavingsChallenge
     PATTERNS = /\b(?:patterns?|waterfall|subscriptions?)\b/i.freeze
     GOAL = /\b(?:goal|target)\b/i.freeze
     GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim|let['’]?s do|go with)\b.{0,50}\b(?:goal|target)\b/i.freeze
+    GOAL_DESIRE = /\b(?:(?:my|the)\s+(?:(?:challenge|savings)\s+)?(?:goal|target)\s+to be|i\s+(?:want|would like)\s+to save|i['’]d like to save)\b/i.freeze
+    AMOUNT_SOURCE = "#{HouseholdFinance::Money::CHAT_NUMBER_SOURCE}#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?".freeze
+    # A final sentence period is allowed; a third decimal digit is not.
+    AMOUNT_END = /(?!\d|,\d|\.\d)/.source.freeze
+    BARE_AMOUNT = /\A\s*\$?\s*(#{AMOUNT_SOURCE})\s*[.!]?\s*\z/.freeze
     # "Make it $400" names no goal, so it only counts inside an ongoing goal or
     # patterns conversation; elsewhere it is a correction to something else.
     STANDALONE_AMOUNT = /\A\s*(?:ok(?:ay)?,?\s+)?(?:make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?(?:\s+instead(?:\s+of\s+\$?\s*\d[\d,]*(?:\.\d{1,2})?)?)?\s*(?:for (?:my|the) (?:goal|target))?\s*[.!]?\s*\z/i.freeze
@@ -13,8 +18,8 @@ module SavingsChallenge
 
     def self.special?(message, session:)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
-      message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(PROGRESS) ||
-        (message.match?(STANDALONE_AMOUNT) && goal_conversation?(session)) ||
+      message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(PROGRESS) ||
+        ((message.match?(STANDALONE_AMOUNT) || message.match?(BARE_AMOUNT)) && goal_conversation?(session)) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
     end
@@ -184,14 +189,15 @@ module SavingsChallenge
       suggestion = @message.match?(GOAL) && @message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)
       return false if @message.match?(/\b(?:household|paid|spent|saved|set aside|withdrew|card balance)\b/i)
       return false if @message.match?(/\bdebt\b/i) && !@message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
-      standalone = @message.match?(STANDALONE_AMOUNT) && self.class.goal_conversation?(@session)
-      return false unless @message.match?(GOAL_CHANGE) || standalone || suggestion
-      amounts = @message.scan(/\$\s*(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/).flatten
-      amounts = @message.scan(/\b(?:to|at|of)\s+(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/).flatten if amounts.empty?
+      standalone = (@message.match?(STANDALONE_AMOUNT) || @message.match?(BARE_AMOUNT)) && self.class.goal_conversation?(@session)
+      return false unless @message.match?(GOAL_CHANGE) || @message.match?(GOAL_DESIRE) || standalone || suggestion
+      amounts = @message.scan(/\$\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/).flatten
+      amounts = @message.scan(/\b(?:to|at|of|be|save)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i).flatten if amounts.empty?
+      amounts = [ @message.match(BARE_AMOUNT)[1] ] if amounts.empty? && standalone && @message.match?(BARE_AMOUNT)
       # A polite request with an explicit amount is still a proposal. A question
       # about reaching the existing goal must not silently propose the default.
       return false if !suggestion && amounts.empty? && @message.match?(/\?|\A\s*(?:can|should|could|would|what|how)\b/i)
-      replacement = @message[/\b(?:to|at|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(\d[\d,]*(?:\.\d{1,2})?)(?![\d.])/i, 1]
+      replacement = @message[/\b(?:to|at|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
       chosen = if amounts.length > 1
         replacement
       else
@@ -204,11 +210,12 @@ module SavingsChallenge
       end
       unless @goal_cents&.between?(1, 2_147_483_647)
         @goal_cents = nil
+        @topic = { type: "challenge_goal" }
         @answer = "What comfortable amount would you like as your goal for the whole 90 days? Nothing has changed."
         return true
       end
       @topic = { type: "challenge_goal" }
-      @answer = "Your proposed goal is #{money(@goal_cents)} over your 90 days. A cushion can keep surprises off the card; keep essentials and required payments covered first. Review the card below and choose Yes if that feels comfortable, or change it; nothing has changed yet."
+      @answer = "I've set up a #{money(@goal_cents)} target for you to confirm below, for the whole 90 days. A cushion can keep surprises off the card; keep essentials and required payments covered first. Review the card below and choose Yes if that feels comfortable, or change it. Your target only changes when you confirm; this doesn’t add saved money."
       true
     end
 

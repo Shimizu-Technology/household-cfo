@@ -80,7 +80,7 @@ describe('participant savings Home', () => {
     render(view())
     const summary = await screen.findByRole('article', { name: 'Approved savings progress' })
     expect(summary.querySelector('.savings-total')?.textContent).toBe('$75.00')
-    expect(summary.textContent).toContain('of $400.00 target · 18%')
+    expect(summary.textContent).toContain('of $400 target · 18%')
     expect(summary.textContent).toContain('$25.50 of this is matched to a statement. That’s included above, not extra.')
     expect(summary.textContent).toContain('1 record isn’t counted because it wasn’t new money')
     expect(within(summary).getByRole('button', { name: 'I set money aside · 2 to confirm' })).toBeTruthy()

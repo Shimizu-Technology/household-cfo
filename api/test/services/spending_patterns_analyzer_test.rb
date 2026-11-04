@@ -9,6 +9,17 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "coaching groups location parenthetical and store number variants with short names" do
+    originals = [ "Island Table - Tamuning (includes tip)", "Island Table - Dededo", "Island Table (includes tip) #123" ]
+    originals.each { |name| purchase(Date.new(2026, 10, 5), name, 2240) }
+    purchase(Date.new(2026, 10, 6), "Ross #123", 5525)
+    result = analyze
+    assert_equal [ [ "Island Table", 6720 ], [ "Ross", 5525 ] ], result[:discretionary_merchants].map { |row| [ row[:label], row[:total_cents] ] }
+    assert_equal "Island Table", result[:candidate_changes].first[:merchant]
+    assert_equal 3360, result[:candidate_changes].first[:monthly_impact_cents]
+    originals.each { |name| assert @household.household_transactions.exists?(merchant: name) }
+  end
+
   test "three full months use exact reviewed amounts and ignore the current month, ignored purchases and other households" do
     [ 8, 9, 10 ].each { |month| purchase(Date.new(2026, month, 5), "POS DEBIT 1234 ROSS STORES #567 XXXX1234", 20_000) }
     purchase(Date.new(2026, 11, 1), "Current month", 999_999)

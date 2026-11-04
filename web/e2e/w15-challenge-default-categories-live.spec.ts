@@ -54,6 +54,40 @@ test('BOG UI budgetless challenge upload, one-tap review, patterns, goal and dai
       await page.screenshot({ path: `${evidence}/shots/${info.project.name}-review-viewport.png` })
     }
   }
+  const send = async (message: string) => {
+    const response = page.waitForResponse(response => response.url().endsWith('/mia/messages') && response.request().method() === 'POST')
+    const input = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    await expect(input).toBeEnabled({ timeout: 180_000 })
+    await input.fill(message)
+    await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+    const result = await response
+    expect(result.ok(), await result.text()).toBeTruthy()
+    return result.json()
+  }
+  // Start with no patterns context: each explicit request must render its own
+  // confirmation card, never silently stage a Savings target or claim no change.
+  await page.goto(`${live}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
+  const goalReplies: { message: string; reply: string; cardId: number }[] = []
+  const goalPhrases = [ "I'd like my goal to be $500 by the end of the 90 days.", 'Set my challenge target to $500.', '$500', 'I want to save $500' ]
+  for (const [index, message] of goalPhrases.entries()) {
+    if (index === 2) {
+      const question = await send('Set my challenge target')
+      expect(question.assistant_message.content).toContain('What comfortable amount')
+      expect(question.challenge_chat_card).toBeNull()
+    }
+    const result = await send(message)
+    expect(result.challenge_chat_card).toMatchObject({ kind: 'goal', status: 'pending', input: { target_cents: 50_000 } })
+    expect(result.assistant_message.content).toContain("I've set up a $500 target for you to confirm below")
+    expect(result.assistant_message.content).not.toMatch(/nothing (?:has )?changed/i)
+    const goal = page.getByRole('region', { name: 'Your challenge goal', exact: true })
+    await expect(goal.getByRole('heading', { name: '$500 over your 90 days?', exact: true })).toBeVisible()
+    goalReplies.push({ message, reply: result.assistant_message.content, cardId: result.challenge_chat_card.id })
+    expect((await read(request, 'savings_challenge')).accepted_plan).toBeNull()
+    await shot(`target-phrase-${index}`)
+    await goal.getByRole('button', { name: 'Not now', exact: true }).click()
+    await expect(goal).toHaveCount(0)
+  }
+  if (evidence) await writeFile(`${evidence}/${info.project.name}-goal-replies.json`, JSON.stringify(goalReplies, null, 2))
   await page.goto(`${live}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Statements`)
   await expect(page.getByRole('heading', { name: 'Upload a statement', exact: true })).toBeVisible({ timeout: 180_000 })
   await shot('empty')
@@ -102,6 +136,8 @@ test('BOG UI budgetless challenge upload, one-tap review, patterns, goal and dai
   for (const merchant of top) expect(patterns.assistant_message.content).toContain(merchant)
   const amazon = patterns.spending_patterns.discretionary_merchants.find((row: { label: string }) => row.label === 'Amazon Marketplace')
   expect(amazon.total_cents).toBe(2600)
+  expect(top).toEqual(['Island Table', 'Ross'])
+  expect(patterns.assistant_message.content).not.toMatch(/Tamuning|Dededo|includes tip/)
   const patternsAt = Date.now()
   await shot('patterns')
   if (evidence) await writeFile(`${evidence}/${info.project.name}-patterns-stage.json`, JSON.stringify({ started, readAt, patternsAt, uploadToReadMs: readAt - started, uploadToPatternsMs: patternsAt - started, patternsAnswer: patterns.assistant_message.content, patterns: patterns.spending_patterns }, null, 2))
@@ -111,23 +147,14 @@ test('BOG UI budgetless challenge upload, one-tap review, patterns, goal and dai
   const reviewState = await read(request, `document_imports/${importId}/source_review?revision_id=${document.metadata.source_accounting_revision_id}`)
   expect(reviewState.source_review.participant_review.categories.map((row: { name: string }) => row.name)).toEqual(['Bills & essentials', 'Everyday spending'])
   expect(reviewState.source_review.participant_review.plan.done).toBe(27)
-  const send = async (message: string) => {
-    const response = page.waitForResponse(response => response.url().endsWith('/mia/messages') && response.request().method() === 'POST')
-    const input = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-    await expect(input).toBeEnabled({ timeout: 180_000 })
-    await input.fill(message)
-    await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
-    const result = await response
-    expect(result.ok(), await result.text()).toBeTruthy()
-    return result.json()
-  }
   await send(`I'll cut back on ${top[0]}`)
   const goal = page.getByRole('region', { name: 'Your challenge goal', exact: true })
   await goal.scrollIntoViewIfNeeded()
-  await goal.getByRole('button', { name: 'Yes, set my goal to $500.00', exact: true }).click()
-  await expect(goal).toContainText('Goal saved: $500.00')
+  await goal.getByRole('button', { name: 'Yes, set my goal to $500', exact: true }).click()
+  await expect(goal).toContainText('Goal saved: $500')
   expect((await read(request, 'savings_challenge')).accepted_plan.target_cents).toBe(50_000)
   await goal.scrollIntoViewIfNeeded()
+  await shot('goal-saved')
   await goal.getByRole('button', { name: 'Done', exact: true }).click()
   await send('Today I spent $6 at Jamba. I felt rushed when I bought it and now I feel calm.')
   const daily = page.getByRole('region', { name: 'Your check-in', exact: true })

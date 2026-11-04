@@ -95,7 +95,7 @@ module FinancialDocuments
           merchant = self.class.merchant_for(event)
           guess = suggestions[event.id]
           guess = nil unless categories.include?(guess)
-          default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant)
+          default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant, event_type: event.event_type)
           guess ||= default
           chosen = earlier[event.id]
           chosen = nil unless categories.include?(chosen)
