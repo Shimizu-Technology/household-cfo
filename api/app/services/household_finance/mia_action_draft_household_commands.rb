@@ -74,7 +74,8 @@ module HouseholdFinance
         items << tracked if tracked
       end
 
-      breakdown = MiaSetupIntake.new(raw_input).fixed_description
+      intake = MiaSetupIntake.new(raw_input)
+      breakdown = intake.fixed_description if normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == intake.fixed_cents
       if breakdown && normalized[:fixed_expenses] && Money.cents(normalized[:fixed_expenses]) == MiaSetupIntake.new(raw_input).fixed_cents
         items.find { |item| item.payload.to_h[:stack_key] == "non_discretionary" || item.label.to_s.include?("Fixed essentials") }&.description = breakdown
       end
@@ -404,7 +405,7 @@ module HouseholdFinance
       else
         {
           type: "create_income_source", income_source_name: label, source_type: source_type,
-          amount: after.to_s, cadence: "monthly", effective_on: Date.current.beginning_of_month.iso8601
+          amount: after.to_s, cadence: "monthly", effective_on: PlanCoverage.new(household).starts_on.iso8601
         }
       end
       setup_item_from_command(command)
@@ -423,11 +424,13 @@ module HouseholdFinance
       end
 
       command = if categories.one?
-        { type: "set_allocation", category_id: categories.first.id, category_name: categories.first.name, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+        { type: "set_allocation", category_id: categories.first.id, category_name: categories.first.name, amount: after.to_s, months: PlanCoverage.new(household).month_numbers(annual_budget_manager.year), year: annual_budget_manager.year }
       else
-        { type: "create_category", new_name: label, stack_key: stack_key, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+        { type: "create_category", new_name: label, stack_key: stack_key, amount: after.to_s, months: PlanCoverage.new(household).month_numbers(annual_budget_manager.year), year: annual_budget_manager.year }
       end
-      setup_item_from_command(command)
+      item = setup_item_from_command(command)
+      item.payload[:carry_forward] = true if item.is_a?(MiaActionDraftBuilder::Item)
+      item
     end
 
     def setup_account_item(key, after)

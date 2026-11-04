@@ -39,7 +39,7 @@ module HouseholdFinance
       debt_minimums_known = snapshot.fetch(:debt_minimums_known)
       debt_balance_known = snapshot.fetch(:debt_balance_known)
       liquid_assets_known = snapshot.fetch(:liquid_assets_known)
-      income_known = household.income_sources.exists?
+      income_known = PlanCoverage.new(household).income_known?(snapshot_reference_date)
       spending_known = household.expense_items.exists? || household.budget_categories.exists?
       outflow_known = spending_known && debt_minimums_known
       surplus_known = income_known && outflow_known

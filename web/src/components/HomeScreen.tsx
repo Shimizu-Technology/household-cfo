@@ -35,7 +35,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
     </div>
     <section className="home-month-answer" aria-label="Your month in money">
       <HomeMoneyValues answer={answer} />
-      <p className="home-plan-caveat">{left == null ? 'Add the missing income or planned costs to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
+      <p className="home-plan-caveat">{answer?.main_income_missing ? 'Still to add: your main income.' : left == null ? 'Add the missing income or planned costs to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
       {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="text-button" onClick={onOpenDebt}>Add debt minimums</button>}
       <p className="home-spent">Spent so far this month: <strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
       {answer && answer.pending_count == null && <p>More purchases may be waiting. Check Review before your next money decision.</p>}

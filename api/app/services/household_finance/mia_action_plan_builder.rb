@@ -80,14 +80,18 @@ module HouseholdFinance
       return validation("This plan expands to more than #{MAX_ACTIONS} review steps. Split it into smaller plans. Nothing changed.") if combined_items.length > MAX_ACTIONS
       return validation("Two requested changes target the same saved record. Ask for one change at a time and review it before requesting the next one. Nothing changed.") if conflicting_targets?(combined_items, combined_action_indexes)
 
-      setup_breakdown = MiaSetupIntake.new(raw_input).fixed_description if normalized.any? { |entry| entry.dig(:action, :type) == "update_household_setup" }
+      intake = MiaSetupIntake.new(raw_input)
+      setup_breakdown = intake.fixed_description if normalized.any? do |entry|
+        value = entry.dig(:action, :setup_updates, :fixed_expenses)
+        entry.dig(:action, :type) == "update_household_setup" && value && Money.cents(value) == intake.fixed_cents
+      end
       proposal = MiaActionDraftBuilder::Proposal.new(
         household: household,
         user: user,
         year: annual_budget_manager.year,
         draft_type: "action_plan",
         title: "Review #{combined_items.length} household changes",
-        summary: setup_breakdown ? "I prepared your income, monthly costs and car minimum for review." : "I prepared an ordered plan from #{actions.length} parts of your request. Apply all, or select a dependency-safe subset.",
+        summary: "I prepared #{combined_items.length} household #{'change'.pluralize(combined_items.length)} for your review.",
         rationale: setup_breakdown || "Every selected change is rechecked against the latest approved household data, then applied together or not at all.",
         source_prompt: raw_input,
         items: combined_items,

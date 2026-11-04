@@ -4906,12 +4906,14 @@ function ScreenHeading({ title, copy }: { eyebrow: string; title: string; copy: 
 export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, answer, status }: { onPrimaryAction: () => void; onManualSetup: () => void; plan?: AnnualBudgetPlan; answer?: DashboardData['month_answer']; status?: WorkspaceSetupStatus }) {
   const { assistantName } = useBrand()
   const started = (status?.completed_count ?? 0) > 0
+  const missingFields = status?.missing_fields.filter(field => !answer?.main_income_missing || field.key !== 'primary_income') ?? []
   return <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
     <h2 id="home-welcome-title" data-page-heading tabIndex={-1}>{started ? 'Your household plan' : 'Welcome to your household plan.'}</h2>
     <p>{started ? 'Your approved numbers so far. You can finish the rest one question at a time.' : `Start with your money in and money out; ${assistantName} will help you one question at a time.`}</p>
     <HomeMoneyValues answer={answer} />
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
-    {status && <p>Still to add: {status.missing_fields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
+    {answer?.main_income_missing && <p>Still to add: your main income.</p>}
+    {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
   </section>

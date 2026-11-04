@@ -105,6 +105,8 @@ module HouseholdFinance
     end
 
     def budget_overview_answer
+      return shared_month_answer.response if shared_month_answer && shared_month_answer.call[:plan_left_cents].nil?
+
       planned = sum_for(rows, :planned)
       actual = sum_for(rows, :actual)
       remaining = sum_for(rows, :remaining)
@@ -306,6 +308,13 @@ module HouseholdFinance
       occurred_on.between?(starts_on, ends_on)
     rescue ArgumentError
       false
+    end
+
+    def shared_month_answer
+      return @shared_month_answer if defined?(@shared_month_answer)
+
+      household = Household.find_by(id: annual_plan[:household_id]) if annual_plan[:household_id]
+      @shared_month_answer = household && MiaMonthAnswer.new(household, annual_plan: annual_plan, month: month_index + 1)
     end
 
     def monthly_income_cents

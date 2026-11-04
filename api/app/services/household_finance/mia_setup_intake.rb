@@ -67,8 +67,8 @@ module HouseholdFinance
     def fixed_description
       return unless fixed_cents
 
-      fixed = "Fixed essentials #{money(fixed_cents)} (rent #{money(amounts.fetch(:rent))} + utilities #{money(amounts.fetch(:utilities))})."
-      groceries = "Groceries #{money(amounts[:groceries])} go under flexible spending." if amounts.key?(:groceries)
+      fixed = "Fixed essentials #{estimated?(:rent) || estimated?(:utilities) ? 'about ' : ''}#{money(fixed_cents)} (rent #{stated_amount(:rent)} + utilities #{stated_amount(:utilities)})."
+      groceries = "Groceries #{stated_amount(:groceries)} go under flexible spending." if amounts.key?(:groceries)
       [ fixed, groceries ].compact.join(" ")
     end
 
@@ -94,6 +94,14 @@ module HouseholdFinance
       @amounts = found.presence
     rescue ArgumentError
       @amounts = nil
+    end
+
+    def estimated?(key)
+      text.match(PATTERNS.fetch(key))&.[](0)&.match?(/\babout\b/i)
+    end
+
+    def stated_amount(key)
+      "#{estimated?(key) ? 'about ' : ''}#{money(amounts.fetch(key))}"
     end
 
     def dollars(cents)

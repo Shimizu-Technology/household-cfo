@@ -206,3 +206,24 @@ it('uses the shared month answer in Budget and Wealth without treating unknown i
   expect(screen.getByLabelText('Current month plan').textContent).toContain('Not entered money in')
   expect(screen.getByLabelText('Current month plan').textContent).not.toContain('$0')
 })
+it('shows the join month and never turns an unknown outlook into a shortfall or zero', () => {
+ const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: null, baseline_surplus: null}))
+ render(<YearOutlook plan={{...plan, plan_starts_on: '2026-11-01', annual_outlook: {...plan.annual_outlook, months}}} />)
+ expect(screen.getByText('Your plan starts in November.')).toBeTruthy()
+ expect(screen.getAllByText('Income not known yet')).toHaveLength(2)
+ expect(screen.queryByText(/short|\$0/)).toBeNull()
+})
+it('labels income on every known outlook group including a confirmed zero', () => {
+ const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: 0, planned_outflow: 0, baseline_surplus: 0}))
+ render(<YearOutlook plan={{...plan, annual_outlook: {...plan.annual_outlook, months}}} />)
+ expect(screen.getByText('$0 planned out · $0 money in')).toBeTruthy()
+})
+
+it('asks for main income when an approved business amount is only a subtotal', () => {
+ const answer = {...dashboard.month_answer!, main_income_missing:true, money_in_cents:null, plan_left_cents:null}
+ const status = {completed_count:4, missing_fields:[{key:'primary_income',label:'Primary monthly income'}]} as WorkspaceSetupStatus
+ render(<HomeWelcomePanel answer={answer} status={status} onPrimaryAction={vi.fn()} onManualSetup={vi.fn()} />)
+ expect(screen.getByText('Still to add: your main income.')).toBeTruthy()
+ expect(screen.getAllByText('Not entered')).toHaveLength(2)
+ expect(screen.queryByText('Still to add: .')).toBeNull()
+})

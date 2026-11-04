@@ -29,7 +29,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 35000, car.minimum_payment_cents
     refute car.balance_known?
     assert_equal Date.new(2026, 11, 1), @household.income_sources.sole.starts_on
-    assert_equal 0, @applied.dig("budget", "annual_plan", "monthly_income", @applied.dig("budget", "annual_plan", "months", 9, "id").to_s)
+    assert_nil @applied.dig("budget", "annual_plan", "monthly_income", @applied.dig("budget", "annual_plan", "months", 9, "id").to_s)
 
     post_message("Call it the QA Test household.")
     draft = response.parsed_body.fetch("mia_action_draft")
@@ -63,6 +63,10 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 210000, response.parsed_body.dig("month_answer", "plan_left_cents")
     assert_includes reply, "$2,100"
     assert_includes reply, "November 2026"
+
+    post_message("How did October look?")
+    assert_includes reply, "Your plan starts in November"
+    refute_match(/short|\$0/, reply)
   end
 
   test "manual setup with only the five required fields does not require optional business income" do

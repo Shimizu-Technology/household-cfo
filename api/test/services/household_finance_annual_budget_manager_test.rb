@@ -377,7 +377,7 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
       preview = manager.read_only_plan_data
       assert_equal false, preview[:plan_available]
       assert_equal 12, preview[:months].length
-      assert_equal [ 1234.56 ], preview[:monthly_income].values.uniq
+      assert_equal [ nil, 1234.56 ], preview[:monthly_income].values.uniq
     end
     first = HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
     assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do

@@ -1,6 +1,17 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "before-start months keep the plain server answer without provider narration" do
+    fallback = "Your plan starts in November 2026. October 2026 is before you started, so its income and planned costs are not known."
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback,
+      annual_plan_summary: { month_answer: { before_plan_start: true, money_in_cents: nil, planned_out_cents: nil, spent_so_far_cents: nil } } }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How did October look?", answer_packet: packet, api_key: "fake")
+    requested = false
+    narrator.define_singleton_method(:openrouter_response) { requested = true; "October spending shows $0." }
+    assert_equal fallback, narrator.call
+    refute requested, "A pre-start answer must not call the provider"
+  end
+
   test "mixed month and write narration cannot drop the requested month" do
     fallback = "Your plan leaves breathing room for July. Your cushion needs building. Review the proposed income change."
     packet = { kind: "budget_action", write_state: "pending_review", fallback_response: fallback }

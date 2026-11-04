@@ -74,7 +74,7 @@ module HouseholdFinance
       monthly_debt_minimums = Money.dollars(debt_portfolio.monthly_minimum_cents)
 
       {
-        year: budget_year.year,
+        year: budget_year.year, plan_starts_on: plan_coverage.starts_on.iso8601,
         household_id: household.id, financial_generation: household.financial_generation,
         months: periods.map { |period| period_payload(period) },
         rows: rows,
@@ -290,7 +290,7 @@ module HouseholdFinance
       monthly_income = months.index_with do |month|
         starts_on = Date.iso8601(month.fetch(:starts_on))
         ends_on = Date.iso8601(month.fetch(:ends_on))
-        Money.dollars(sources.sum { |source| IncomeTimeline.period_cents(source, starts_on: starts_on, ends_on: ends_on) })
+        plan_coverage.income_known?(starts_on) ? Money.dollars(sources.sum { |source| IncomeTimeline.period_cents(source, starts_on: starts_on, ends_on: ends_on) }) : nil
       end.transform_keys { |month| month.fetch(:id) }
       categories = household.budget_categories.ordered.to_a
       allocations = BudgetAllocation.where(budget_period: read_only_periods, budget_category: categories)
@@ -344,7 +344,7 @@ module HouseholdFinance
       preview_periods = months.map { |month| PreviewPeriod.new(id: month.fetch(:id), starts_on: Date.iso8601(month.fetch(:starts_on))) }
       budget_year = read_only_budget_year || household.budget_years.new(year: year)
       {
-        year: year,
+        year: year, plan_starts_on: plan_coverage.starts_on.iso8601,
         household_id: household.id, financial_generation: household.financial_generation,
         months: months,
         rows: rows,
@@ -458,10 +458,14 @@ module HouseholdFinance
         .sum(:amount_cents)
     end
 
+    def plan_coverage
+      @plan_coverage ||= PlanCoverage.new(household)
+    end
+
     def monthly_income_by_period(periods)
       sources = scheduled_income_sources
       periods.index_with do |period|
-        Money.dollars(sources.sum { |source| income_source_cents_for_period(source, period) })
+        plan_coverage.income_known?(period.starts_on) ? Money.dollars(sources.sum { |source| income_source_cents_for_period(source, period) }) : nil
       end.transform_keys(&:id)
     end
 
@@ -485,13 +489,15 @@ module HouseholdFinance
       active_rows = rows.select { |row| row[:active] }
       expected_rows = active_rows.select { |row| row[:stack_key] == "sinking_expected" }
 
-      month_data = periods.map do |period|
+      month_data = periods.filter_map do |period|
+        next if period.starts_on < plan_coverage.starts_on
         index = period.starts_on.month - 1
         cells = active_rows.map { |row| row[:months][index] }
         category_plan_cents = cells.sum { |cell| Money.cents(cell[:planned]) }
         debt_minimums_cents = Money.cents(monthly_debt_minimums)
         planned_outflow_cents = category_plan_cents + debt_minimums_cents
-        income_cents = Money.cents(monthly_income.fetch(period.id))
+        income_value = monthly_income.fetch(period.id)
+        income_cents = income_value.nil? ? nil : Money.cents(income_value)
         expected_cents = expected_rows.sum { |row| Money.cents(row[:months][index][:planned]) }
         contributors = expected_rows
           .filter_map { |row| [ row[:name], row[:months][index][:planned] ] if row[:months][index][:planned].positive? }
@@ -503,11 +509,11 @@ module HouseholdFinance
           period_id: period.id,
           label: MONTH_NAMES[index],
           starts_on: period.starts_on.iso8601,
-          income: Money.dollars(income_cents),
+          income: income_cents && Money.dollars(income_cents),
           category_plan: Money.dollars(category_plan_cents),
           debt_minimums: monthly_debt_minimums,
           planned_outflow: Money.dollars(planned_outflow_cents),
-          baseline_surplus: Money.dollars(income_cents - planned_outflow_cents),
+          baseline_surplus: income_cents && Money.dollars(income_cents - planned_outflow_cents),
           expected_irregular: Money.dollars(expected_cents),
           expected_contributors: contributors
         }
@@ -530,6 +536,8 @@ module HouseholdFinance
     end
 
     def median_cents(values)
+      return 0 if values.empty?
+
       sorted = values.sort
       midpoint = sorted.length / 2
       sorted.length.odd? ? sorted[midpoint] : (sorted[midpoint - 1] + sorted[midpoint] + 1) / 2

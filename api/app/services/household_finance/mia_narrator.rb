@@ -56,6 +56,7 @@ module HouseholdFinance
       @supplied_content_context = []
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
+      return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
       return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
 
       narrated = MiaProviderAdmission.with_slot(call_site: "mia_narrator") { openrouter_response }
