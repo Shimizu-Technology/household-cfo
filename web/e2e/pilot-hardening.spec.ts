@@ -9382,7 +9382,7 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
     uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
   }
   let finished = false
-  const currentSource = () => finished ? { ...source, status: 'applied', updated_at: '2026-10-02T01:00:00Z', metadata: { ...source.metadata, source_accounting_review_pending: false } } : source
+  const currentSource = () => finished ? { ...source, status: 'applied', applied_at: '2026-10-02T01:00:00Z', statement_review: { total: 137, done: 137, without_category: 1, coverage: { question: null, answer: null } }, updated_at: '2026-10-02T01:00:00Z', metadata: { ...source.metadata, source_accounting_review_pending: false } } : source
   if (selectionRegression) await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
     finished = true
     return route.fulfill({ json: { result: { approved: 137, left_out: 0, unchanged: 0, complete: true } } })
@@ -9403,7 +9403,7 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
     if (failSecondPage && currentPage === 2) return route.fulfill({ status: 409, json: { error: 'Extraction revision changed. Refresh the import.' } })
     if (selectionRegression && finished) {
       const complete = participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)
-      complete.participant_review!.plan = { ...complete.participant_review!.plan, done: 137, ready: [], ready_event_ids: [], attention: [], coverage: { question: null, answer: null } }
+      complete.participant_review!.plan = { ...complete.participant_review!.plan, done: 137, without_category: 1, ready: [], ready_event_ids: [], attention: [], coverage: { question: null, answer: null } }
       return route.fulfill({ json: { source_review: complete } })
     }
     return route.fulfill({ json: { source_review: participant ? participant(participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter)) : participantReviewFixture(currentPage, query.get('filter') as SourceReviewFilter) } })
@@ -13601,6 +13601,13 @@ test('BOG UI W18 finished implicitly selected statement stays visible beside ano
   await expect(review).toContainText('All 137 lines are saved.')
   await expect(page.locator('.document-history-card.active')).toContainText('Fictional-137-row-statement.pdf')
   await expect(page.locator('.document-history-card')).toHaveCount(2)
+  const badge = page.locator('.document-history-card.active .document-status')
+  await expect(badge).toHaveText('Saved · some without a category')
+  await expect(page.locator('.document-history-card.active')).toContainText('Saved Oct 2')
+  expect(await badge.evaluate(element => {
+    const card = element.closest('button')!
+    return element.getBoundingClientRect().right <= card.getBoundingClientRect().right - parseFloat(getComputedStyle(card).paddingRight) + 1
+  })).toBe(true)
   await expect(review.getByRole('heading')).toContainText('137 lines from Fictional checking')
 })
 

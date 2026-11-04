@@ -5,7 +5,7 @@ export function documentNeedsReview(documentImport: FinancialDocumentImport): bo
   if (documentImport.context_paused_by_restart) return false
   if (documentImport.statement_review) {
     const progress = documentImport.statement_review
-    return progress.ready > 0 || progress.attention > 0 || progress.done < progress.total || Boolean(progress.coverage.question && !progress.coverage.answer) || progress.coverage.answer === 'something_missing'
+    return documentImport.transaction_drafts.some((draft) => draft.status === 'pending') || progress.done < progress.total || Boolean(progress.coverage.question && !progress.coverage.answer) || progress.coverage.answer === 'something_missing'
   }
   return documentImport.metadata?.source_accounting_review_pending === true
     || documentImport.status === 'needs_review'

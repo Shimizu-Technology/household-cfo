@@ -798,8 +798,7 @@ module Api
         revision = document_import.financial_extraction_revisions.find_by(id: document_import.metadata["source_accounting_revision_id"])
         return unless revision
 
-        plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document_import.household, revision, user: current_user).plan_summary
-        plan.slice(:total, :done, :without_category, :coverage).merge(ready: plan[:ready].length, attention: plan[:attention].length)
+        FinancialDocuments::SourceReview::ParticipantProgress.new(document_import.household, revision).call
       end
 
       def ordered_items_for(document_import)

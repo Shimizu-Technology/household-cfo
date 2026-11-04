@@ -6328,8 +6328,8 @@ function importPeriodLabel(documentImport: FinancialDocumentImport) {
   if (start && end) return `${start} – ${end}`
   if (end) return `Through ${end}`
   if (documentDate) return documentDate
-  if (documentImport.applied_at) return `Applied ${shortDateTime(documentImport.applied_at)}`
-  if (documentImport.processed_at) return `Processed ${shortDateTime(documentImport.processed_at)}`
+  if (documentImport.applied_at) return `Saved ${shortDateTime(documentImport.applied_at)}`
+  if (documentImport.processed_at) return `Read ${shortDateTime(documentImport.processed_at)}`
 
   return 'Date pending'
 }

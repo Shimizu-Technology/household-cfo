@@ -108,15 +108,11 @@ export function statementHeadline(accounts: SourceAccount[], names: Record<numbe
   return `${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line' : 'lines'} from ${describeAccounts(accounts, names)}${period ? `, ${period}` : ''}.`
 }
 
-export type StatementProgress = Pick<StatementPlan, 'total' | 'done' | 'without_category' | 'coverage'> & { ready: number; attention: number }
-
-export function statementProgress(plan: StatementPlan): StatementProgress {
-  return { ...plan, ready: plan.ready.length, attention: plan.attention.length }
-}
+export type StatementProgress = Pick<StatementPlan, 'total' | 'done' | 'without_category' | 'coverage'>
 
 export function statementProgressStatus(progress: StatementProgress): string {
   if (progress.total === 0) return 'No lines to review'
-  if (progress.ready > 0 || progress.attention > 0 || progress.done < progress.total) return progress.done > 0 ? 'Some lines saved' : 'Ready to review'
+  if (progress.done < progress.total) return progress.done > 0 ? 'Some lines saved' : 'Ready to review'
   if (progress.coverage.answer === 'something_missing') return 'Saved · something may be missing'
   if (progress.coverage.question && !progress.coverage.answer) return 'Saved · check for missing lines'
   return progress.without_category ? 'Saved · some without a category' : 'Saved'

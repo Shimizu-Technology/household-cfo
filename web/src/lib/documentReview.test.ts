@@ -46,7 +46,7 @@ describe('retained document history after restarting', () => {
 
 describe('statement status follows current saved lines rather than import processing', () => {
   it.each(['needs_review', 'partially_applied'] as const)('calls all approved lines saved despite legacy %s', status => {
-    const source = { ...statement(status, []), statement_review: { total: 27, done: 27, ready: 0, attention: 0, without_category: 0, coverage: { question: null, answer: null } } } as FinancialDocumentImport
+    const source = { ...statement(status, []), statement_review: { total: 27, done: 27, without_category: 0, coverage: { question: null, answer: null } } } as FinancialDocumentImport
     expect(uploadStatusLabel(source)).toBe('Saved')
     expect(documentNeedsReview(source)).toBe(false)
     source.statement_review!.without_category = 13
@@ -59,7 +59,6 @@ describe('statement status follows current saved lines rather than import proces
     expect(uploadStatusLabel(source)).toBe('Saved · something may be missing')
     expect(documentNeedsReview(source)).toBe(true)
     source.statement_review!.done = 26
-    source.statement_review!.attention = 1
     expect(uploadStatusLabel(source)).toBe('Some lines saved')
     expect(documentNeedsReview(source)).toBe(true)
   })

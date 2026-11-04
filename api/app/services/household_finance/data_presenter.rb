@@ -43,6 +43,7 @@ module HouseholdFinance
     def workspace
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: user) if user
       status = setup_status
+      values = setup_values
       {
         mode: "real",
         experience_mode: participant_experience_mode,
@@ -53,8 +54,8 @@ module HouseholdFinance
         financial_generation: household.financial_generation,
         setup_complete: status.complete?,
         setup_status: status.as_json,
-        setup_values: setup_values,
-        setup_revision: SetupRevision.for(household, values: setup_values),
+        setup_values: values,
+        setup_revision: SetupRevision.for(household, values: values),
         income_sources: household_income_sources,
         accounts: account_records,
         asset_portfolio: asset_portfolio.as_json,

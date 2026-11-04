@@ -17,6 +17,12 @@ module FinancialDocuments
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
       end
 
+      def document_covered?(revision)
+        pages = revision.reconciliation.fetch("page_coverage", {})
+        sheets = revision.reconciliation.fetch("sheet_coverage", {})
+        pages["all_processed"] == true || sheets["expected"].to_i.positive? && Array(sheets["processed"]).sort == (0...sheets["expected"].to_i).to_a
+      end
+
       # The question to ask her, or nil when the statement itself shows nothing is missing.
       def text(revision, check: totals_check(revision), deficiencies: [])
         report = revision.reconciliation || {}

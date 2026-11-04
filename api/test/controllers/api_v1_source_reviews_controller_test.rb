@@ -205,9 +205,18 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     progress = response.parsed_body.fetch("document_imports").find { |row| row["id"] == document.id }.fetch("statement_review")
     assert_equal plan.slice("total", "done", "without_category", "coverage"), progress.slice("total", "done", "without_category", "coverage")
-    assert_equal 0, progress.fetch("attention")
-    assert_equal 0, progress.fetch("ready")
     assert_not_includes response.body, document.s3_key
+
+    # A corrected account makes the old line approval historical, even though
+    # the import's processing status and the old category have not changed.
+    review_get
+    head = response.parsed_body.dig("source_review", "participant_review", "accounts", 0, "head")
+    mutate("account_link", account_input.merge(label: "Corrected checking", base_version_id: head.fetch("approved_version_id"), base_lock_version: head.fetch("lock_version")))
+    assert_response :success
+    get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    assert_response :success
+    assert_equal 0, response.parsed_body.dig("document_import", "statement_review", "done")
+    assert_equal 0, response.parsed_body.dig("document_import", "statement_review", "without_category")
   end
 
   def approval_input(draft)

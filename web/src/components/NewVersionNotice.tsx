@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from './Button'
+import './NewVersionNotice.css'
 
 declare const __APP_BUILD_ID__: string
 const BUILD_ID = typeof __APP_BUILD_ID__ === 'string' ? __APP_BUILD_ID__ : ''
@@ -36,9 +37,11 @@ export function NewVersionNotice({ currentVersion = BUILD_ID, reload = reloadPag
     }
   }, [currentVersion])
   if (!ready) return null
-  return <div className="document-alert" role="status">
+  return <div className="app-version-notice" role="status">
+    <div>
     <p>A newer version is ready.</p>
     {waiting && <p>Save or cancel your open changes, then reload.</p>}
+    </div>
     <Button variant="secondary" onClick={() => {
       // Ask the same guards used by closing/reloading the tab, without leaving it
       // or opening a browser dialog. Any unsaved form can veto this reload.
