@@ -109,13 +109,20 @@ module Demo
       # verified. The participant hears a different, honest fallback for each.
       return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
 
-      rejection = generic_claim_rejection(response, context: prompt_context, user_message: clean_message)
-      unless rejection
+      checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
+        validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
+        HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
+          openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
+            conversation_resolution: conversation_resolution,
+            rewrite_messages: [ { role: "assistant", content: response }, { role: "system", content: instruction } ])
+        end
+      end
+      unless checked.rejection_reason
         @supplied_content_context = @approved_content if @response_source == "live_model"
-        return response
+        return checked.content
       end
 
-      Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim check=#{rejection}")
+      Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=#{checked.rejection_reason}")
       fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
     rescue StandardError => e
       Rails.logger.info("[Demo::MiaResponder] reply unavailable error=#{e.class}")
@@ -140,7 +147,7 @@ module Demo
       Demo::MiaGroundedAnswerer.new(message).call
     end
 
-    def openrouter_response(message, history, context:, draft_capable: false, conversation_resolution: nil)
+    def openrouter_response(message, history, context:, draft_capable: false, conversation_resolution: nil, rewrite_messages: [])
       uri = HouseholdFinance::MiaProviderEndpoint.uri
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{@api_key}"
@@ -153,12 +160,14 @@ module Demo
           { role: "system", content: @persona.system_prompt },
           *approved_content_messages,
           { role: "system", content: SAFETY_SYSTEM_PROMPT },
+          *response_shape_messages(context),
           *verified_conversation_resolution_messages(conversation_resolution),
           { role: "user", content: household_context_message(context) },
           *conversation_history(history),
-          { role: "user", content: message }
+          { role: "user", content: message },
+          *rewrite_messages
         ],
-        max_tokens: AiModels.output_budget(@model, 220)
+        max_tokens: AiModels.output_budget(@model, 512)
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning
@@ -176,6 +185,7 @@ module Demo
       return provider_unavailable("http_#{response.code}") unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
+      return reply_rejected if parsed.dig("choices", 0, "finish_reason") == "length"
       concrete_model = parsed["model"].to_s.squish
       concrete_model_valid = concrete_model.present? && concrete_model.length <= 200
       return provider_unavailable("missing_model_identifier") if @strict_privacy && !concrete_model_valid
@@ -190,10 +200,6 @@ module Demo
         history: history,
         conversation_resolution: conversation_resolution
       )
-      unless ::Mia::ResponseShapePolicy.valid?(sanitized, persona: @persona)
-        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=persona_response_shape")
-        return reply_rejected
-      end
       return reply_rejected if sanitized.blank?
 
       @concrete_model_identifier = concrete_model if concrete_model_valid
@@ -201,6 +207,15 @@ module Demo
       @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
       sanitized
+    end
+
+    def response_shape_messages(context)
+      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona)
+      if parsed_context(context)["preview_mode"] == true
+        instruction += " This is a no-write voice sample; the screen already explains the assistant identity and unloaded household data. " \
+          "Do not repeat those notices in the answer. Never invent household facts or claim a write; if a missing fact matters, use one short clause within the sentence range."
+      end
+      instruction.present? ? [ { role: "system", content: instruction } ] : []
     end
 
     def provider_unavailable(detail)
@@ -276,6 +291,8 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
+      return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
+
       sanitized = content.to_s
         .sub(/\A#{Regexp.escape(@persona.name)}:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")

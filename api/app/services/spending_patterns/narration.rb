@@ -6,7 +6,8 @@ module SpendingPatterns
     private
 
     def narrator_contract
-      "#{super} For this spending-patterns answer, use 3-5 short sentences, aiming for about 350 characters, in the assigned persona's warm, plain coaching voice. Lead with the biggest flexible spends and their recorded window. Describe the small-purchase cluster plainly; for Friday through Sunday you can call it a little end-of-week waterfall. Do not speculate about the reason, and do not announce that you are not speculating. End with a comfortable choice between the supplied merchants. Give only the first choice's estimated monthly impact, using the factual sentence Spending half as much at MERCHANT could free about AMOUNT a month, with the supplied merchant and amount. Include coverage in one short clause only if months are missing; do not recite disclosures. Do not mention subscriptions, other merchants, goals, screens or facts outside this packet. Keep each merchant total in the form Merchant ($amount). Copy each figure exactly from the verified reference; do not round, calculate, spell out new numbers or pair amounts with different merchants. Use could free for the monthly estimate; do not recite estimate-not-savings disclaimers or guardrails. This is a read-only observation, so do not add a review-before-writing disclaimer."
+      shape = persona.respond_to?(:response_shape) ? ::Mia::ResponseShapeRewriter.instruction(persona) : "Use 3-5 short sentences."
+      "#{super} For this spending-patterns answer, #{shape} Aim for about 350 characters, in the assigned persona's warm, plain coaching voice. Lead with the biggest flexible spends and their recorded window. Describe the small-purchase cluster plainly; for Friday through Sunday you can call it a little end-of-week waterfall. Do not speculate about the reason, and do not announce that you are not speculating. End with a comfortable choice between the supplied merchants. Give only the first choice's estimated monthly impact, using the factual sentence Spending half as much at MERCHANT could free about AMOUNT a month, with the supplied merchant and amount. Include coverage in one short clause only if months are missing; do not recite disclosures. Do not mention subscriptions, other merchants, goals, screens or facts outside this packet. Keep each merchant total in the form Merchant ($amount). Copy each figure exactly from the verified reference; do not round, calculate, spell out new numbers or pair amounts with different merchants. Use could free for the monthly estimate; do not recite estimate-not-savings disclaimers or guardrails. This is a read-only observation, so do not add a review-before-writing disclaimer."
     end
 
     def narration_rejection_reason(content)
@@ -15,7 +16,7 @@ module SpendingPatterns
 
     def patterns_rejection(content)
       sentences = content.to_s.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
-      return :patterns_response_length unless sentences.length.between?(3, 5)
+      return :patterns_response_length unless persona.respond_to?(:response_shape) || sentences.length.between?(3, 5)
       return :spelled_pattern_figure if content.match?(/\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\s+(?:dollars?|purchases?|buys|percent|months?|days?|payments?|charges?|transactions?)\b/i)
       allowed = fallback_response.scan(FIGURE).tally
       return :invented_pattern_figure if content.scan(FIGURE).tally.any? { |figure, count| count > allowed.fetch(figure, 0) }
