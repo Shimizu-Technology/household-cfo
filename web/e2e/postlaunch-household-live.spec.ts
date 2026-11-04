@@ -103,7 +103,7 @@ for (const state of ['v1', 'hidden']) {
         return route.continue({ headers })
       })
       if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
-    await page.goto(`${live}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
+      await page.goto(`${live}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
       const composer = page.getByRole('textbox', { name: `Ask ${fixture.persona_name}`, exact: true })
       let posted: Response | undefined
       page.on('response', response => { if (response.url().endsWith('/api/v1/mia/messages') && response.request().method() === 'POST') posted = response })
@@ -197,7 +197,7 @@ test('BOG UI statement line and account sheets preserve uncertain saves and keyb
     }
     const sheet = page.getByRole('dialog')
     await sheet.getByRole('button', { name: 'Save', exact: true }).click()
-    await expect(sheet.getByRole('alert')).toContainText('Connection interrupted')
+    await expect(sheet.getByRole('alert')).toContainText('Something went wrong on our side.')
     const close = sheet.getByRole('button', { name: 'Close', exact: true })
     await expect(close).toBeEnabled()
     if (evidence) await page.screenshot({ path: `${evidence}/${info.project.name}-${kind}-recovery-sheet.png`, scale: 'css' })
@@ -227,4 +227,28 @@ test('BOG UI statement line and account sheets preserve uncertain saves and keyb
     else expect(saved.accounts[0].approved.tracked_account.label).toBe('Fictional family checking account for our monthly spending')
     await context.unroute(`${api}/api/v1/document_imports/**/review/approve_lines`, handler)
   }
+  // A known first rejection leaves no uncertain request to restore after reload.
+  const rejectedKeys: string[] = []
+  await context.route(`${api}/api/v1/document_imports/**/review/approve_lines`, async route => {
+    rejectedKeys.push(route.request().headers()['idempotency-key'])
+    if (rejectedKeys.length === 1) return route.fulfill({ status: 403, json: { code: 'savings_challenge_unavailable', errors: ['This part of your program is not available right now.'] } })
+    return route.fallback()
+  })
+  await review.getByRole('button', { name: 'Change', exact: true }).click()
+  await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Rejected name')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('not available right now')
+  await page.reload()
+  await expect(review.getByRole('button', { name: 'Change', exact: true })).toBeEnabled({ timeout: 60_000 })
+  await expect(review.getByRole('button', { name: 'Check again', exact: true })).toHaveCount(0)
+  await expect(review.getByText('We’re not sure your last change saved.')).toHaveCount(0)
+  await review.getByRole('button', { name: 'Change', exact: true }).click()
+  await expect(page.getByRole('dialog').getByLabel('Name', { exact: true })).toHaveValue('Fictional family checking account for our monthly spending')
+  await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('After reload checking')
+  await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(rejectedKeys).toHaveLength(2)
+  expect(rejectedKeys[1]).not.toBe(rejectedKeys[0])
+  const afterReload = await request.get(`${api}/api/v1/document_imports/${fixture.import_id}/source_review?revision_id=${fixture.revision_id}&page=1&per_page=50&filter=all`, { headers: { Authorization: authorization, 'X-Cohort-Id': String(fixture.cohort_id) } })
+  expect((await afterReload.json()).source_review.participant_review.accounts[0].approved.tracked_account.label).toBe('After reload checking')
 })
