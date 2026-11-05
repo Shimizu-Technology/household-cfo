@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173)
-// CI tests real Chrome. Local runs use Playwright's full bundled Chromium: real Chrome starts about
+// CI tests real Chrome. Local runs use Playwright's full bundled Chromium: real Chrome starts more
 // slowly and each launch costs macOS's ctkd smart-card service about a second of CPU.
 const chromeChannel = process.env.CI ? 'chrome' : 'chromium'
 
