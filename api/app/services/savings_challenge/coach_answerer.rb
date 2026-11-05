@@ -27,7 +27,7 @@ module SavingsChallenge
     HOPELESS_STEP = "One small step, only if it feels okay: you can skip today, and a day you skip just stays unknown, not a miss. A smaller target is fine too, and nothing in this challenge is an obligation."
 
     # Verified facts the narrator may quote (approved optional card records only).
-    attr_reader :answer_facts
+    attr_reader :answer_facts, :purchase_prefix
 
     # True when the answer is final and should not be rewritten by the model.
     def deterministic? = @deterministic == true
@@ -60,6 +60,7 @@ module SavingsChallenge
           return deterministic(ranking) if ranking
           return debt_comparison_answer
         end
+        return purchase_answer if purchase_question?
         if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
           return debt_comparison_answer if @message.match?(/\b(?:minimum|apr|terms|what should i know|review|compare|comparison)\b/i)
           return deterministic(debt_answer)
@@ -74,6 +75,20 @@ module SavingsChallenge
     end
 
     private
+
+    def purchase_question?
+      !HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(@message) &&
+        HouseholdFinance::MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| @message.match?(pattern) }
+    end
+
+    def purchase_answer
+      @purchase_prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
+      question = HouseholdFinance::PurchaseQuestionText.purchase_clause(@message)
+      item = question[/\$[\d,.]+\s+([[:alpha:]][[:alpha:]-]*)/, 1]
+      item = item.to_s.match?(/\A(?:on|for|at|in|a|an|the)\z/i) ? "purchase" : item.presence || "purchase"
+      stance = @message.match?(/credit card|don.t have|do not have/i) ? "I would hold off on the #{item} rather than add a card payment you cannot cover." : "Check what would pay for the #{item} before deciding."
+      "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
+    end
 
     def saved_total_question?
       return false if @message.match?(/\b(?:progress|goals?|targets?|need|should|could|can|would|accounts?)\b/i)

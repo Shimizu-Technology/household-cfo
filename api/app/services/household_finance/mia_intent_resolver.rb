@@ -34,7 +34,7 @@ module HouseholdFinance
     SCENARIO_TYPES = %w[none purchase one_time_income essential_expense extra_debt_payment].freeze
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
     HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical(?:ly)?|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
-    PURCHASE_SCENARIO_PATTERN = /\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend)\b/i.freeze
+    PURCHASE_SCENARIO_PATTERN = /\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend|book|order)\b/i.freeze
     DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\b(?:if|given(?:\s+that)?)\s+(?:our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
     SAME_AMOUNT_PATTERN = /\b(?:(?:same|unchanged)\s+(?:amount|price|cost)|(?:amount|price|cost)\s+(?:is\s+)?(?:the\s+)?same|keep .{0,80}\b(?:amount|price|cost)\b.{0,30}\bsame)\b/i.freeze
@@ -217,6 +217,11 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
+      if PurchaseQuestionText.income_with_purchase?(user_message)
+        scenario = deterministic_scenario_fallback
+        return scenario if scenario&.read_only_plan?
+      end
+
       intake = MiaSetupIntake.new(raw_user_message, context: context).call unless read_only_request
       return intake if intake
 
@@ -240,7 +245,7 @@ module HouseholdFinance
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
           !user_message.match?(/\b(?:and|also|then|plus)\b/i) &&
-          !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::DEBT_TERM_PATTERN)
+          !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::COMPOUND_PURCHASE_DEBT_PATTERN)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan? && scenario.read_only_plan.dig(:items, 0, :scenario_type) == "purchase"
       end
@@ -833,7 +838,7 @@ module HouseholdFinance
     end
 
     def deterministic_scenario_fallback
-      scenario_text = user_message.split(/(?<=[?!])\s+/).first.to_s
+      scenario_text = PurchaseQuestionText.purchase_clause(user_message).split(/(?<=[?!])\s+/).first.to_s
       scenario_type = deterministic_scenario_type(scenario_text)
       return unless scenario_type
 
@@ -914,9 +919,9 @@ module HouseholdFinance
     def deterministic_scenario_label(scenario_type)
       case scenario_type
       when "purchase"
-        match = user_message.match(/\$\s*#{Money::CHAT_NUMBER_SOURCE}(?:k\b|\s*thousand\b)?(?:\s+dollars?)?\s+([[:alpha:]][[:alpha:]-]{1,40})\b/i)
-        label = match&.[](1).to_s
-        label.match?(SCENARIO_LABEL_STOPWORD_PATTERN) ? "" : label.titleize
+        match = PurchaseQuestionText.purchase_clause(user_message).match(/\$\s*#{Money::CHAT_NUMBER_SOURCE}(?:k\b|\s*thousand\b)?(?:\s+dollars?)?\s+([[:alpha:]][[:alpha:]-]*(?:\s+[[:alpha:]][[:alpha:]-]*){0,5})\b/i)
+        label = match&.[](1).to_s.split(/\s+(?:on|with|from|at|for|next|this|today|tomorrow|but|because|and)\b/i).first.to_s
+        label.split.first.to_s.match?(SCENARIO_LABEL_STOPWORD_PATTERN) ? "" : (label == label.upcase ? label : label.downcase)
       when "one_time_income"
         user_message.match(/\b(bonus|refund|windfall)\b/i)&.[](1)&.titleize.to_s
       when "essential_expense"
@@ -1263,7 +1268,7 @@ module HouseholdFinance
           clarification = ""
         else
           needs_clarification = true
-          clarification = "I could not verify every requested change. Please ask for one change at a time, naming the record, amount, and timing. Review that change before requesting the next one. Nothing changed." if clarification.blank?
+          clarification = "I need a little more detail before preparing those changes. Which change would you like to review first? Nothing changed." if clarification.blank?
         end
       end
       read_only_plan = normalize_read_only_plan(parsed.fetch(:read_only_plan, {}), action: action, intent: intent, continuation: continuation)

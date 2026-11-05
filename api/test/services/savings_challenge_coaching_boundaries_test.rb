@@ -10,6 +10,29 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
   end
   teardown { travel_back }
 
+  test "purchase questions answer the item before card education with no invented plan or write" do
+    with_savings_runtime do
+      savings_enroll
+      [ "Should I buy a $2,000 TV on my credit card? I don't really have the money but it's on sale.", "Could I purchase a $300 stroller?" ].each do |message|
+        coach = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: message)
+        reply = coach.call
+        assert_includes reply, "no household plan"
+        assert_match(/TV|stroller/i, reply)
+        refute coach.deterministic?
+        assert coach.purchase_prefix
+        refute_match(/\$|plan leaves|saved/, reply)
+      end
+      assert_equal 0, @savings_household.budget_years.count
+      assert_equal 0, SavingsEntryVersion.count
+    end
+  end
+
+  test "goal replies format thousands exactly like the review card" do
+    turn = SavingsChallenge::ChatTurn.allocate
+    assert_equal "$1,000", turn.send(:money, 100000)
+    assert_equal "$1,000.50", turn.send(:money, 100050)
+  end
+
   test "tight cash flow and essential cuts receive a conditional stabilization response without invented verified amounts" do
     [ "My income is $2,000 and essentials are $2,100. Can I save $500?", "Can I skip meals to save $500?", "Can I skip buying food this week so I can save more for the challenge?", "I cannot afford savings and I am behind on rent" ].each do |message|
       response = answer(message)

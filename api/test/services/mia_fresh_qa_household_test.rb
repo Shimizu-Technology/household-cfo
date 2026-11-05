@@ -41,7 +41,7 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
     result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: "300", label: "Stroller", annual_budget_manager: @manager, reference_month: 11).call
     assert_match(/\A.*\$300.*\$1,405/, result.body)
     assert_includes result.body, "$1,105"
-    assert_includes result.body, "Stroller"
+    assert_includes result.body, "stroller"
     assert_includes result.body, "plan"
     assert_match(/cash|account balance/, result.body)
     assert_equal 1, result.body.count("?")

@@ -100,7 +100,7 @@ module HouseholdFinance
       return unless facts
 
       facts.merge(coaching_figures: facts.filter_map do |key, value|
-        [ key, (BigDecimal(value.to_s) / 100).round * 100 ] if key.to_s.end_with?("_cents") && !value.nil?
+        [ key, value ] if key.to_s.end_with?("_cents") && !value.nil?
       end.to_h)
     end
 

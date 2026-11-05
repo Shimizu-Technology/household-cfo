@@ -52,13 +52,13 @@ module Demo
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
       Do not repeat an earlier safety or 988 reference on a later unrelated money question. Mention it again only if the participant's current message shows distress, hopelessness, or a safety concern in any wording, including short follow-ups to an earlier crisis turn; when unsure, keep the safety line.
       Write plain text only, with no markdown, bullets, or numbered lists. Do not use the words "just" or "simply" to make a step sound easy, and never call the participant "par".
-      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
+      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. If a purchase review was requested, say the participant can check the purchase before confirming it. Keep the wording natural; the review card explains how confirmation works.
       If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
       For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
       Do not open with generic filler such as "That's a good question" or "That's a smart question." Follow only the assigned persona's approved cultural language, context, caution, and frequency rules.
       Start with the direct answer, not praise, a greeting, or a term of endearment. Never imitate an accent, invent regional slang, or infer culture from a location label.
-      When purchase funding is unknown, say what information is needed before answering. Avoid saying afford, affordable, fits, works, or safe-to-spend even in a negative statement or a question; those phrases can sound like approval without verified funding. Ask one practical question about the plan or funding instead.
+      When purchase funding is unknown, say what information is needed before answering. Never approve spending or claim it is affordable or funded. You may advise waiting, holding off, or pausing a purchase; address a stated lack of money or use of a card directly. Ask one practical question about the plan or funding instead.
       In participant answers, say purchases waiting for review and spending you confirmed. Avoid pending drafts, month-to-date actuals, liquid account picture, unapproved, and spending baseline.
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
@@ -168,6 +168,7 @@ module Demo
           *approved_content_messages,
           { role: "system", content: SAFETY_SYSTEM_PROMPT },
           *response_shape_messages(context),
+          { role: "system", content: ::Mia::LanguagePolicy.new(user_message: message, history: history, persona: @persona).runtime_phrase_instruction },
           *verified_conversation_resolution_messages(conversation_resolution),
           { role: "user", content: household_context_message(context) },
           *conversation_history(history),
@@ -382,6 +383,10 @@ module Demo
         # Participants retain the stricter check; neither context may answer
         # the question with an unverified approval later in the reply.
         preceding = content.to_s[0...match.begin(0)]
+        local_prefix = preceding.split(/[.!?;\n]|\bbut\b/i).last.to_s
+        # Refusing to assert affordability is caution, not approval. The scope
+        # ends at the claim; a later positive claim is checked independently.
+        next false if local_prefix.match?(/\b(?:cannot|can['’]t|could not|couldn['’]t|do not|don['’]t)\s+(?:honestly\s+|yet\s+)?(?:say|tell|confirm|verify|claim|assume)\s+(?:you\s+|that\s+(?:the\s+)?)?\z/i)
         conditional = preceding.match?(/\b(?:whether|if)\s+\z/i) && !preceding.match?(/\bas\s+if\s+\z/i)
         answer_window = content.to_s[match.end(0)..].split(/[.!?\n]/, 3).first(2).join(".")
         next false if preview && conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)

@@ -63,7 +63,7 @@ module HouseholdFinance
 
       remaining = left - amount_cents
       comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
-      item = label == TITLES.fetch("purchase") ? "" : " of the #{label}"
+      item = label == TITLES.fetch("purchase") ? "" : " for #{label == label.upcase ? label : label.downcase}"
       before = left.negative? ? "is short by #{money(left.abs)}" : "leaves #{money(left)}"
       "The #{money(amount_cents)} purchase#{item} #{comparison} if it is extra spending; your #{facts[:period_label]} plan #{before} before it. That is a plan figure, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end

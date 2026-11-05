@@ -6,22 +6,29 @@ module Mia
   class ResponseShapeRewriter
     Result = Struct.new(:content, :rejection_reason, keyword_init: true)
 
-    def self.call(content, persona:, user_message:, validator:, repairable_claims: [], &rewrite)
-      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite, repairable_claims: repairable_claims).call(content)
+    def self.call(content, persona:, user_message:, validator:, repairable_claims: [], fixed_prefix: "", &rewrite)
+      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite, repairable_claims: repairable_claims, fixed_prefix: fixed_prefix).call(content)
     end
 
-    def self.instruction(persona)
+    def self.instruction(persona, fixed_prefix: "")
       return "" unless persona.respond_to?(:response_shape)
 
       shape = persona.response_shape
-      "Use #{shape.fetch('min_sentences')}-#{shape.fetch('max_sentences')} sentences total, at most #{shape.fetch('max_characters')} characters. " \
+      prefix_count = ResponseShapePolicy.new(fixed_prefix, persona: persona).sentence_count
+      minimum = [ shape.fetch("min_sentences") - prefix_count, 1 ].max
+      maximum = [ shape.fetch("max_sentences") - prefix_count, 1 ].max
+      remaining_characters = [ shape.fetch("max_characters") - fixed_prefix.length - (fixed_prefix.present? ? 1 : 0), 1 ].max
+      prefix_instruction = fixed_prefix.present? ? "The server already supplies #{prefix_count} sentence(s). The complete reply must stay within #{shape.fetch('min_sentences')}-#{shape.fetch('max_sentences')} sentences. Return only the remaining coaching. " : ""
+      sentence_instruction = fixed_prefix.present? ? "Write exactly #{maximum} coaching sentences" : "Use #{minimum}-#{maximum} sentences total"
+      "#{prefix_instruction}#{sentence_instruction}, at most #{remaining_characters} characters. " \
         "Fit validation, necessary caveats, and one next step inside that range; do not add separate openings or disclaimers. " \
         "Safety and hardship instructions take precedence over this length."
     end
 
-    def initialize(persona:, user_message:, validator:, rewrite:, repairable_claims: [])
+    def initialize(persona:, user_message:, validator:, rewrite:, repairable_claims: [], fixed_prefix: "")
       @persona, @user_message, @validator, @rewrite = persona, user_message, validator, rewrite
       @repairable_claims = repairable_claims.map(&:to_s)
+      @fixed_prefix = fixed_prefix.to_s
     end
 
     def call(content)
@@ -30,7 +37,7 @@ module Mia
       return Result.new(content: content, rejection_reason: reason) unless reason == :persona_response_shape || claim_repair
 
       log_counts(content, reason: reason)
-      instruction = "Rewrite the previous answer. #{self.class.instruction(persona)} " \
+      instruction = "Rewrite the previous answer. #{self.class.instruction(persona, fixed_prefix: @fixed_prefix)} " \
         "Keep every fact, uncertainty, safety boundary, and the next step; add nothing. " \
         "Use plain text without markdown. Return only the rewritten answer."
       if claim_repair
@@ -54,7 +61,7 @@ module Mia
       reason = validator.call(content)
       return reason if reason
 
-      policy = ResponseShapePolicy.new(content, persona: persona)
+      policy = ResponseShapePolicy.new([ @fixed_prefix, content ].compact_blank.join(" "), persona: persona)
       return :persona_response_format unless policy.format_valid?
       return :persona_response_shape unless safety_length_exempt? || policy.length_valid?
 
@@ -69,7 +76,7 @@ module Mia
     def log_counts(content, reason: :persona_response_shape)
       return unless persona.respond_to?(:response_shape)
 
-      counts = ResponseShapePolicy.new(content, persona: persona).counts
+      counts = ResponseShapePolicy.new([ @fixed_prefix, content ].compact_blank.join(" "), persona: persona).counts
       Rails.logger.info("[Mia::ResponseShapeRewriter] reason=#{reason} #{counts.map { |key, value| "#{key}=#{value}" }.join(' ')}")
     end
   end

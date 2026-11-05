@@ -10,6 +10,19 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     @persona = create_persona(name: "Preview assistant")
   end
 
+  test "a phrase free voice plainly identifies why the sample has no phrase" do
+    result = Mia::PersonaPreviewer.new(persona: @persona, sample_prompt: "Should I buy a phone on a card?", responder: fake_responder(source: "live_model", reply: "Hold off and check the next bill. What would fund the phone?")).call
+    assert_equal "This voice has no phrases yet.", result[:phrase_notice]
+  end
+
+  test "a ready sample explains when no published phrase was used" do
+    config = @persona.draft_config.deep_dup
+    config["phrases"] = [ persona_phrase_artifact({ text: "Small wins count, chelu.", allowed_contexts: [ "verified_milestone" ] }, source_user_id: @persona.created_by_user_id) ]
+    @persona.update!(draft_config: config)
+    result = Mia::PersonaPreviewer.new(persona: @persona, sample_prompt: "Should I buy a phone?", responder: fake_responder(source: "live_model", reply: "Check the next bill before deciding. What would cover the phone?")).call
+    assert_equal "No coach phrase was used in this sample. Phrases only appear when their context fits.", result[:phrase_notice]
+  end
+
   test "returns a clearly sourced reply only when the exact draft reached the live model" do
     responder = fake_responder(
       source: "live_model",

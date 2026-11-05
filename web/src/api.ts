@@ -1631,6 +1631,7 @@ export type AdminPersonaPreview = {
   source: AdminPersonaBehavioralPreviewSource
   sample_prompt: string | null
   sample_reply: string | null
+  phrase_notice?: string | null
   notice: string
   warnings: string[]
   guardrails_applied: boolean

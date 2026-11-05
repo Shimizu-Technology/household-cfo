@@ -434,7 +434,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "That's a good question"
     assert_includes prompt, "assigned persona's approved cultural language"
     assert_includes prompt, "Never imitate an accent"
-    assert_includes prompt, "month-to-date actuals change only after the Household CFO confirms the draft"
+    assert_includes prompt, "participant can check the purchase before confirming it"
     assert_includes prompt, "pre-spend CFO decision"
     assert_includes prompt, "That's a smart question"
     assert_includes prompt, "answer the direct question first"

@@ -43,7 +43,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
 
   [ true, false ].each do |preview|
     test "claim rewrite reruns every check for #{preview ? 'preview' : 'participant'}" do
-      original = "I cannot say that purchase works without knowing your bills. Protect food and housing first. Which category would fund it?"
+      original = "That purchase works. Protect food and housing first. Which category would fund it?"
       requests = []
       context = { preview_mode: preview, metrics: {}, debts: { records: [] } }.to_json
       with_provider_replies([ original, VALID_REPLY ], requests) do

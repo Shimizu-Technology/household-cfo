@@ -101,7 +101,24 @@ module Mia
     def preview_notice(source)
       return "Safety rules took precedence over the coach persona for this test message. This checks the crisis boundary, but it does not exercise the coach persona and cannot authorize publication." if source == "deterministic_safety"
 
-      "Generated from this exact draft in a no-write preview."
+      policy = LanguagePolicy.new(user_message: sample_prompt, persona: preview_persona)
+      phrase_note = if Array(preview_persona.cultural_phrases).empty?
+        " This voice has no phrases yet."
+      elsif policy.runtime_phrase_instruction.start_with?("No coach phrase")
+        " No coach phrase fits this sample's context."
+      else
+        ""
+      end
+      "Generated from this exact draft in a no-write preview.#{phrase_note}"
+    end
+
+    def phrase_notice(reply)
+      return if reply.blank?
+      phrases = Array(preview_persona.cultural_phrases)
+      return "This voice has no phrases yet." if phrases.empty?
+      return if phrases.any? { |entry| reply.downcase.include?(entry.fetch("text").downcase) }
+
+      "No coach phrase was used in this sample. Phrases only appear when their context fits."
     end
 
     def valid_provider_identifier?(value)
@@ -117,6 +134,7 @@ module Mia
         context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
+        phrase_notice: phrase_notice(reply),
         notice: status == "unavailable" ? notice : "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
       }
     end

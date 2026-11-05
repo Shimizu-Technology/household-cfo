@@ -215,3 +215,11 @@ it('CR21 shows the ordered secondary tools inside More',async()=>{
  render(<Harness/>);await review()
  expect(screen.getByText('Home · Mia · Budget · Statements · More: Optionality · CFO Filter')).toBeTruthy()
 })
+
+it('shows when a preview did not use a coach phrase', async () => {
+  api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',phrase_notice:'No coach phrase was used in this sample. Phrases only appear when their context fits.'},behavioral_preview_evidence:ready.behavioral_preview_evidence})
+  render(<Harness />)
+  await review()
+  expect(screen.getAllByText('No coach phrase was used in this sample. Phrases only appear when their context fits.')).toHaveLength(2)
+  expect(api.previewAdminPersona.mock.calls[0][2]).toContain('credit card')
+})
