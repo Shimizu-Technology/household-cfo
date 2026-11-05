@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import userEvent from '@testing-library/user-event'
 import { StrictMode, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdminCohort, AdminUser, CurrentUser } from '../api'
+import { ApiRequestError, type AdminCohort, type AdminUser, type CurrentUser } from '../api'
 import { CoachGroupsParticipants } from './CoachGroupsParticipants'
 const mocks = vi.hoisted(() => ({ createAdminCohort: vi.fn(), createAdminUser: vi.fn(), fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), removeCoachGroupParticipant: vi.fn(), resendAdminUserInvitation: vi.fn(), updateAdminCohort: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
@@ -26,6 +26,47 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('stops a reviewed invitation batch when the program changes',async()=>{
+    let complete!:(value:unknown)=>void
+    mocks.createAdminUser.mockReturnValue(new Promise(resolve=>{complete=resolve}))
+    const view=harness()
+    await screen.findByText('Participants in Tuesday group')
+    await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+    fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'one@example.test two@example.test'}})
+    fireEvent.click(screen.getByRole('button',{name:'Review email list'}))
+    fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
+    await waitFor(()=>expect(mocks.createAdminUser).toHaveBeenCalledTimes(1))
+    view.rerender(<CoachGroupsParticipants {...view.props} workspaceId={3}/>)
+    await act(async()=>complete({invitation_sent:true}))
+    expect(mocks.createAdminUser).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/Ask a program owner to create groups/)).toBeTruthy()
+  })
+  it('keeps invitations open after the first add and hides provider failures', async () => {
+    mocks.fetchAdminUsers.mockResolvedValueOnce([]).mockResolvedValue([participant])
+    mocks.createAdminUser.mockResolvedValue({ invitation_status: 'failed', invitation_error: 'WorkOS authentication is not configured' })
+    harness()
+    await screen.findByLabelText('Participant email')
+    fireEvent.change(screen.getByLabelText('Participant email'), { target: { value: 'one@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
+    await screen.findByText(/Participant added. The invitation email did not send/)
+    await waitFor(() => expect(screen.getByLabelText('Participant email')).toHaveProperty('disabled', false))
+    expect(screen.getByText('Add a participant', { selector: 'summary' }).closest('details')?.open).toBe(true)
+    expect(screen.queryByText(/WorkOS/)).toBeNull()
+  })
+  it('reviews a deduplicated list before adding anyone and preserves unfinished addresses', async () => {
+    mocks.createAdminUser.mockResolvedValueOnce({ invitation_sent: true }).mockRejectedValueOnce(new Error('offline'))
+    harness()
+    await screen.findByText('Participants in Tuesday group')
+    await userEvent.click(screen.getByText('Add a participant', { selector: 'summary' }))
+    fireEvent.change(screen.getByLabelText('Paste email addresses'), { target: { value: 'one@example.test, two@example.test\none@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review email list' }))
+    expect(mocks.createAdminUser).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Review 2 people for Tuesday group' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add these 2 people' }))
+    await screen.findByText(/1 person added.*1 still to add/)
+    expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value', 'two@example.test')
+    expect(mocks.createAdminUser).toHaveBeenCalledTimes(2)
+  })
   it('preserves the chosen invitation disclosure state while a roster search has no matches',async()=>{
     harness();await screen.findByText('Participants in Tuesday group')
     const details=screen.getByText('Add a participant',{selector:'summary'}).closest('details')!
@@ -57,7 +98,7 @@ describe('Coach group essentials', () => {
     await user.type(screen.getByLabelText('Participant email'), 'new@example.test')
     await user.click(screen.getByRole('checkbox', { name: 'Send an invitation email when eligible' }))
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
-    expect((await screen.findByRole('status')).textContent).toContain('Invitation saved. No email was sent.')
+    expect((await screen.findByRole('status')).textContent).toContain('Participant added. No invitation email was sent.')
   })
 
   it('uses the latest controlled cohort when the initial roster request resolves', async () => {
@@ -275,7 +316,7 @@ describe('Coach group essentials', () => {
     await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     await user.type(screen.getByLabelText('Participant email'), 'new@example.com')
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
-    await screen.findByText(/Participant added, but the invitation email failed/)
+    await screen.findByText(/Participant added. The invitation email did not send/)
     expect(mocks.createAdminUser).toHaveBeenCalledWith({ email: 'new@example.com', role: 'participant', cohort_id: 10, send_invitation_email: true })
     expect((screen.getByLabelText('Participant email') as HTMLInputElement).value).toBe('')
     expect(lifecycle.finish).toHaveBeenCalled()
@@ -332,4 +373,51 @@ describe('Daily invitation shortcut', () => {
     expect(screen.getByLabelText('Participant email').closest('details')?.open).toBe(true)
     expect(mocks.createAdminUser).not.toHaveBeenCalled()
   })
+})
+
+it('R6 continues after a refused address and names the reason without a permanent retry loop',async()=>{
+ mocks.createAdminUser.mockRejectedValueOnce(new ApiRequestError('Ask a platform administrator to check this account.',{status:403})).mockResolvedValueOnce({invitation_sent:true})
+ harness();await screen.findByText('Participants in Tuesday group')
+ await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'refused@example.test, good@example.test'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
+ await screen.findByText('1 person added.')
+ expect(screen.getByText('refused@example.test: Ask a platform administrator to check this account.')).toBeTruthy()
+ expect(mocks.createAdminUser).toHaveBeenCalledTimes(2)
+ expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value','')
+ expect(screen.queryByRole('button',{name:'Add these 2 people'})).toBeNull()
+})
+it('R12 parses named lists, names bad entries and reviews remaining valid addresses',async()=>{
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'Jane Doe <jane@example.test>, Bob <bob@example.test>\n<bad@example.test>\nweird@exa mple.com\njane@example..test'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}))
+ expect(screen.getByRole('heading',{name:'Review 2 people for Tuesday group'})).toBeTruthy()
+ for(const bad of ['<bad@example.test>','weird@exa','jane@example..test']) expect(screen.getAllByText(new RegExp(bad.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')))).toBeTruthy()
+ expect(mocks.createAdminUser).not.toHaveBeenCalled()
+})
+it('R12 skips people already in the group and uses singular invitation copy',async()=>{
+ mocks.createAdminUser.mockResolvedValue({invitation_status:'failed'})
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'participant@example.com'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add this person'}))
+ await screen.findByText('0 people added. 1 already in this group.');expect(mocks.createAdminUser).not.toHaveBeenCalled()
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'new@example.test'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add this person'}))
+ await screen.findByText('1 person added. 1 invitation email did not send. Open Participant access to resend.')
+})
+
+it('CR15 accepts space separated named email entries',async()=>{
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'Jane Doe <jane@example.test> Bob <bob@example.test>'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}))
+ expect(screen.getByRole('heading',{name:'Review 2 people for Tuesday group'})).toBeTruthy()
+})
+it.each([401,408])('CR16 keeps the current and remaining addresses after HTTP %s',async(status)=>{
+ mocks.createAdminUser.mockRejectedValueOnce(new ApiRequestError('Please retry shortly.',{status}))
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'one@example.test two@example.test'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
+ await screen.findByText(/0 people added.*2 still to add/)
+ expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value','one@example.test\ntwo@example.test')
+ expect(mocks.createAdminUser).toHaveBeenCalledTimes(1)
 })

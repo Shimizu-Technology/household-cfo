@@ -40,9 +40,9 @@ it('denies household and unauthorized Admin hashes while preserving the staff sc
   window.history.replaceState({}, '', '/#Budget')
   render(<App />)
   expect(window.location.hash).toBe('#Coach%20Studio')
-  expect(screen.getByRole('status').textContent).toContain('Household money is not available')
+  expect(screen.getByRole('status').textContent).toContain('Your coaching workspace is ready')
   act(() => { window.dispatchEvent(new HashChangeEvent('hashchange')) })
-  expect(screen.getByRole('status').textContent).toContain('Household money is not available')
+  expect(screen.getByRole('status').textContent).toContain('Your coaching workspace is ready')
   act(() => { window.history.pushState({}, '', '/#Admin'); window.dispatchEvent(new PopStateEvent('popstate')) })
   expect(window.location.hash).toBe('#Coach%20Studio')
   expect(screen.queryByText('Program operations')).toBeNull()
@@ -103,4 +103,15 @@ it('opens a first admin with no programs on Admin while preserving explicit Stud
   window.history.replaceState({}, '', '/#Coach%20Studio')
   render(<App />)
   expect(screen.getByText('Daily coaching')).toBeTruthy()
+})
+
+it('CR12 keeps unavailable route explanations visible',()=>{
+ window.history.replaceState({},'','/#Budget');render(<App />)
+ expect(screen.getByRole('status').classList.contains('document-alert')).toBe(true)
+})
+it('CR17 preserves the restored Coach Studio history identity across Admin navigation',async()=>{
+ state.auth.currentUser=user(true);window.history.replaceState({appHistoryPosition:7},'','/?coach_area=assistant#Coach%20Studio')
+ render(<App/>);fireEvent.click(screen.getByRole('link',{name:'Admin'}));await screen.findByRole('heading',{name:'Program operations'})
+ await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,30))})
+ await screen.findByText('Daily coaching');expect(window.history.state.appHistoryPosition).toBe(7)
 })

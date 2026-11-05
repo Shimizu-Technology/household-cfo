@@ -25,7 +25,7 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     refute_includes response.body, owner.email.split("@").first
     refute_includes response.body, participants.first.email.split("@").first
     assert_includes owner_studio.dig("current_roster", "participants").pluck("full_name"),
-      "Participant #{participants.first.id}"
+      "Someone in this group"
 
     get endpoint(cohort), headers: workspace_headers(viewer, cohort.coach_workspace)
     assert_response :success

@@ -1,3 +1,4 @@
+import { historyPosition, pushHistoryEntry } from './lib/browserHistory'
 import { DocumentReadingProgress } from './components/DocumentReadingProgress'
 import { IncomeForms } from './components/IncomeForms'
 import { IncomeSourceManager } from './components/IncomeSourceManager'
@@ -576,6 +577,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
   const [dirty, setDirty] = useState(false)
   const [notice, setNotice] = useState('')
+  const [unavailableRoute, setUnavailableRoute] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [enterpriseOpen, setEnterpriseOpen] = useState(false)
@@ -593,14 +595,15 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
       if (target !== activeSection) setDirty(false)
       setActive(target)
       const unavailable = Boolean(section && !sections.includes(section))
-      setNotice(unavailable ? 'Household money is not available in this staff workspace.' : `${target} screen loaded.`)
-      if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
-      else window.history.pushState({ section: target }, '', canonicalUrl(target))
+      setUnavailableRoute(unavailable)
+      setNotice(unavailable ? 'Your coaching workspace is ready. Choose People to manage your groups.' : `${target} screen loaded.`)
+      if (browserNavigation || target === activeSection) window.history.replaceState({ ...window.history.state, section: target }, '', canonicalUrl(target))
+      else pushHistoryEntry({ section: target }, canonicalUrl(target))
       focusHeading()
     }
     if (target !== activeSection && dirty) {
       // Keep the address on the current screen while the question is open.
-      window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
+      window.history.replaceState({ ...window.history.state, section: activeSection }, '', canonicalUrl(activeSection))
       void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => { if (discard) proceed() })
       return
     }
@@ -608,6 +611,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   }, [activeSection, canonicalUrl, defaultSection, dirty, focusHeading, sections])
   useLayoutEffect(() => {
     if (!ready) return
+    historyPosition()
     const follow = () => navigate(requestedSection(), true)
     if (window.location.hash !== sectionHash(activeSection) || !sections.includes(active) || hasPendingPlaidOAuthReturn()) follow()
     window.addEventListener('popstate', follow)
@@ -639,7 +643,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
       </AccountMenu>
     </header>
     <ParticipantTabs staffOnly sections={sections} activeSection={activeSection} onChange={navigate} />
-    {notice && <p role="status" className={notice.includes('Household money') ? 'document-alert' : 'sr-only'}>{notice}</p>}
+    {notice && <p role="status" className={unavailableRoute ? 'document-alert' : 'sr-only'}>{notice}</p>}
     {activeSection === ADMIN_SECTION && currentUser.is_admin ? <AdminConsole currentUser={currentUser} /> : <CoachStudio currentUser={currentUser} onDirtyChange={setDirty} />}
     <BrandFooter />
     {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}
@@ -1053,7 +1057,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // Name the staff starting section in the address so reload and back agree.
   useLayoutEffect(() => {
     if (activeSection !== COACH_STUDIO_SECTION || window.location.hash) return
-    window.history.replaceState({ section: COACH_STUDIO_SECTION }, '', `${window.location.pathname}${window.location.search}${sectionHash(COACH_STUDIO_SECTION)}`)
+    window.history.replaceState({ ...window.history.state, section: COACH_STUDIO_SECTION }, '', `${window.location.pathname}${window.location.search}${sectionHash(COACH_STUDIO_SECTION)}`)
     lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
   }, [activeSection])
   const selectedImport = useMemo(() => {
@@ -1798,7 +1802,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     if (hasPendingPlaidOAuthReturn() && data && !canResumePlaidOAuthReturn) {
       window.history.replaceState(
-        { section: targetSection },
+        { ...window.history.state, section: targetSection },
         '',
         clearPlaidOAuthStateFromUrl(targetSection),
       )
@@ -1837,16 +1841,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
     const historyMode = options.historyMode ?? 'push'
     if (historyMode !== 'none' && !replacedStaleOAuthLocation) {
-      window.history[historyMode === 'push' ? 'pushState' : 'replaceState'](
-        { section: targetSection },
-        '',
-        sectionHash(targetSection),
-      )
+      if (historyMode === 'push') pushHistoryEntry({ section: targetSection }, sectionHash(targetSection))
+      else window.history.replaceState({ ...window.history.state, section: targetSection }, '', sectionHash(targetSection))
     }
     return true
   }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedCoachChanges, visibleSections])
 
   useEffect(() => {
+    historyPosition()
     const previousScrollRestoration = window.history.scrollRestoration
     window.history.scrollRestoration = 'manual'
 
@@ -1855,7 +1857,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         ? `${window.location.pathname}${window.location.search}${sectionHash('My Money')}`
         : clearPlaidOAuthStateFromUrl('My Money')
       window.history.replaceState(
-        { section: 'My Money' },
+        { ...window.history.state, section: 'My Money' },
         '',
         callbackUrl,
       )
@@ -1868,7 +1870,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           const targetHash = sectionHash(targetSection)
           if (window.location.hash !== targetHash) {
             window.history.replaceState(
-              { section: targetSection },
+              { ...window.history.state, section: targetSection },
               '',
               `${window.location.pathname}${window.location.search}${targetHash}`,
             )
@@ -1895,7 +1897,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const targetHash = sectionHash(targetSection)
       if (window.location.hash !== targetHash) {
         window.history.replaceState(
-          { section: targetSection },
+          { ...window.history.state, section: targetSection },
           '',
           `${window.location.pathname}${window.location.search}${targetHash}`,
         )
@@ -1912,7 +1914,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         source: 'history',
       })
       if (!changed) {
-        window.history.pushState({ section: activeSection }, '', sectionHash(activeSection))
+        pushHistoryEntry({ section: activeSection }, sectionHash(activeSection))
         lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
       }
     }

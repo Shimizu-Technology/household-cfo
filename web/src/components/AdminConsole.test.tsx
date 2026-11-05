@@ -176,6 +176,18 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     expect(notice.textContent).toContain('Added to Synthetic cohort. No new email sent.')
     expect(notice.textContent).toContain('Resend email')
   })
+  it('keeps a failed invitation saved and offers resend without showing the provider error', async () => {
+    const pending = { ...people[0], id: 140, email: 'new-person@example.test', full_name: 'New person', invitation_status: 'pending' } as AdminUser
+    mocks.createAdminUser.mockResolvedValue({ user: pending, created: true, invitation_sent: false, invitation_status: 'failed', invitation_error: 'WorkOS authentication is not configured' })
+    render(<AdminConsole currentUser={actor} />)
+    await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false))
+    const form = screen.getByRole('button', { name: 'Create invite' }).closest('form')!
+    fireEvent.change(within(form).getByLabelText(/Email/), { target: { value: pending.email } })
+    fireEvent.submit(form)
+    await screen.findAllByText(/Person added\. The invitation email did not send\. Use Resend email beside their name to try again\./)
+    expect(document.body.textContent).not.toContain('WorkOS')
+  })
   it('prevents a concurrent invite from superseding a participant save and its refresh', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00', {}, { timeout: 3000 })
@@ -258,11 +270,13 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false))
   }, 15_000)
   it('shows scoped invitation attention and removes roster controls from unrelated areas', async () => {
-    const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, status: 'failed' } } as AdminUser
+    authScope.workspaceId = null
+    const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, workspace_scoped: false, status: 'failed', last_attempted_at: '2026-11-05T04:00:00Z', error: 'WorkOS authentication is not configured' } } as AdminUser
     const elsewhere = { ...people[1], invitation_status: 'pending', cohorts: [] } as AdminUser
     mocks.fetchAdminUsers.mockResolvedValue([pending, elsewhere])
     render(<AdminConsole currentUser={actor} />)
     await screen.findByText('1 awaiting sign-in · 1 invitation emails need attention')
+    expect(screen.getByText(/Last email attempt:/).textContent).toContain('WorkOS authentication is not configured')
     expect(document.querySelector('.admin-stat-row')).toBeNull()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Bank health' })).toHaveProperty('disabled', false))
     fireEvent.click(screen.getByRole('button', { name: 'Bank health' }))
@@ -337,4 +351,17 @@ it('selects a created program and keeps its confirmation after switching program
   authScope.workspaceId=3
   view.rerender(<AdminConsole currentUser={{...actor,coach_workspaces:[...actor.coach_workspaces!,{id:3,name:'New coach program'}] } as CurrentUser}/>)
   expect(screen.getByText(/New coach program was created and selected/)).toBeTruthy()
+})
+
+it.each(['coach','admin'])('CR14 failed %s invitations do not promise an unavailable resend button',async(role)=>{
+ const pending={...people[0],id:140,email:'new-staff@example.test',role,can_resend_invitation:false} as AdminUser
+ mocks.createAdminUser.mockResolvedValue({user:pending,created:true,invitation_sent:false,invitation_status:'failed'})
+ render(<AdminConsole currentUser={actor}/>);await screen.findAllByText('Participant 00')
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh'})).toHaveProperty('disabled',false))
+ const form=screen.getByRole('button',{name:'Create invite'}).closest('form')!
+ fireEvent.change(within(form).getByLabelText(/Email/),{target:{value:pending.email}})
+ fireEvent.change(within(form).getByLabelText('Role'),{target:{value:role}})
+ fireEvent.submit(form)
+ await waitFor(()=>expect(mocks.createAdminUser).toHaveBeenCalledWith(expect.objectContaining({role})))
+ expect((await screen.findByText(/Check their email address and invitation access/)).textContent).not.toContain('Resend email')
 })

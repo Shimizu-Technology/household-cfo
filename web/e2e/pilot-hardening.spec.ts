@@ -55,7 +55,7 @@ async function openCoachAdvanced(page: Page) {
   }
 }
 
-async function openSection(page: Page, name: string) {
+async function openSection(page: Page, name: string, simpleCoach = false) {
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
   await expect(page.locator('.tabs-shell, .staff-navigation')).toBeVisible()
@@ -68,7 +68,7 @@ async function openSection(page: Page, name: string) {
     await expect(section).toBeVisible()
   }
   await section.click()
-  if (name === 'Coach Studio') { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Assistant voice/ }).click() }
+  if (name === 'Coach Studio' && !simpleCoach) { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Assistant voice/ }).click() }
   if (await more.count()) await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
@@ -5466,7 +5466,7 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
   const proposalReview = page.locator('.persona-setup-review')
   await expect(proposalReview.locator('.persona-proposal-choices')).not.toHaveAttribute('open','')
   await proposalReview.getByText('Review each suggestion',{exact:true}).click()
-  await expect(proposalReview.getByText('Human coach name', { exact: true })).toBeVisible()
+  await expect(proposalReview.getByText('Coach name', { exact: true })).toBeVisible()
   await expect(proposalReview.getByText('Coach said')).toBeVisible()
   await expect(proposalReview.getByText('Pilot Admin')).toBeVisible()
   await expect(proposalReview.getByText('Mrs. Mel', { exact: true }).first()).toBeVisible()
@@ -9101,7 +9101,7 @@ test('Coach Studio program groups add participants without mistaking failed emai
   await openDetails(page, /^Add a participant$/)
   await page.getByLabel('Participant email', { exact: true }).fill('new-participant@example.test')
   await page.getByRole('button', { name: 'Add to Island weekend group revised', exact: true }).click()
-  await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added. The invitation email did not send' })).toBeVisible()
   const card = page.locator('.coach-participants-list li').filter({ hasText: 'new-participant@example.test' })
   await expect(card).toContainText('Invitation pending')
   await card.getByText('Participant access', { exact: true }).click()
@@ -12729,7 +12729,7 @@ for (const role of ['coach', 'admin'] as const) {
     for (const destination of ['Home', 'Review', 'Ask Mia', 'Budget', 'My Money', 'My Profile', 'Statements', ...(role === 'coach' ? ['Admin'] : [])]) {
       await page.goto(`${url}#${encodeURIComponent(destination)}`)
       await expect(page).toHaveURL(/#Coach%20Studio$/)
-      await expect(page.getByRole('status').filter({ hasText: 'Household money is not available' })).toBeVisible()
+      await expect(page.getByRole('status').filter({ hasText: 'Your coaching workspace is ready' })).toBeVisible()
       await expect(page.locator('.home-screen, .budget-screen, .profile-screen, .statements-screen, .money-topics')).toHaveCount(0)
     }
     await openAccountHelp(page)
@@ -13698,4 +13698,28 @@ test('BOG UI W18 a new version waits for an unsent message and reloads only afte
   await message.fill('')
   await Promise.all([page.waitForEvent('load'), reload.click()])
   await expect(message).toHaveValue('')
+})
+
+test('Coach Studio review two restores history for staff who also have a participant seat', async ({ page }) => {
+  await mockStaffWithParticipantSeat(page, 'coach')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/admin/personas', route => route.fulfill({ json: { personas: [] } }))
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => route.fulfill({ json: { cohorts: [] } }))
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Budget')
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  const initialPosition = await page.evaluate(() => history.state?.appHistoryPosition ?? 0)
+  await openSection(page, 'Coach Studio', true)
+  await expect(page.getByRole('navigation', { name: 'Coach Studio areas' })).toBeVisible()
+  expect(await page.evaluate(() => history.state.appHistoryPosition)).toBe(initialPosition + 1)
+  await page.getByRole('button', { name: 'Your assistant', exact: true }).click()
+  await expect(page.getByLabel('Assistant name')).toBeVisible()
+  await openSection(page, 'Budget')
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  await openSection(page, 'Coach Studio', true)
+  await page.getByLabel('Assistant name').fill('Keep this participant-seat edit')
+  const savedUrl = page.url()
+  await page.evaluate(() => history.go(-3))
+  await answerConfirm(page, 'dismiss', 'Your changes will be lost.')
+  await expect(page).toHaveURL(savedUrl)
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Keep this participant-seat edit')
 })

@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest'
-import { reviewCoachSettings } from './coachSettingsReview'
+import type { CohortExperienceConfiguration, CohortExperiencePreview } from '../api'
+import { reviewCoachSettings, toolChanges } from './coachSettingsReview'
 const api=vi.hoisted(()=>({fetchWorkspaceBrand:vi.fn(),previewWorkspaceBrand:vi.fn(),fetchCohortExperienceConfiguration:vi.fn(),previewCohortExperienceConfiguration:vi.fn()}))
 vi.mock('../api',()=>api)
 const brand={draft_revision:2,permissions:{preview:true,publish:true}}
@@ -23,4 +24,17 @@ it('keeps the upgraded schema and Statements notice in the reviewed request',asy
  const review=await reviewCoachSettings([42],()=>true)
  expect(review.tools[0].configuration.draft_revision).toBe(5)
  expect(review.tools[0].preview.upgrade_notice).toBe('This update adds Statements')
+})
+
+it('names added and removed tools on a second review even when they are under More',()=>{
+ const configuration={published_version:{config:{schema_version:4,experience_mode:'household_cfo',optional_modules:{cfo_filter:false,optionality:true}}},draft:{experience_mode:'household_cfo'}} as CohortExperienceConfiguration
+ const preview={modules:[{id:'cfo_filter',label:'CFO Filter',enabled:true,core:false},{id:'optionality',label:'Optionality',enabled:false,core:false}]} as CohortExperiencePreview
+ expect(toolChanges({configuration,preview})).toEqual(['Adds CFO Filter.','Removes Optionality.'])
+})
+
+it('CR20 compares tools with the active group release even after Advanced publishes the draft',()=>{
+ const configuration={published_version:{config:{optional_modules:{cfo_filter:true}}},draft:{experience_mode:'household_cfo'}} as CohortExperienceConfiguration
+ const preview={modules:[{id:'cfo_filter',label:'CFO Filter',enabled:true,core:false}]} as CohortExperiencePreview
+ const active={optional_modules:{cfo_filter:false}} as NonNullable<CohortExperienceConfiguration['published_version']>['config']
+ expect(toolChanges({configuration,preview},active)).toEqual(['Adds CFO Filter.'])
 })

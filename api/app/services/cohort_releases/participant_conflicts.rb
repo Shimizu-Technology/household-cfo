@@ -32,7 +32,7 @@ module CohortReleases
         groups = rows.map do |row|
           row.cohort.coach_workspace_id == @cohort.coach_workspace_id ? "“#{row.cohort.name}”" : "a group in another program"
         end.uniq.to_sentence
-        "#{person.full_name} (#{person.email}) has different assistant or tools settings in #{groups}. Remove them from the extra group in Participant access before preparing this version."
+        "#{CohortRollouts::Contract.participant_display_name(person)} has different assistant or tools settings in #{groups}. Remove them from the extra group in Participant access before preparing this version."
       end
     end
   end

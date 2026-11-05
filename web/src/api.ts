@@ -1667,6 +1667,7 @@ export type AdminPersonaCreateInput = {
 }
 
 export type AdminPersonaUpdateInput = {
+  discard_pending_suggestions?: boolean
   draft_revision: number
   description?: string
   draft_config?: PersonaConfiguration
@@ -2031,6 +2032,7 @@ export type CohortReleaseRestoreInput = {
 export type CohortRolloutReadiness = 'ready' | 'awaiting_acceptance' | 'revoked' | 'removed' | string
 
 export type CohortRolloutRelease = {
+  experience_config?: CohortExperienceDraft | null
   id: number
   release_number: number
   bundle_digest: string
@@ -3441,11 +3443,12 @@ export async function resolveAdminPersonaSetupProposal(
   action: 'apply' | 'reject',
   idempotencyKey: string,
   acceptedOperationIndexes?: number[],
+  acceptedListItemIndexes?: Record<string, number[]>,
 ): Promise<{ session: AdminPersonaSetupSession; persona?: AdminPersonaDetail }> {
   return fetchJson(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/proposals/${proposalId}/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(acceptedOperationIndexes === undefined ? {} : { accepted_operation_indexes: acceptedOperationIndexes }),
+    body: JSON.stringify(acceptedOperationIndexes === undefined ? {} : { accepted_operation_indexes: acceptedOperationIndexes, ...(acceptedListItemIndexes && Object.keys(acceptedListItemIndexes).length ? { accepted_list_item_indexes: acceptedListItemIndexes } : {}) }),
   })
 }
 
@@ -4372,6 +4375,7 @@ function normalizeRolloutRelease(value: unknown): CohortRolloutRelease | null {
     manifest_schema: releaseString(raw.manifest_schema),
     brand_mode: releaseString(raw.brand_mode),
     brand_version_id: releaseNullableInteger(raw.brand_version_id ?? raw.workspace_brand_version_id),
+    experience_config: raw.experience_config && typeof raw.experience_config === 'object' ? raw.experience_config as CohortExperienceDraft : null,
     brand_snapshot_digest: releaseString(raw.brand_snapshot_digest),
     integrity_valid: releaseBoolean(raw.integrity_valid),
     runtime_compatible: releaseBoolean(raw.runtime_compatible),

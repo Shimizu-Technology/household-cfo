@@ -1,3 +1,4 @@
+import { historyPosition, pushHistoryEntry } from '../lib/browserHistory'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createAdminPersona, fetchAdminPersonas, fetchAdminPersona, fetchAdminPersonaAssignableCohorts, type AdminPersonaDetail, type AdminPersonaAssignableCohort, type CurrentUser } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
@@ -39,8 +40,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
 function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChange, onAdvanced }: { currentUser: CurrentUser; workspaceId: number | null; selectWorkspace: (id: number | null) => void; onDirtyChange: (dirty: boolean) => void; onAdvanced: (proposal?: ProposedState) => void }) {
   const viewKey = `hcfo.coachStudio.view:${currentUser.id}:${workspaceId}`
-  const [area, setArea] = useState<Area>(() => readView(viewKey).area)
-  const [task, setTask] = useState<Task>(() => readView(viewKey).task)
+  const [area, updateArea] = useState<Area>(() => readUrlView() ?? readView(viewKey).area)
+  const [task, updateTask] = useState<Task>(() => readUrlTask() ?? readView(viewKey).task)
   useEffect(() => { try { window.sessionStorage.setItem(viewKey, JSON.stringify({ area, task })) } catch { /* Optional UI preference. */ } }, [viewKey, area, task])
   const [persona, setPersona] = useState<AdminPersonaDetail | null>(null)
   const [cohorts, setCohorts] = useState<AdminPersonaAssignableCohort[]>([])
@@ -99,6 +100,49 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     setName('Mia')
     action()
   }
+  const historyIndex = useRef<number>(historyPosition())
+  const restoringHistory = useRef<number | null>(null)
+  function navigate(nextArea: Area, nextTask: Task = task) {
+    writeView(nextArea, nextTask)
+    historyIndex.current = historyPosition()
+    if (nextArea !== 'live') setPreviewOnOpen(false)
+    updateArea(nextArea); updateTask(nextTask)
+  }
+  function setArea(next: Area) { navigate(next) }
+  function setTask(next: Task) { navigate(area, next) }
+  useEffect(() => {
+    writeView(area, task, true)
+    const follow = () => {
+      const restoredIndex = historyPosition()
+      if (restoringHistory.current === restoredIndex) { restoringHistory.current = null; return }
+      restoringHistory.current = null
+      if (window.location.hash !== '#Coach%20Studio') return
+      const nextArea = readUrlView() ?? 'people'
+      const nextTask = readUrlTask() ?? 'voice'
+      const nextIndex = historyPosition()
+      const restore = () => {
+        const delta = historyIndex.current - nextIndex
+        if (delta) { restoringHistory.current = historyIndex.current; window.history.go(delta) }
+      }
+      if (nextArea === area && nextTask === task) { historyIndex.current = nextIndex; return }
+      if (busy || groupsBusy || lifecycle.pending) { restore(); return }
+      const accept = () => {
+        historyIndex.current = nextIndex
+        trackDirty(false); setName('Mia'); setPreviewOnOpen(false)
+        updateArea(nextArea); updateTask(nextTask)
+      }
+      if (dirty) {
+        void confirmDiscard('Your changes will be lost.').then(discard => {
+          if (!mounted.current) return
+          if (discard) accept()
+          else restore()
+        })
+      } else accept()
+    }
+    window.addEventListener('popstate', follow)
+    return () => window.removeEventListener('popstate', follow)
+  }, [area, task, busy, groupsBusy, lifecycle.pending, dirty, trackDirty])
+
   async function create() {
     if (!name.trim() || busy || groupsBusy || lifecycle.pending || !workspaceId) return
     const ticket = lifecycle.begin()
@@ -121,7 +165,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     {workspaceId === null ? <article className="panel"><h3>Start with a program</h3><p>Each program keeps its coaches, assistant and people together. Choose a program above, or create one to get started.</p><CoachProgramSettings simple workspaceId={null} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} /></article>
       : loading ? <p role="status">Opening your program…</p>
       : area === 'people' ? <>
-        {(!persona || cohorts.length === 0) && <article className="panel coach-setup-checklist"><h3>Get your program ready</h3><ol><li><button disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => { focusAssistant.current = true; setArea('assistant'); setTask('voice'); if (!persona) void create() })}>Describe your assistant</button><span>{persona?.published_version ? 'Live' : persona ? 'Started' : 'Ready to start'}</span></li><li><button onClick={() => leave(() => setArea('live'))}>Preview answers and go live</button></li><li>Invite people from Group invitations &amp; access below.</li></ol></article>}
+        {(!persona || cohorts.length === 0) && <article className="panel coach-setup-checklist"><h3>Get your program ready</h3><ol><li><button disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => { focusAssistant.current = true; navigate('assistant', 'voice'); if (!persona) void create() })}>Describe your assistant</button><span>{persona?.published_version ? 'Live' : persona ? 'Started' : 'Ready to start'}</span></li><li><button onClick={() => leave(() => setArea('live'))}>Preview answers and go live</button></li><li>Invite people from Group invitations &amp; access below.</li></ol></article>}
         <CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackDirty} initialSection="groups" embedded onPendingChange={setGroupsBusy} onGroupsChanged={() => { void fetchAdminPersonaAssignableCohorts().then((next) => { if (mounted.current) setCohorts(next) }).catch(() => { if (mounted.current) setError('Your group was saved, but the list could not refresh. Try again.') }) }} />
       </> : area === 'assistant' ? <>
         <h3 className="sr-only" ref={assistantHeading} tabIndex={-1}>Your assistant</h3>
@@ -132,7 +176,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input disabled={busy || groupsBusy || lifecycle.pending} value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button>{busy && <p role="status">Creating your assistant…</p>}</article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
-      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { setArea('assistant'); setTask('voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
+      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { navigate('assistant', 'voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open advanced settings</Button></details>
   </section></>
 }
@@ -142,4 +186,20 @@ function readView(key: string): { area: Area; task: Task } {
     const value = JSON.parse(window.sessionStorage.getItem(key) ?? '{}')
     return { area: ['people', 'assistant', 'live'].includes(value.area) ? value.area : 'people', task: ['voice', 'teaching', 'tools', 'branding'].includes(value.task) ? value.task : 'voice' }
   } catch { return { area: 'people', task: 'voice' } }
+}
+
+function readUrlView(): Area | null {
+  const value = new URL(window.location.href).searchParams.get('coach_area')
+  return value === 'people' || value === 'assistant' || value === 'live' ? value : null
+}
+function readUrlTask(): Task | null {
+  const value = new URL(window.location.href).searchParams.get('coach_task')
+  return value === 'voice' || value === 'branding' || value === 'tools' || value === 'teaching' ? value : null
+}
+function writeView(area: Area, task: Task, replace = false) {
+  const url = new URL(window.location.href)
+  const unchanged = url.searchParams.get('coach_area') === area && url.searchParams.get('coach_task') === task
+  url.searchParams.set('coach_area', area); url.searchParams.set('coach_task', task)
+  if (replace) window.history.replaceState({...window.history.state, appHistoryPosition: historyPosition()}, '', url)
+  else if (!unchanged) pushHistoryEntry({...window.history.state}, url)
 }
