@@ -12,8 +12,8 @@ const messageFor = (error: unknown) => error instanceof Error ? error.message : 
 
 function invitationNotice(result: AdminUserMutationResponse): string {
   if (result.invitation_sent === true && result.invitation_status === 'sent') return 'Participant added. Invitation email sent.'
-  if (result.invitation_status === 'failed') return `Participant added, but the invitation email failed. ${result.invitation_error ?? 'Try resending it.'}`
-  return result.invitation_error || 'Participant added. No invitation email was sent.'
+  if (result.invitation_status === 'failed') return 'Participant added. The invitation email did not send. Open Participant access beside their name to resend it.'
+  return 'Participant added. No invitation email was sent.'
 }
 
 type Props = {
@@ -42,6 +42,9 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const [createOpen, setCreateOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [email, setEmail] = useState('')
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [emailList, setEmailList] = useState('')
+  const [reviewEmails, setReviewEmails] = useState<string[] | null>(null)
   const [sendEmail, setSendEmail] = useState(true)
   const [search, setSearch] = useState('')
   const [rosterPage, setRosterPage] = useState(0)
@@ -55,7 +58,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const invitation = useRef<HTMLDetailsElement>(null)
   const selected = groups.find((group) => group.id === selectedId) ?? null
   const groupDirty = !!selected && !!draft && JSON.stringify(draftFor(selected)) !== JSON.stringify(draft)
-  const dirty = groupDirty || newName.trim().length > 0 || email.trim().length > 0
+  const dirty = groupDirty || newName.trim().length > 0 || email.trim().length > 0 || emailList.trim().length > 0
   // Publish the saved baseline before controls become interactive again. A
   // passive effect can leave the parent guarding navigation with stale dirt.
   useLayoutEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
@@ -89,7 +92,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     setPreviousCohortId(selectedCohortId)
     const group = groups.find((item) => item.id === selectedCohortId)
     if (group && group.id !== selectedId) {
-      setSelectedId(group.id); setDraft(draftFor(group)); setRosterPage(0); setSearch(''); setEmail(''); setRemovingId(null); setError(null); setNotice(null); setNewName(''); setCreateOpen(false)
+      setSelectedId(group.id); setDraft(draftFor(group)); setRosterPage(0); setSearch(''); setEmail(''); setEmailList(''); setReviewEmails(null); setRemovingId(null); setError(null); setNotice(null); setNewName(''); setCreateOpen(false)
     }
   }
 
@@ -158,9 +161,9 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
 
   async function chooseGroup(nextId: number) {
     if (disabled || nextId === selectedId) return
-    if ((groupDirty || email.trim()) && !(await confirmDiscard('Discard unsaved group or invitation changes?'))) return
+    if ((groupDirty || email.trim() || emailList.trim()) && !(await confirmDiscard('Discard unsaved group or invitation changes?'))) return
     const group = groups.find((item) => item.id === nextId)
-    setRosterPage(0); setSearch(''); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId); setDraft(group ? draftFor(group) : null); setEmail(''); setRemovingId(null); setError(null); setNotice(null)
+    setRosterPage(0); setSearch(''); setSelectedId(nextId); onSelectedCohortIdChange?.(nextId); setDraft(group ? draftFor(group) : null); setEmail(''); setEmailList(''); setReviewEmails(null); setRemovingId(null); setError(null); setNotice(null)
   }
   function saveGroup(event: FormEvent) {
     event.preventDefault()
@@ -182,7 +185,36 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
       const result = await createAdminUser({ email: email.trim(), role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
       window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
       return { notice: invitationNotice(result) }
-    }, () => setEmail(''))
+    }, () => { setEmail(''); setInviteOpen(true) })
+  }
+
+  function reviewList() {
+    const emails = [...new Set(emailList.split(/[\s,;]+/).map(value => value.trim().toLowerCase()).filter(Boolean))]
+    if (!emails.length || emails.length > 100 || emails.some(value => value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) {
+      setError('Paste up to 100 email addresses, separated by spaces, commas or new lines. Check each address includes @ and a domain.')
+      return
+    }
+    setError(null); setReviewEmails(emails)
+  }
+  async function inviteList() {
+    if (!selected || !reviewEmails || disabled) return
+    const remaining = [...reviewEmails]
+    let added = 0
+    let unsent = 0
+    await mutate(async () => {
+      try {
+        for (const address of reviewEmails) {
+          const result = await createAdminUser({ email: address, role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
+          remaining.shift(); added += 1
+          if (sendEmail && result.invitation_status === 'failed') unsent += 1
+        }
+      } catch {
+        // Keep only unfinished addresses so retry cannot repeat completed adds.
+      }
+      setEmailList(remaining.join('\n')); setReviewEmails(remaining.length ? remaining : null); setInviteOpen(true)
+      window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
+      return { notice: `${added} ${added === 1 ? 'person added' : 'people added'}.${unsent ? ` ${unsent} invitation emails did not send. Open Participant access to resend.` : ''}${remaining.length ? ` ${remaining.length} still to add. Review the remaining list and try again.` : ''}` }
+    })
   }
 
   if (!workspaceId) return <section className="coach-groups"><h2>Groups & participants</h2><p>Choose a program to manage its groups and participants.</p></section>
@@ -203,11 +235,11 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     {selectedCohortId === undefined && !!groups.length && <label className="coach-group-picker">Group<select disabled={disabled} value={selectedId ?? ''} onChange={(event) => chooseGroup(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.participant_count} participants</option>)}</select></label>}
     {selected && draft && <>
       <details className="coach-group-settings"><summary>Group details & dates</summary><form className="coach-groups-card" onSubmit={saveGroup}><h3>Group details</h3><div className="coach-groups-grid"><label>Group name<input required maxLength={120} value={draft.name} disabled={disabled} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label>Group status<select value={draft.status} disabled={disabled} onChange={(event) => setDraft({ ...draft, status: event.target.value as AdminCohortStatus })}><option value="draft">Draft</option><option value="enrolling">Enrolling</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label><label>Start date<input type="date" value={draft.starts_on} disabled={disabled} onChange={(event) => setDraft({ ...draft, starts_on: event.target.value })} /></label><label>End date (optional)<input type="date" value={draft.ends_on} min={draft.starts_on || undefined} disabled={disabled} onChange={(event) => setDraft({ ...draft, ends_on: event.target.value })} /></label></div><label>Group notes (optional)<textarea rows={3} maxLength={2000} value={draft.notes} disabled={disabled} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><p>A savings challenge needs a start date before it can open. Each participant gets 90 days; the group end date is optional. Status organizes the group. It does not publish or launch an assistant, tools, or branding. Completed and archived groups cannot have an open rollout.</p><div className="coach-groups-actions"><Button type="submit" disabled={disabled || !groupDirty || !draft.name.trim()}>Save group</Button><Button variant="secondary" disabled={disabled || !groupDirty} onClick={() => setDraft(draftFor(selected))}>Discard changes</Button></div></form></details>
-      <details ref={invitation} className="coach-group-settings" open={groupParticipants.length === 0 || undefined}><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form></details>
+      <details ref={invitation} className="coach-group-settings" open={inviteOpen || groupParticipants.length === 0 || undefined} onToggle={event => setInviteOpen(event.currentTarget.open)}><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form><div className="coach-groups-card"><h3>Add several people</h3><label>Paste email addresses<textarea rows={5} maxLength={25500} value={emailList} disabled={disabled} onChange={event => { setEmailList(event.target.value); setReviewEmails(null) }} /></label><p>Separate addresses with commas, spaces or new lines. You’ll review the list before anyone is added.</p>{reviewEmails ? <><h4>Review {reviewEmails.length} {reviewEmails.length === 1 ? 'person' : 'people'} for {selected.name}</h4><ul className="coach-invitation-review" tabIndex={0} aria-label="Email addresses to add">{reviewEmails.map(address => <li key={address}>{address}</li>)}</ul><p>{sendEmail ? 'An invitation email will be requested for each eligible person.' : 'No invitation emails will be sent.'}</p><Button disabled={disabled || groupDirty || !!newName.trim() || !!email.trim()} onClick={() => void inviteList()}>Add these {reviewEmails.length} people</Button><Button variant="secondary" disabled={disabled} onClick={() => setReviewEmails(null)}>Change the list</Button></> : <Button variant="secondary" disabled={disabled || !emailList.trim() || groupDirty || !!newName.trim() || !!email.trim()} onClick={reviewList}>Review email list</Button>}</div></details>
       <section className="coach-groups-card"><h3>Participants in {selected.name}</h3><label>Find a participant<input type="search" value={search} disabled={disabled} onChange={(event) => { setSearch(event.target.value); setRosterPage(0); setRemovingId(null) }} /></label><p>Invitation pending describes account access, not email delivery. Historical email delivery details are private to platform administrators.</p>
         {!participants.length && <p>{search ? 'No participants match your search.' : 'No participants in this group yet.'}</p>}
         {!!participants.length && <p className="coach-roster-count">Showing {currentRosterPage * 10 + 1}–{Math.min((currentRosterPage + 1) * 10, participants.length)} of {participants.length} {search.trim() ? 'matching participants' : 'participants'}.</p>}
-        <ul className="coach-participants-list">{visibleParticipants.map((user) => { const membership = user.cohorts.find((item) => item.cohort.id === selected.id)!; return <li key={user.id}><div><strong>{user.full_name || user.email}</strong><span>{user.email}</span><span>{user.invitation_status === 'accepted' ? 'Joined' : user.invitation_status === 'revoked' ? 'Account access revoked' : 'Invitation pending'} · Optional household setup: {user.workspace.setup_complete ? 'complete' : 'not complete'}</span></div><details className="coach-participant-access"><summary>Participant access</summary><div className="coach-groups-actions">{user.can_resend_invitation && <Button variant="secondary" disabled={disabled || dirty} onClick={() => void mutate(async () => { const result = await resendAdminUserInvitation(user.id); return { notice: result.invitation_sent ? 'Invitation email sent.' : `No invitation email was sent. ${result.invitation_error ?? 'Please try again.'}` } })}>Resend invitation</Button>}<Button variant="secondary" disabled={disabled || dirty} onClick={() => setRemovingId(user.id)}>{user.invitation_status === 'pending' ? 'Cancel enrollment' : 'Remove from group'}</Button></div>{removingId === user.id && <div className="coach-participant-confirm"><p>Remove {user.full_name || user.email} from {selected.name}? They will lose this group’s experience. Their account and other group memberships stay available.</p><div className="coach-groups-actions"><Button disabled={disabled} onClick={() => void mutate(async () => { await removeCoachGroupParticipant(selected.id, user.id, membership.id); return { notice: 'Enrollment removed from this group. The participant’s account remains available.' } }, () => setRemovingId(null))}>Confirm removal</Button><Button variant="secondary" disabled={disabled} onClick={() => setRemovingId(null)}>Keep participant</Button></div></div>}</details></li> })}</ul>
+        <ul className="coach-participants-list">{visibleParticipants.map((user) => { const membership = user.cohorts.find((item) => item.cohort.id === selected.id)!; return <li key={user.id}><div><strong>{user.full_name || user.email}</strong><span>{user.email}</span><span>{user.invitation_status === 'accepted' ? 'Joined' : user.invitation_status === 'revoked' ? 'Account access revoked' : 'Invitation pending'} · Optional household setup: {user.workspace.setup_complete ? 'complete' : 'not complete'}</span></div><details className="coach-participant-access"><summary>Participant access</summary><div className="coach-groups-actions">{user.can_resend_invitation && <Button variant="secondary" disabled={disabled || dirty} onClick={() => void mutate(async () => { const result = await resendAdminUserInvitation(user.id); return { notice: result.invitation_sent ? 'Invitation email sent.' : 'The invitation email did not send. Try Resend invitation again in a minute.' } })}>Resend invitation</Button>}<Button variant="secondary" disabled={disabled || dirty} onClick={() => setRemovingId(user.id)}>{user.invitation_status === 'pending' ? 'Cancel enrollment' : 'Remove from group'}</Button></div>{removingId === user.id && <div className="coach-participant-confirm"><p>Remove {user.full_name || user.email} from {selected.name}? They will lose this group’s experience. Their account and other group memberships stay available.</p><div className="coach-groups-actions"><Button disabled={disabled} onClick={() => void mutate(async () => { await removeCoachGroupParticipant(selected.id, user.id, membership.id); return { notice: 'Enrollment removed from this group. The participant’s account remains available.' } }, () => setRemovingId(null))}>Confirm removal</Button><Button variant="secondary" disabled={disabled} onClick={() => setRemovingId(null)}>Keep participant</Button></div></div>}</details></li> })}</ul>
         {rosterPages > 1 && <nav className="coach-roster-pages" aria-label="Participant roster pages"><Button variant="secondary" disabled={disabled || currentRosterPage === 0} onClick={() => changeRosterPage(currentRosterPage - 1)}>Previous participants</Button><span>Page {currentRosterPage + 1} of {rosterPages}</span><Button variant="secondary" disabled={disabled || currentRosterPage + 1 >= rosterPages} onClick={() => changeRosterPage(currentRosterPage + 1)}>Next participants</Button></nav>}
       </section>
     </>}

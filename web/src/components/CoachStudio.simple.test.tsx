@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
 import { useLayoutEffect } from 'react'
@@ -11,7 +11,7 @@ vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWor
 vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({embedded,onDirtyChange,onPendingChange,onGroupsChanged}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void;onPendingChange?:(pending:boolean)=>void;onGroupsChanged?:()=>void}){useLayoutEffect(()=>{if(!embedded&&auth.initialAdvancedDirty)onDirtyChange(true)},[embedded,onDirtyChange]);return <><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button><button onClick={()=>onPendingChange?.(true)}>Start group mutation</button><button onClick={()=>{onGroupsChanged?.();onPendingChange?.(false)}}>Finish group mutation</button></>}}))
 vi.mock('./CoachProgramSettings',()=>({CoachProgramSettings:()=>null}));vi.mock('./CohortExperienceStudio',()=>({CohortExperienceStudio:()=>null}));vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}));
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
-beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
+beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;window.history.replaceState(null, '', '/#Coach%20Studio');vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
 afterEach(cleanup)
 it('keeps the next editor dirty when the previous editor unmounts',async()=>{
  const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true;
@@ -134,4 +134,16 @@ it('review CodeRabbit announces creation progress while the name is locked',asyn
  fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
  expect(screen.getByLabelText('Assistant name')).toHaveProperty('disabled',true);
  expect(screen.getByRole('status').textContent).toContain('Creating your assistant');
+})
+
+it('records coach areas in browser history and follows Back and Forward',async()=>{
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
+ fireEvent.click(screen.getByRole('button',{name:'Your assistant'}))
+ expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
+ fireEvent.click(screen.getByRole('button',{name:'Go live'}))
+ expect(new URL(location.href).searchParams.get('coach_area')).toBe('live')
+ await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,30))})
+ await waitFor(()=>expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant'))
+ await act(async()=>{window.history.forward();await new Promise(resolve=>setTimeout(resolve,30))})
+ await waitFor(()=>expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Go live'))
 })

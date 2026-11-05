@@ -106,6 +106,35 @@ describe('PersonaSetupChat', () => {
   })
   afterEach(cleanup)
 
+  it('describes answer length in plain words and keeps both sentence limits reviewable',async()=>{
+    const proposed=proposalSession()
+    for(const [path,value] of [['response_shape.min_sentences',3],['response_shape.max_sentences',4]] as const){
+      proposed.proposal!.operations.push({op:'set',path,value,source_basis:'coach_quote',evidence_quote:'3 or 4 sentences'})
+      proposed.proposal!.grouped_changes.push({group:'Response',changes:[{group:'Response',path,label:path.split('.').at(-1)!,before:2,after:value,source_basis:'coach_quote',evidence_quote:'3 or 4 sentences'}]})
+    }
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
+    render(<Harness saveAndPreview />)
+    await screen.findByText('Answers: 3 or 4 sentences')
+    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    expect(screen.getByRole('checkbox',{name:'Keep: Shortest answer'})).toBeTruthy()
+    expect(screen.getByRole('checkbox',{name:'Keep: Longest answer'})).toBeTruthy()
+    expect(screen.queryByText(/Min Sentences/)).toBeNull()
+  })
+
+  it('reviews only this proposal in the simple flow without entering advanced settings', async () => {
+    const review = vi.fn()
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    render(<Harness saveAndPreview onReviewInForm={review} />)
+    await screen.findByRole('heading', { name: 'Your voice suggestions' })
+    await userEvent.click(screen.getByRole('button', { name: 'Review in form' }))
+    expect(review).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Message Mia').closest('section')?.hidden).toBe(true)
+    expect(screen.getByRole('checkbox', { name: 'Keep: Coach name' })).toBeTruthy()
+    expect(screen.queryByText('Unsaved changes')).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Keep chatting' }))
+    expect(screen.getByLabelText('Message Mia').closest('section')?.hidden).toBe(false)
+  })
+
   it('keeps setup private and applies only a reviewed proposal', async () => {
     const onPersonaChange = vi.fn()
     apiMocks.createAdminPersonaSetupTurn.mockResolvedValue(proposalSession())
@@ -120,7 +149,7 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
 
     await userEvent.click(await screen.findByText('Review each suggestion',{selector:'summary'}))
-    expect(await screen.findByText('Human coach name')).toBeTruthy()
+    expect(await screen.findByText('Coach name')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Your voice suggestions' })).toBeTruthy()
     expect(screen.queryByText('No proposal yet.')).toBeNull()
     expect(screen.getByText('Coach said')).toBeTruthy()
@@ -182,7 +211,7 @@ describe('PersonaSetupChat', () => {
     expect(composer.value).toBe('Her name is Mrs. Mel.')
 
     await userEvent.click(screen.getByRole('button', { name: 'Retry message' }))
-    await screen.findByText('Human coach name')
+    await screen.findByText('Coach name')
     expect(apiMocks.createAdminPersonaSetupTurn.mock.calls[1][3]).toBe(apiMocks.createAdminPersonaSetupTurn.mock.calls[0][3])
   })
 
@@ -216,7 +245,7 @@ describe('PersonaSetupChat', () => {
     expect(screen.getByRole('alert').textContent).not.toContain('503')
 
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
-    await screen.findByText('Human coach name')
+    await screen.findByText('Coach name')
     expect(apiMocks.createAdminPersonaSetupTurn.mock.calls[1][3]).not.toBe(apiMocks.createAdminPersonaSetupTurn.mock.calls[0][3])
   })
 
@@ -362,7 +391,7 @@ describe('PersonaSetupChat', () => {
    await screen.findByRole('button', { name: 'Use all suggestions' })
    expect(screen.getByText('Review each suggestion',{selector:'summary'}).closest('details')?.open).toBe(false)
    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
-   await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Use this human coach name suggestion' })).toHaveProperty('checked', true))
+   await waitFor(() => expect(screen.getByRole('checkbox', { name: 'Keep: Coach name' })).toHaveProperty('checked', true))
    expect(screen.queryByText('After')).toBeNull()
    expect(screen.getByText('Original wording and source')).toBeTruthy()
  })
@@ -380,7 +409,7 @@ describe('PersonaSetupChat', () => {
     expect(screen.getByText('Review each suggestion',{selector:'summary'}).closest('details')?.open).toBe(false)
     await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
     expect(screen.getByText('3',{selector:'.coach-suggestion-value'})).toBeTruthy()
-    await userEvent.click(screen.getByRole('checkbox',{name:'Use this max sentences suggestion'}))
+    await userEvent.click(screen.getByRole('checkbox',{name:'Keep: Longest answer'}))
     await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
     await screen.findByText('Live preview for 81')
     expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[1])
@@ -404,7 +433,7 @@ describe('PersonaSetupChat', () => {
     await waitFor(() => expect(useAll).toHaveProperty('disabled', false))
     expect(Array.from(container.querySelectorAll('.persona-proposal-summary dt'), element => element.textContent)).toEqual(['Identity', 'Coaching', 'Examples'])
     await userEvent.click(screen.getByText('Review each suggestion', { selector: 'summary' }))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Use this guidance suggestion' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Keep: Guidance' }))
     await userEvent.click(screen.getByRole('button', { name: 'Use selected suggestions' }))
     await waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81, 51, 71, 'apply', expect.any(String), [0, 1, 3]))
   })

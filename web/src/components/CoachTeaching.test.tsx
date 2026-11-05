@@ -71,3 +71,15 @@ it('does not carry a late response into a different program',async()=>{
  fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'Choose a comfortable step.'}});fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}));
  await waitFor(()=>expect(simpleLifecycle.finish).toHaveBeenCalled());expect(onSaved).not.toHaveBeenCalled()
 })
+
+it('offers an exact phrase form when chat is unavailable and saves it for preview',async()=>{
+ const saved={...originalPersona,draft_revision:4};api.updateAdminPersona.mockResolvedValue(saved)
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={dirty} onSaved={preview}/>)
+ fireEvent.click(screen.getByText('Add a phrase in your own words',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Phrase'),{target:{value:'Chelu, pump the brakes.'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalled())
+ const phrase=api.updateAdminPersona.mock.calls[0][1].draft_config.phrases[0]
+ expect(phrase.text).toBe('Chelu, pump the brakes.');expect(phrase.meaning).toBe(phrase.text)
+ expect(phrase.prohibited_contexts).toEqual(['crisis']);expect(preview).toHaveBeenCalledWith(saved)
+})

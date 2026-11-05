@@ -717,7 +717,7 @@ function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUse
                     </div>
                     <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
                     {user.invite_email.last_attempted_at && (
-                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
+                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ' · Email did not send. Use Resend email to try again.' : ''}</p>
                     )}
                     <p className="admin-email-line">Last safe activity: {user.workspace.last_safe_activity_at ? shortDateTime(user.workspace.last_safe_activity_at) : 'No participant activity yet'}</p>
                   </div>
@@ -985,7 +985,7 @@ function inviteActionNotice(response: AdminUserMutationResponse) {
 
 function inviteDeliveryNotice(response: AdminUserMutationResponse) {
   if (response.invitation_sent) return 'Invite email sent.'
-  if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
+  if (response.invitation_status === 'failed') return 'Person added. The invitation email did not send. Use Resend email beside their name to try again.'
   if (response.invitation_status === 'skipped') return 'Invitation saved. No email was sent.'
 
   return 'Invite saved.'

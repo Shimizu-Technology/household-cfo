@@ -26,6 +26,32 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('keeps invitations open after the first add and hides provider failures', async () => {
+    mocks.fetchAdminUsers.mockResolvedValueOnce([]).mockResolvedValue([participant])
+    mocks.createAdminUser.mockResolvedValue({ invitation_status: 'failed', invitation_error: 'WorkOS authentication is not configured' })
+    harness()
+    await screen.findByLabelText('Participant email')
+    fireEvent.change(screen.getByLabelText('Participant email'), { target: { value: 'one@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
+    await screen.findByText(/Participant added. The invitation email did not send/)
+    await waitFor(() => expect(screen.getByLabelText('Participant email')).toHaveProperty('disabled', false))
+    expect(screen.getByText('Add a participant', { selector: 'summary' }).closest('details')?.open).toBe(true)
+    expect(screen.queryByText(/WorkOS/)).toBeNull()
+  })
+  it('reviews a deduplicated list before adding anyone and preserves unfinished addresses', async () => {
+    mocks.createAdminUser.mockResolvedValueOnce({ invitation_sent: true }).mockRejectedValueOnce(new Error('offline'))
+    harness()
+    await screen.findByText('Participants in Tuesday group')
+    await userEvent.click(screen.getByText('Add a participant', { selector: 'summary' }))
+    fireEvent.change(screen.getByLabelText('Paste email addresses'), { target: { value: 'one@example.test, two@example.test\none@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review email list' }))
+    expect(mocks.createAdminUser).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Review 2 people for Tuesday group' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add these 2 people' }))
+    await screen.findByText(/1 person added.*1 still to add/)
+    expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value', 'two@example.test')
+    expect(mocks.createAdminUser).toHaveBeenCalledTimes(2)
+  })
   it('preserves the chosen invitation disclosure state while a roster search has no matches',async()=>{
     harness();await screen.findByText('Participants in Tuesday group')
     const details=screen.getByText('Add a participant',{selector:'summary'}).closest('details')!
@@ -57,7 +83,7 @@ describe('Coach group essentials', () => {
     await user.type(screen.getByLabelText('Participant email'), 'new@example.test')
     await user.click(screen.getByRole('checkbox', { name: 'Send an invitation email when eligible' }))
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
-    expect((await screen.findByRole('status')).textContent).toContain('Invitation saved. No email was sent.')
+    expect((await screen.findByRole('status')).textContent).toContain('Participant added. No invitation email was sent.')
   })
 
   it('uses the latest controlled cohort when the initial roster request resolves', async () => {
@@ -275,7 +301,7 @@ describe('Coach group essentials', () => {
     await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
     await user.type(screen.getByLabelText('Participant email'), 'new@example.com')
     await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
-    await screen.findByText(/Participant added, but the invitation email failed/)
+    await screen.findByText(/Participant added. The invitation email did not send/)
     expect(mocks.createAdminUser).toHaveBeenCalledWith({ email: 'new@example.com', role: 'participant', cohort_id: 10, send_invitation_email: true })
     expect((screen.getByLabelText('Participant email') as HTMLInputElement).value).toBe('')
     expect(lifecycle.finish).toHaveBeenCalled()

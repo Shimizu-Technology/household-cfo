@@ -39,8 +39,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
 function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChange, onAdvanced }: { currentUser: CurrentUser; workspaceId: number | null; selectWorkspace: (id: number | null) => void; onDirtyChange: (dirty: boolean) => void; onAdvanced: (proposal?: ProposedState) => void }) {
   const viewKey = `hcfo.coachStudio.view:${currentUser.id}:${workspaceId}`
-  const [area, setArea] = useState<Area>(() => readView(viewKey).area)
-  const [task, setTask] = useState<Task>(() => readView(viewKey).task)
+  const [area, updateArea] = useState<Area>(() => readUrlView() ?? readView(viewKey).area)
+  const [task, updateTask] = useState<Task>(() => readUrlTask() ?? readView(viewKey).task)
   useEffect(() => { try { window.sessionStorage.setItem(viewKey, JSON.stringify({ area, task })) } catch { /* Optional UI preference. */ } }, [viewKey, area, task])
   const [persona, setPersona] = useState<AdminPersonaDetail | null>(null)
   const [cohorts, setCohorts] = useState<AdminPersonaAssignableCohort[]>([])
@@ -99,6 +99,27 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     setName('Mia')
     action()
   }
+  function setArea(next: Area) { writeView(next, readUrlTask() ?? task); updateArea(next) }
+  function setTask(next: Task) { writeView(readUrlView() ?? area, next); updateTask(next) }
+  useEffect(() => {
+    writeView(area, task, true)
+    const follow = () => {
+      if (window.location.hash !== '#Coach%20Studio') return
+      const nextArea = readUrlView() ?? 'people'
+      const nextTask = readUrlTask() ?? 'voice'
+      if (nextArea === area && nextTask === task) return
+      if (busy || groupsBusy || lifecycle.pending) { writeView(area, task, true); return }
+      if (dirty) {
+        writeView(area, task, true)
+        void confirmDiscard('Your changes will be lost.').then(discard => {
+          if (discard && mounted.current) { trackDirty(false); setName('Mia'); writeView(nextArea, nextTask); updateArea(nextArea); updateTask(nextTask) }
+        })
+      } else { updateArea(nextArea); updateTask(nextTask) }
+    }
+    window.addEventListener('popstate', follow)
+    return () => window.removeEventListener('popstate', follow)
+  }, [area, task, busy, groupsBusy, lifecycle.pending, dirty, trackDirty])
+
   async function create() {
     if (!name.trim() || busy || groupsBusy || lifecycle.pending || !workspaceId) return
     const ticket = lifecycle.begin()
@@ -142,4 +163,20 @@ function readView(key: string): { area: Area; task: Task } {
     const value = JSON.parse(window.sessionStorage.getItem(key) ?? '{}')
     return { area: ['people', 'assistant', 'live'].includes(value.area) ? value.area : 'people', task: ['voice', 'teaching', 'tools', 'branding'].includes(value.task) ? value.task : 'voice' }
   } catch { return { area: 'people', task: 'voice' } }
+}
+
+function readUrlView(): Area | null {
+  const value = new URL(window.location.href).searchParams.get('coach_area')
+  return value === 'people' || value === 'assistant' || value === 'live' ? value : null
+}
+function readUrlTask(): Task | null {
+  const value = new URL(window.location.href).searchParams.get('coach_task')
+  return value === 'voice' || value === 'branding' || value === 'tools' || value === 'teaching' ? value : null
+}
+function writeView(area: Area, task: Task, replace = false) {
+  const url = new URL(window.location.href)
+  const unchanged = url.searchParams.get('coach_area') === area && url.searchParams.get('coach_task') === task
+  url.searchParams.set('coach_area', area); url.searchParams.set('coach_task', task)
+  if (replace) window.history.replaceState(window.history.state, '', url)
+  else if (!unchanged) window.history.pushState(window.history.state, '', url)
 }

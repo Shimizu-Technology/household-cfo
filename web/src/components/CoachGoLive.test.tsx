@@ -9,7 +9,7 @@ const api = vi.hoisted(() => ({ resolveCoachLaunch:vi.fn(),fetchAdminPersona:vi.
 const groupApi = vi.hoisted(() => ({reviewCoachGroup:vi.fn()}))
 vi.mock('../api', () => api)
 const settingsApi = vi.hoisted(() => ({ reviewCoachSettings:vi.fn() }))
-vi.mock('../lib/coachSettingsReview',()=>settingsApi)
+vi.mock('../lib/coachSettingsReview',async (original)=>({...await original<typeof import('../lib/coachSettingsReview')>(),...settingsApi}))
 vi.mock('./CoachProgramSettings',()=>({BrandWelcomePreview:()=> <p>Reviewed appearance</p>}))
 vi.mock('../lib/coachGoLive', () => groupApi)
 const persona = {id:8,name:'Mia',draft_revision:1,preview:{digest:'preview'},published_version:null,has_unpublished_changes:true,permissions:{publish:true},draft:{identity:{assistant_name:'Mia'}}} as unknown as AdminPersonaDetail
@@ -190,4 +190,13 @@ it('warns about rejected audience phrases before offering overall approval',asyn
  expect((await screen.findByRole('alert')).textContent).toContain('phrase was rejected')
  expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
  expect(api.postCoachLaunch).not.toHaveBeenCalled()
+})
+
+it('uses plain audience and community wording while preserving custom approved text',async()=>{
+ const audience={audience:"People participating in the human coach's financial education program.",culture:{context:'Use only cultural and community context explicitly approved by the human coach.'}}
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,candidate:{...ready.candidate,audience_snapshot:audience}})
+ render(<Harness/>);await review()
+ expect(screen.getByText(/Who this is for: People in your coaching program/)).toBeTruthy()
+ expect(screen.getByText(/Only the details you have approved/)).toBeTruthy()
+ expect(screen.queryByText(/human coach's financial education/)).toBeNull()
 })

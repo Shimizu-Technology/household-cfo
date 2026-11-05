@@ -39,6 +39,7 @@ export function PersonaSetupChat({
 }) {
   const [session, setSession] = useState<AdminPersonaSetupSession | null>(null)
   const [message, setMessage] = useState('')
+  const [focusedReview, setFocusedReview] = useState(false)
   const [acceptedIndexes, setAcceptedIndexes] = useState<number[]>([])
   const [uploading, setUploading] = useState(false)
   const [retryKey, setRetryKey] = useState<string | null>(null)
@@ -292,9 +293,9 @@ export function PersonaSetupChat({
   if (loading) return <div className="persona-setup-loading" role="status">Opening your private setup chat…</div>
 
   return (
-    <fieldset className="persona-setup-layout coach-persona-mutation-lock" disabled={disabled} aria-busy={disabled}>
+    <fieldset className={`persona-setup-layout coach-persona-mutation-lock${focusedReview ? ' is-focused-review' : ''}`} disabled={disabled} aria-busy={disabled}>
       <legend className="sr-only">Setup chat controls</legend>
-      <section className="persona-setup-chat" aria-labelledby="persona-setup-chat-title">
+      <section hidden={focusedReview} className="persona-setup-chat" aria-labelledby="persona-setup-chat-title">
         <header>
 
           <h4 id="persona-setup-chat-title">Describe your assistant</h4>
@@ -363,12 +364,13 @@ export function PersonaSetupChat({
         <header>
           <p>Review before saving</p>
           <h4 id="persona-setup-review-title" ref={proposalHeadingRef} tabIndex={-1}>Your voice suggestions</h4>
+          {focusedReview && <p>Keep the suggestions you want. To change the wording, return to chat. Nothing has been saved.</p>}
         </header>
           <>
             <dl className="persona-proposal-summary">
               {groupedChanges.map((group) => <div key={group.group}><dt>{group.group}</dt><dd>{sectionSummary(group.group, group.changes)}</dd></div>)}
             </dl>
-            <details className="persona-proposal-choices"><summary>Review each suggestion</summary>
+            <details className="persona-proposal-choices" open={focusedReview || undefined}><summary>Review each suggestion</summary>
             <div className="persona-proposal-groups">
               {groupedChanges.map((group) => (
                 <section key={group.group}>
@@ -379,7 +381,7 @@ export function PersonaSetupChat({
                     const matching = session.proposal!.operations.map((op, opIndex) => ({op, opIndex})).filter(({op}) => op.path === change.path)
                     const occurrence = group.changes.slice(0, changeIndex).filter((item) => item.path === change.path).length
                     const operationIndex = matching[occurrence]?.opIndex ?? index
-                    return <div key={`${change.path}-${changeIndex}`}><label><input type="checkbox" checked={acceptedIndexes.includes(operationIndex)} disabled={pending !== null} onChange={(event) => setAcceptedIndexes((ids) => event.target.checked ? [...ids, operationIndex] : ids.filter((id) => id !== operationIndex))} />Use this {change.label.toLowerCase()} suggestion</label><ProposalChange change={change} compact={saveAndPreview} /></div>
+                    return <div key={`${change.path}-${changeIndex}`}><label><input type="checkbox" checked={acceptedIndexes.includes(operationIndex)} disabled={pending !== null} onChange={(event) => setAcceptedIndexes((ids) => event.target.checked ? [...ids, operationIndex] : ids.filter((id) => id !== operationIndex))} />Keep: {suggestionLabel(change)}</label><ProposalChange change={change} compact={saveAndPreview} /></div>
                   })}
                 </section>
               ))}
@@ -390,8 +392,8 @@ export function PersonaSetupChat({
             {saveAndPreview && <p>Save these suggestions, then preview your assistant’s answers.</p>}
             <div className="persona-setup-review-actions">
               <Button disabled={pending !== null || manualDirty || acceptedIndexes.length === 0} onClick={() => void resolveProposal('apply')}>{pending === 'apply' ? 'Saving…' : acceptedIndexes.length === session.proposal.operations.length ? 'Use all suggestions' : 'Use selected suggestions'}</Button>
-              <Button variant="secondary" disabled={pending !== null} onClick={() => onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null, session.proposal!.base_draft_revision)}>Review in form</Button>
-              <Button variant="secondary" disabled={pending !== null} onClick={() => composerRef.current?.focus()}>Keep chatting</Button>
+              <Button variant="secondary" disabled={pending !== null} onClick={() => { if (saveAndPreview) { setFocusedReview(true); proposalHeadingRef.current?.focus() } else onReviewInForm(session.proposal!.after_state, session.proposal!.operations[0]?.path as string | undefined ?? null, session.proposal!.base_draft_revision) }}>Review in form</Button>
+              <Button variant="secondary" disabled={pending !== null} onClick={() => { setFocusedReview(false); requestAnimationFrame(() => composerRef.current?.focus()) }}>Keep chatting</Button>
               <button type="button" className="persona-setup-reject" disabled={pending !== null} onClick={() => void resolveProposal('reject')}>{pending === 'reject' ? 'Rejecting…' : 'Reject proposal'}</button>
             </div>
           </>
@@ -404,7 +406,7 @@ export function PersonaSetupChat({
 function ProposalChange({ change, compact = false }: { change: AdminPersonaSetupChange; compact?: boolean }) {
   return (
     <article className="persona-proposal-change">
-      <header><strong>{change.label}</strong><span>{proposalSourceLabel(change)}</span></header>
+      <header><strong>{suggestionLabel(change)}</strong><span>{proposalSourceLabel(change)}</span></header>
       {compact && <p className="coach-suggestion-value">{displayValue(change.after)}</p>}
       {compact ? <details><summary>Original wording and source</summary><p>{displayValue(change.before)}</p>{change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</details> : <><dl>
         <div><dt>Before</dt><dd>{displayValue(change.before)}</dd></div>
@@ -428,10 +430,13 @@ function sectionSummary(group: string, changes: AdminPersonaSetupChange[]): stri
   if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${displayValue(change.after)}”`).join(', ')
   const examples = changes.find((change) => change.path === 'curriculum.examples')?.after
   if (group === 'Examples' && Array.isArray(examples)) return `${examples.length} example ${examples.length === 1 ? 'reply' : 'replies'} for everyday questions`
+  const min = changes.find(change => change.path === 'response_shape.min_sentences')?.after
+  const max = changes.find(change => change.path === 'response_shape.max_sentences')?.after
+  if (group === 'Voice' && min != null && max != null) return `Answers: ${min === max ? min : `${min} or ${max}`} sentences`
   const first = changes.find((change) => change.path === 'voice.tone_traits') ?? changes[0]
   if (!first) return ''
   const value = Array.isArray(first.after) ? first.after.map(displayValue).join(', ') : displayValue(first.after)
-  return `${first.path.startsWith('response_shape.') ? `${first.label}: ` : ''}${value}`.replaceAll('\n', ' ')
+  return `${first.path.startsWith('response_shape.') ? `${suggestionLabel(first)}: ` : ''}${value}`.replaceAll('\n', ' ')
 }
 
 function requestKey() {
@@ -456,4 +461,19 @@ function proposalSourceLabel(change: AdminPersonaSetupChange): string {
   const wording = values(change.after)
   if (wording.length && wording.every(value => value && change.evidence_quote.includes(value))) return 'Coach said'
   return 'Suggested from what you said'
+}
+
+function suggestionLabel(change: AdminPersonaSetupChange): string {
+  const labels: Record<string, string> = {
+    'response_shape.min_sentences': 'Shortest answer', 'response_shape.max_sentences': 'Longest answer',
+    'response_shape.max_characters': 'Answer length limit', 'response_shape.plain_text_only': 'Plain text answers',
+    'coaching.do': 'What to do', 'coaching.do_not': 'What to avoid', 'coaching.method': 'How you teach',
+    'coaching.principles': 'What matters in your teaching', 'coaching.philosophy': 'Your approach',
+    'voice.tone_traits': 'How you sound', 'voice.accountability_style': 'How you encourage follow-through',
+    'voice.language_style': 'Words you use', 'voice.energy': 'Your energy',
+    'identity.assistant_name': 'Assistant name', 'identity.human_coach_name': 'Coach name',
+    'identity.assistant_relationship': 'Your assistant’s role', 'identity.audience': 'Who you help',
+    'identity.human_coach_title': 'Your coaching role', 'identity.client_term': 'What you call the people you help',
+  }
+  return labels[change.path] ?? change.label
 }
