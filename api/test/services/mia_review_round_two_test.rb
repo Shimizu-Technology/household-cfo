@@ -129,6 +129,10 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_includes answerer("Can I buy a $300 stroller tomorrow?").send(:purchase_plan_answer), "January 2027"
   end
 
+  test "timing before the purchase clause survives scoped price selection" do
+    assert_includes answerer("Next month, can I buy a $300 stroller?", reference_month: 8).call, "June 2026"
+  end
+
   test "skipping meals to eat out is not food insecurity" do
     refute HouseholdFinance::MoneyMovementText.food_insecurity?("I skip meals so I can eat out tonight")
   end

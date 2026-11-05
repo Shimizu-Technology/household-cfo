@@ -1118,7 +1118,7 @@ module HouseholdFinance
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
-      text = purchase_comparison_text
+      text = PurchaseQuestionText.for_comparison(message).text
       amount_cents = purchase_comparison_amount_cents
       return unless purchase_question? && amount_cents&.positive?
       return incomplete_setup_answer unless SetupStatus.new(household).complete?
