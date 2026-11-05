@@ -90,13 +90,13 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Can I help my brother with $75 for gas?", [ "family support", "Based on approved household numbers" ] ],
       [ "Can I give family $500 this week?", [ "$500", "Next CFO move" ] ],
       [ "My friend asked for help off-island", [ "family support", "baseline" ] ],
-      [ "Can I buy concert tickets?", [ "safe-to-spend", "Next CFO move" ] ],
-      [ "Can we book a staycation next month?", [ "active discretionary plan", "Next CFO move" ] ],
+      [ "Can I buy concert tickets?", [ "What does the item cost", "which month" ] ],
+      [ "Can we book a staycation next month?", [ "What does the item cost", "which month" ] ],
       [ "I want to buy shoes for $120", [ "plan figure", "$120" ] ],
       [ "The school supplies cost $85. Does that change the decision?", [ "plan figure", "$85" ] ],
-      [ "Can I get concert tickets right now?", [ "safe-to-spend", "30-day" ] ],
+      [ "Can I get concert tickets right now?", [ "What does the item cost", "which month" ] ],
       [ "If I buy a $1,800 laptop today, what exactly happens to my runway?", [ "cannot calculate the exact runway impact", "which account" ] ],
-      [ "Should we order takeout today?", [ "safe-to-spend", "active discretionary plan" ] ],
+      [ "Should we order takeout today?", [ "What does the item cost", "which month" ] ],
       [ "Can I cover car registration next month?", [ "Car registration", "expected sinking-fund" ] ],
       [ "Can I pay $180 car registration next month?", [ "car registration", "$180" ] ],
       [ "How should I budget for car tags due soon?", [ "Car registration", "expected sinking-fund" ] ],
@@ -136,7 +136,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Should we file married for taxes?", [ "cannot give tax advice", "tax" ] ],
       [ "help", [ "do not have enough approved data", "bill, a purchase, a debt decision, or family support" ] ],
       [ "What should I do?", [ "do not have enough approved data", "Next CFO move" ] ],
-      [ "Can I spend $60 on a handbag if it is on sale?", [ "$60 purchase", "plan figure" ] ],
+      [ "Can I spend $60 on a handbag if it is on sale?", [ "$60 purse", "not your bank balance" ] ],
       [ "Should we take a trip if business income improves?", [ "runway decision", "business income" ] ]
     ]
 
