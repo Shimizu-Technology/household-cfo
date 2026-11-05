@@ -24,7 +24,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal [], @household.reload.confirmed_setup_fields
     apply(draft)
     assert_month_picture(@applied || response.parsed_body)
-    assert_equal 3, @applied.dig("workspace", "setup_status", "completed_count")
+    assert_equal 4, @applied.dig("workspace", "setup_status", "completed_count")
     car = @household.debts.sole
     assert_equal 35000, car.minimum_payment_cents
     refute car.balance_known?
@@ -35,7 +35,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     draft = response.parsed_body.fetch("mia_action_draft")
     assert_equal "QA Test household", draft.fetch("items").find { |i| i["action_type"] == "update_household_profile" }.dig("payload", "name")
     apply(draft)
-    assert_equal 4, @applied.dig("workspace", "setup_status", "completed_count")
+    assert_equal 5, @applied.dig("workspace", "setup_status", "completed_count")
     refute_includes reply, "Home snapshot"
 
     post_message("What else do you need from me to finish setting up?")
@@ -48,7 +48,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 0, @household.goals.tracked.count
     apply(draft)
     assert @applied.dig("workspace", "setup_complete")
-    assert_equal 5, @applied.dig("workspace", "setup_status", "completed_count")
+    assert_equal 6, @applied.dig("workspace", "setup_status", "completed_count")
     assert_includes reply, "Your household setup is complete."
     assert_equal "Build a $1,000 emergency cushion", @household.reload.primary_goal
     goal = @household.goals.tracked.sole
@@ -167,6 +167,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
   end
 
   test "a previously tracked goal also completes the missing primary goal without a duplicate" do
+    HouseholdFinance::SetupUpdater.new(@household, debt_payment: "0").call
     HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
       attributes: { household_name: "QA Test household", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700 }).call
     @household.goals.create!(label: "Emergency cushion", goal_type: "savings", record_kind: "tracked", target_amount_cents: 100000, target_amount_known: true)

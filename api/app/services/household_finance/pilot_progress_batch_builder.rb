@@ -67,6 +67,7 @@ module HouseholdFinance
     def load_households_by_id(household_ids)
       Household.where(id: household_ids)
         .includes(
+          :household_profile,
           { income_sources: :income_schedule_entries },
           :expense_items,
           :debts,

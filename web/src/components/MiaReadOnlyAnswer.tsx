@@ -35,7 +35,7 @@ export function MiaReadOnlyAnswer({ presentation, idPrefix }: { presentation: Mi
       {presentation.scenario && (
         <aside className="mia-answer-scenario" role="note" aria-labelledby={scenarioTitleId}>
           <div>
-            <h4 id={scenarioTitleId}>Scenario only · not saved</h4>
+            <h4 id={scenarioTitleId}>For comparison · nothing saved</h4>
             <p>{assistantName} used these values for this answer. Your saved household records did not change.</p>
           </div>
           <dl>

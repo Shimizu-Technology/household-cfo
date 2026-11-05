@@ -133,7 +133,7 @@ module HouseholdFinance
       merchant_line = merchant_breakdown(transactions, target)
 
       if count.zero?
-        return "For #{period_label}, based on confirmed transactions, I do not see confirmed #{label} spending yet. Pending drafts are not counted until you confirm them."
+        return "For #{period_label}, based on confirmed transactions, I do not see confirmed #{label} spending yet. Purchases waiting for review do not count until you confirm them."
       end
 
       noun = "transaction".pluralize(count)
@@ -141,7 +141,7 @@ module HouseholdFinance
         "For #{period_label}, based on confirmed transactions, I found #{count} confirmed #{label} #{noun} totaling #{money(total_cents)}.",
         category_line,
         merchant_line,
-        "Pending drafts are not counted until you confirm them."
+        "Purchases waiting for review do not count until you confirm them."
       ]
       lines.compact.join("\n\n")
     end
@@ -197,7 +197,7 @@ module HouseholdFinance
         not_spending_line(not_spending),
         recent_outflow_line(outflows),
         top_bank_merchants_line(outflows),
-        "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
+        confirmed.exists? ? "From bank purchases you approved, spending totals #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}." : "Spending from approved bank purchases is not known yet.",
         "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
         "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
       ].compact.join("\n\n")

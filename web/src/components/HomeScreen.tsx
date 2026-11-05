@@ -16,13 +16,15 @@ type HomeScreenProps = {
   onReviewImports: () => void
   onOpenDebt?: () => void
   onOpenBudget?: () => void
+  onOpenProfile?: () => void
+  onOpenAccounts?: () => void
   incomeKnown?: boolean
   planKnown?: boolean
   canAskMia?: boolean
   canReviewTransactions?: boolean
 }
 
-export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
+export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const { action_center: actionCenter, month_answer: answer } = dashboard
   const plan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
@@ -35,7 +37,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
     </div>
     <section className="home-month-answer" aria-label="Your month in money">
       <HomeMoneyValues answer={answer} />
-      <p className="home-plan-caveat">{answer?.main_income_missing ? 'Still to add: your main income.' : left == null ? 'Add the missing income or planned costs to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
+      <p className="home-plan-caveat">{answer?.missing_plan_inputs?.length ? `Still to add: ${answer.missing_plan_inputs.map(input => input.label).join(', ')}.` : answer?.main_income_missing ? 'Still to add: your main income.' : left == null ? 'Add your income, planned costs, and debt minimums to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
       {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="text-button" onClick={onOpenDebt}>Add debt minimums</button>}
       <p className="home-spent">Spent so far this month: <strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
       {answer && answer.pending_count == null && <p>More purchases may be waiting. Check Review before your next money decision.</p>}
@@ -44,6 +46,11 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
     <section className="home-cushion" aria-label="Your emergency cushion">
       <h3>{answer?.runway_months == null ? 'Your emergency cushion' : formatRunway(answer.runway_months)}</h3>
       <p>{answer?.readiness_guidance ?? 'Add the missing starting numbers before judging your cushion.'}</p>
+      {answer?.runway_months == null && answer?.cushion_missing_inputs?.map(input => {
+        const open = { profile: onOpenProfile, budget: onOpenBudget, debt: onOpenDebt, accounts: onOpenAccounts }[input.destination]
+        const label = { profile: 'Add income', budget: 'Add planned costs', debt: 'Add debt minimums', accounts: 'Add account balances' }[input.destination]
+        return open && <button key={input.destination} type="button" className="text-button" onClick={open}>{label}</button>
+      })}
       {answer?.runway_months != null && <p>Goal: {dashboard.readiness_path.target_runway_months} months of planned costs.</p>}
     </section>
     {plan && <YearOutlook plan={plan} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} />}

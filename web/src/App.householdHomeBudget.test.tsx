@@ -120,9 +120,18 @@ it('never recalculates Home from a different budget cache and preserves unknown 
  view.rerender(<HomeScreen {...props} dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: null, planned_out_cents: null, plan_left_cents: null, spent_so_far_cents: null } }} />)
  expect(screen.getAllByText('Not entered')).toHaveLength(3)
  expect(view.container.querySelector('.home-month-answer')?.textContent).not.toContain('$0')
- expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
+ expect(screen.getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
  view.rerender(<HomeScreen {...props} dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: 0, planned_out_cents: 0, plan_left_cents: 0, spent_so_far_cents: 0 } }} />)
  expect(screen.getAllByText('$0')).toHaveLength(4)
+})
+
+it('names debt minimums as the plan gap and links missing cushion balances', () => {
+ const openDebt = vi.fn(), openAccounts = vi.fn()
+ render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label:'debt minimums',destination:'debt'}], cushion_missing_inputs: [{label:'checking, savings, and emergency-fund balances',destination:'accounts'}], readiness_guidance:'Add checking, savings, and emergency-fund balances before judging your emergency cushion.'}}} budget={{annual_plan:plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} onOpenAccounts={openAccounts}/>)
+ expect(screen.getByText('Still to add: debt minimums.')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
+ expect(openAccounts).toHaveBeenCalledOnce()
+ expect(screen.queryByText(/missing income or planned costs/)).toBeNull()
 })
 
 it('makes an irregular shortfall visible and withholds the year when an allocation is unknown', () => {
@@ -132,7 +141,7 @@ it('makes an irregular shortfall visible and withholds the year when an allocati
  expect(screen.getByText('Holiday travel: $3,800')).toBeTruthy()
  view.rerender(<YearOutlook plan={{ ...spikePlan, rows: [{ ...plan.rows[0], months: plan.rows[0].months.map((month, index) => index === 11 ? { ...month, allocation_missing: true } : month) }] }} />)
  expect(screen.queryByText('$1,320 short')).toBeNull()
- expect(screen.getByText('Enter your income, planned costs and debt minimums to see the year ahead.')).toBeTruthy()
+ expect(screen.getByText('Add the remaining numbers to see your year ahead.')).toBeTruthy()
 })
 
 it('keeps Home actions inside the enabled participant modules', () => {

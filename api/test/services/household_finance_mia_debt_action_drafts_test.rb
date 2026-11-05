@@ -7,6 +7,13 @@ class HouseholdFinanceMiaDebtActionDraftsTest < ActiveSupport::TestCase
     @manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: Date.current.year)
   end
 
+  test "review one switching to individual tracking is never labeled confirming a minimum" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "Cruz", primary_goal: "Build a cushion", primary_income: "4500", fixed_expenses: "2100", flexible_spend: "900").call
+    result = build_command(type: "update_debt_tracking", debt_tracking_mode: "individual")
+    refute_equal "Review debt minimums", result.proposal.title
+    refute_includes result.proposal.summary, "Monthly debt minimums:"
+  end
+
   test "Mia prepares and applies a typed debt create only after review" do
     result = build_command(type: "create_debt", debt_name: "Visa", debt_type: "credit_card", balance: "3100", minimum_payment: "175", interest_rate_percent: "28.9")
 

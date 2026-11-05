@@ -449,6 +449,8 @@ export type MiaMonthAnswer = {
   plan_starts_on?: string
   before_plan_start?: boolean
   main_income_missing?: boolean
+  missing_plan_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' }>
+  cushion_missing_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' | 'accounts' }>
   money_in_cents: number | null
   planned_out_cents: number | null
   spent_so_far_cents: number | null
@@ -905,7 +907,7 @@ export type MiaAnswerPresentation = {
 export type MiaMessage = {
   // Set by the server on crisis and wellbeing-check replies.
   safety_reply?: boolean
-  setup_help?: { available: boolean } | null
+  setup_help?: { available: boolean; money_inputs?: Array<'profile' | 'budget' | 'debt' | 'accounts'> } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string

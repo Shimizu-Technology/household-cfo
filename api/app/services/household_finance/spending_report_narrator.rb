@@ -10,6 +10,8 @@ module HouseholdFinance
 
     def call
       totals = report.fetch(:totals)
+      return uncovered_period_answer(totals) if before_plan_start?
+      return merchant_focus_answer || category_focus_answer(report.fetch(:categories)) || "Approved spending for #{report.fetch(:period_label)} is not known yet. Add a purchase or review a statement to see what you spent." if report[:actual_known] == false
       categories = report.fetch(:categories)
       bank = report[:bank_activity] || {}
       top_categories = categories.sort_by { |category| -category.fetch(:actual).to_f }.first(3)
@@ -38,6 +40,26 @@ module HouseholdFinance
 
     attr_reader :report, :prompt
 
+    def before_plan_start?
+      report[:plan_starts_on].present? && report[:start_on].to_s < report[:plan_starts_on].to_s
+    end
+
+    def uncovered_period_answer(totals)
+      start = Date.iso8601(report.fetch(:plan_starts_on)).strftime("%B %Y")
+      spending = if report[:actual_known] == false
+        "Approved spending for #{report.fetch(:period_label)} is not known yet."
+      else
+        "From your approved purchases, you spent #{money(totals.fetch(:actual))} in #{report.fetch(:period_label)}."
+      end
+      details = merchant_focus_answer || category_focus_answer(report.fetch(:categories)) || recent_transaction_line unless report[:actual_known] == false
+      coverage = if report[:end_on].to_s >= report[:plan_starts_on].to_s
+        "Your plan starts in #{start}, so #{report.fetch(:period_label)} is only partly covered by a plan, from #{start}. I have left out a whole-period plan comparison."
+      else
+        "Your plan starts in #{start}, so #{report.fetch(:period_label)} has no plan to compare against."
+      end
+      [ "#{coverage} #{spending}", details ].compact.join("\n\n")
+    end
+
     def budget_status_question?
       prompt.match?(BUDGET_STATUS_TERMS)
     end
@@ -48,18 +70,18 @@ module HouseholdFinance
 
     def category_status_answer(categories, totals)
       unless plan_available?
-        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot label categories over or under plan. Confirmed actuals are #{money(totals.fetch(:actual))}; pending drafts remain separate."
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot label categories over or under plan. Confirmed actuals are #{money(totals.fetch(:actual))}; purchases waiting for review remain separate."
       end
 
       over_categories = categories.select { |category| category.fetch(:actual).to_f > category.fetch(:planned).to_f }
-      pending_line = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
+      pending_line = "Purchases waiting for your review total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
       if over_categories.empty?
         return [
           "No active category is #{over_word} for #{report.fetch(:period_label)}, based on confirmed transactions.",
           "Confirmed actuals are #{money(totals.fetch(:actual))} against #{planned_phrase(totals.fetch(:planned))}.",
           pace_note,
           pending_line,
-          "Next CFO move: review pending drafts before treating the remaining plan as safe-to-spend."
+          "Next CFO move: check purchases waiting for review before treating the remaining plan as safe-to-spend."
         ].compact.join("\n\n")
       end
 
@@ -77,7 +99,7 @@ module HouseholdFinance
 
     def budget_status_answer(totals, top_line)
       unless plan_available?
-        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot say whether the household was within budget. Confirmed actuals are #{money(totals.fetch(:actual))}, and pending drafts total #{money(totals.fetch(:pending))}."
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot say whether the household was within budget. Confirmed actuals are #{money(totals.fetch(:actual))}, and purchases waiting for review total #{money(totals.fetch(:pending))}."
       end
 
       planned = totals.fetch(:planned).to_f
@@ -151,7 +173,7 @@ module HouseholdFinance
     end
 
     def pending_and_bank_line(totals)
-      pending = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}."
+      pending = "Purchases waiting for your review total #{money(totals.fetch(:pending))}."
       return pending unless bank_activity_present?(totals)
 
       "#{pending} Posted bank activity still needing household review totals #{money(totals.fetch(:bank_needs_review, 0))}; bank-pending activity totals #{money(totals.fetch(:bank_pending, 0))} and is excluded from posted spending."
@@ -181,8 +203,12 @@ module HouseholdFinance
         else
           " against #{planned_phrase(planned)}, #{money(planned - actual)} #{prorated? ? "under the plan so far" : "under plan"}"
         end
-        pending = category.fetch(:pending).to_f.positive? ? " Pending drafts there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
-        "#{category.fetch(:name)} has #{money(actual)} in confirmed spending#{comparison}.#{pending}"
+        pending = category.fetch(:pending).to_f.positive? ? " Purchases waiting for review there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
+        if report[:actual_known] == false
+          "#{category.fetch(:name)} spending is not known yet.#{pending}"
+        else
+          "#{category.fetch(:name)} has #{money(actual)} in confirmed spending#{comparison}.#{pending}"
+        end
       end
       largest = category_transactions(named.first).max_by { |transaction| transaction[:amount].to_f }
       largest_line = largest ? " The largest confirmed charge there was #{transaction_label(largest)}." : ""
@@ -210,7 +236,7 @@ module HouseholdFinance
       else
         "#{scope}, there is no confirmed spending at #{merchant}."
       end
-      pending_line = pending.any? ? " Pending drafts at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
+      pending_line = pending.any? ? " Purchases waiting for review at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
       share = !truncated && totals_actual.positive? && count.positive? ? " That is #{(total / totals_actual * 100).round}% of the #{money(totals_actual)} confirmed for the period." : ""
       "#{lead}#{share}#{pending_line}"
     end

@@ -39,13 +39,13 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
     end
   end
 
-  test "runway-dependent scenarios explain a missing liquid account picture" do
+  test "purchase compares the plan and explains missing account balances" do
     @household.accounts.delete_all
     result = answer("purchase", 800, "Laptop")
 
-    assert_includes result.body, "liquid account picture is incomplete"
-    assert_includes result.body, "enter every active liquid balance"
-    assert_includes result.body, "not saved or approved"
+    assert_includes result.body, "do not know your account balances"
+    assert_includes result.body, "$1,800"
+    assert_includes result.body, "$1,000"
   end
 
   test "unresolved timing is declined instead of using the selected month" do
@@ -59,9 +59,10 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
       reference_month: 1
     ).call
 
-    assert_includes result.body, "could not ground the requested timing"
-    assert_includes result.body, "did not apply the selected budget month"
-    assert_includes result.body, "was not saved"
+    assert_includes result.body, "Which month and year"
+    assert_includes result.body, "compare it with your plan"
+    assert_includes result.body, "Nothing changed"
+    refute_match(/purchase|Scenario only|ground the requested timing/, result.body)
   end
 
   private

@@ -1416,6 +1416,11 @@ module Api
             Rails.logger.warn("Mia presentation exceeded the persistence contract; saving the canonical plain answer")
             assistant_message.presentation = {}
           end
+          if (facts = safe_month_answer(content)) && !facts[:before_plan_start]
+            destinations = Array(facts[:missing_plan_inputs]) + Array(facts[:cushion_missing_inputs])
+            destinations.select! { |input| module_guidance.context[:enabled].include?(input[:destination] == "budget" ? "budget" : "profile") }
+            assistant_message.setup_help = { available: false, money_inputs: destinations.map { |input| input[:destination] }.uniq } if destinations.any?
+          end
           assistant_message.save!
           persist_content_citations(assistant_message)
           [ user_message, assistant_message ]
@@ -1708,6 +1713,10 @@ module Api
         end
         annual_plan = read_only_result.annual_plan if read_only_result
         direct_answer = read_only_result&.answer
+        if read_only_result && read_only_result.presentation.nil?
+          direct_answer = narrate_structured_answer(content, [], conversation_context, kind: "purchase_scenario",
+            fallback_response: direct_answer, annual_plan: annual_plan, write_state: "no_write")
+        end
         if direct_answer.blank? && intent_result.clarification?
           setup_question = intent_result.source == "deterministic" && intent_result.topic.to_h[:type] == "household_setup"
           direct_answer = if setup_question
@@ -2372,6 +2381,11 @@ module Api
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
         priority = HouseholdFinance::MiaCoachAnswerer.routing_priority(content)
+        # Legacy purchase coaching has no purchase_scenario packet. Keep its
+        # figures in the server reply rather than general model narration.
+        if kind == "coaching" && priority == :purchase && HouseholdFinance::MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| content.match?(pattern) }
+          return fallback_response
+        end
         month_facts = safe_month_answer(content, annual_plan: annual_plan) if priority == :month
         if month_facts
           annual_plan = @mia_month_answer.plan_data

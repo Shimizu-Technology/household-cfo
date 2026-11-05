@@ -11,6 +11,11 @@ import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLi
 
 const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
 const previewUnavailableNotice = "The preview didn't come through. Try again in a minute."
+const previewRejectionNotices = new Set([
+  'The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again.',
+  'The sample answer did not use the response format you chose. Check the format in Teaching, then preview again.',
+  'The sample answer did not pass the reply checks. Review the response length, format, and safety guidance in Teaching, then preview again.',
+])
 function previewFailureNotice(error: unknown): string {
   const status = error && typeof error === 'object' && 'status' in error ? error.status : null
   if (status === 401 || status === 403) return 'You don’t have permission to preview this assistant. Ask your workspace owner for access.'
@@ -55,7 +60,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
           setStatus('Preparing an example answer…')
           const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch((error: unknown) => { throw new Error(previewFailureNotice(error)) })
           if (!current()) return
-          if (!result.behavioral_preview_evidence?.valid) throw new Error(previewUnavailableNotice)
+          if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice && previewRejectionNotices.has(result.preview.notice) ? result.preview.notice : previewUnavailableNotice)
           if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
           lastEvidence = result.behavioral_preview_evidence
           results.push({ question, answer: result.behavioral_preview_evidence.output })

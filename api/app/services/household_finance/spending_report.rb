@@ -25,6 +25,8 @@ module HouseholdFinance
         start_on: start_on.iso8601,
         end_on: end_on.iso8601,
         plan_available: report_plan_available?,
+        plan_starts_on: PlanCoverage.new(household).starts_on.iso8601,
+        actual_known: household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: start_on..end_on).exists?,
         totals: {
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
@@ -52,7 +54,10 @@ module HouseholdFinance
     attr_reader :household, :start_on, :end_on, :ensure_plans
 
     def ensure_plans!
-      missing_years = (start_on.year..end_on.year).reject { |year| report_plan_ready?(year) }
+      coverage_start = PlanCoverage.new(household).starts_on
+      return if end_on < coverage_start
+
+      missing_years = ([ start_on.year, coverage_start.year ].max..end_on.year).reject { |year| report_plan_ready?(year) }
       return if missing_years.empty?
 
       household.with_lock do
@@ -79,7 +84,7 @@ module HouseholdFinance
     end
 
     def report_plan_available?
-      (start_on.year..end_on.year).all? { |year| report_plan_ready?(year) }
+      start_on >= PlanCoverage.new(household).starts_on && (start_on.year..end_on.year).all? { |year| report_plan_ready?(year) }
     end
 
     def category_rows

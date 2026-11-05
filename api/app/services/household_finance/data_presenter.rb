@@ -571,7 +571,7 @@ module HouseholdFinance
     end
 
     def alerts
-      unless setup_status.complete?
+      unless setup_status.complete? || setup_status.missing_field_keys == [ "debt_payment" ]
         return [
           { tone: "yellow", title: "Finish your starting picture", body: setup_guidance }
         ]
@@ -697,7 +697,7 @@ module HouseholdFinance
     end
 
     def coach_read
-      unless setup_status.complete?
+      unless setup_status.complete? || setup_status.missing_field_keys == [ "debt_payment" ]
         return {
           title: "Finish your starting picture.",
           body: "#{setup_guidance} Mia will calculate readiness and safe-to-spend after you review and confirm those details."
@@ -714,7 +714,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:liquid_assets_known)
         return {
-          title: "Finish the liquid account picture before making a cash-flow call.",
+          title: "Add account balances to see what cash is available.",
           body: readiness_unavailable_reason
         }
       end

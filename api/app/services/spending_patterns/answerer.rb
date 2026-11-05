@@ -47,7 +47,9 @@ module SpendingPatterns
         missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
-      observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
+      category_names = @patterns[:discretionary_categories].first(2).pluck(:label)
+      observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
+      observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first
@@ -60,7 +62,7 @@ module SpendingPatterns
       narrator = Narrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
         answer_packet: { kind: "household_patterns", write_state: "no_write", fallback_response: "#{observed}#{waterfall}#{estimate} #{question}",
           available_product_modules: @available_product_modules,
-          verified_facts: { merchants: merchants, cluster: cluster, choices: choices, months_with_purchases: present, missing_months: missing } })
+          verified_facts: { merchants: merchants, category_names: category_names, cluster: cluster, choices: choices, months_with_purchases: present, missing_months: missing } })
       answer = narrator.call
       @supplied_content_context = narrator.supplied_content_context
       answer

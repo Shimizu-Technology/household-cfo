@@ -40,9 +40,8 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     refute result&.action.to_h.dig(:setup_updates, :household_name).to_s.include?("4800")
 
     long = resolve("call us the family of the people who live in the yellow house near the beach")
-    assert long.clarification?
     refute long.actionable?
-    assert_includes long.clarification, "Send only the name"
+    assert long.clarification?
   end
 
   test "a provider household name that is really a sentence is set aside and only the name is asked for" do
@@ -71,7 +70,9 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     result = resolve("the cruz ohana lol", context: setup_zero_context("household_name"))
     assert result.actionable?
     assert_equal({ household_name: "The Cruz Ohana" }, result.action.fetch(:setup_updates))
-    assert_nil resolve("lol", context: setup_zero_context("household_name"))
+    clarification = resolve("lol", context: setup_zero_context("household_name"))
+    assert clarification.clarification?
+    assert_includes clarification.clarification, "What would you like to call this household?"
   end
 
   # F5

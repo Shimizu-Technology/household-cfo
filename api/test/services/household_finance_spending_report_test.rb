@@ -94,9 +94,9 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
 
     refute payload.fetch(:plan_available)
     assert_equal 0, household.budget_years.count
-    assert_includes general, "No approved historical plan is available"
+    assert_includes general, "has no plan to compare against"
     refute_includes general, "against $0 planned"
-    assert_includes status, "cannot say whether the household was within budget"
+    assert_includes status, "has no plan to compare against"
     refute_includes status, "within budget: $0 confirmed against $0 planned"
   end
 

@@ -129,7 +129,7 @@ module SavingsChallenge
 
     def attachment_answer
       reviewed = FinancialBaselines::Reader.new(@household, user: @user).current
-      "Your upload is available for statement review. Extraction proposes rows; it does not approve spending or saved money. Open Statements to review the account, period, rows, transfers and any missing information, then review your spending baseline. You can keep using Today while that review is incomplete.#{reviewed[:approved_version] ? ' Your previously approved baseline stays in place until you approve a revision.' : ''}"
+      "Your upload is available for statement review. Extraction proposes rows; it does not approve spending or saved money. Open Statements to review the account, period, rows, transfers and any missing information, then check the spending amounts you want to use as your starting point. You can keep using Today while that review is incomplete.#{reviewed[:approved_version] ? ' Your previously approved baseline stays in place until you approve a revision.' : ''}"
     end
 
     def hopeless_answer
@@ -335,7 +335,7 @@ module SavingsChallenge
     def baseline_answer
       state = FinancialBaselines::Reader.new(@household, user: @user).current
       version = state[:approved_version]
-      return "Start with one purchase or one statement, whichever feels easier. In Statements, review the rows and choose a spending baseline; a partial or manual baseline is valid. You can begin Today without a full budget or credit card. What would you like to work on first?" unless version
+      return "Start with one purchase or one statement, whichever feels easier. In Statements, check the purchases and choose the amounts you want to use as your starting point; a partial picture or numbers you enter yourself are okay. You can begin Today without a full budget or credit card. What would you like to work on first?" unless version
       snapshot = version.snapshot
       coverage = version.coverage_status == "complete" && !state[:needs_revision] ? "approved complete selected window" : "approved #{version.coverage_status} window with coverage limits"
       patterns = snapshot.fetch("patterns")

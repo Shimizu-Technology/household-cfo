@@ -25,6 +25,6 @@ class MiaFallbackReplyChallengeTest < ActiveSupport::TestCase
     text = reply
 
     assert_includes text, Mia::FallbackReply::HOPELESS_STEP
-    assert_includes text, "setup essentials are not finished"
+    assert_includes text, "starting household details are not finished"
   end
 end

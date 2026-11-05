@@ -116,12 +116,32 @@ module HouseholdFinance
     end
 
     def self.essential_hardship?(text)
+      clauses = text.to_s.split(/(?<=[.!?;])\s+/)
+      return clauses.any? { |clause| essential_hardship?(clause) } if clauses.length > 1
+
       value = text.to_s
       return false if value.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN)
 
+      return true if eviction_hardship?(value)
+      return true if rent_worry?(value)
+      return true if value.match?(/\b(?:(?:my|our) (?:husband|wife|partner) left|(?:i|we) need to talk to someone)\b/i)
       # Food has its own tested household, timing, and discretionary exclusions.
       # This extension covers present household housing/medical/utility hardship.
       value.match?(/\b(?:i|we)\s+(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
+    end
+
+    def self.eviction_hardship?(text)
+      value = text.tr("’", "'").gsub(/\b(i|we)'ve\b/i, '\1 have').gsub(/\bi'm\b/i, "i am").gsub(/\bwe're\b/i, "we are")
+      return false if value.match?(/\b(?:not|never|won't|isn't|aren't|wasn't|weren't|haven't|hasn't)\s+(?:(?:be|been|being|getting)\s+){0,2}evict(?:ed|ing)?\b/i)
+
+      value.match?(/\b(?:evict(?:ed|ing)?\s+(?:me|us)|(?:i|we)\s+(?:(?:am|are|was|were|will|might|could|have|been|be|being|just|got|get|getting)\s+){1,5}evicted|(?:i|we)\s+(?:(?:just|have|already)\s+){0,2}(?:got|received|have)\s+(?:an?\s+)?eviction notice)\b/i)
+    end
+
+    def self.rent_worry?(value)
+      value.to_enum(:scan, /\b(?:scared|afraid|worried)[^.!?]{0,45}\b(?:make|pay(?:ing)?|cover(?:ing)?|miss(?:ing)?)\s+(?:the\s+)?rent\b/i).any? do
+        prefix = Regexp.last_match.pre_match.split(/[,;]|\b(?:but|and)\b/i).last.to_s
+        !prefix.match?(/\b(?:not|never)\s+(?:\w+\s+){0,2}\z/i)
+      end
     end
 
     def self.essential_skipped?(text)
@@ -184,8 +204,11 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      return "Which purchase price should I compare with the plan? Nothing changed." if purchase_question? && PurchaseQuestionText.for_comparison(message).needs_clarification
+      return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
+      return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
 
-      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -224,7 +247,9 @@ module HouseholdFinance
     end
 
     def essential_hardship_answer
-      "That sounds hard; protect food, housing, utilities, and medicine before savings or optional purchases. What essential cost is due next, and how much are you short?"
+      return "Your partner leaving is a lot to take in. Please talk with your coach or someone you trust; we can go one step at a time. What feels most urgent today?" if message.match?(/\b(?:my|our) (?:husband|wife|partner) left\b/i)
+      return "You do not have to carry this alone. Please reach out to your coach or someone you trust today. What would you like to talk through first?" if message.match?(/\b(?:i|we) need to talk to someone\b/i)
+      "Not being able to cover an essential cost is hard; food, housing, utilities, and medicine come first. Contact your coach to talk through what can wait, and ask the landlord or bill provider about payment options before the due date. Which essential payment is most urgent right now?"
     end
 
     def reflective_answer
@@ -275,23 +300,21 @@ module HouseholdFinance
       status = setup_status
       return if status.complete?
       return unless setup_dependent_coaching_request?
+      return incomplete_debt_minimums_answer if status.missing_field_keys == [ "debt_payment" ]
 
       missing = status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
       "I still need #{missing.downcase} before helping you decide what to spend. Tell me what you know and I’ll prepare it for review, or choose Enter my numbers. Use 0 only when an amount does not apply. No financial decision was made and no numbers changed."
     end
 
     def incomplete_debt_minimums_answer
-      return unless setup_status.complete?
+      return unless setup_status.complete? || setup_status.missing_field_keys == [ "debt_payment" ]
       return unless setup_dependent_coaching_request?
       return if DebtPortfolio.new(household).minimum_payment_known?
 
-      # Name every remaining gap at once so finishing one step never reveals a
-      # surprise second gate.
       liquid_missing = !AssetPortfolio.new(household).liquid_balance_known?
-      gaps = liquid_missing ? "at least one required monthly debt minimum is not entered and the liquid account picture is incomplete" : "at least one required monthly debt minimum is not entered"
-      missing = liquid_missing ? "minimum or balance" : "minimum"
-      account_step = liquid_missing ? " Then add at least one checking, savings, or emergency-fund account with its current balance." : ""
-      "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because #{gaps}. I will not treat a missing #{missing} as $0. Next step: add every minimum under My Profile, or if no debt payments are due, tell me “we have no debt” and I will prepare a $0 debt summary for your review.#{account_step} No financial decision was made and no numbers changed."
+      missing = liquid_missing ? "debt minimums and checking, savings, and emergency-fund balances" : "debt minimums"
+      account_step = liquid_missing ? " Add your account balances in My Money, under Accounts." : ""
+      "Still to add: #{missing}. I cannot judge your emergency cushion or available cash from missing numbers.#{account_step} #{MiaSetupGuide.question_message('debt_payment')}"
     end
 
     def confirmed_debt_free_answer
@@ -306,11 +329,12 @@ module HouseholdFinance
       return unless setup_status.complete?
       return unless setup_dependent_coaching_request?
       return if AssetPortfolio.new(household).liquid_balance_known?
+      return if purchase_question? && !normalized_message.match?(DEBT_TERM_PATTERN)
 
       overview = if ::Mia::FinancialReadOnlyRequest.matches?(message) && normalized_message.match?(/\b(?:what (?:we|i) know|what (?:s|is) missing|household picture)\b/i)
         "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
       end
-      "#{overview}I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
+      "#{overview}I do not know your account balances yet, so I cannot tell what cash is available. Add your checking, savings, and emergency-fund balances under Accounts in My Money, leaving anything unknown blank."
     end
 
     def incomplete_debt_balances_answer
@@ -393,7 +417,8 @@ module HouseholdFinance
       spend_note = if spend_cents&.positive?
         " I have not added the #{money(spend_cents)} you spent yet; when you are ready, send it on its own, like \"I spent #{money(spend_cents)} at the store today\", and I will draft it for review."
       end
-      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first: it is the first thing in your protected baseline, ahead of savings, extra debt payments, and wants, so pausing savings to buy food is the right call. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday.#{spend_note} Next CFO move: list what is due before your next paycheck, with amounts, and we will decide together what can be paused or moved so food comes first."
+      opening = message.match?(/\b(?:skip(?:ped|ping)?|miss(?:ed|ing)?|without)\b.*\b(?:meals?|food|breakfast|lunch|dinner)\b/i) ? "You need food too; going without meals is not something you should have to do." : "Not having enough food is hard; food for everyone comes first."
+      "#{opening} Put food ahead of savings and extra debt payments today. Please talk with your coach or someone you trust about getting food today and checking what local food help is available.#{spend_note} Do you have enough food for everyone, including you, today?"
     end
 
     # A spend beside a deposit or investment buy that the draft path cannot read on its
@@ -469,7 +494,7 @@ module HouseholdFinance
     def account_coverage_answer
       return nil unless normalized_message.match?(ACCOUNT_COVERAGE_PATTERN)
 
-      amount = amount_from_message_cents
+      amount = purchase_question? ? purchase_comparison_amount_cents : amount_from_message_cents
       return "Tell me the exact amount you want to cover, and I can compare it with saved household account snapshots without guessing a live bank balance." unless amount&.positive?
 
       qualifying_accounts = household.accounts.active.where(balance_known: true, account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
@@ -513,7 +538,7 @@ module HouseholdFinance
     def purchase_impact_answer
       return nil unless normalized_message.match?(PURCHASE_IMPACT_PATTERN)
 
-      amount_cents = amount_from_message_cents
+      amount_cents = purchase_comparison_amount_cents
       purchase_label = amount_cents&.positive? ? "The #{money(amount_cents)} purchase" : "The purchase"
       "I cannot calculate the exact runway impact yet because the approved data does not say which account would pay for it or whether protected liquid would decrease. #{purchase_label} is still a pre-spend decision, and safe-to-spend is a monthly guardrail of #{money(snapshot.fetch(:safe_to_spend_cents))}, not an account balance I can subtract the purchase from. Nothing is approved and no household number changed. Next CFO move: name the funding account and the budget category that would cover it, then I can model the effect without guessing."
     end
@@ -656,7 +681,7 @@ module HouseholdFinance
       end
 
       if normalized_message.match?(/fridge|appliance|home repair/i)
-        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and pending drafts are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
       end
 
       if normalized_message.match?(/insurance renewal|renewal/i)
@@ -702,7 +727,7 @@ module HouseholdFinance
       month_label = month_label(plan, month_index)
       if amount_cents&.positive?
         verdict = amount_cents <= remaining_cents ? "yes, it appears covered by the remaining car registration plan" : "not fully yet; it is #{money(amount_cents - remaining_cents)} over the remaining car registration plan"
-        return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Pending drafts and future unlogged spending are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
+        return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Purchases waiting for review and anything you have not reported are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
       end
 
       "Car registration is an expected sinking-fund bill, not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
@@ -841,7 +866,7 @@ module HouseholdFinance
         "Yellow runway is covered; keep building toward the green gap of #{money(green_gap)} without stealing from expected bills."
       end
 
-      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, review pending drafts, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
+      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, check purchases waiting for review, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
     end
 
     def green_readiness_plan(surplus_cents, transfer_cents, green_gap)
@@ -902,7 +927,7 @@ module HouseholdFinance
         "Use this as a tradeoff test before any cash leaves."
       end
 
-      "Cutting #{target_label} is the right kind of tradeoff to test for family support, but it is not an automatic yes. Based on your active annual plan for #{month_label(plan, month_index)}, #{target_label} has #{money(planned_cents)} planned and #{money(remaining_cents)} remaining; pending drafts are not counted as actuals. #{amount_line} #{coverage_line} Next CFO move: choose the exact one-time amount and write down what #{target_label} pauses this month before promising help."
+      "Cutting #{target_label} is the right kind of tradeoff to test for family support, but it is not an automatic yes. Based on your active annual plan for #{month_label(plan, month_index)}, #{target_label} has #{money(planned_cents)} planned and #{money(remaining_cents)} remaining; purchases waiting for review are not counted as actuals. #{amount_line} #{coverage_line} Next CFO move: choose the exact one-time amount and write down what #{target_label} pauses this month before promising help."
     end
 
     def lending_answer
@@ -1076,11 +1101,44 @@ module HouseholdFinance
     def purchase_price_cents
       amount = '\$\s*([\d,]+(?:\.\d{1,2})?)'
       item = "(?:purse|handbag|bag)"
-      match = message.match(/#{amount}\s+#{item}\b/i) ||
-        message.match(/\b(?:spend|spending|pay|paying)\s*#{amount}\s+(?:on|for)\s+(?:(?:a|an|the|this|that)\s+)?#{item}\b/i) ||
-        message.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
-        message.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
+      text = PurchaseQuestionText.for_comparison(message).text
+      match = text.match(/#{amount}\s+#{item}\b/i) ||
+        text.match(/\b(?:spend|spending|pay|paying)\s*#{amount}\s+(?:on|for)\s+(?:(?:a|an|the|this|that)\s+)?#{item}\b/i) ||
+        text.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
+        text.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
       Money.chat_cents(match[1]) if match
+    end
+
+    def unpriced_purchase_answer
+      return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      return unless purchase_question? && purchase_comparison_amount_cents.nil?
+
+      "What does the item cost, and which month are you considering it for?"
+    end
+
+    def purchase_plan_answer
+      return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      text = PurchaseQuestionText.for_comparison(message).text
+      amount_cents = purchase_comparison_amount_cents
+      return unless purchase_question? && amount_cents&.positive?
+      return incomplete_setup_answer unless SetupStatus.new(household).complete?
+      return unavailable_plan_answer unless plan_available?
+
+      dated = text.match?(/\b(?:today|tomorrow|last month|this month|next month|next week|next year|20\d{2})\b/i) || MonthTerms.detect_number(text)
+      date = if text.match?(/\btomorrow\b/i)
+        Date.tomorrow
+      elsif text.match?(/\bnext week\b/i)
+        Date.current + 7
+      elsif text.match?(/\bnext year\b/i)
+        Date.current.next_year
+      elsif dated
+        MiaMonthAnswer.question_date(text)
+      else
+        Date.new(annual_budget_manager.year, reference_month, 1)
+      end
+      item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: item, effective_on: date&.iso8601,
+        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
     end
 
     def purse_decision_answer
@@ -1098,7 +1156,10 @@ module HouseholdFinance
     end
 
     def planned_purchase_detail_answer
-      return nil unless amount_from_message_cents&.positive?
+      return if purchase_question? && essential_purchase?
+      return if non_purchase_amount_request?
+      amount_cents = purchase_comparison_amount_cents
+      return nil unless amount_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
       return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN) && !normalized_message.match?(/\b(?:does that change|price|costs?)\b/)
@@ -1112,12 +1173,8 @@ module HouseholdFinance
       return nil if normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(EXTRA_MONEY_PATTERN) || normalized_message.match?(MONEY_MOVEMENT_PATTERN)
       return unavailable_plan_answer unless plan_available?
 
-      amount_cents = amount_from_message_cents
-      need_language = normalized_message.match?(/\b(?:kid|school|work|health|medical|league|required|need)\b/i)
-      coverage_line = amount_cents <= current_discretionary_remaining_cents ? "the amount fits inside the remaining discretionary plan, but that still does not automatically make it wise while readiness is #{snapshot.fetch(:readiness_label)}." : "the amount is above what I can see as remaining in the active discretionary plan, so it needs a tradeoff before approval."
-      classification = need_language ? "That does change the category: this sounds closer to a family need or commitment than a random want." : "That gives me the amount, but I still need to know whether this is a need or a want."
-
-      "#{classification} Based on approved household numbers, the purchase is #{money(amount_cents)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and #{coverage_line} I would not create an actual transaction draft because the money has not left yet; this is a pre-spend CFO decision. Next CFO move: if you approve it, name which category funds it and what gets paused so expected bills stay covered."
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
+        annual_budget_manager: annual_budget_manager, reference_month: reference_month).call.body
     end
 
     def purchase_decision_answer
@@ -1174,7 +1231,69 @@ module HouseholdFinance
         last_assistant.to_s.match?(/\b(?:send me the (?:price|amount|cost)|the (?:price|amount|cost) and (?:timing|due date)|what (?:does|would) it cost|how much (?:is it|does it cost|would it be))\b/i)
     end
 
+    def non_purchase_amount_request?
+      if (clause = purchase_intent_clause)
+        return recurring_purchase_amount?(clause) || clause.match?(/\b(?:car payment|car lease)\b|\brent\s+(?:of\s+)?\$|\b(?:afford|want|need|have)\s+to\s+(?:quit|save)\b/i)
+      end
+
+      normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)
+    end
+
+    def purchase_intent_clause(text = message)
+      # Legacy followups prepend old purchases. Only the current question may
+      # establish a new monthly commitment.
+      current = text.start_with?("Follow-up to previous ") ? text.split(" Current follow-up: ", 2).last : text
+      current.split(/(?<=[.!?;])\s+|,\s+|\s+(?:and|but)\s+(?=(?:i|we|can|should|could|may|is it)\b)/i).find do |clause|
+        PURCHASE_INTENT_PATTERNS.any? { |pattern| clause.match?(pattern) }
+      end
+    end
+
+    def purchase_comparison_text
+      text = PurchaseQuestionText.for_comparison(message).text
+      clause = purchase_intent_clause(text)
+      return text unless clause
+
+      # An income statement may share punctuation with the purchase question.
+      start = PURCHASE_INTENT_PATTERNS.filter_map { |pattern| clause.match(pattern)&.begin(0) }.min
+      clause[start..]
+    end
+
+    def purchase_comparison_amount_cents
+      return if PurchaseQuestionText.for_comparison(message).needs_clarification
+
+      text = purchase_comparison_text
+      # "The shoes are $90. Can I get them?" states the price just before the
+      # question. Only reuse it when the whole turn contains one unambiguous amount.
+      unless text.match?(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+        text = PurchaseQuestionText.for_comparison(message).text
+        return unless text.match?(/\b(?:costs?|price|is|are)\s+\$/i)
+      end
+      # Paying with an account names no balance; "$500 in checking" states one.
+      return if text.match?(/\b(?:balances?|income|salary|paycheck|bonuses?)\b/i)
+      return if text.match?(/#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}\s+(?:in|into|from|left in)\s+(?:(?:my|our|the)\s+)?(?:checking|savings|accounts?)\b/i)
+      return if text.match?(/\b(?:checking|savings|accounts?)\s+(?:only\s+)?(?:has|have|had|is|shows?|holds?)\b[^.?!]*#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}/i)
+
+      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+      return unless amounts.one?
+
+      amount = Money.chat_cents(amounts.first.first)
+      amount if amount.positive?
+    end
+
+    def recurring_purchase_amount?(clause)
+      amount = Money::CHAT_DOLLAR_AMOUNT_PATTERN.source
+      clause.match?(/#{amount}\s+(?:(?:a|per|each|every)\s+month|monthly)\b|\bmonthly\s+(?:(?:for|at|of)\s+)?#{amount}/i)
+    end
+
+    def recurring_purchase_answer
+      clause = purchase_intent_clause
+      return unless clause && recurring_purchase_amount?(clause)
+
+      "This is a recurring monthly commitment. Check how it would change each month’s plan, including food, bills and required payments, before deciding. Which monthly category would fund it?"
+    end
+
     def purchase_question?
+      return false if non_purchase_amount_request? && !essential_purchase?
       return false if normalized_message.match?(/\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b/i)
       return false if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
 
@@ -1187,7 +1306,7 @@ module HouseholdFinance
     end
 
     def purchase_item
-      match = normalized_message.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
+      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
       return unless match
 
       match[1].to_s.squish.presence

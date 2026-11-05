@@ -888,8 +888,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "pause on the $500 purse for now"
-    assert_includes content, "funded flexible category"
+    assert_includes content, "$500 purse"
+    assert_includes content, "not your bank balance"
+    assert_includes content, "Would this come from"
     refute_match(/guam|chamorro|chelu|lanya|island/i, content)
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
@@ -1184,7 +1185,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     with_singleton_stub(HouseholdFinance::MiaNarrator, :new, fake_narrator) do
       post "/api/v1/mia/messages",
-           params: { message: "Can I buy concert tickets?" },
+           params: { message: "What is a sinking fund?" },
            headers: auth_headers(user),
            as: :json
     end
@@ -1193,7 +1194,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Narrated in Mia voice from Rails facts.", JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_equal "coaching", packets.first.fetch(:kind)
     assert_equal "no_write", packets.first.fetch(:write_state)
-    assert_includes packets.first.fetch(:fallback_response), "safe-to-spend"
+    assert_includes packets.first.fetch(:fallback_response), "A sinking fund is money"
   end
 
   test "mia chat preserves deterministic compound decision math when intent labels it a budget question" do

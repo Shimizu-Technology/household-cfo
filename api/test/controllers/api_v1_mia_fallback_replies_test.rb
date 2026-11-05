@@ -92,7 +92,7 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
       assert_response :created
       refute_includes content, forget_copy, message
     end
-    assert_includes post_message("Forget that we are out of food and we have no money until friday"), "food pantry"
+    assert_includes post_message("Forget that we are out of food and we have no money until friday"), "local food help"
     assert_includes post_message("forget that our income is actually 9000 a month"), forget_copy
   end
 

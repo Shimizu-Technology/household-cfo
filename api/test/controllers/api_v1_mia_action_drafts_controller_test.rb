@@ -261,6 +261,14 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert HouseholdFinance::SetupStatus.new(household.reload).complete?
+    assert_equal "debt_payment", HouseholdFinance::SetupStatus.new(household).missing_field_keys.first
+
+    post "/api/v1/mia/messages", params: { message: "no debt payments" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    draft_id = response.parsed_body.fetch("mia_action_draft").fetch("id")
+    post "/api/v1/mia_action_drafts/#{draft_id}/apply", headers: auth_headers(user), as: :json
+    assert_response :success
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
   end
 
   test "bare zero after the exact setup CTA drafts the current server-owned missing field" do
@@ -316,6 +324,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   test "applying the final setup review offers a first coaching step" do
     user = create_user(email: "mia-setup-first-coaching-step@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, debt_payment: "0").call
     draft = create_setup_draft(
       user,
       household,
@@ -1483,8 +1492,8 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     cases = [
       [ "Paid $50 to Bank of Guam savings for the challenge", "transaction_report", "Putting $50 into savings counts as saving, not spending" ],
       [ "I spent $100 on crypto", "transaction_report", "not everyday spending, so I did not add it as an expense" ],
-      [ "We ran out of food and payday is Friday", "spending_report", "your program team or a local food pantry" ],
-      [ "I spent my last $20 at Payless and we have nothing to eat until payday", "transaction_report", "your program team or a local food pantry" ]
+      [ "We ran out of food and payday is Friday", "spending_report", "your coach" ],
+      [ "I spent my last $20 at Payless and we have nothing to eat until payday", "transaction_report", "your coach" ]
     ]
 
     cases.each_with_index do |(message, intent_name, expected), index|

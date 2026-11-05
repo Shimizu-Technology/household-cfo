@@ -63,6 +63,7 @@ module HouseholdFinance
       mode = command[:debt_tracking_mode].to_s
       return validation_result("Choose summary or individual debt tracking. Nothing changed.") unless mode.in?(HouseholdProfile::DEBT_TRACKING_MODES)
       portfolio = DebtPortfolio.new(household)
+      setup_progress = mode == "summary" && SetupStatus.new(household).missing_field_keys == [ "debt_payment" ]
       payload = { mode: mode }
       if mode == "summary"
         unless debt_balance_command_present? && command.key?(:minimum_payment)
@@ -72,12 +73,12 @@ module HouseholdFinance
         add_debt_money_payload!(payload, :minimum_payment, :summary_minimum_payment_cents, :summary_minimum_payment_known)
       end
       item = MiaActionDraftBuilder::Item.new(
-        action_type: "update_debt_tracking", label: "Use #{mode} debt tracking",
+        action_type: "update_debt_tracking", label: setup_progress ? "Monthly debt minimums" : "Use #{mode} debt tracking",
         description: mode == "summary" ? "Use only the approved household totals for planning." : "Use only active individual debt records for planning.",
         target_record_type: "HouseholdProfile", target_record_id: household.household_profile.id,
         payload: payload, before_snapshot: portfolio.as_json, after_snapshot: portfolio.as_json.merge(mode: mode)
       )
-      proposal_result(draft_type: "debt_plan", title: "Change debt tracking", summary: "I prepared switching debt tracking from #{portfolio.mode} to #{mode}.", rationale: "The two sources are never added together, and saved records stay preserved.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+      proposal_result(draft_type: "debt_plan", title: setup_progress ? "Review debt minimums" : "Change debt tracking", summary: setup_progress ? "Monthly debt minimums: #{payload[:summary_minimum_payment_known] ? money(payload[:summary_minimum_payment_cents]) : 'not known yet'}." : "I prepared switching debt tracking from #{portfolio.mode} to #{mode}.", rationale: setup_progress ? "Confirm the monthly minimums, including 0 if you have no debt payments. An unknown balance stays unknown." : "The two sources are never added together, and saved records stay preserved.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: setup_progress })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end

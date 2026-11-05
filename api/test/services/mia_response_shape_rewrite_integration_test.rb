@@ -10,6 +10,15 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
 
   setup do
     @persona = Mia::RuntimePersona.for_preview(config: JSON.parse(file_fixture("mia_coach_short_config.json").read), persona_id: 42, draft_revision: 1)
+    # Capacity has its own DB-lock suite. These fake transport replies exercise
+    # validation and retries even when this machine's DB checkout exceeds 1s.
+    singleton = HouseholdFinance::MiaProviderAdmission.singleton_class
+    @original_admission = singleton.instance_method(:with_slot)
+    singleton.define_method(:with_slot) { |**_, &block| block.call }
+  end
+
+  teardown do
+    HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @original_admission)
   end
 
   test "preview repairs one safe length miss with exact draft and final provider provenance" do
@@ -30,6 +39,43 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     assert_equal LONG_REPLY, requests.last.fetch("messages")[-2].fetch("content")
     assert_includes requests.last.fetch("messages").last.fetch("content"), "Keep every fact"
     assert_includes requests.last.fetch("messages").last.fetch("content"), "add nothing"
+  end
+
+  [ true, false ].each do |preview|
+    test "claim rewrite reruns every check for #{preview ? 'preview' : 'participant'}" do
+      original = "I cannot say that purchase works without knowing your bills. Protect food and housing first. Which category would fund it?"
+      requests = []
+      context = { preview_mode: preview, metrics: {}, debts: { records: [] } }.to_json
+      with_provider_replies([ original, VALID_REPLY ], requests) do
+        responder = Demo::MiaResponder.new(api_key: "test-key", persona: @persona)
+        assert_equal VALID_REPLY, responder.call(SAMPLE, context: context)
+        assert_equal "live_model", responder.response_source
+      end
+      assert_equal 2, requests.length
+      assert_includes requests.last.fetch("messages").last.fetch("content"), "scenario_conclusion"
+    end
+  end
+
+  test "claim rewrite cannot bypass amount or approval checks and never retries twice" do
+    original = "That purchase works. Protect food and housing first. Which category would fund it?"
+    [ "You can afford it. Protect food first. Which category would fund it?", "Your income is $999. Protect food first. Which category would fund it?" ].each do |rewrite|
+      requests = []
+      with_provider_replies([ original, rewrite ], requests) do
+        responder = Demo::MiaResponder.new(api_key: "test-key", persona: @persona)
+        refute_equal rewrite, responder.call(SAMPLE, context: Mia::PersonaPreviewer::PREVIEW_CONTEXT.to_json)
+        assert_equal :reply_rejected, responder.fallback_reason
+      end
+      assert_equal 2, requests.length
+    end
+  end
+
+  test "participant purchase narration rejects figures and approval without a second attempt" do
+    unsafe = "You can afford it. Protect your bills first. Which account would you use?"
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
+    fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
+    narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
+    assert_equal fallback, narrator.call
+    assert_equal 1, attempts.length
   end
 
   test "preview rewrite still outside range falls back after exactly two requests" do
@@ -120,10 +166,10 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
   end
 
   test "hardship and wellbeing narration do not rewrite safety length" do
-    [ "I cannot afford food this week", "I feel hopeless" ].each do |message|
-      narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator,
-        [ "Protect food and housing first. What essential cost is due next?" ], message: message)
-      assert_equal "Protect food and housing first. What essential cost is due next?", narrator.call
+    { "I cannot afford food this week" => "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?",
+      "I feel hopeless" => "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" }.each do |message, reply|
+      narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
+      assert_equal reply, narrator.call
       assert_equal 1, attempts.length
     end
   end
@@ -135,7 +181,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ Mia::CrisisBoundary.response ], message: "I want to die")
     narrator.instance_variable_set(:@persona, persona)
     assert_equal Mia::CrisisBoundary.response, narrator.call
-    assert_equal 1, attempts.length
+    assert_equal 0, attempts.length
   end
 
   test "character miss is rewritten once without truncating the next step" do

@@ -3,7 +3,7 @@ require "test_helper"
 class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCase
   setup do
     @user = User.create!(clerk_id: "saved_reads_#{SecureRandom.hex(6)}", email: "saved-reads-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
-    @household = Household.create!(created_by_user: @user, name: "Saved records household")
+    @household = Household.create!(created_by_user: @user, name: "Saved records household", created_at: Time.zone.local(2026, 1, 1))
     @household.household_memberships.create!(user: @user, role: "owner")
   end
 
@@ -334,7 +334,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     end
   end
 
-  test "archived category historical zero is retained as a recorded zero not a no-spend claim" do
+  test "archived category retains a saved zero plan without inventing monthly spending" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     category = manager.create_category!(name: "Old Dining", stack_key: "discretionary", monthly_amount: 100)
     year = @household.budget_years.find_by!(year: 2026)
@@ -347,7 +347,8 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_read_financial_records_unchanged do
       response = answer("What is my household Old Dining budget for 2026-10?")
       assert_includes response.answer, "archived category retained for history"
-      assert_includes response.answer, "saved monthly plan $0.00; spent so far $0.00"
+      assert_includes response.answer, "saved monthly plan $0.00; spent so far is not known yet"
+      assert_nil response.metadata[:records].sole[:confirmed_actual_amount]
       assert_includes response.answer, "A recorded $0 does not verify no spending"
     end
   end

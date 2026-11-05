@@ -7,7 +7,8 @@ module HouseholdFinance
       "primary_goal" => "What is the main money goal you want this household to work toward?",
       "primary_income" => "What is this household’s primary monthly take-home income? Enter 0 if there is none.",
       "fixed_expenses" => "About how much are this household’s fixed essentials each month? Enter 0 if there are none.",
-      "flexible_spend" => "About how much does this household spend flexibly each month? Enter 0 if there is none."
+      "flexible_spend" => "About how much does this household spend flexibly each month? Enter 0 if there is none.",
+      "debt_payment" => "How much are your household’s debt minimum payments each month? Say ‘no debt payments’ if there are none."
     }.freeze
 
     class << self
@@ -23,11 +24,12 @@ module HouseholdFinance
       end
 
       def server_question_asked?(field, active_thread:, recent_messages:)
-        thread = active_thread.to_h.deep_symbolize_keys
-        return false unless thread[:type] == "household_setup" && thread[:status].in?(%w[needs_clarification applied])
-
-        latest = Array(recent_messages).last.to_h.deep_symbolize_keys
-        latest[:role] == "assistant" && latest[:content].to_s.end_with?(question_message(field).to_s)
+        # Recover after a clarification or unrelated answer replaces the active
+        # topic. Only a server-authored setup question establishes this context.
+        Array(recent_messages).reverse.any? do |message|
+          turn = message.to_h.deep_symbolize_keys
+          turn[:role] == "assistant" && question_message(field).present? && turn[:content].to_s.end_with?(question_message(field))
+        end
       end
 
       private
@@ -52,7 +54,7 @@ module HouseholdFinance
       return after_apply_message if self.class.setup_request?(value)
       return unless value.to_s.squish.match?(/\Awhat (?:else )?do you (?:still )?need from me to finish (?:setting up|setup)\??\z/i)
 
-      return complete_message if setup_status.complete?
+      return complete_message if setup_status.missing_field_keys.empty?
 
       missing = setup_status.as_json[:missing_fields].map { |field| field[:label].downcase }.to_sentence
       "Still to add: #{missing}. #{after_apply_message}"

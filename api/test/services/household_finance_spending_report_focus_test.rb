@@ -32,7 +32,7 @@ class HouseholdFinanceSpendingReportFocusTest < ActiveSupport::TestCase
     answer = narrate("what about mcdonalds", pending: [ { merchant: "McDonald's", amount: 12.0, occurred_on: "2026-10-15" } ])
 
     assert_includes answer, "there is no confirmed spending at McDonald's"
-    assert_includes answer, "Pending drafts at McDonald's total $12"
+    assert_includes answer, "Purchases waiting for review at McDonald's total $12"
   end
 
   test "an unscoped question keeps the full report without bank wording when no bank is synced" do

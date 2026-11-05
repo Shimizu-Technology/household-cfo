@@ -34,6 +34,15 @@ it('greets with starting points that fill the composer instead of sending', () =
   expect(choose).toHaveBeenCalledWith('Help me update one of my household debts.')
 })
 
+it('opens the server-specified missing money input from Mia’s answer', () => {
+  const open = vi.fn()
+  render(<ChatHistory {...baseProps} totalMessageCount={1} onOpenMoneyInput={open} messages={[{role:'assistant', author:'Mia', content:'Still to add: debt minimums.', setup_help:{available:false,money_inputs:['debt','accounts']}}]} />)
+  fireEvent.click(screen.getByRole('button',{name:'Add debt minimums'}))
+  expect(open).toHaveBeenCalledWith('debt')
+  fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
+  expect(open).toHaveBeenLastCalledWith('accounts')
+})
+
 it('omits starting points when none are offered', () => {
   render(<ChatHistory {...baseProps} />)
   expect(screen.queryByRole('group', { name: 'Ways to start' })).toBeNull()
@@ -96,4 +105,16 @@ it('keeps challenge check-ins and recovery visible when the household review car
   render(<ChatHistory {...baseProps} reviewCount={2} onOpenReview={vi.fn()} emptyReviewContent={<p role="alert">Retry loading your saved check-in</p>} reviewContent={<p>Household review card</p>} />)
   expect(screen.getByRole('alert').textContent).toBe('Retry loading your saved check-in')
   expect(screen.queryByText('Household review card')).toBeNull()
+})
+
+it('labels comparison values in participant words without Scenario only', () => {
+  render(<ChatHistory {...baseProps} totalMessageCount={1} messages={[{
+    role: 'assistant', author: 'Mia', content: 'Compare these possibilities.', presentation: {
+      version: 1, kind: 'read_only_answer', basis: 'scenario_only', lead: 'Here is the comparison.',
+      sections: [{ id: 'purchase', title: 'Purchase', body: 'Your plan would change.' }],
+      scenario: { values: [{ label: 'Stroller', display_value: '$300' }] },
+    },
+  }]} />)
+  expect(screen.getByRole('note', { name: 'For comparison · nothing saved' })).toBeTruthy()
+  expect(screen.queryByText('Scenario only · not saved')).toBeNull()
 })

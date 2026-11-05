@@ -6,8 +6,8 @@ module Mia
   class ResponseShapeRewriter
     Result = Struct.new(:content, :rejection_reason, keyword_init: true)
 
-    def self.call(content, persona:, user_message:, validator:, &rewrite)
-      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite).call(content)
+    def self.call(content, persona:, user_message:, validator:, repairable_claims: [], &rewrite)
+      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite, repairable_claims: repairable_claims).call(content)
     end
 
     def self.instruction(persona)
@@ -19,18 +19,25 @@ module Mia
         "Safety and hardship instructions take precedence over this length."
     end
 
-    def initialize(persona:, user_message:, validator:, rewrite:)
+    def initialize(persona:, user_message:, validator:, rewrite:, repairable_claims: [])
       @persona, @user_message, @validator, @rewrite = persona, user_message, validator, rewrite
+      @repairable_claims = repairable_claims.map(&:to_s)
     end
 
     def call(content)
       reason = rejection_reason(content)
-      return Result.new(content: content, rejection_reason: reason) unless reason == :persona_response_shape
+      claim_repair = @repairable_claims.include?(reason.to_s)
+      return Result.new(content: content, rejection_reason: reason) unless reason == :persona_response_shape || claim_repair
 
-      log_counts(content)
+      log_counts(content, reason: reason)
       instruction = "Rewrite the previous answer. #{self.class.instruction(persona)} " \
         "Keep every fact, uncertainty, safety boundary, and the next step; add nothing. " \
         "Use plain text without markdown. Return only the rewritten answer."
+      if claim_repair
+        instruction += " The previous answer failed the #{reason} check. Do not say or imply that the participant can afford a purchase or that it fits their budget. " \
+          "Avoid the words afford, affordable, fits, works, and safe-to-spend, including in negative statements and questions. " \
+          "Start with what can be established from the supplied facts, state what is unknown, then ask one practical question. The participant decides."
+      end
       rewritten = rewrite.call(instruction)
       reason = rejection_reason(rewritten)
       log_counts(rewritten) if reason == :persona_response_shape
@@ -59,9 +66,11 @@ module Mia
         HouseholdFinance::MiaCoachAnswerer.routing_priority(user_message).in?([ :hardship, :essential_skip ])
     end
 
-    def log_counts(content)
+    def log_counts(content, reason: :persona_response_shape)
+      return unless persona.respond_to?(:response_shape)
+
       counts = ResponseShapePolicy.new(content, persona: persona).counts
-      Rails.logger.info("[Mia::ResponseShapeRewriter] reason=persona_response_shape #{counts.map { |key, value| "#{key}=#{value}" }.join(' ')}")
+      Rails.logger.info("[Mia::ResponseShapeRewriter] reason=#{reason} #{counts.map { |key, value| "#{key}=#{value}" }.join(' ')}")
     end
   end
 end

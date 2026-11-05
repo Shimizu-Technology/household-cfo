@@ -3750,7 +3750,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         const disclosure = incomeSourcesRef.current?.closest('details')
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
         incomeSourcesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        incomeSourcesRef.current?.querySelector<HTMLInputElement>('[name="income_source_label"]')?.focus({ preventScroll: true })
+        const control = incomeSourcesRef.current?.querySelector<HTMLElement>('[name="income_source_label"]') ?? Array.from(incomeSourcesRef.current?.querySelectorAll('button') ?? []).find(button => button.textContent?.includes('Add income source'))
+        control?.focus({ preventScroll: true })
       })
       return
     }
@@ -3888,7 +3889,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
           )}
-          {isRealWorkspace && !data.workspace.setup_complete && <HomeWelcomePanel onPrimaryAction={startChatFirstSession} onManualSetup={startManualFirstSession} plan={data.budget.annual_plan} answer={data.dashboard.month_answer} status={data.workspace.setup_status} />}
+          {isRealWorkspace && !data.workspace.setup_complete && <HomeWelcomePanel onPrimaryAction={startChatFirstSession} onManualSetup={startManualFirstSession} onOpenDebt={visibleSections.includes('My Money') ? () => handleProfileSectionEdit('debt') : undefined} plan={data.budget.annual_plan} answer={data.dashboard.month_answer} status={data.workspace.setup_status} />}
           {data.workspace.setup_complete && (
             <HomeScreen
               dashboard={data.dashboard}
@@ -3899,6 +3900,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               pendingImportCount={visibleSections.includes('Statements') ? (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) : 0}
               onReviewImports={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}
               onOpenDebt={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('debt') : undefined}
+              onOpenProfile={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('income') : undefined}
+              onOpenAccounts={isRealWorkspace && visibleSections.includes('My Money') ? () => handleProfileSectionEdit('assets') : undefined}
               onOpenBudget={visibleSections.includes('Budget') ? () => switchSection('Budget') : undefined}
               canAskMia={visibleSections.includes('Ask Mia')}
               canReviewTransactions={visibleSections.includes('Review')}
@@ -3994,6 +3997,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               )}
 
               <ChatHistory
+                  onOpenMoneyInput={isRealWorkspace ? destination => {
+                    if (!data.workspace.setup_complete && (destination === 'budget' || destination === 'profile')) startManualFirstSession()
+                    else if (destination === 'budget') switchSection('Budget')
+                    else handleProfileSectionEdit({ profile: 'income', debt: 'debt', accounts: 'assets' }[destination])
+                  } : undefined}
                   onSetupHelp={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
                   onFinancialRestart={auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
                   starterPrompts={isFirstSessionSetup ? [] : isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
@@ -4411,7 +4419,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           <ScreenHeading
             eyebrow={isFirstSessionUpload ? 'Optional: try a file' : isFocusedFirstSessionSetup ? `Your ${assistantName} kickoff` : 'My Profile'}
             title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? `Give ${assistantName} the basics for a useful first answer.` : data.profile.household.name}
-            copy={isFirstSessionUpload ? 'Upload a sample or real file, check what Mia found, and apply only what’s right. You can go back to the five starting numbers at any time.' : isFocusedFirstSessionSetup ? `Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; ${assistantName} will help you make sense of the rest.` : data.profile.household.primary_goal}
+            copy={isFirstSessionUpload ? 'Upload a sample or real file, check what Mia found, and apply only what’s right. You can go back to your starting household details at any time.' : isFocusedFirstSessionSetup ? `Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; ${assistantName} will help you make sense of the rest.` : data.profile.household.primary_goal}
           />
 
           {isFirstSessionUpload && (
@@ -4962,7 +4970,7 @@ function ScreenHeading({ title, copy }: { eyebrow: string; title: string; copy: 
   )
 }
 
-export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, answer, status }: { onPrimaryAction: () => void; onManualSetup: () => void; plan?: AnnualBudgetPlan; answer?: DashboardData['month_answer']; status?: WorkspaceSetupStatus }) {
+export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, plan, answer, status }: { onPrimaryAction: () => void; onManualSetup: () => void; onOpenDebt?: () => void; plan?: AnnualBudgetPlan; answer?: DashboardData['month_answer']; status?: WorkspaceSetupStatus }) {
   const { assistantName } = useBrand()
   const started = (status?.completed_count ?? 0) > 0
   const missingFields = status?.missing_fields.filter(field => !answer?.main_income_missing || field.key !== 'primary_income') ?? []
@@ -4973,6 +4981,7 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, plan, answer,
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
     {answer?.main_income_missing && <p>Still to add: your main income.</p>}
     {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
+    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
   </section>

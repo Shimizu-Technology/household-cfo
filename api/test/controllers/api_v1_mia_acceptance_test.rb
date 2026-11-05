@@ -181,9 +181,9 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       answer = response.parsed_body.dig("assistant_message", "content")
       assert_includes answer, "From approved records"
       %w[$6,400 $2,400 $800 $175].each { |amount| assert_includes answer, amount }
-      assert_includes answer, "liquid account picture is incomplete"
-      assert_includes answer, "Next step:"
-      assert_includes answer, "no numbers changed"
+      assert_includes answer, "account balances yet"
+      assert_includes answer, "Accounts in My Money"
+      assert_includes answer, "leaving anything unknown blank"
       refute_includes answer, "$99,999"
       refute_includes answer, "match every requested amount"
       assert_nil response.parsed_body["mia_action_draft"]

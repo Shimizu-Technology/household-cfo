@@ -138,6 +138,8 @@ module HouseholdFinance
 
     def answer_spending
       plan = AnnualBudgetManager.new(@household, year: @reference_date.year).read_only_plan_data
+      month = MiaMonthAnswer.new(@household, annual_plan: plan, month: @reference_date.month)
+      return result(:spending, month.response) if month.call[:before_plan_start] || (!month.call[:plan_available] && @reference_date.year > Date.current.year)
       rows = plan.fetch(:rows)
       matches = @read_text.match?(/\b(?:categories|expense stacks?|by category)\b/i) ? [] : spending_category_matches(rows)
       if matches.length > 1
@@ -152,6 +154,7 @@ module HouseholdFinance
       shown = selected.first(MAX_RECORDS)
       available = plan.fetch(:plan_available)
       drafts = @household.transaction_drafts.pending.where(financial_source_event_id: nil, occurred_on: @reference_date..@reference_date.end_of_month).includes(:transaction_draft_splits).to_a
+      actual_known = @household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: @reference_date..@reference_date.end_of_month).exists?
       blocks = []
       records = shown.map do |row|
         cell = row.fetch(:months).fetch(@reference_date.month - 1)
@@ -165,11 +168,17 @@ module HouseholdFinance
         else
           "no saved monthly allocation; planned amount unknown"
         end
-        actual = available ? "spent so far #{money(cell[:actual])}" : "spent so far is not known in this plan preview"
+        actual = if available && actual_known
+          "spent so far #{money(cell[:actual])}"
+        elsif available
+          "spent so far is not known yet"
+        else
+          "spent so far is not known in this plan preview"
+        end
         blocks << "#{label(row[:name])} — #{PARTICIPANT_STACK_LABELS.fetch(row[:stack_key], "spending")}#{row[:active] ? '' : ' (archived category retained for history)'}: #{planned}; #{actual}; #{money(Money.dollars(pending))} waiting for review, separate from spent so far."
         { id: row[:id], name: row[:name], stack_key: row[:stack_key], active: row[:active], allocation_known: allocation_known,
           planned_amount: allocation_known ? cell[:planned] : nil, starting_estimate: estimate,
-          confirmed_actual_amount: available ? cell[:actual] : nil, pending_amount: Money.dollars(pending) }
+          confirmed_actual_amount: available && actual_known ? cell[:actual] : nil, pending_amount: Money.dollars(pending) }
       end
       footer = []
       active = rows.select { |row| row[:active] }

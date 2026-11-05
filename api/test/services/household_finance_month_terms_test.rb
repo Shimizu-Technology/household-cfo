@@ -34,7 +34,7 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_includes breakdown, "Jul 2026"
     assert_includes breakdown, "Fixed essentials $4,000 planned, $125 actual, $3,875 remaining"
     assert_includes breakdown, "Dining Out $300 planned, $40 actual, $260 remaining"
-    assert_includes breakdown, "Pending transaction drafts total $7"
+    assert_includes breakdown, "Purchases waiting for review total $7"
 
     largest = HouseholdFinance::BudgetQuestionAnswerer.new(
       "What's our largest category?",
@@ -95,7 +95,7 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     ).call
 
     assert_includes focused, "$60 is still pending review for these categories"
-    assert_includes overview, "Pending transaction drafts total $100"
+    assert_includes overview, "Purchases waiting for review total $100"
   end
 
   test "budget overviews include required debt minimums in outflow and baseline surplus" do

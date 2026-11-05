@@ -1,6 +1,51 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "review one all narration paths reject invented balances verdicts phones and false writes" do
+    [ "purchase_scenario", "coaching", "budget_action", "transaction_draft" ].each do |kind|
+      packet = { kind: kind, write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown. Which category would cover it?" }
+      [ "You have money in the bank", "There is money in your account", "That is available to spend", "Go ahead and buy it", "You can buy it", "I recommend you buy it", "There is plenty of room", "It is no problem for your budget", "I've decided this is a yes", "I saved it to your budget", "I saved it to your budget. Nothing changed", "It was recorded", "Your plan was updated", "I logged it", "Call 671-555-0100 for help", "Phone (671) 555 0101" ].each do |claim|
+        assert_equal packet[:fallback_response], narrate("#{packet[:fallback_response]} #{claim}. What comes next?", packet, "Can I afford a stroller?"), "#{kind}: #{claim}"
+      end
+    end
+  end
+
+  test "review one bank claims cannot hide behind unrelated caveats" do
+    [ "You have money in your account, but I cannot see upcoming payments.", "There is money in the bank, not just a plan figure.", "This is available to spend, but do not forget food." ].each do |claim|
+      assert_equal :unsupported_balance_claim, Mia::NarrationClaims.rejection_reason(claim), claim
+    end
+  end
+
+  test "saved balance descriptions are historical data while save receipts still fail" do
+    assert_nil Mia::NarrationClaims.rejection_reason("Your saved Everyday checking balance is unknown.")
+    [ "I saved your checking balance.", "Your plan was saved with a checking balance." ].each do |receipt|
+      assert_equal :false_write_claim, Mia::NarrationClaims.rejection_reason(receipt), receipt
+    end
+  end
+
+  test "review one purchase narration adds only short numberless coaching to fixed facts" do
+    packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
+    safe = "Protect food and bills first. Which category would cover it?"
+    assert_equal "#{packet[:fallback_response]} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
+    [ "The $300 purchase would leave $1,405 in the plan. Cash is unknown. Which category?", "It would leave one thousand dollars. What next?", "Protect bills first.", "Choose a category. Protect bills. Check food. What next?" ].each do |unsafe|
+      assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
+    end
+  end
+
+  test "review one numberless purchase coaching excludes unicode figures and currencies" do
+    packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
+    [ "Consider the ３ options. Which protects food and bills?", "Protect food and bills before spending ₹. Which category would cover it?" ].each do |unsafe|
+      assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
+    end
+  end
+
+  test "review one food praise in later sentences and invented phones fail" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Get food today and talk to your coach. Does everyone have food today?" }
+    [ "You need food today. Great discipline putting the kids first; talk to your coach. Is there food today?", "You need food today; talk to your coach. Call 671-555-0100. Is there food today?" ].each do |unsafe|
+      assert_equal packet[:fallback_response], narrate(unsafe, packet, "I've been skipping meals to feed my kids"), unsafe
+    end
+  end
+
   test "approved spending is not relabeled a plan figure in a month answer" do
     fallback = "Your plan leaves breathing room. Your cushion needs building. Review the purchases waiting for you."
     packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }

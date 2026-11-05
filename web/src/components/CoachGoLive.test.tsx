@@ -192,6 +192,14 @@ it('warns about rejected audience phrases before offering overall approval',asyn
  expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })
 
+it('reports the actual length rejection without assuming a teaching method',async()=>{
+ const notice='The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again.'
+ api.previewAdminPersona.mockResolvedValueOnce({preview:{status:'unavailable',notice},behavioral_preview_evidence:null})
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ expect((await screen.findByRole('alert')).textContent).toBe(notice)
+ expect(api.postCoachLaunch).not.toHaveBeenCalled()
+})
+
 it('uses plain audience and community wording while preserving custom approved text',async()=>{
  const audience={audience:"People participating in the human coach's financial education program.",culture:{context:'Use only cultural and community context explicitly approved by the human coach.'}}
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,candidate:{...ready.candidate,audience_snapshot:audience}})

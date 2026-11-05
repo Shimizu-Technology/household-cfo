@@ -28,7 +28,7 @@ const coreModules = [
 ] as const
 
 const optionalModules = [
-  ['review', 'Review', 'Approve activity before it changes actuals.'],
+  ['review', 'Review', 'Check purchases before they count in your spending.'],
   ['budget', 'Budget', 'Review and edit the approved plan.'],
   ['profile', 'My Profile', 'Manage household details and preferences.'],
   ['statements', 'Statements', 'Upload and review private statements and files.'],

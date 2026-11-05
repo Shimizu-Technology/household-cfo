@@ -19,7 +19,7 @@ export function YearOutlook({ plan, moneyKnown = true }: { plan: AnnualBudgetPla
   return <section className="year-outlook annual-outlook" aria-label="Year outlook">
     <h3>Your {plan.year} outlook</h3>
     {startMonth && <p>Your plan starts in {startMonth}.</p>}
-    {!known ? <p>Enter your income, planned costs and debt minimums to see the year ahead.</p> : <>
+    {!known ? <p>Add the remaining numbers to see your year ahead.</p> : <>
       <p>{groups.length === 1 ? 'Your plan is steady across these months.' : 'Look ahead to the months when your plan changes.'}</p>
       <ul className="year-outlook-months">{groups.map(group => {
         const first = group.months[0]
