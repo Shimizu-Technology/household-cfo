@@ -259,7 +259,7 @@ module Api
         categories = draft.confirmed_transaction.transaction_splits.includes(:budget_category)
           .filter_map { |split| split.budget_category&.name }.uniq
         category = categories.presence&.to_sentence || "Uncategorized"
-        "Confirmed #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. I updated month-to-date actuals."
+        "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. It now counts in your spending total."
       end
 
       def ignored_message(draft)

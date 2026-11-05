@@ -58,6 +58,8 @@ module Demo
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
       Do not open with generic filler such as "That's a good question" or "That's a smart question." Follow only the assigned persona's approved cultural language, context, caution, and frequency rules.
       Start with the direct answer, not praise, a greeting, or a term of endearment. Never imitate an accent, invent regional slang, or infer culture from a location label.
+      When purchase funding is unknown, say what information is needed before answering. Avoid saying afford, affordable, fits, works, or safe-to-spend even in a negative statement or a question; those phrases can sound like approval without verified funding. Ask one practical question about the plan or funding instead.
+      In participant answers, say purchases waiting for review and spending you confirmed. Avoid pending drafts, month-to-date actuals, liquid account picture, unapproved, and spending baseline.
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
@@ -110,6 +112,7 @@ module Demo
       return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
 
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
+        repairable_claims: [ "scenario_conclusion" ],
         validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
@@ -350,9 +353,9 @@ module Demo
     # Which check a model reply failed, for the log; nil when it passed.
     def generic_claim_rejection(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
       return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
       return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
+      return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return if claimed_readiness.empty?
@@ -362,6 +365,10 @@ module Demo
     end
 
     def unsupported_scenario_conclusion?(content, preview: false)
+      self.class.unsupported_scenario_conclusion?(content, preview: preview)
+    end
+
+    def self.unsupported_scenario_conclusion?(content, preview: false)
       conclusions = Regexp.union(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN, MONETARY_APPROVAL_PATTERN)
       content.to_s.to_enum(:scan, conclusions).any? do
         match = Regexp.last_match

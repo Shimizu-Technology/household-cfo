@@ -1999,7 +1999,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     ].each do |message|
       result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("household_name"), api_key: nil).call
 
-      assert_nil result, message
+      assert result.nil? || (result.clarification? && !result.actionable?), message
     end
   end
 
@@ -2024,7 +2024,8 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       assert_includes result.clarification, "#{field == :household_name ? 120 : 500} characters"
     end
     guided = HouseholdFinance::MiaIntentResolver.new(user_message: "ﬃ" * 41, context: setup_zero_context("household_name"), api_key: nil).call
-    assert_nil guided
+    assert guided.clarification?
+    refute guided.actionable?
     ordinary = HouseholdFinance::MiaIntentResolver.new(user_message: "Leon, Ana and Kids", context: setup_zero_context("household_name"), api_key: nil).call
     assert_equal "Leon, Ana and Kids", ordinary.action.dig(:setup_updates, :household_name)
   end
@@ -2247,7 +2248,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         api_key: nil
       ).call
 
-      assert_nil result, "expected #{message.inspect} to require clarification or model interpretation"
+      assert result.nil? || (result.clarification? && !result.actionable?), "expected #{message.inspect} to require clarification or model interpretation"
     end
   end
 
@@ -2273,7 +2274,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         context: setup_zero_context("primary_goal"),
         api_key: nil
       ).call
-      assert_nil result, "expected #{message.inspect} not to become a primary goal"
+      assert result.nil? || (result.clarification? && !result.actionable?), "expected #{message.inspect} not to become a primary goal"
     end
 
     name_messages.each do |message|
@@ -2282,7 +2283,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         context: setup_zero_context("household_name"),
         api_key: nil
       ).call
-      assert_nil result, "expected #{message.inspect} not to become a household name"
+      assert result.nil? || (result.clarification? && !result.actionable?), "expected #{message.inspect} not to become a household name"
     end
   end
 

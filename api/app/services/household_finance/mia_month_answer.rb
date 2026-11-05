@@ -72,7 +72,7 @@ module HouseholdFinance
         # These cells are uncapped SQL aggregates of approved category splits,
         # independent of the capped recent/pending transaction lists.
         actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
-        actual = nil if before_start && actual&.zero?
+        actual = nil unless household.household_transactions.where(status: %w[confirmed reconciled], occurred_on: Date.new(year, month, 1).all_month).exists?
         pending = Array(plan[:pending_transaction_drafts]).select { |draft| draft[:occurred_on].to_s.start_with?(format("%04d-%02d", year, month)) }
         truncated = plan.dig(:pending_transaction_drafts_meta, :truncated) == true
         pending_unknown = truncated
@@ -81,6 +81,8 @@ module HouseholdFinance
         {
           plan_starts_on: PlanCoverage.new(household).starts_on.iso8601, before_plan_start: before_start,
           main_income_missing: !income_known && !fields.include?("primary_income"),
+          missing_plan_inputs: missing_plan_inputs(income, categories, debt),
+          cushion_missing_inputs: cushion_missing_inputs(snapshot, income, categories, debt),
           year: year, month: month, period_label: Date.new(year, month, 1).strftime("%B %Y"),
           money_in_cents: income, planned_out_cents: planned, category_plan_cents: categories,
           debt_minimums_cents: debt, spent_so_far_cents: actual,
@@ -91,8 +93,8 @@ module HouseholdFinance
           pending_count: pending_unknown ? nil : pending.length, pending_unknown: pending_unknown, pending_list_truncated: truncated,
           readiness_tone: readiness_known ? snapshot[:readiness_tone] : nil,
           runway_months: readiness_known ? snapshot[:runway_months] : nil,
-          readiness_guidance: cushion_guidance(readiness_known ? snapshot[:readiness_tone] : nil, income && planned ? income - planned : nil),
-          readiness_meaning: readiness_known ? snapshot[:readiness_label] : "Add the missing starting numbers before judging your cushion.",
+          readiness_guidance: readiness_known ? cushion_guidance(snapshot[:readiness_tone], income && planned ? income - planned : nil) : missing_cushion_guidance(snapshot, income, categories, debt),
+          readiness_meaning: readiness_known ? snapshot[:readiness_label] : missing_cushion_guidance(snapshot, income, categories, debt),
           safe_to_spend_cents: readiness_known ? snapshot[:safe_to_spend_cents] : nil,
           spent_basis: "purchases you approved; debt payments are separate",
           left_basis: "the plan after planned spending; not a bank balance or permission to spend"
@@ -116,7 +118,7 @@ module HouseholdFinance
 
       left = facts[:plan_left_cents]
       plan_line = if left.nil?
-        facts[:main_income_missing] ? "For #{facts[:period_label]}, still to add: your main income; I cannot total your money in yet" : "For #{facts[:period_label]}, I still need the missing income or planned costs to say what your plan leaves"
+        "For #{facts[:period_label]}, still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}; I cannot total what your plan leaves yet"
       elsif left.negative?
         "Your plan is short by #{money(-left)} for #{facts[:period_label]}"
       else
@@ -153,8 +155,30 @@ module HouseholdFinance
         left&.positive? ? "Your emergency cushion needs building, so give that breathing room a job first." : "Protect food, housing, utilities, and required payments while you rebuild your cushion."
       when "yellow" then "You have some cushion; keep strengthening it before adding new commitments."
       when "green" then "Your cushion is in a stronger place; keep essentials and upcoming costs protected."
-      else "Add the missing starting numbers before judging your cushion."
+      else missing_cushion_guidance(nil, nil, nil, nil)
       end
+    end
+
+    def missing_plan_inputs(income, categories, debt)
+      [].tap do |inputs|
+        inputs << { label: "your main income", destination: "profile" } if income.nil?
+        inputs << { label: "planned household costs", destination: "budget" } if categories.nil?
+        inputs << { label: "debt minimums", destination: "debt" } if debt.nil?
+      end
+    end
+
+    def cushion_missing_inputs(snapshot, income, categories, debt)
+      inputs = missing_plan_inputs(income, categories, debt)
+      inputs << { label: "checking, savings, and emergency-fund balances", destination: "accounts" } unless snapshot[:liquid_assets_known]
+      inputs
+    end
+
+    def missing_cushion_guidance(snapshot, income, categories, debt)
+      # During construction use the current approved plan values, not guessed zeros.
+      return "Add the missing starting numbers before judging your cushion." unless snapshot
+
+      labels = cushion_missing_inputs(snapshot, income, categories, debt).map { |input| input[:label] }
+      labels.empty? ? "Finish your household setup before judging your cushion." : "Add #{labels.to_sentence} before judging your emergency cushion."
     end
 
     def year

@@ -10,6 +10,8 @@ module HouseholdFinance
 
     def call
       totals = report.fetch(:totals)
+      return uncovered_period_answer(totals) if before_plan_start?
+      return "Approved spending for #{report.fetch(:period_label)} is not known yet. Add a purchase or review a statement to see what you spent." if report[:actual_known] == false
       categories = report.fetch(:categories)
       bank = report[:bank_activity] || {}
       top_categories = categories.sort_by { |category| -category.fetch(:actual).to_f }.first(3)
@@ -38,6 +40,20 @@ module HouseholdFinance
 
     attr_reader :report, :prompt
 
+    def before_plan_start?
+      report[:plan_starts_on].present? && report[:start_on].to_s < report[:plan_starts_on].to_s
+    end
+
+    def uncovered_period_answer(totals)
+      start = Date.iso8601(report.fetch(:plan_starts_on)).strftime("%B %Y")
+      spending = if report[:actual_known] == false
+        "Approved spending for #{report.fetch(:period_label)} is not known yet."
+      else
+        "From your approved statement lines, you spent #{money(totals.fetch(:actual))} in #{report.fetch(:period_label)}."
+      end
+      "Your plan starts in #{start}, so #{report.fetch(:period_label)} has no plan to compare against. #{spending}"
+    end
+
     def budget_status_question?
       prompt.match?(BUDGET_STATUS_TERMS)
     end
@@ -52,7 +68,7 @@ module HouseholdFinance
       end
 
       over_categories = categories.select { |category| category.fetch(:actual).to_f > category.fetch(:planned).to_f }
-      pending_line = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
+      pending_line = "Purchases waiting for your review total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
       if over_categories.empty?
         return [
           "No active category is #{over_word} for #{report.fetch(:period_label)}, based on confirmed transactions.",
@@ -151,7 +167,7 @@ module HouseholdFinance
     end
 
     def pending_and_bank_line(totals)
-      pending = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}."
+      pending = "Purchases waiting for your review total #{money(totals.fetch(:pending))}."
       return pending unless bank_activity_present?(totals)
 
       "#{pending} Posted bank activity still needing household review totals #{money(totals.fetch(:bank_needs_review, 0))}; bank-pending activity totals #{money(totals.fetch(:bank_pending, 0))} and is excluded from posted spending."
@@ -181,7 +197,7 @@ module HouseholdFinance
         else
           " against #{planned_phrase(planned)}, #{money(planned - actual)} #{prorated? ? "under the plan so far" : "under plan"}"
         end
-        pending = category.fetch(:pending).to_f.positive? ? " Pending drafts there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
+        pending = category.fetch(:pending).to_f.positive? ? " Purchases waiting for review there total #{money(category.fetch(:pending))} and are not counted until you confirm them." : ""
         "#{category.fetch(:name)} has #{money(actual)} in confirmed spending#{comparison}.#{pending}"
       end
       largest = category_transactions(named.first).max_by { |transaction| transaction[:amount].to_f }
@@ -210,7 +226,7 @@ module HouseholdFinance
       else
         "#{scope}, there is no confirmed spending at #{merchant}."
       end
-      pending_line = pending.any? ? " Pending drafts at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
+      pending_line = pending.any? ? " Purchases waiting for review at #{merchant} total #{money(pending.sum { |draft| draft[:amount].to_f })} and are not counted until you confirm them." : ""
       share = !truncated && totals_actual.positive? && count.positive? ? " That is #{(total / totals_actual * 100).round}% of the #{money(totals_actual)} confirmed for the period." : ""
       "#{lead}#{share}#{pending_line}"
     end

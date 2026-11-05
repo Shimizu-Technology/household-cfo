@@ -184,6 +184,12 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      if purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one? && !normalized_message.match?(CAR_REGISTRATION_PATTERN) && !normalized_message.match?(DEBT_TERM_PATTERN) && !normalized_message.match?(INVESTMENT_PATTERN)
+        return incomplete_setup_answer unless SetupStatus.new(household).complete?
+        return unavailable_plan_answer unless plan_available?
+        return MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: purchase_item,
+          annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
+      end
 
       avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
@@ -224,7 +230,7 @@ module HouseholdFinance
     end
 
     def essential_hardship_answer
-      "That sounds hard; protect food, housing, utilities, and medicine before savings or optional purchases. What essential cost is due next, and how much are you short?"
+      "Not being able to cover an essential cost is hard; food, housing, utilities, and medicine come first. Contact your coach to talk through what can wait, and ask the landlord or bill provider about payment options before the due date. Which essential payment is most urgent right now?"
     end
 
     def reflective_answer
@@ -393,7 +399,8 @@ module HouseholdFinance
       spend_note = if spend_cents&.positive?
         " I have not added the #{money(spend_cents)} you spent yet; when you are ready, send it on its own, like \"I spent #{money(spend_cents)} at the store today\", and I will draft it for review."
       end
-      "Thank you for telling me; a week like this is hard, and it is not a failure on your part. Food comes first: it is the first thing in your protected baseline, ahead of savings, extra debt payments, and wants, so pausing savings to buy food is the right call. It is okay to ask for help this week; your program team or a local food pantry can help you get through to payday.#{spend_note} Next CFO move: list what is due before your next paycheck, with amounts, and we will decide together what can be paused or moved so food comes first."
+      opening = message.match?(/\b(?:skip(?:ped|ping)?|miss(?:ed|ing)?|without)\b.*\b(?:meals?|food|breakfast|lunch|dinner)\b/i) ? "You need food too; going without meals is not something you should have to do." : "Not having enough food is hard; food for everyone comes first."
+      "#{opening} Put food ahead of savings and extra debt payments today. Please talk with your coach or someone you trust about getting food today and checking what local food help is available.#{spend_note} Do you have enough food for everyone, including you, today?"
     end
 
     # A spend beside a deposit or investment buy that the draft path cannot read on its
@@ -702,7 +709,7 @@ module HouseholdFinance
       month_label = month_label(plan, month_index)
       if amount_cents&.positive?
         verdict = amount_cents <= remaining_cents ? "yes, it appears covered by the remaining car registration plan" : "not fully yet; it is #{money(amount_cents - remaining_cents)} over the remaining car registration plan"
-        return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Pending drafts and future unlogged spending are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
+        return "#{verdict.capitalize} for #{month_label}, based on your active annual plan. I can see #{money(planned_cents)} planned for car registration and #{money(remaining_cents)} remaining, while the registration amount you gave me is #{money(amount_cents)}. Purchases waiting for review and anything you have not reported are not counted in that answer. Next CFO move: confirm the due date and keep this funded before approving discretionary wants."
       end
 
       "Car registration is an expected sinking-fund bill, not a random want. Based on your active annual plan for #{month_label}, I can see #{money(planned_cents)} planned and #{money(remaining_cents)} remaining for car registration, but I still need the actual amount and due date before I can say yes as a fact. Next CFO move: send me the registration amount and due date, then we will compare it to this category before touching discretionary money."
@@ -1113,11 +1120,8 @@ module HouseholdFinance
       return unavailable_plan_answer unless plan_available?
 
       amount_cents = amount_from_message_cents
-      need_language = normalized_message.match?(/\b(?:kid|school|work|health|medical|league|required|need)\b/i)
-      coverage_line = amount_cents <= current_discretionary_remaining_cents ? "the amount fits inside the remaining discretionary plan, but that still does not automatically make it wise while readiness is #{snapshot.fetch(:readiness_label)}." : "the amount is above what I can see as remaining in the active discretionary plan, so it needs a tradeoff before approval."
-      classification = need_language ? "That does change the category: this sounds closer to a family need or commitment than a random want." : "That gives me the amount, but I still need to know whether this is a need or a want."
-
-      "#{classification} Based on approved household numbers, the purchase is #{money(amount_cents)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and #{coverage_line} I would not create an actual transaction draft because the money has not left yet; this is a pre-spend CFO decision. Next CFO move: if you approve it, name which category funds it and what gets paused so expected bills stay covered."
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
+        annual_budget_manager: annual_budget_manager, reference_month: reference_month).call.body
     end
 
     def purchase_decision_answer

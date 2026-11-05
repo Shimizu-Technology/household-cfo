@@ -35,7 +35,7 @@ module HouseholdFinance
         "You have #{drafts.length} pending transaction #{'draft'.pluralize(drafts.length)} waiting for review."
       end
 
-      "#{prefix} Pending drafts total #{money(total_cents)} and are not counted as actuals until you confirm them. Waiting for review: #{preview}.#{more_line} Next CFO move: approve only the drafts where merchant, amount, date, and category are right; ignore or correct the rest before using the report as truth."
+      "#{prefix} Purchases waiting for review total #{money(total_cents)} and do not count in your spending until you confirm them. Waiting for review: #{preview}.#{more_line} Check the merchant, amount, date, and category; confirm what is right and correct or leave out the rest."
     end
 
     private

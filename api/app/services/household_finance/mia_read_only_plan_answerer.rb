@@ -44,6 +44,7 @@ module HouseholdFinance
       sections = compact_sections(sections)
 
       basis = presentation_basis(items, scenario_values)
+      single_purchase = items.one? && items.first.to_h[:kind] == "scenario" && items.first.to_h[:scenario_type] == "purchase"
       lead = lead_for(basis, sections.length)
       presentation = {
         version: 1,
@@ -55,8 +56,8 @@ module HouseholdFinance
       presentation[:scenario] = { values: scenario_values } if scenario_values.any?
 
       Result.new(
-        answer: canonical_text(lead, sections),
-        presentation: presentation,
+        answer: single_purchase ? sections.first.fetch(:body) : canonical_text(lead, sections),
+        presentation: single_purchase ? nil : presentation,
         annual_plan: prepared_annual_plan,
         items: items
       )

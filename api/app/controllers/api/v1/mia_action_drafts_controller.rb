@@ -117,6 +117,8 @@ module Api
         when "household_setup"
           base = "Your household details are saved."
           "#{base} #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message}"
+        when "debt_plan"
+          "Your reviewed changes are saved. #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message if draft.metadata['setup_progress']}".strip
         when "action_plan"
           "Your reviewed changes are saved. #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message unless HouseholdFinance::SetupStatus.new(draft.household).complete?}".strip
         else

@@ -14,7 +14,7 @@ module ChallengePrivacy
       raise ArgumentError, "Choose a valid page" if offset.negative?
       @daily = @cohort.savings_challenge_enabled? ? SharedReader.daily_batch(@cohort, user: @user) : {}
       @setup_requests = SetupSupportRequest.where(cohort: @cohort, status: SetupSupportRequest::ACTIVE).includes(:household).order(:id).to_a.group_by(&:requested_by_user_id)
-      memberships = @cohort.cohort_memberships.where(role: "participant").eager_load(user: { household_memberships: :household }).to_a
+      memberships = @cohort.cohort_memberships.where(role: "participant").eager_load(user: { household_memberships: { household: [ :household_profile, :debts ] } }).to_a
       # The same authoritative identity predicate as invitation_accepted?, in
       # one query for this display snapshot. Authorization remains fresh/locked.
       @joined_ids = User.accepted_linked_identity.where(id: memberships.map(&:user_id)).pluck(:id).to_set

@@ -32,14 +32,15 @@ class HouseholdFinanceSetupStatusTest < ActiveSupport::TestCase
     assert_includes workspace.dig(:dashboard, :summary, :readiness_label), "Setup incomplete"
   end
 
-  test "an explicitly confirmed zero flexible amount completes the five-field baseline" do
+  test "explicitly confirmed zero flexible spending and debt payments complete setup" do
     HouseholdFinance::SetupUpdater.new(
       @household,
       household_name: "Zero-flex household",
       primary_goal: "Protect the baseline",
       primary_income: 4_500,
       fixed_expenses: 3_200,
-      flexible_spend: 0
+      flexible_spend: 0,
+      debt_payment: 0
     ).call
 
     status = HouseholdFinance::SetupStatus.new(@household.reload)
@@ -112,7 +113,8 @@ class HouseholdFinanceSetupStatusTest < ActiveSupport::TestCase
       primary_goal: "Build stability",
       primary_income: 4_500,
       fixed_expenses: 3_200,
-      flexible_spend: 0
+      flexible_spend: 0,
+      debt_payment: 0
     }
 
     2.times { HouseholdFinance::SetupUpdater.new(@household, attributes).call }

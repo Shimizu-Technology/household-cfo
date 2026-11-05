@@ -8,13 +8,15 @@ module HouseholdFinance
       primary_income
       fixed_expenses
       flexible_spend
+      debt_payment
     ].freeze
     FIELD_LABELS = {
       household_name: "Household name",
       primary_goal: "Primary goal",
       primary_income: "Primary monthly income",
       fixed_expenses: "Fixed essentials",
-      flexible_spend: "Flexible spending"
+      flexible_spend: "Flexible spending",
+      debt_payment: "Debt minimums"
     }.freeze
 
     def initialize(household, additional_confirmed_fields: [], proposed_values: {})
@@ -33,6 +35,7 @@ module HouseholdFinance
         additional_confirmed_fields
       ).select { |field| field.in?(SetupUpdater::INPUT_KEYS.map(&:to_s)) }
         .select { |field| confirmed_value_present?(field) }
+        .then { |fields| DebtPortfolio.new(household).minimum_payment_known? ? fields | [ "debt_payment" ] : fields - [ "debt_payment" ] }
         .uniq
     end
 

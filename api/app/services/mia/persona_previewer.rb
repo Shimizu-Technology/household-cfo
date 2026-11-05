@@ -6,6 +6,7 @@ require "digest"
 module Mia
   class PersonaPreviewer
     UNAVAILABLE_NOTICE = "The preview didn't come through. Try again in a minute."
+    REJECTED_NOTICE = "The sample answer did not pass the safety and accuracy checks. In Teaching, keep your direct-answer-first method and ask the assistant to state what is known, name what is missing, and help the participant decide without promising a purchase is affordable. Then preview again."
     PREVIEW_CONTEXT = {
       preview_mode: true,
       data_basis: "No-write Persona Studio preview. Saved participant and household data is not loaded. The coach-authored sample prompt may contain fictional or user-supplied facts.",
@@ -56,7 +57,7 @@ module Mia
           status: "unavailable",
           source: source.presence || "model_unavailable",
           reply: nil,
-          notice: UNAVAILABLE_NOTICE
+          notice: active_responder.respond_to?(:fallback_reason) && active_responder.fallback_reason == :reply_rejected ? REJECTED_NOTICE : UNAVAILABLE_NOTICE
         )
       end
     rescue StandardError => error

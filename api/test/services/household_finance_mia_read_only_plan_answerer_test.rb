@@ -132,7 +132,7 @@ class HouseholdFinanceMiaReadOnlyPlanAnswererTest < ActiveSupport::TestCase
     assert_equal before, financial_counts
     assert_equal 2, result.presentation.fetch(:sections).length
     assert_includes result.presentation.dig(:sections, 0, :body), "could not answer this part safely"
-    assert_includes result.presentation.dig(:sections, 1, :body), "Scenario only"
+    assert_includes result.presentation.dig(:sections, 1, :body), "$900 purchase"
   end
 
   test "does not claim a scenario basis when every scenario answer fails" do

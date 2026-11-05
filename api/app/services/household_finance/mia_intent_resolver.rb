@@ -79,7 +79,7 @@ module HouseholdFinance
     SETUP_RETARGET_PATTERN = /\b(?:i meant|what i meant|correction|actually|instead|rather|change that|make that|use that instead)\b/i.freeze
     INCOME_RETENTION_PATTERN = /\b(?:retain|retained|keep|continue|continuing|stop|end|after (?:the )?transition|after (?:i|we) leave|part[ -]?time)\b/i.freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
-    REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
+    REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend debt_payment].freeze
     GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
     GUIDED_MONEY_REPLY_PATTERN = /\A(?:about|around|approximately|roughly|maybe)?\s*\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s*(?:(?:a|per|each)\s+month|monthly)?[.!]?\z/i.freeze
     GUIDED_SETUP_DISCOURSE_PREFIX = /\A(?:actually|well|okay|ok|um|hmm)[,\s]+/i.freeze
@@ -127,7 +127,6 @@ module HouseholdFinance
     FAMILY_LENDING_PATTERN = /\b#{FAMILY_LENDING_PERSON_SOURCE}\b.{0,80}\b(?:borrow(?:s|ed|ing)?|lend(?:s|ing)?|lent|loan(?:s|ed|ing)?|pay\s+(?:me|us)\s+back)\b|\b(?:lend(?:ing)?|lent|loan(?:ing)?)\b.{0,40}\b#{FAMILY_LENDING_PERSON_SOURCE}\b/i.freeze
     SCENARIO_LABEL_STOPWORD_PATTERN = /\A(?:for|to|at|on|in|of|from|and|or|the|a|an|this|that|these|those|my|our|her|his|their|with|each|per|every|now|today|tomorrow|next|so|if|is|was|be|it|right|already|more|less|extra|total)\z/i.freeze
     MAX_TRANSACTION_REPORTS = 5
-    HOUSEHOLD_NAME_MAX_WORDS = 8
     HOUSEHOLD_NAME_SENTENCE_START_PATTERN = /\A(?:we|i|it|its|it['’]s|that|this|they|my\s+name)\s+(?:is|are|was|were|am|will|would|gonna|going|have|had|just|call|named)\b|\A(?:we|i)['’]?(?:re|m|ll|ve)\b/i.freeze
     HOUSEHOLD_NAME_SENTENCE_PATTERN = /(?<![[:alnum:]])(?:#{HOUSEHOLD_NAME_FILLER_SOURCE}|(?:and|but|so)\s+(?:we|i)|(?:and|but|so)\s+(?:our|my)\s+(?:main\s+|primary\s+|big\s+)?(?:goals?|income|rent|bills?)|(?:our|my)\s+(?:main\s+|primary\s+)?goal|we\s+(?:make|bring|earn|want|wanna|need|have|pay|spend))(?![[:alnum:]])/i.freeze
     HOUSEHOLD_NAME_CLARIFICATION = "What household name should I use? Send only the name, such as “Cruz Ohana.” Nothing changed.".freeze
@@ -238,6 +237,13 @@ module HouseholdFinance
 
       setup_result = setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
+      if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
+          user_message.match?(/\A(?:can|could|may)\s+(?:i|we)\s+(?:afford|buy|purchase)\b/i) &&
+          !user_message.match?(/\b(?:and|also|then|plus)\b/i) &&
+          !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::DEBT_TERM_PATTERN)
+        scenario = deterministic_scenario_fallback
+        return scenario if scenario&.read_only_plan? && scenario.read_only_plan.dig(:items, 0, :scenario_type) == "purchase"
+      end
       return read_only_request ? explicit_read_only_result : deterministic_purchase_result if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
@@ -664,7 +670,7 @@ module HouseholdFinance
     end
 
     def household_name_shape?(name)
-      name.split.length <= HOUSEHOLD_NAME_MAX_WORDS && !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN)
+      normalized_bounded_text(name).length <= setup_text_limit(:household_name) && !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN)
     end
 
     def normalized_setup_money(raw)
@@ -685,7 +691,7 @@ module HouseholdFinance
     end
 
     def deterministic_setup_clarification(field, clarification: nil)
-      label = MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field)
+      label = SetupStatus::FIELD_LABELS[field.to_sym] || MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field.to_sym)
       Result.new(
         intent: "clarification",
         confidence: 1.0,
@@ -707,7 +713,7 @@ module HouseholdFinance
         field = next_missing_setup_field
         if guided_setup_question_asked?(field)
           value = guided_setup_value(field)
-          setup_reply_result(field, value) unless value.nil?
+          value.nil? ? deterministic_setup_clarification(field, clarification: MiaSetupGuide.question_message(field)) : setup_reply_result(field, value)
         end
       end
     end
@@ -734,9 +740,13 @@ module HouseholdFinance
     def guided_setup_value(field)
       return guided_text_setup_value(field) if field.in?(GUIDED_TEXT_SETUP_FIELDS)
       return unless field.in?(REQUIRED_ZERO_SETUP_FIELDS)
+      return "0" if field == "debt_payment" && user_message.squish.match?(/\A(?:(?:i|we)\s+have\s+)?no debt payments[.!]?\z/i)
       return if guided_setup_non_answer?
 
       match = user_message.match(GUIDED_MONEY_REPLY_PATTERN)
+      if !match && field == "primary_income" && !ambiguous_setup_statement?
+        match = user_message.match(/\A(?:i|we)\s+(?:take|bring)\s+home\s+(?:about\s+)?\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:a|per|each)\s+month(?:\s+from\s+(?:my|our)\s+(?:job|work)(?:\s+at\s+[^.!?]+)?)?[.!]?\z/i)
+      end
       return unless match
 
       cents = chat_cents_or_nil(match[1])
@@ -779,6 +789,12 @@ module HouseholdFinance
 
     def setup_reply_result(field, value)
       label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
+      if field == "debt_payment"
+        return Result.new(intent: "debt_action", confidence: 1.0, continuation: true,
+          resolved_message: "Set monthly debt minimums to #{value}", needs_clarification: false, clarification: "",
+          topic: { type: "household_setup", title: "Starting household picture", subject: label },
+          action: { type: "update_debt_tracking", debt_tracking_mode: "summary", amount: context.dig(:debt_tracking, :balance_known) ? context.dig(:debt_tracking, :total_balance).to_s : "unknown", minimum_payment: value }, read_only_plan: {}, source: "deterministic")
+      end
       Result.new(
         intent: "household_action",
         confidence: 1.0,

@@ -55,6 +55,7 @@ module HouseholdFinance
     def call
       return nil unless budget_question?
       return nil if month_index.nil?
+      return shared_month_answer.response if shared_month_answer&.call&.fetch(:before_plan_start)
 
       return largest_category_answer if largest_category_question?
       return smallest_category_answer if smallest_category_question?
@@ -139,14 +140,14 @@ module HouseholdFinance
       row = largest_planned_row
       return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the largest line again." unless row
 
-      "Your largest planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number. Next CFO move: review what makes up #{row.fetch(:name)} before reducing it; if you want to change it, I can draft the edit for your approval."
+      "Your largest planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Purchases waiting for review do not count in that spending total. Next CFO move: review what makes up #{row.fetch(:name)} before reducing it; if you want to change it, I can draft the edit for your approval."
     end
 
     def smallest_category_answer
       row = smallest_planned_row
       return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the smallest line again." unless row
 
-      "Your smallest active planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number."
+      "Your smallest active planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Purchases waiting for review do not count in that spending total."
     end
 
     def budget_health_answer

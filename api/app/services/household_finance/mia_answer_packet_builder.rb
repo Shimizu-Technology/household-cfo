@@ -147,6 +147,8 @@ module HouseholdFinance
         period_label: report[:period_label],
         start_on: report[:start_on],
         end_on: report[:end_on],
+        plan_available: report[:plan_available],
+        actual_known: report[:actual_known],
         totals: report[:totals],
         pending_draft_count: Array(report[:pending_drafts]).length,
         confirmed_transaction_count: Array(report[:transactions]).length,

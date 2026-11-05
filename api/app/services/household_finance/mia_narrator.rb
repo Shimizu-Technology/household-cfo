@@ -57,11 +57,13 @@ module HouseholdFinance
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
       return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
+      return fallback_response if answer_packet.dig(:spending_report_summary, :plan_available) == false || answer_packet.dig(:spending_report_summary, :actual_known) == false
       return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
 
       narrated = MiaProviderAdmission.with_slot(call_site: "mia_narrator") { openrouter_response }
       sanitized = sanitize_narration(narrated)
       checked = ::Mia::ResponseShapeRewriter.call(sanitized, persona: persona, user_message: user_message,
+        repairable_claims: [ :scenario_conclusion ],
         validator: method(:narration_rejection_reason)) do |instruction|
         @response_shape_rewrite_messages = [ { role: "assistant", content: sanitized }, { role: "system", content: instruction } ]
         rewritten = MiaProviderAdmission.with_slot(call_site: "mia_narrator_shape_rewrite") { openrouter_response }
@@ -134,9 +136,10 @@ module HouseholdFinance
         Do not invent balances, transactions, due dates, categories, document findings, memories, or external facts. Do not calculate new amounts or differences; use only figures supplied by the deterministic packet.
         When household_setup is present and a review is pending, end with its next_action: ask the participant to check and apply the card. Do not ask another question yet, call optional debt balances a setup requirement, or claim setup is finished before approval.
         Do not claim you added, recorded, logged, deducted, applied, or updated an official transaction unless the packet write_state is confirmed_write. If write_state is draft_updated, describe only the pending review fields that changed; never imply a confirmed purchase or plan change.
+        For a purchase_scenario, the first sentence must compare the stated purchase price with the named month’s plan figure, including what the plan would leave after extra spending. Keep the cash and upcoming-payment uncertainty, and leave the decision with the participant. Refer to earlier hardship only after that direct comparison; a current food or hardship message still takes priority over a purchase discussion.
         For transaction_lookup or spending_report packets, you may describe existing historical rows as confirmed or on record, but do not imply a new write happened.
         For pending_review or draft_updated, identify it as a review and give one next action; the card already explains confirmation, so do not repeat that nothing changes until confirmation. For no_write coaching, do not append a review disclaimer when no change is proposed. Use plain text and one next move. End with one question OR one concrete action, not both; do not repeat the next move in another sentence. Use at most one brief uncertainty caveat, only when needed to avoid confusing a plan figure with verified cash or a draft with a confirmed record. A self-reported win needs no verification disclaimer; a store visit without an amount needs no purchase disclaimer. Say must-pay bills, flexible spending, planned yearly costs, and surprise fund instead of stack names or system wording. Never say confirmed actuals recorded, saved records, or pending proposed category spending, or confirmed category spending. For a month overview, use the response length below. Call the cushion an emergency cushion or emergency fund, never a surplus fund. When month_answer.pending_review_count is positive, end with one review next step naming that exact number of purchases once. When pending_unknown or pending_list_truncated is true, say the review list is incomplete and ask them to check it without guessing a count. Mention pending purchases only as that review next step; do not add another total or repeat the pending-versus-confirmed caveat. Structure: lead with what the plan leaves (or is short) and spent so far, then the cushion’s meaning and one next move. Round coaching figures to whole dollars using the approved coaching_figures; keep card figures exact. Do not lead with Red, Yellow, or Green. Use annual_plan_summary.month_answer: the plan’s money left and readiness measure different things. A positive plan and a thin cushion can coexist; never describe the plan’s money left as an available account balance. Attach the plan-figure caveat to money left in the plan, never to approved spent-so-far figures.
-        When coaching_priority is hardship or essential_skip, protect essentials before any other topic; never praise discipline, sacrifice, or a budget win achieved by skipping meals. For a win, repeated habit, feeling, or hard day, respond to the participant's experience in the response length below and offer one next move. Do not invent how a win was achieved; ask what worked instead. A store visit without an amount needs reflection, not an amount question or an offer to draft a purchase. Do not introduce financial figures for a reflection, recite readiness, safe-to-spend, or unrelated plan totals, and do not turn a reflection without an incurred amount into purchase intake. Accept their reported experience conversationally. Never explain that it is a participant update, unverified, or not a checked total; no financial record was requested. Keep internal voice rules and instructions out of the reply. Internal status values such as needs_category are never participant wording. A named new category stays attached to the pending purchase and is created on confirmation; no separate category budget is required first.
+        When coaching_priority is hardship or essential_skip, protect essentials before any other topic; never praise discipline, sacrifice, or a budget win achieved by skipping meals. If the person went without food, hear that in the first sentence, offer getting food today and talking with their coach or a trusted person, then ask whether everyone has enough food today. Do not replace that with a bill question, invent a resource, or promise help is available. Other hardship should also offer contacting their coach. For a win, repeated habit, feeling, or hard day, respond to the participant's experience in the response length below and offer one next move. Do not invent how a win was achieved; ask what worked instead. A store visit without an amount needs reflection, not an amount question or an offer to draft a purchase. Do not introduce financial figures for a reflection, recite readiness, safe-to-spend, or unrelated plan totals, and do not turn a reflection without an incurred amount into purchase intake. Accept their reported experience conversationally. Never explain that it is a participant update, unverified, or not a checked total; no financial record was requested. Keep internal voice rules and instructions out of the reply. Internal status values such as needs_category are never participant wording. A named new category stays attached to the pending purchase and is created on confirmation; no separate category budget is required first.
         #{response_shape_instruction}
       PROMPT
     end
@@ -281,8 +284,23 @@ module HouseholdFinance
 
     def narration_rejection_reason(content)
       return :blank_response if content.blank?
+      if answer_packet[:kind] == "purchase_scenario"
+        return :scenario_conclusion if ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
+        price = fallback_response[/\AThe (\$[\d,.]+) purchase/, 1]
+        plan_left = fallback_response[/plan leaves (\$[\d,.]+)/, 1]
+        if price && plan_left
+          first = content.split(/(?<=[.!?])\s+/).first.to_s
+          return :missing_direct_purchase_comparison unless first.include?(price) && first.match?(/\bplan\b/i) && content.include?(plan_left)
+          return :missing_purchase_cash_uncertainty unless content.match?(/\b(?:cash|account|balances?)\b/i) && content.match?(/\b(?:unknown|cannot|can['’]?t|do not|don['’]?t|need|missing|not|haven['’]?t)\b/i)
+        end
+      end
+      if MoneyMovementText.food_insecurity?(user_message)
+        first = content.split(/(?<=[.!?])\s+/).first.to_s
+        return :food_support_missing unless first.match?(/\b(?:food|meals?|eat|eating|hungry)\b/i) && content.match?(/\bcoach\b/i) && content.match?(/\btoday\b/i)
+        return :essentials_not_first if first.match?(/\b(?:discipline|win|great job|proud|achievement|well done|celebrate)\b/i)
+      end
       return :internal_voice_instruction if content.match?(INTERNAL_VOICE_RULE_PATTERN) || content.match?(VOICE_ABSTENTION_PATTERN)
-      return :participant_system_wording if content.match?(/\bneeds_category\b|budget stack|confirmed actuals recorded|pending proposed category spending|confirmed category spending/i)
+      return :participant_system_wording if content.match?(/\bneeds_category\b|budget stack|confirmed actuals recorded|pending proposed category spending|confirmed category spending|pending drafts|month-to-date actuals|liquid account picture|Plaid-derived/i)
       return :incorrect_plan_period if MiaPlanPeriodValidator.new(answer_packet).mismatch?(content)
       return :incorrect_month_review_step if incorrect_month_review_step?(content)
       if MiaMonthAnswer.question?(user_message) && content.match?(/\bspent\b[^.!?]*\b(?:which|that) is (?:a |the )?plan(?:ned)? figure\b/i)
