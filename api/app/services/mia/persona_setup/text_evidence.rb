@@ -41,7 +41,10 @@ module Mia
             # Quoted example phrases are optional in a paraphrase of a condition;
             # the condition and every other factual word must remain intact.
             protected_words = tokens(source.gsub(/"[^"\n]*"/, ""))
-            ordered_subset?(words, evidence) && (!restricted || ordered_subset?(protected_words, words))
+            negatives = evidence.select { |word| word.start_with?("not:") }
+            nested = negatives.length > 1 && !evidence.include?("or")
+            ordered_subset?(words, evidence) && (!restricted || ordered_subset?(protected_words, words)) &&
+              (!nested || (negatives - words).empty?)
           end
         end
       end

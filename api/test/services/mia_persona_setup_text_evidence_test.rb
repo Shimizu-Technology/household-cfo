@@ -144,7 +144,8 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
       [ "Only recommend waiting 30 days when bills are paid", "Recommend waiting 30 days" ],
       [ "Protect food before rent", "Protect rent before food" ],
       [ "Do not shame or blame clients", "Blame clients" ],
-      [ "Don't stop spending", "Stop spending" ]
+      [ "Don't stop spending", "Stop spending" ],
+      [ "Don't tell people to stop spending", "Don't spend" ]
     ].each_with_index do |(quote, claim), index|
     test "review preserves restrictions relationships and coordinated negatives #{index}" do
       refute Mia::PersonaSetup::TextEvidence.supports?(quote, claim), "#{quote} must not support #{claim}"
