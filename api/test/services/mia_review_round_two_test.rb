@@ -25,6 +25,49 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     end
   end
 
+  [ "Don't get food today", "Do not get food today", "You can skip eating today", "No need to get food", "You don't need to eat today", "You should not find food today" ].each do |instruction|
+    test "negated food instruction #{instruction} falls back even beside a valid food step" do
+      content = "You skipped meals so your kids could eat. #{instruction}; talk with your coach. Please get food today. Does everyone have enough food today?"
+      subject = food_narrator
+      subject.define_singleton_method(:openrouter_response) { content }
+      assert_equal food_fallback, subject.call
+      assert_equal :food_support_missing, subject.send(:narration_rejection_reason, content)
+    end
+  end
+
+  [ "I make $4,500 a month, can I afford a $300 stroller?", "My income is $4,500, can I afford a $300 stroller?",
+    "I earn $4,500 a month. Can I buy a $300 stroller?", "My income is $4,500 a month. Can I buy a $300 stroller?",
+    "I make $4,500 a month and can I buy a $300 stroller?" ].each_with_index do |message, index|
+    test "complete purchase answer uses the price beside income phrasing #{index}" do
+      subject = answerer(message)
+      assert_nil subject.send(:recurring_purchase_answer)
+      assert_equal answerer("Can I afford a $300 stroller?").call, subject.call
+    end
+  end
+
+  test "purchase impact uses its purchase clause instead of earlier income" do
+    assert_equal answerer("Can I buy a $300 stroller and how would it affect runway?").call,
+      answerer("I make $4,500 a month. Can I buy a $300 stroller and how would it affect runway?").call
+  end
+
+  test "purchase account coverage uses the price instead of earlier income" do
+    question = "Can I buy a $300 stroller, and which account could fund it?"
+    assert_equal answerer(question).call, answerer("My income is $4,500. #{question}").call
+  end
+
+  test "purse price binding and compound purchase debt roles ignore earlier income" do
+    [ "Can I buy a $300 purse?", "Can I buy a $300 stroller and make a $200 extra credit card payment?" ].each do |question|
+      assert_equal answerer(question).call, answerer("My income is $4,500. #{question}").call
+    end
+  end
+
+  test "income and balances cannot price an unpriced or ambiguous purchase" do
+    [ "I make $4,500 a month. Can I afford a stroller?", "My income is $4,500, can I afford a stroller?",
+      "Can I buy a stroller with $4,500 income and $2,000 in checking?", "Can I buy a $300 or $400 stroller?" ].each do |message|
+      assert_match(/What does the item cost|Which purchase price/, answerer(message).call, message)
+    end
+  end
+
   test "monthly income outside a purchase clause cannot suppress purchase intent or create recurrence" do
     [ "I earn $4,500 a month. Can I buy a $300 stroller?", "Can I buy a $300 stroller? My monthly income is $4,500.",
       "I earn $4,500 a month, and can I buy a $300 stroller?" ].each do |message|
@@ -68,6 +111,13 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_includes answerer(followup.message).call, "recurring monthly commitment"
   end
 
+  test "a complete current purchase answer cannot reuse the prior followup price" do
+    context = { active_topic: { type: "coaching", title: "Purchase decision", latest_user_context: "Can I buy a $300 stroller?" } }
+    followup = HouseholdFinance::ConversationFollowupResolver.new("Can I buy a $200 stroller?", conversation_context: context).call
+    assert followup.follow_up?
+    assert_equal answerer("Can I buy a $200 stroller?").call, answerer(followup.message).call
+  end
+
   { "tomorrow" => "May 2026", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
     test "purchase timing resolves #{timing} before the selected period default" do
       assert_includes answerer("Can I buy a $300 stroller #{timing}?", reference_month: 8).send(:purchase_plan_answer), label
@@ -98,11 +148,23 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
   end
 
   test "bare dollar amounts and explicit corrections still replace the price" do
-    [ "$200", "$200.", "Actually, $200!", "No, it costs $200" ].each do |correction|
+    [ "$200", "$200.", "$200, please", "Actually, $200!", "No, it costs $200" ].each do |correction|
       result = HouseholdFinance::PurchaseQuestionText.for_comparison("Can I buy a $300 stroller? #{correction}")
       assert_equal "Can I buy a $200 stroller?", result.text, correction
       refute result.needs_clarification, correction
     end
+  end
+
+  test "polite shorthand correction reaches both complete purchase answers" do
+    message = "Can I buy a $300 stroller? $200, please"
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: {}, api_key: "").deterministic_scenario_result
+    assert_equal "200", result.read_only_plan[:items].first[:amount]
+    assert_equal answerer("Can I buy a $200 stroller?").call, answerer(message).call
+  end
+
+  test "unrecognized later dollar fragments clarify rather than retain the earlier price" do
+    result = HouseholdFinance::PurchaseQuestionText.for_comparison("Can I buy a $300 stroller? $200 maybe, or $250")
+    assert result.needs_clarification
   end
 
   test "one flexible category uses singular grammar" do

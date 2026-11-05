@@ -494,7 +494,7 @@ module HouseholdFinance
     def account_coverage_answer
       return nil unless normalized_message.match?(ACCOUNT_COVERAGE_PATTERN)
 
-      amount = amount_from_message_cents
+      amount = purchase_question? ? purchase_comparison_amount_cents : amount_from_message_cents
       return "Tell me the exact amount you want to cover, and I can compare it with saved household account snapshots without guessing a live bank balance." unless amount&.positive?
 
       qualifying_accounts = household.accounts.active.where(balance_known: true, account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
@@ -538,7 +538,7 @@ module HouseholdFinance
     def purchase_impact_answer
       return nil unless normalized_message.match?(PURCHASE_IMPACT_PATTERN)
 
-      amount_cents = amount_from_message_cents
+      amount_cents = purchase_comparison_amount_cents
       purchase_label = amount_cents&.positive? ? "The #{money(amount_cents)} purchase" : "The purchase"
       "I cannot calculate the exact runway impact yet because the approved data does not say which account would pay for it or whether protected liquid would decrease. #{purchase_label} is still a pre-spend decision, and safe-to-spend is a monthly guardrail of #{money(snapshot.fetch(:safe_to_spend_cents))}, not an account balance I can subtract the purchase from. Nothing is approved and no household number changed. Next CFO move: name the funding account and the budget category that would cover it, then I can model the effect without guessing."
     end
@@ -1111,17 +1111,16 @@ module HouseholdFinance
 
     def unpriced_purchase_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
-      return unless purchase_question? && amount_from_message_cents.nil?
+      return unless purchase_question? && purchase_comparison_amount_cents.nil?
 
       "What does the item cost, and which month are you considering it for?"
     end
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
-      text = PurchaseQuestionText.for_comparison(message).text
-      amount = text.match(Money::CHAT_DOLLAR_AMOUNT_PATTERN)&.[](1)
-      return unless purchase_question? && amount && Money.chat_cents(amount).positive? && text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
-      return if normalized_message.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
+      text = purchase_comparison_text
+      amount_cents = purchase_comparison_amount_cents
+      return unless purchase_question? && amount_cents&.positive?
       return incomplete_setup_answer unless SetupStatus.new(household).complete?
       return unavailable_plan_answer unless plan_available?
 
@@ -1138,7 +1137,7 @@ module HouseholdFinance
         Date.new(annual_budget_manager.year, reference_month, 1)
       end
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
-      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(Money.chat_cents(amount)), label: item, effective_on: date&.iso8601,
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: item, effective_on: date&.iso8601,
         annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
     end
 
@@ -1159,7 +1158,8 @@ module HouseholdFinance
     def planned_purchase_detail_answer
       return if purchase_question? && essential_purchase?
       return if non_purchase_amount_request?
-      return nil unless amount_from_message_cents&.positive?
+      amount_cents = purchase_comparison_amount_cents
+      return nil unless amount_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
       return nil if !purchase_question? && normalized_message.match?(AMOUNT_CHANGE_STATEMENT_PATTERN) && !normalized_message.match?(/\b(?:does that change|price|costs?)\b/)
@@ -1173,7 +1173,6 @@ module HouseholdFinance
       return nil if normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(EXTRA_MONEY_PATTERN) || normalized_message.match?(MONEY_MOVEMENT_PATTERN)
       return unavailable_plan_answer unless plan_available?
 
-      amount_cents = amount_from_message_cents
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_cents), label: purchase_item,
         annual_budget_manager: annual_budget_manager, reference_month: reference_month).call.body
     end
@@ -1240,13 +1239,42 @@ module HouseholdFinance
       normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)
     end
 
-    def purchase_intent_clause
+    def purchase_intent_clause(text = message)
       # Legacy followups prepend old purchases. Only the current question may
       # establish a new monthly commitment.
-      current = message.start_with?("Follow-up to previous ") ? message.split(" Current follow-up: ", 2).last : message
+      current = text.start_with?("Follow-up to previous ") ? text.split(" Current follow-up: ", 2).last : text
       current.split(/(?<=[.!?;])\s+|,\s+|\s+(?:and|but)\s+(?=(?:i|we|can|should|could|may|is it)\b)/i).find do |clause|
         PURCHASE_INTENT_PATTERNS.any? { |pattern| clause.match?(pattern) }
       end
+    end
+
+    def purchase_comparison_text
+      text = PurchaseQuestionText.for_comparison(message).text
+      clause = purchase_intent_clause(text)
+      return text unless clause
+
+      # An income statement may share punctuation with the purchase question.
+      start = PURCHASE_INTENT_PATTERNS.filter_map { |pattern| clause.match(pattern)&.begin(0) }.min
+      clause[start..]
+    end
+
+    def purchase_comparison_amount_cents
+      return if PurchaseQuestionText.for_comparison(message).needs_clarification
+
+      text = purchase_comparison_text
+      # "The shoes are $90. Can I get them?" states the price just before the
+      # question. Only reuse it when the whole turn contains one unambiguous amount.
+      unless text.match?(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+        text = PurchaseQuestionText.for_comparison(message).text
+        return unless text.match?(/\b(?:costs?|price|is|are)\s+\$/i)
+      end
+      return if text.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
+
+      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+      return unless amounts.one?
+
+      amount = Money.chat_cents(amounts.first.first)
+      amount if amount.positive?
     end
 
     def recurring_purchase_amount?(clause)
@@ -1275,7 +1303,7 @@ module HouseholdFinance
     end
 
     def purchase_item
-      match = normalized_message.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
+      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
       return unless match
 
       match[1].to_s.squish.presence

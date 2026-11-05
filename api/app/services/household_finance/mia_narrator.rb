@@ -307,6 +307,9 @@ module HouseholdFinance
         return :purchase_coaching_shape unless content.length <= 400 && sentences.length.between?(1, 2) && content.end_with?("?") && content.count("?") == 1
       end
       if MoneyMovementText.food_insecurity?(user_message)
+        # A later food question or positive step cannot make contradictory advice safe.
+        return :food_support_missing if content.match?(/\b(?:do not|don['’]t|no need to|need not|(?:should|must|can|could|would)\s+not|(?:should|must|could|would)n['’]t|don['’]t need to)\s+(?:\w+\s+){0,3}(?:(?:get|find|buy)\s+(?:some\s+)?food|eat)\b|\b(?:you|we)\s+(?:(?:can|could|should|may)\s+)?skip\s+(?:eating|food|meals?|breakfast|lunch|dinner)\b/i)
+
         first = content.split(/(?<=[.!?])\s+/).first.to_s
         return :food_support_missing unless first.match?(/\b(?:food|meals?|eat|eating|hungry)\b/i) && content.match?(/\bcoach\b/i) && content.match?(/\btoday\b/i)
         acknowledgment = first.match?(/\b(?:you\s+(?:(?:have|been|are|were|keep)\s+){0,3}(?:skip(?:ped|ping)?|miss(?:ed|ing)?)\s+meals?|(?:go(?:ing)?|went)\s+without\s+(?:food|meals?)|you\s+(?:have not|haven['’]t|had not|hadn['’]t)\s+eaten|you(?:['’]re| are)\s+hungry|(?:no|not enough|out of)\s+food)\b/i)
