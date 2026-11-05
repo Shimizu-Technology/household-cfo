@@ -1241,7 +1241,10 @@ module HouseholdFinance
     end
 
     def purchase_intent_clause
-      message.split(/(?<=[.!?;])\s+|,\s+|\s+(?:and|but)\s+(?=(?:i|we|can|should|could|may|is it)\b)/i).find do |clause|
+      # Legacy followups prepend old purchases. Only the current question may
+      # establish a new monthly commitment.
+      current = message.start_with?("Follow-up to previous ") ? message.split(" Current follow-up: ", 2).last : message
+      current.split(/(?<=[.!?;])\s+|,\s+|\s+(?:and|but)\s+(?=(?:i|we|can|should|could|may|is it)\b)/i).find do |clause|
         PURCHASE_INTENT_PATTERNS.any? { |pattern| clause.match?(pattern) }
       end
     end

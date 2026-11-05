@@ -54,6 +54,13 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     end
   end
 
+  test "a current purchase clause takes precedence over prior followup purchases" do
+    context = { active_topic: { type: "coaching", title: "Purchase decision", latest_user_context: "Can I buy a $300 stroller? $200 of that is a gift card." } }
+    followup = HouseholdFinance::ConversationFollowupResolver.new("Can I buy a $120 monthly gym membership?", conversation_context: context).call
+    assert followup.follow_up?
+    assert_includes answerer(followup.message).call, "recurring monthly commitment"
+  end
+
   { "tomorrow" => "May 2026", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
     test "purchase timing resolves #{timing} before the selected period default" do
       assert_includes answerer("Can I buy a $300 stroller #{timing}?", reference_month: 8).send(:purchase_plan_answer), label
