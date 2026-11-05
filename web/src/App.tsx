@@ -4970,7 +4970,7 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, p
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
     {answer?.main_income_missing && <p>Still to add: your main income.</p>}
     {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
-    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="text-button" onClick={onOpenDebt}>Add debt minimums</button>}
+    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
   </section>

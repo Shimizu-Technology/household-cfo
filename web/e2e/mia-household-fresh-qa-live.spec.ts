@@ -8,6 +8,8 @@ const apiUrl = process.env.HCFO_MIA_FRESH_API_URL ?? 'http://127.0.0.1:3222'
 const evidenceDir = process.env.HCFO_MIA_FRESH_EVIDENCE_DIR
 const setupUrl = process.env.HCFO_MIA_SETUP_LIVE_URL
 const modelUrl = process.env.HCFO_MIA_TWO_MODEL_CALLS_URL
+const setupLinkUrl = process.env.HCFO_MIA_SETUP_LINK_URL
+const purchaseConfirmUrl = process.env.HCFO_MIA_PURCHASE_CONFIRM_URL
 const headers = { Authorization: 'Bearer test_token:e2e_participant:participant@pilot.test:Test:Participant', 'X-Cohort-Id': '1' }
 
 async function send(page: Page, message: string) {
@@ -38,10 +40,21 @@ test('BOG UI household fresh QA answers agree with Home and preserve reviewed mo
   await expect(page.getByText('$1,405', { exact: true }).first()).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('Not known yet', { exact: true })).toBeVisible()
   await capture(page, info, 'home-unknown-spending')
-  await page.getByRole('button', { name: 'Add account balances', exact: true }).click()
+  const homeAccounts = page.getByRole('button', { name: 'Add account balances', exact: true })
+  expect((await homeAccounts.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  await homeAccounts.click()
   await expect(page.getByRole('heading', { name: 'Your household money', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Keep one approved balance for each household asset.', exact: true })).toBeVisible()
   await capture(page, info, 'cushion-link-accounts')
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+
+  const month = await send(page, 'How am I doing this month?')
+  expect(month.assistant_message.setup_help.money_inputs).toContain('accounts')
+  const miaAccounts = page.getByRole('button', { name: 'Add account balances', exact: true }).last()
+  expect((await miaAccounts.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+  await capture(page, info, 'mia-missing-account-link', month)
+  await miaAccounts.click()
+  await expect(page.getByRole('heading', { name: 'Keep one approved balance for each household asset.', exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
 
   const august = await send(page, 'How did I do in August?')
@@ -180,4 +193,79 @@ test('BOG UI household fresh setup keeps missed answers in setup and reviews eve
   expect(data.workspace.setup_values.debt_payment).toBe(0)
   expect(data.dashboard.month_answer.plan_left_cents).toBe(180000)
   if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-and-saved-outcomes.json`, JSON.stringify({ replies, data }, null, 2))
+})
+
+test('BOG UI missing debt minimums link opens the matching controls without confirming a value', async ({ page, request }, info) => {
+  test.skip(!setupLinkUrl, 'Requires the isolated five-answer W20 household fixture.')
+  test.setTimeout(120_000)
+  await page.goto(`${setupLinkUrl}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Home`)
+  const debt = page.getByRole('button', { name: 'Add debt minimums', exact: true })
+  await expect(debt).toBeVisible({ timeout: 60_000 })
+  for (const [width, height] of [[390, 844], [320, 568], [1366, 900]]) {
+    await page.setViewportSize({ width, height })
+    expect((await debt.boundingBox())?.height).toBeGreaterThanOrEqual(44)
+    await capture(page, info, `setup-debt-link-${width}`)
+  }
+  await debt.click()
+  await expect(page.getByRole('heading', { name: 'Choose the amount of detail that works for your household.', exact: true })).toBeVisible({ timeout: 30_000 })
+  for (const [width, height] of [[390, 844], [320, 568], [1366, 900]]) {
+    await page.setViewportSize({ width, height })
+    await capture(page, info, `setup-debt-destination-${width}`)
+  }
+  const saved = await request.get(`${apiUrl}/api/v1/workspace`, { headers: { Authorization: headers.Authorization } })
+  expect(saved.ok()).toBe(true)
+  const data = await saved.json()
+  expect(data.workspace.setup_complete).toBe(false)
+  expect(data.workspace.setup_status.missing_fields.map((field: { key: string }) => field.key)).toEqual(['debt_payment'])
+  if (evidenceDir) await writeFile(`${evidenceDir}/setup-debt-link-saved-outcome.json`, JSON.stringify(data, null, 2))
+})
+
+test('BOG UI Mia purchase keeps the household category and saves spending only after review', async ({ page, request }, info) => {
+  test.skip(!purchaseConfirmUrl, 'Requires the isolated W20 household with an Everyday spending category.')
+  test.setTimeout(180_000)
+  const projects = ['desktop-chrome', 'tablet-768-chrome', 'tablet-1024-chrome', 'mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit']
+  const index = projects.indexOf(info.project.name)
+  expect(index).toBeGreaterThanOrEqual(0)
+  const merchant = ['Penny Cafe', 'Village Cafe', 'Corner Cafe', 'Harbor Cafe', 'School Cafe', 'Family Cafe'][index]
+  const cents = 1250 + index
+  const privateHeaders = { Authorization: headers.Authorization }
+  const workspace = async () => {
+    const response = await request.get(`${apiUrl}/api/v1/workspace`, { headers: privateHeaders })
+    expect(response.ok()).toBe(true)
+    return response.json()
+  }
+  const budget = async () => {
+    const response = await request.get(`${apiUrl}/api/v1/budget`, { headers: privateHeaders })
+    expect(response.ok()).toBe(true)
+    return response.json()
+  }
+  const before = await workspace()
+  const beforeBudget = await budget()
+  if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
+  await page.goto(`${purchaseConfirmUrl}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
+  const reply = await send(page, `I spent $${(cents / 100).toFixed(2)} at ${merchant} today`)
+  expect(reply.transaction_draft.category_name).toBe('Everyday spending')
+  expect(reply.assistant_message.content).toContain('Everyday spending')
+  const unreviewed = await workspace()
+  expect(unreviewed.dashboard.month_answer.spent_so_far_cents).toBe(before.dashboard.month_answer.spent_so_far_cents)
+  const unreviewedBudget = await budget()
+  expect(unreviewedBudget.annual_plan.recent_transactions).toEqual(beforeBudget.annual_plan.recent_transactions)
+  await capture(page, info, 'purchase-category-before-review', { reply, before, unreviewed })
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  const card = page.locator(`[data-review-item="${reply.transaction_draft.id}"]`)
+  await expect(card).toContainText('Everyday spending')
+  await capture(page, info, 'purchase-category-review')
+  const confirmed = page.waitForResponse(response => response.url().endsWith(`/transaction_drafts/${reply.transaction_draft.id}/confirm`) && response.request().method() === 'POST')
+  await card.getByRole('button', { name: /^Confirm(?: |$)/ }).click()
+  expect((await confirmed).ok()).toBe(true)
+  await expect(card).toHaveCount(0, { timeout: 30_000 })
+  const after = await workspace()
+  const afterBudget = await budget()
+  expect(after.dashboard.month_answer.spent_so_far_cents).toBe((before.dashboard.month_answer.spent_so_far_cents ?? 0) + cents)
+  expect(afterBudget.annual_plan.recent_transactions).toHaveLength(beforeBudget.annual_plan.recent_transactions.length + 1)
+  expect(afterBudget.annual_plan.pending_transaction_drafts).toHaveLength(0)
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const saved = page.getByText(`Saved ${merchant} for $${(cents / 100).toFixed(2)} in Everyday spending. It now counts in your spending total.`, { exact: true })
+  await expect(saved).toBeVisible({ timeout: 30_000 })
+  await capture(page, info, 'purchase-category-saved', { before, reply, unreviewed, after, afterBudget })
 })
