@@ -3,6 +3,16 @@ require "test_helper"
 # QA F7: spending follow-ups must answer the category or merchant asked about,
 # and the same month must not produce two different under-plan numbers.
 class HouseholdFinanceSpendingReportFocusTest < ActiveSupport::TestCase
+  test "an empty spending report names approved purchases in plain words" do
+    empty = report(pending: [], bank: nil, bank_observed: 0)
+    empty[:categories] = []
+    empty[:transactions] = []
+    empty[:totals] = empty[:totals].merge(actual: 0)
+    answer = HouseholdFinance::SpendingReportNarrator.new(empty).call
+    assert_includes answer, "No approved purchases yet"
+    refute_match(/confirmed category spending/i, answer)
+  end
+
   test "a named category gets a focused answer" do
     answer = narrate("and dining out?")
 

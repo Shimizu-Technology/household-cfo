@@ -65,6 +65,7 @@ import { MiaDisclaimer } from './components/MiaDisclaimer'
 import { FinancialRestartDialog } from './components/FinancialRestartDialog'
 import { SetupHelpDialog } from './components/SetupHelpDialog'
 import { Metric } from './components/Metric'
+import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { PlaidConnections } from './components/PlaidConnections'
 import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenButton } from './components/ReviewedTransactions'
 import { bulkConfirmPhraseMismatchMessage, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
@@ -7457,12 +7458,20 @@ export function TransactionDraftReviewStack({
   emptyTitle?: string
   description?: string
 }) {
-  const { assistantName } = useBrand()
-  const resolvedTitle = title ?? transactionReviewStackTitle(drafts, assistantName)
+  const resolvedTitle = title ?? transactionReviewStackTitle()
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const previousDraftIds = useRef(new Set(drafts.map((draft) => draft.id)))
+  useLayoutEffect(() => {
+    const newestDraftId = drafts[0]?.id
+    const added = newestDraftId != null && !previousDraftIds.current.has(newestDraftId)
+    previousDraftIds.current = new Set(drafts.map((draft) => draft.id))
+    if (!added) return
+    setQuery('')
+    setPage(0)
+  }, [drafts])
   const filteredDrafts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     if (!normalizedQuery) return drafts
@@ -7534,7 +7543,7 @@ export function TransactionDraftReviewStack({
       <div className="transaction-draft-stack-heading">
         <div>
           <h4 ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? emptyTitle : resolvedTitle}</h4>
-          {(description || (compact && description !== '')) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
+          {(description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>
@@ -7703,7 +7712,6 @@ function TransactionDraftReviewCard({
   const allowsNewCategory = draft.source_type === 'manual_chat' && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
-  const displayAmount = exactMoneyNumber(draft.amount, draft.amount_cents)
   const splitTotal = sumMoney(splits.map((split) => Number(split.amount || 0)))
   const targetAmount = Number(amount || 0)
   const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
@@ -7782,7 +7790,7 @@ function TransactionDraftReviewCard({
 
     const cleanedSplits = splits.filter((split) => split.id || split.amount || split.budget_category_id || split.category_name || split.stack_key || split.notes)
     if (cleanedSplits.length === 0) {
-      setEditError('Add at least one split before saving this draft.')
+      setEditError('Choose at least one category before saving this purchase.')
       return
     }
 
@@ -7822,15 +7830,9 @@ function TransactionDraftReviewCard({
         </label>
       )}
       <div className="transaction-draft-main">
-        <div className="transaction-draft-title-row">
-          <strong>{draft.merchant}</strong>
-          <div className="transaction-draft-badges">
-            <span className="transaction-source-badge">{transactionDraftSourceLabel(draft.source_type, assistantName)}</span>
-            <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
-          </div>
-        </div>
-        <div className="transaction-review-facts"><time dateTime={draft.occurred_on}>{formatShortDate(draft.occurred_on)}</time><strong>{formatReviewMoney(Math.round((displayAmount) * 100))}</strong><span>{(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (!needsCategoryReview && draft.splits?.[0]?.category_name ? draft.splits[0].category_name : draft.category_name ?? 'Needs category')}</span></div>
-        <details className="transaction-review-details" open={editing || undefined}><summary>Splits &amp; budget impact</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
+        <PurchaseReviewSummary draft={draft} date={formatShortDate(draft.occurred_on)} needsCategory={needsCategoryReview} />
+        {!isPending && <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>}
+        <details className="transaction-review-details" open={editing || undefined}><summary>Purchase details</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
@@ -7853,7 +7855,7 @@ function TransactionDraftReviewCard({
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
             <div>
-              <strong>{splitsNeedingCategory.length} split{splitsNeedingCategory.length === 1 ? '' : 's'} need{splitsNeedingCategory.length === 1 ? 's' : ''} a category</strong>
+              <strong>Choose a category for {splitsNeedingCategory.length} item{splitsNeedingCategory.length === 1 ? '' : 's'}</strong>
               <p>{categoryWarningCopy}</p>
             </div>
             {!editing && onUpdate && <button type="button" className="secondary-button" aria-label={`Review categories for ${itemName}`} disabled={actionsDisabled} onClick={() => {
@@ -7896,7 +7898,7 @@ function TransactionDraftReviewCard({
             {splits.map((split, index) => (
               <div className="transaction-split-editor" key={split.id ?? `new-${index}`}>
                 <label>
-                  <span>Split amount</span>
+                  <span>Category amount</span>
                   <input type="number" min="0.01" step="0.01" value={split.amount} onChange={(event) => updateSplit(index, { amount: event.currentTarget.value })} />
                 </label>
                 <label>
@@ -7938,8 +7940,8 @@ function TransactionDraftReviewCard({
             ))}
           </div>
           <div className="transaction-draft-edit-actions">
-            <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
-            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
+            <button type="button" className="secondary-button" onClick={addSplit}>Add category</button>
+            {splitMismatch && <span className="transaction-draft-disabled-reason">Category amounts total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
             {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
             <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
             <button type="button" disabled={Boolean(action) || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
@@ -7949,13 +7951,13 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions">
-          {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
-          {onUpdate && <button type="button" className="secondary-button" aria-label={`${editing ? 'Close edit' : 'Edit'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
+          {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this purchase.</span>}
           <button type="button" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
-          <button type="button" className="secondary-button" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
-            {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+          {onUpdate && <button type="button" className="secondary-button" aria-label={`${editing ? 'Close edit' : 'Change'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Change'}</button>}
+          <button type="button" className="secondary-button" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+            {action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'}
           </button>
         </div>
       ) : (

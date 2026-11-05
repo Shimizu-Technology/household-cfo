@@ -87,6 +87,7 @@ module HouseholdFinance
       pending_meta = (annual_plan[:pending_transaction_drafts_meta] || annual_plan["pending_transaction_drafts_meta"] || {}).symbolize_keys
       {
         year: annual_plan_year,
+        category_period: category_period,
         active_category_count: active_rows.length,
         pending_draft_count: pending_meta[:truncated] ? nil : pending.length,
         month_answer: month_answer,
@@ -101,6 +102,13 @@ module HouseholdFinance
       facts.merge(coaching_figures: facts.filter_map do |key, value|
         [ key, (BigDecimal(value.to_s) / 100).round * 100 ] if key.to_s.end_with?("_cents") && !value.nil?
       end.to_h)
+    end
+
+    def category_period
+      return unless selected_month.to_i.between?(1, 12) && annual_plan_year.to_i.between?(2000, 2100)
+
+      date = Date.new(annual_plan_year.to_i, selected_month.to_i, 1)
+      { unit: "month", year: date.year, month: date.month, label: date.strftime("%B %Y") }
     end
 
     def summarized_categories(active_rows)
@@ -230,6 +238,7 @@ module HouseholdFinance
     def guardrails
       [
         "Use approved structured facts as source of truth.",
+        "Category figures belong to annual_plan_summary.category_period, not the whole plan year. Preserve that period whenever quoting them.",
         "Separate planned budget, confirmed actuals, and pending drafts.",
         "Do not claim official budget or actual writes happened unless write_state is confirmed_write.",
         "When write_state is draft_updated, the pending review fields changed but actuals did not.",

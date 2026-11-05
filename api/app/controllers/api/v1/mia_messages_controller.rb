@@ -917,6 +917,7 @@ module Api
         mia_action_draft = nil
         draft_persistence_error = nil
         no_draft_result = false
+        routed = nil
 
         ApplicationRecord.transaction do
           routed = route_model_intent(
@@ -927,23 +928,11 @@ module Api
             annual_plan: annual_plan
           )
           action_result = routed[:action_result]
-          action_content = assistant_content_for(
-            content,
-            history,
-            routed[:annual_plan],
-            routed[:spending_report],
-            routed[:transaction_draft],
-            routed[:transaction_draft_answer],
-            routed[:budget_answer],
-            routed[:transaction_lookup_answer],
-            routed[:pending_draft_answer],
-            routed[:coach_answer],
-            action_result,
-            conversation_context,
-            direct_answer: routed[:direct_answer],
-            conversation_resolution: resolved_conversation_turn(intent_result)
-          )
+          # Save an honest deterministic answer with the plan preparation and
+          # draft. Provider narration happens only after this atomic write.
+          action_content = action_result&.response || routed[:direct_answer] || action_draft_persistence_failure_message
           combined_content = [ evidence_content, "Separately, #{action_content}" ].compact_blank.join(" ")
+          @used_coach_content = []
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
           mia_action_draft = action_result&.existing_draft
           if mia_action_draft.nil? && action_result&.proposal
@@ -970,7 +959,40 @@ module Api
           @used_coach_content = []
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
         elsif no_draft_result
+          combined_content = attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
+        else
+          begin
+            narrated = attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
+          rescue StandardError => error
+            Rails.logger.warn("Mia attached action kept its factual reply after narration failed: #{error.class}")
+            @used_coach_content = []
+            narrated = combined_content
+          end
+          # If enrichment fails, the complete, factual reply and its review
+          # remain saved together. Never undo a valid draft for a wording error.
+          begin
+            current_household.with_lock do
+              HouseholdFinance::FinancialGenerationGuard.request!(current_household)
+              chat_session_scope.authorize!
+              mia_action_draft.reload
+              if mia_action_draft.status != "pending"
+                status = case mia_action_draft.status
+                when "applied" then "That change was already confirmed while I was preparing this reply."
+                when "partially_applied" then "Part of that change was confirmed while I was preparing this reply. Check the remaining changes on the card."
+                else "That review was set aside while I was preparing this reply."
+                end
+                narrated = [ evidence_content, status ].compact_blank.join(" ")
+                @used_coach_content = []
+              end
+              assistant_message.update!(content: with_wellbeing_check(content, narrated).to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
+              persist_content_citations(assistant_message)
+            end
+          rescue ActiveRecord::ActiveRecordError => error
+            Rails.logger.warn("Mia attached action kept its factual reply: #{error.class}")
+            @used_coach_content = []
+            assistant_message.reload
+          end
         end
         response_budget = if mia_action_draft
           annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data
@@ -1010,6 +1032,14 @@ module Api
           mia_action_draft: mia_action_draft
         )
         render json: response_payload, status: :created
+      end
+
+      def attached_action_content(content, history, routed, conversation_context, intent_result, evidence_content)
+        action_content = assistant_content_for(content, history, routed[:annual_plan], routed[:spending_report],
+          routed[:transaction_draft], routed[:transaction_draft_answer], routed[:budget_answer], routed[:transaction_lookup_answer],
+          routed[:pending_draft_answer], routed[:coach_answer], routed[:action_result], conversation_context,
+          direct_answer: routed[:direct_answer], conversation_resolution: resolved_conversation_turn(intent_result))
+        [ evidence_content, "Separately, #{action_content}" ].compact_blank.join(" ")
       end
 
       def supported_attached_action_intent?(intent_result)

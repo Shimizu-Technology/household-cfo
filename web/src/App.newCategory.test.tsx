@@ -18,7 +18,7 @@ it('keeps a new category attached to its purchase and saves it for confirmation'
   const onUpdate = vi.fn().mockResolvedValue(undefined)
   render(<TransactionDraftReviewStack drafts={[draft]} isRealWorkspace action={null}
     onUpdate={onUpdate} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} />)
-  fireEvent.click(screen.getByRole('button', { name: /^Edit Payless/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Change Payless/ }))
   fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
   fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Cigarettes' } })
   expect(screen.getByText(/Added to flexible spending/)).toBeTruthy()
@@ -56,7 +56,7 @@ it('asks for a category name before saving a new category', () => {
   const onUpdate = vi.fn()
   render(<TransactionDraftReviewStack drafts={[draft]} isRealWorkspace action={null}
     onUpdate={onUpdate} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} />)
-  fireEvent.click(screen.getByRole('button', { name: /^Edit Payless/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Change Payless/ }))
   fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
   fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
   expect(screen.getByRole('alert').textContent).toContain('Name the new category before saving.')
@@ -70,7 +70,7 @@ it('requires an existing category for document drafts even after a named replace
   render(<TransactionDraftReviewStack drafts={[imported]} isRealWorkspace action={null}
     onUpdate={vi.fn()} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} />)
   expect((screen.getByRole('button', { name: /^Confirm Payless/ }) as HTMLButtonElement).disabled).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: /^Edit Payless/ }))
+  fireEvent.click(screen.getByRole('button', { name: /^Change Payless/ }))
   expect(screen.queryByRole('option', { name: 'New category' })).toBeNull()
   expect(screen.queryByLabelText('New category name')).toBeNull()
 })

@@ -33,16 +33,17 @@ describe('transaction review copy', () => {
     expect(bulkConfirmPhraseMismatchMessage(5, null)).toBeNull()
   })
 
-  it('says Mia drafted only when every draft came from Mia chat', () => {
-    expect(transactionReviewStackTitle([{ source_type: 'manual_chat' }], 'Mia')).toBe('Mia drafted transactions for your approval')
-    expect(transactionReviewStackTitle([{ source_type: 'manual_ui' }], 'Mia')).toBe('Transactions to review')
-    expect(transactionReviewStackTitle([{ source_type: 'manual_chat' }, { source_type: 'plaid' }], 'Mia')).toBe('Transactions to review')
+  it('keeps the purchase review heading short and source-neutral', () => {
+    expect(transactionReviewStackTitle()).toBe('Purchases to review')
   })
 
   it('keeps the uncategorized warning source-neutral for manual and bank rows', () => {
     expect(transactionCategoryWarningCopy({ source_type: 'manual_ui' }, 'Mia')).toMatch(/^Needs a category\./)
     expect(transactionCategoryWarningCopy({ source_type: 'plaid' }, 'Mia')).not.toContain('Mia')
     expect(transactionCategoryWarningCopy({ source_type: 'manual_chat' }, 'Mia')).toContain('Mia could not confidently match')
+    for (const source of [{ source_type: 'manual_ui' }, { source_type: 'plaid' }, { source_type: 'manual_chat' }, { source_type: 'receipt', financial_document_import_id: 5 }]) {
+      expect(transactionCategoryWarningCopy(source, 'Mia')).toContain('before it counts as spent')
+    }
   })
 
   it('only offers reopen for ledger rows confirmed through a review', () => {

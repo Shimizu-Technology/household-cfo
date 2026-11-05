@@ -57,6 +57,20 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_equal 50_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
   end
 
+  { "Change my goal from $500 to 300" => 30_000,
+    "I want my goal to be $500 instead of $400" => 50_000,
+    "I want to save $500 instead of $400" => 50_000,
+    "I want to save $100 a month, so change my goal to $500" => 50_000 }.each_with_index do |(message, cents), index|
+    test "replacement phrasing #{index} chooses the requested amount before confirmation" do
+      ask message, "replacement-#{index}"
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert_equal cents, card&.dig("input", "target_cents")
+      assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+      confirm(card)
+      assert_equal cents, @savings_enrollment.reload.current_accepted_plan_version.target_cents
+    end
+  end
+
   test "malformed replacement cannot select the old amount" do
     ask "Set my goal to $500.259 instead of $400", "malformed-replacement"
     assert_nil response.parsed_body["challenge_chat_card"]
@@ -166,7 +180,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     end
     ask "Can you identify spending patterns?", "partial-patterns"
     reply = response.parsed_body.dig("assistant_message", "content")
-    assert_includes reply, "I only see purchases for Aug and Oct"
+    assert_includes reply, "I only see purchases for Aug and Oct:"
     assert_includes reply, "Ross ($200) and Kmart ($100)"
     refute_includes reply, "Only confirmed purchases"
     refute_includes reply, ".00"

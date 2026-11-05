@@ -12,6 +12,40 @@ class HouseholdFinanceMiaConversationStateUpdaterTest < ActiveSupport::TestCase
     )
   end
 
+  test "a draft canceled just before the topic save cannot restore pending review" do
+    draft = @household.mia_action_drafts.create!(requested_by_user: @user, status: "pending", draft_type: "budget_edit",
+      year: Date.current.year, title: "Groceries change", summary: "Review this change", source_prompt: "Change groceries")
+    user_message = @session.chat_messages.create!(role: "user", content: "Change groceries")
+    assistant_message = @session.chat_messages.create!(role: "assistant", content: "Review the change")
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "budget_action", confidence: 1, continuation: false,
+      resolved_message: "Change groceries", needs_clarification: false, topic: { type: "budget_edit", title: draft.title, subject: "Groceries" }, action: { type: "none" }, source: "model")
+    updater = HouseholdFinance::MiaConversationStateUpdater.new(@session, intent_result: intent, user_message: user_message,
+      assistant_message: assistant_message, mia_action_draft: draft)
+    # Cancel through another object: the instance supplied to the updater is stale.
+    MiaActionDraft.find(draft.id).update!(status: "canceled", canceled_at: Time.current)
+    assert_equal "pending", draft.status
+    locked = false
+    observed_reload = false
+    original_lock = @session.method(:with_financial_picture_lock)
+    @session.define_singleton_method(:with_financial_picture_lock) do |&block|
+      original_lock.call do
+        locked = true
+        block.call
+      ensure
+        locked = false
+      end
+    end
+    original_reload = draft.method(:reload)
+    draft.define_singleton_method(:reload) do |*args|
+      observed_reload = locked
+      original_reload.call(*args)
+    end
+    assert updater.call
+    assert observed_reload, "Reviewability must be refreshed inside the topic-save lock"
+    refute_equal "pending_review", @session.reload.active_topic["status"]
+    assert_nil @session.active_topic["mia_action_draft_id"]
+  end
+
   test "a new unrelated model turn does not leave a stale thread active" do
     user_message = @session.chat_messages.create!(role: "user", content: "Tell me something unrelated")
     assistant_message = @session.chat_messages.create!(role: "assistant", content: "What would you like to work through?")

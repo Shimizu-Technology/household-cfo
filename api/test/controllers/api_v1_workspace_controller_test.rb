@@ -1565,16 +1565,35 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     )
     fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
 
+    transaction_depth = 0
+    observed_depth = nil
+    original_transaction = ApplicationRecord.method(:transaction)
+    transaction_probe = lambda do |**options, &block|
+      transaction_depth += 1
+      original_transaction.call(**options, &block)
+    ensure
+      transaction_depth -= 1
+    end
+    original_narrator = HouseholdFinance::MiaNarrator.method(:new)
+    fake_narrator = lambda do |**attributes|
+      observed_depth = transaction_depth
+      original_narrator.call(**attributes.merge(api_key: ""))
+    end
     assert_difference("MiaActionDraft.count", 1) do
-      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
-        post "/api/v1/mia/messages",
-             params: { message: message, document_import_ids: [ document_import.id ] },
-             headers: auth_headers(user),
-             as: :json
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, fake_narrator) do
+        with_singleton_stub(ApplicationRecord, :transaction, transaction_probe) do
+          with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+          end
+        end
       end
     end
 
     assert_response :created
+    assert_equal 0, observed_depth, "Provider narration must run outside the action transaction"
     body = JSON.parse(response.body)
     assistant_content = body.dig("assistant_message", "content")
     assert_includes assistant_content, "$87.45"
@@ -1586,6 +1605,51 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 8, change.fetch("month")
     assert_equal 90_000, change.fetch("after_cents")
     assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
+
+    # Another tab can dismiss a visible review while the optional provider is
+    # running. The returned card and persisted reply must reflect that outcome.
+    cancel_during_narration = lambda do |**attributes|
+      original_narrator.call(**attributes.merge(api_key: "")).tap do |narrator|
+        narrator.define_singleton_method(:call) do
+          pending = household.mia_action_drafts.pending.recent_first.first!
+          result = HouseholdFinance::MiaActionDraftCanceler.new(pending, user: user).call(idempotency_key: "during-narration")
+          raise result.errors.join(", ") unless result.success?
+          "The budget change is ready for you to review."
+        end
+      end
+    end
+    with_singleton_stub(HouseholdFinance::MiaNarrator, :new, cancel_during_narration) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+          params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+          headers: auth_headers(user), as: :json
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "canceled", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "set aside"
+    refute body.dig("budget", "annual_plan", "pending_mia_action_drafts").any? { |pending| pending.fetch("id") == body.dig("mia_action_draft", "id") }
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
+
+    # Optional narration setup can fail before MiaNarrator#call. The draft and
+    # factual reply have committed already and must still be returned together.
+    setup_failure = ->(**) { raise RuntimeError, "synthetic narrator setup failure" }
+    assert_difference("MiaActionDraft.count", 1) do
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, setup_failure) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+            params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+            headers: auth_headers(user), as: :json
+        end
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "pending", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "$87.45"
+    assert_includes body.dig("assistant_message", "content"), "Separately,"
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
   end
 
   test "a failed attached action draft rolls back newly prepared plan records" do
