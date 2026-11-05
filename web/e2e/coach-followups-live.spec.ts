@@ -223,6 +223,13 @@ for (const recovery of ['server failures', 'expired access']) {
   await expect(page.getByRole('alert')).not.toContainText('Nothing went live')
   expect(await page.evaluate(()=>Object.keys(localStorage).filter(key=>key.startsWith('hcfo.goLive:')).length)).toBe(1)
   expect(posts[0]).toEqual(posts[1])
+  if((page.viewportSize()?.width ?? 1000)<=620) {
+   const finishBox=await page.getByRole('button',{name:'Finish going live'}).boundingBox()
+   const checkBox=await page.getByRole('button',{name:'Check this update'}).boundingBox()
+   expect(finishBox!.height).toBeGreaterThanOrEqual(44)
+   expect(checkBox!.height).toBeGreaterThanOrEqual(44)
+   expect(checkBox!.y-(finishBox!.y+finishBox!.height)).toBeGreaterThanOrEqual(8)
+  }
   if(evidence) await page.screenshot({path:`${evidence}/${info.project.name}-${recovery}-retained.png`,fullPage:true,scale:'css'})
   resolving=true
   await page.getByRole('button',{name:'Check this update'}).click()
