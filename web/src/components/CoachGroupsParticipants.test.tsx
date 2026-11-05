@@ -26,6 +26,21 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('stops a reviewed invitation batch when the program changes',async()=>{
+    let complete!:(value:unknown)=>void
+    mocks.createAdminUser.mockReturnValue(new Promise(resolve=>{complete=resolve}))
+    const view=harness()
+    await screen.findByText('Participants in Tuesday group')
+    await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+    fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'one@example.test two@example.test'}})
+    fireEvent.click(screen.getByRole('button',{name:'Review email list'}))
+    fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
+    await waitFor(()=>expect(mocks.createAdminUser).toHaveBeenCalledTimes(1))
+    view.rerender(<CoachGroupsParticipants {...view.props} workspaceId={3}/>)
+    await act(async()=>complete({invitation_sent:true}))
+    expect(mocks.createAdminUser).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/Ask a program owner to create groups/)).toBeTruthy()
+  })
   it('keeps invitations open after the first add and hides provider failures', async () => {
     mocks.fetchAdminUsers.mockResolvedValueOnce([]).mockResolvedValue([participant])
     mocks.createAdminUser.mockResolvedValue({ invitation_status: 'failed', invitation_error: 'WorkOS authentication is not configured' })

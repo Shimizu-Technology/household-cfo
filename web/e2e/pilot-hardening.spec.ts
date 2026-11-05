@@ -9101,7 +9101,7 @@ test('Coach Studio program groups add participants without mistaking failed emai
   await openDetails(page, /^Add a participant$/)
   await page.getByLabel('Participant email', { exact: true }).fill('new-participant@example.test')
   await page.getByRole('button', { name: 'Add to Island weekend group revised', exact: true }).click()
-  await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added, but the invitation email failed' })).toBeVisible()
+  await expect(accessPanel.getByRole('status').filter({ hasText: 'Participant added. The invitation email did not send' })).toBeVisible()
   const card = page.locator('.coach-participants-list li').filter({ hasText: 'new-participant@example.test' })
   await expect(card).toContainText('Invitation pending')
   await card.getByText('Participant access', { exact: true }).click()

@@ -199,11 +199,13 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   async function inviteList() {
     if (!selected || !reviewEmails || disabled) return
     const remaining = [...reviewEmails]
+    const inviteGeneration = generation.current
     let added = 0
     let unsent = 0
     await mutate(async () => {
       try {
         for (const address of reviewEmails) {
+          if (inviteGeneration !== generation.current) break
           const result = await createAdminUser({ email: address, role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
           remaining.shift(); added += 1
           if (sendEmail && result.invitation_status === 'failed') unsent += 1
@@ -211,9 +213,10 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
       } catch {
         // Keep only unfinished addresses so retry cannot repeat completed adds.
       }
+      return { notice: `${added} ${added === 1 ? 'person added' : 'people added'}.${unsent ? ` ${unsent} invitation emails did not send. Open Participant access to resend.` : ''}${remaining.length ? ` ${remaining.length} still to add. Review the remaining list and try again.` : ''}` }
+    }, () => {
       setEmailList(remaining.join('\n')); setReviewEmails(remaining.length ? remaining : null); setInviteOpen(true)
       window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
-      return { notice: `${added} ${added === 1 ? 'person added' : 'people added'}.${unsent ? ` ${unsent} invitation emails did not send. Open Participant access to resend.` : ''}${remaining.length ? ` ${remaining.length} still to add. Review the remaining list and try again.` : ''}` }
     })
   }
 

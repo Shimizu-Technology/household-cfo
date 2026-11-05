@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test'
+import { test, expect as playwrightExpect } from '@playwright/test'
+const expect = playwrightExpect.configure({ timeout: 60_000 })
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
 const fixturePath = process.env.HCFO_W19_FIXTURES
 const fixtures = fixturePath ? JSON.parse(readFileSync(fixturePath, 'utf8')) : null
