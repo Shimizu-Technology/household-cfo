@@ -16,3 +16,8 @@ it('remembers All workspaces and leaves non-admin defaults to the server',()=>{
  expect(restoredAdminProgram({...admin,active_coach_workspace:{id:2}} as CurrentUser)).toBeNull()
  expect(restoredAdminProgram({...admin,is_admin:false,active_coach_workspace:{id:2}} as CurrentUser)).toBe(2)
 })
+it('remembers a newly created program while access is revalidated against the refreshed list on reload',()=>{
+ rememberAdminProgram(admin,7)
+ expect(restoredAdminProgram({...admin,coach_workspaces:[{id:2},{id:7}]} as CurrentUser)).toBe(7)
+ expect(restoredAdminProgram({...admin,coach_workspaces:[]})).toBeNull()
+})

@@ -16,6 +16,8 @@ export function restoredAdminProgram(user: CurrentUser): number | null {
 }
 
 export function rememberAdminProgram(user: CurrentUser | null, id: number | null): void {
-  if (!user?.is_admin || (id !== null && !user.coach_workspaces?.some(workspace => workspace.id === id))) return
+  if (!user?.is_admin) return
+  // A just-created program may not be in this callback's older user snapshot.
+  // This is only a preference; restoration checks the fresh server access list.
   try { localStorage.setItem(key(user), id === null ? 'all' : String(id)) } catch { /* Selection still works without persistence. */ }
 }

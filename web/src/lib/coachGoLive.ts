@@ -9,7 +9,10 @@ export async function reviewCoachGroup(group: AdminPersonaAssignableCohort): Pro
   const conflicts = releases.candidate?.blockers?.filter(message => message.includes('Participant access')) ?? []
   const unready = rollout.current_roster.participants.filter(person => person.readiness === 'needs_account' || person.readiness === 'removed')
   if (conflicts.length) throw new Error(conflicts.join(' '))
-  if (unready.length) throw new Error(unready.map(person => `${person.full_name} needs to finish setting up their sign-in or have their group access reviewed in Participant access before this update can go live.`).join(' '))
+  if (unready.length) throw new Error(unready.map(person => {
+    const remedy = person.readiness === 'needs_account' ? 'finish setting up their sign-in' : 'have their group access reviewed in Participant access'
+    return `${person.full_name} needs to ${remedy} before this update can go live.`
+  }).join(' '))
   if (rollout.active_release && rollout.current_roster.participants.length === 0) throw new Error(`Add a participant to ${group.name} in People before updating its live tools.`)
   return { group, candidate: releases.candidate, participantIds: rollout.current_roster.participants.map((item) => item.user_id), rosterDigest: rollout.current_roster.digest, activeReleaseId: rollout.active_release?.id ?? null, assignmentPersonaId: assignment?.persona.id ?? null }
 }

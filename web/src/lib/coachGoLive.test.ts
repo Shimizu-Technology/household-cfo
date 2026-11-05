@@ -27,3 +27,10 @@ it('warns about named participant conflicts before approval but allows unpublish
  api.fetchCohortReleaseStudio.mockResolvedValue({candidate:{...candidate,blockers:['Maria has different assistant or tools settings. Remove the extra group in Participant access.']},permissions:{seal:true}})
  await expect(reviewCoachGroup(group)).rejects.toThrow('Maria')
 })
+it.each([
+ ['needs_account','Maria needs to finish setting up their sign-in before this update can go live.'],
+ ['removed','Maria needs to have their group access reviewed in Participant access before this update can go live.'],
+])('names the exact remedy for %s before approving',async(readiness,message)=>{
+ api.fetchCohortRolloutStudio.mockResolvedValue({...rollout,current_roster:{...rollout.current_roster,participants:[{user_id:7,full_name:'Maria',readiness}]}})
+ await expect(reviewCoachGroup(group)).rejects.toThrow(message)
+})
