@@ -96,7 +96,9 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     rescue StandardError => error
       results << error
     end
-    expected = Timeout.timeout(20) { written.pop }
+    # This bounds fixture/publication setup, not the assertion that resolution
+    # stays blocked until COMMIT. Loaded QA hosts can spend over 20s publishing.
+    expected = Timeout.timeout(180) { written.pop }
     resolver_thread = Thread.new do
       ActiveRecord::Base.connection_pool.with_connection do
         checking << true
@@ -108,15 +110,15 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     Timeout.timeout(5) { checking.pop }
     assert_raises(Timeout::Error) { Timeout.timeout(0.1) { results.pop } }
     commit << true
-    launch_thread.join(20)
-    resolver_thread.join(20)
+    launch_thread.join(180)
+    resolver_thread.join(180)
     refute launch_thread.alive?
     refute resolver_thread.alive?
     assert_equal({ status: "live", launch: expected }, Timeout.timeout(5) { results.pop })
   ensure
     commit << true if commit
-    launch_thread&.join(20)
-    resolver_thread&.join(20)
+    launch_thread&.join(180)
+    resolver_thread&.join(180)
   end
 
   test "early plan validation still rejects forged operation snapshots and rolls back the complete update" do

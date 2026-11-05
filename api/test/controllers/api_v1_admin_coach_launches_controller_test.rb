@@ -66,7 +66,7 @@ class ApiV1AdminCoachLaunchesControllerTest < ActionDispatch::IntegrationTest
     original = CoachLaunches::Publisher.instance_method(:call!)
     CoachLaunches::Publisher.define_method(:call!) do
       ActiveRecord::Base.transaction(requires_new: true) do
-        ActiveRecord::Base.connection.execute("DO $$ BEGIN RAISE EXCEPTION 'private constraint detail'; END $$")
+        ActiveRecord::Base.connection.execute("DO $$ BEGIN RAISE EXCEPTION 'private constraint detail'; END; $$")
       end
     end
     post launch_path, params: { review: @review }, headers:, as: :json
