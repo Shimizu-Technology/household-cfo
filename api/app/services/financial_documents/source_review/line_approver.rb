@@ -123,6 +123,9 @@ module FinancialDocuments
           counts[:unchanged] += 1
           return
         end
+        if entry.key?(:expected_head) && entry[:expected_head] != line.expected_head
+          raise Domain::StaleReview, "This line was changed in another window. Nothing was saved. Refresh to review the latest answer."
+        end
         check_allowed!(line, decision, entry)
         stage_and_approve!(event, head, facts)
         counts[decision == "leave_out" ? :left_out : :approved] += 1

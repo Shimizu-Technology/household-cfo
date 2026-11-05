@@ -20,6 +20,37 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('carries only the version and lock from an already reviewed line into its edit', async () => {
+    const data = participantReviewFixture()
+    const event = data.events[1]
+    data.participant_review!.plan.ready = []
+    data.participant_review!.plan.attention = []
+    data.participant_review!.rows[event.id].head = { id: 900, approved_version_id: 800, lock_version: 2 }
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('heading', { level: 5 })
+    fireEvent.click(screen.getByText('See all 137 lines'))
+    fireEvent.click(await screen.findByRole('button', { name: `Fictional entry ${event.id - 4000 + 1}` }))
+    const sheet = await screen.findByRole('dialog')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: { approved_version_id: 800, lock_version: 2 } }] })
+    expect((mutate.mock.calls[0][3] as { lines: { expected_head: object }[] }).lines[0].expected_head).not.toHaveProperty('id')
+  })
+  it('shows every default category beside its merchant before bulk approval, sending the seen head', async () => {
+    const data = participantReviewFixture()
+    const head = { approved_version_id: null, lock_version: 0 }
+    data.participant_review!.plan.ready = [{ event_id: 4001, event_type: 'purchase', category_id: 70, category_name: 'Bills & essentials', as_before: false, merchant: 'GPA power', signed_amount_cents: -18000, posted_on: '2026-09-05', expected_head: head }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const list = await screen.findByRole('list', { name: 'Lines to approve together' })
+    expect(within(list).getByText('GPA power')).toBeTruthy()
+    expect(within(list).getByText(/Bills & essentials/)).toBeTruthy()
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve the other one' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4001, expected_head: head, shown: { event_type: 'purchase', category_id: 70 } }] })
+  })
   it('lets a budgetless participant choose an everyday category in one tap and refreshes the upload badge', async () => {
     const data = participantReviewFixture()
     data.participant_review!.categories = [{ id: 70, name: 'Bills & essentials' }, { id: 71, name: 'Everyday spending' }]

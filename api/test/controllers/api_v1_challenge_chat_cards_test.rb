@@ -15,6 +15,97 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "everyday goal words and weekly pace remain proposals until the card is accepted" do
+    ask "My goal is three hundred dollars", "words-goal"
+    assert_equal 30_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    ask "I can only do $20 a week", "weekly-goal"
+    card = response.parsed_body["challenge_chat_card"]
+    assert_equal 25_714, card&.dig("input", "target_cents")
+    assert_equal 2_000, card.dig("input", "weekly_cents")
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "$257.14"
+    assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+    confirm(card)
+    assert_equal 25_714, @savings_enrollment.reload.current_accepted_plan_version.target_cents
+    ask "Actually lets just do a thousand", "words-replacement"
+    assert_equal 100_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    ask "I can set aside twenty dollars per week", "weekly-set-aside-goal"
+    assert_equal 25_714, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    assert_equal 0, SavingsEntryVersion.count
+  end
+
+  test "yes keeps savings review durable without adding money" do
+    ask "I set aside $25 today", "reserve"
+    card = response.parsed_body["challenge_chat_card"]
+    assert_equal "savings", card&.fetch("kind")
+    [ "Yes", "Yes, save it" ].each_with_index do |message, index|
+      assert_no_difference [ "SavingsEntryDraft.count", "SavingsEntryVersion.count" ] do
+        ask message, "reserve-yes-#{index}"
+      end
+      assert_equal card["id"], response.parsed_body.dig("challenge_chat_card", "id")
+      assert_match(/nothing.*saved/i, response.parsed_body.dig("assistant_message", "content"))
+      get "/api/v1/savings_challenge/chat_cards", headers: auth
+      assert_equal card["id"], response.parsed_body.fetch("records").sole["id"]
+    end
+  end
+
+  { "I withdrew $5 from savings today" => "savings", "I spent $12 at Payless today" => "daily_report", "Set my goal to $300" => "goal" }.each_with_index do |(message, kind), index|
+    test "yes points back to the existing #{kind} review #{index} without approving it" do
+      ask message, "review-kind-#{index}"
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert_equal kind, card["kind"]
+      assert_no_difference [ "SavingsEntryVersion.count", "SavingsPlanVersion.count", "SavingsDailyPurchaseVersion.count" ] do
+        ask "Yes, save it", "review-kind-yes-#{index}"
+      end
+      assert_equal card["id"], response.parsed_body.dig("challenge_chat_card", "id")
+      assert_match(/nothing has been saved/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_equal "pending", SavingsChatCard.find(card["id"]).status
+    end
+  end
+
+  test "a savings correction names the current entry and a total question is brief" do
+    with_savings_runtime { savings_approve(savings_draft(2_000)) }
+    ask "Actually the $20 I set aside was really $15", "correct-savings"
+    card = response.parsed_body["challenge_chat_card"]
+    assert_equal "savings", card&.fetch("kind")
+    assert_equal 1_500, card.dig("input", "amount_cents")
+    assert_equal 2_000, card.dig("input", "correction", "current_approved_version", "signed_cents")
+    assert_match(/replace.*\$20.*\$15/i, response.parsed_body.dig("assistant_message", "content"))
+    assert_equal 2_000, savings_projection[:reported_cents]
+    ask "How much have I saved so far?", "savings-total"
+    answer = response.parsed_body.dig("assistant_message", "content")
+    assert_match(/\A.*\$20/, answer)
+    assert_operator answer.length, :<, 180
+  end
+
+  test "entry history labels a replaced amount without double counting it" do
+    with_savings_runtime do
+      version = savings_approve(savings_draft(2_500))
+      savings_approve(savings_draft(2_000, entry: version.savings_entry))
+    end
+    get "/api/v1/savings_challenge/entry_drafts", params: { status: "approved" }, headers: auth
+    assert_response :success
+    rows = response.parsed_body.fetch("records").index_by { |row| row["signed_cents"] }
+    assert_equal true, rows.fetch(2_500).fetch("replaced")
+    assert_equal false, rows.fetch(2_000).fetch("replaced")
+    assert_equal 2_000, savings_projection[:reported_cents]
+  end
+
+  test "reviewing a savings card hands off once to a retained savings draft" do
+    ask "I set aside $25 today", "reserve-for-form"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    input = { signed_cents: 2_500, effective_on: @savings_enrollment.local_today.iso8601, funding_source: "new_money_reserved", expected_version_id: nil, chat_card_id: card["id"] }
+    post "/api/v1/savings_challenge/entry_drafts", params: input, headers: auth.merge("Idempotency-Key" => "savings-form"), as: :json
+    assert_response :success
+    assert_equal "closed", SavingsChatCard.find(card["id"]).status
+    assert_equal 1, SavingsEntryDraft.count
+    assert_equal 0, SavingsEntryVersion.count
+    post "/api/v1/savings_challenge/entry_drafts", params: input, headers: auth.merge("Idempotency-Key" => "savings-form"), as: :json
+    assert_response :success
+    post "/api/v1/savings_challenge/entry_drafts", params: input, headers: auth.merge("Idempotency-Key" => "savings-form-second"), as: :json
+    assert_response :conflict
+    assert_equal 1, SavingsEntryDraft.count
+  end
+
   [ "I'd like my goal to be $500 by the end of the 90 days.", "Set my challenge target to $500.",
     "Set my goal to $500.", "I want to save $500" ].each_with_index do |message, index|
     test "explicit target phrasing #{index} returns an honest pending chat card" do
@@ -323,7 +414,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   test "mentioning an existing goal amount preserves a pending proposal" do
     ask "Set my goal to $300", "pending-goal"
     pending = response.parsed_body.fetch("challenge_chat_card")
-    [ "What happens if I miss my goal of $500?", "My goal is $500", "What should I do about my goal of $500?" ].each_with_index do |message, index|
+    [ "What happens if I miss my goal of $500?", "What should I do about my goal of $500?" ].each_with_index do |message, index|
       ask message, "mention-goal-#{index}"
       assert_nil response.parsed_body["challenge_chat_card"], message
       assert_equal "pending", SavingsChatCard.find(pending["id"]).status

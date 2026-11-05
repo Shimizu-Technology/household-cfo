@@ -18,6 +18,23 @@ function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView); else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') })
 describe('participant savings Home', () => {
+  it('finishes a chat intake only after its own staged entry is approved', async () => {
+    const saved = vi.fn(), draft = savingsEntryDraft(2500)
+    let waiting = false
+    fetchPage.mockImplementation(async collection => ({ records: collection === 'entry_drafts' && waiting ? [draft] : [], next_cursor: null, actor_scope: { user_id: 901, household_id: 77 }, enrollment_id: 1, cohort_id: 42 }))
+    vi.mocked(api.stageSavingsEntry).mockImplementation(async () => { waiting = true; return { record: draft, challenge: { ...savingsFixture(), pending_entry_count: 1 }, replayed: false } })
+    vi.mocked(api.approveSavingsEntry).mockImplementation(async () => { waiting = false; return { record: savingsEntryVersion(2500), challenge: savingsFixture(), replayed: false } })
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} participantScope={{ user_id: 901, household_id: 77 }} cohortId={42} onIntakeSaved={saved} initialSavingsIntake={{ kind: 'contribution', amount_cents: 2500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input', chat_card_id: 90 }} />)
+    await formReady('Amount in US dollars')
+    fireEvent.click(screen.getByLabelText(/This was new money/))
+    fireEvent.click(screen.getByRole('button', { name: 'Review savings record', exact: true }))
+    const confirm = await screen.findByRole('button', { name: 'Confirm $25.00 set aside on Sun, Oct 4' })
+    expect(saved).not.toHaveBeenCalled()
+    await waitFor(() => expect(confirm.matches(':disabled')).toBe(false))
+    fireEvent.click(confirm)
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce())
+    expect(api.stageSavingsEntry).toHaveBeenCalledWith(expect.objectContaining({ chat_card_id: 90 }), expect.any(String), expect.any(AbortSignal))
+  })
   it('lists the privacy entry with the other plain rows, named like the account menu', async () => {
     render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} privacyAccess={<button type="button">Privacy &amp; reminders</button>} />)
     await screen.findByText('No amounts added yet')
@@ -140,7 +157,7 @@ describe('participant savings Home', () => {
     HTMLElement.prototype.scrollIntoView = vi.fn()
     render(view()); fireEvent.click(await screen.findByText('Your records & corrections')); fireEvent.click(await screen.findByText('Review or fix this record')); fireEvent.click(await screen.findByRole('button', { name: 'Fix the $25.50 set aside on Sun, Oct 4' }))
     fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '10.00' } })
-    fireEvent.change(screen.getByLabelText('Reason for correction'), { target: { value: 'Corrected amount' } })
+    fireEvent.change(screen.getByLabelText('Reason for correction (required)'), { target: { value: 'Corrected amount' } })
     fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
     await waitFor(() => expect(api.stageSavingsEntry).toHaveBeenCalledWith(expect.objectContaining({ signed_cents: 1000, entry_id: 41, expected_version_id: 51, expected_entry_lock_version: 2, reason: 'Corrected amount' }), expect.any(String), expect.any(AbortSignal)))
     expect(within(screen.getByRole('article', { name: 'Approved savings progress' })).getByText('$25.50')).toBeTruthy()

@@ -66,7 +66,7 @@ module Api
           card.update!(status: "closed", state: {}, input: card.input.except("feelings"))
         when "approve_goal"
           raise ArgumentError, "Review and accept the goal" unless card.kind == "goal" && input[:accepted] == true
-          values = card.input.deep_symbolize_keys.merge(cohort_id: enrollment!.cohort_id)
+          values = card.input.except("weekly_cents").deep_symbolize_keys.merge(cohort_id: enrollment!.cohort_id)
           runner = HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
           draft = runner.run(operation_key: "savings.plan.stage", input: values, idempotency_key: "chat-goal-stage-#{card.id}").subject
           approved = runner.run(operation_key: "savings.plan.approve",
@@ -107,7 +107,7 @@ module Api
       end
 
       def stage_entry
-        mutate("savings.entry.stage", %i[signed_cents effective_on funding_source expected_version_id entry_id expected_entry_lock_version reason])
+        mutate("savings.entry.stage", %i[signed_cents effective_on funding_source expected_version_id entry_id expected_entry_lock_version reason chat_card_id])
       end
 
       def approve_entry
@@ -193,9 +193,20 @@ module Api
         raise ArgumentError, "Savings request contains unsupported fields" unless (input.keys - fields).empty?
         key = request.headers["Idempotency-Key"].to_s.strip
         raise ArgumentError, "Idempotency-Key header is required" if key.empty?
-        result = HouseholdFinance::Operations::Runner.new(current_household, user: current_user).run(
+        runner = HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
+        if operation_key == "savings.entry.stage" && input[:chat_card_id]
+          card = own_chat_cards.find(input.delete(:chat_card_id))
+          raise ArgumentError, "Choose a savings review card" unless card.kind == "savings"
+          if card.status == "closed" && runner.private_request_result(operation_key: operation_key, idempotency_key: key)&.subject&.id != card.state["entry_draft_id"]
+            raise HouseholdFinance::Operations::Base::StaleOperation, "This savings card was already reviewed. Open Savings to confirm or fix its record."
+          end
+          expected_entry = card.input.dig("correction", "id")
+          raise ArgumentError, "Review the entry shown on the savings card" unless input[:entry_id] == expected_entry
+        end
+        result = runner.run(
           operation_key: operation_key, input: input.merge(cohort_id: @savings_cohort.id, **server_fields), idempotency_key: key
         )
+        card&.update!(status: "closed", state: { entry_draft_id: result.subject.id })
         @savings_enrollment = SavingsEnrollment.find_by!(household_id: current_household.id, user_id: current_user.id, cohort_id: @savings_cohort.id)
         render json: { record: SavingsChallenge::ParticipantSerializer.record(result.subject), replayed: result.replayed?, challenge: challenge_data }
       end

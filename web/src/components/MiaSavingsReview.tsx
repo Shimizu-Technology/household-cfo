@@ -13,6 +13,7 @@ function plainDay(iso: string, today?: string): string {
 
 export function MiaSavingsReview({intake,today,onReview}:{intake:SavingsIntake;today?:string;onReview:()=>void}) {
   const amount = savingsDollars(intake.amount_cents)
-  const title = intake.kind==='purchase' ? `${amount} at ${intake.merchant}` : intake.kind==='withdrawal' ? `${amount} taken out` : `${amount} set aside`
+  const original = intake.correction?.current_approved_version
+  const title = original ? `Replace ${savingsDollars(original.signed_cents)} with ${amount}` : intake.kind==='purchase' ? `${amount} at ${intake.merchant}` : intake.kind==='withdrawal' ? `${amount} taken out` : `${amount} set aside`
   return <section className="daily-note" aria-label="Savings to check"><strong>{title} · {plainDay(intake.effective_on, today)}</strong><p>{intake.kind==='purchase' ? 'Check it, then save it in Today. Nothing is saved until you do.' : intake.kind==='withdrawal' ? 'Check it, then save it to your challenge. Nothing changes until you do.' : 'Check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.'}</p><button type="button" className="secondary-button" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
 }

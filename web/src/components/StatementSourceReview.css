@@ -70,3 +70,8 @@
   line-height: 1.35;
   border-radius: var(--radius-sm);
 }
+
+.statement-ready { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.statement-ready li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 12px; min-height: 44px; padding-block: 4px; border-bottom: 1px solid var(--line); }
+.statement-ready li > span { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .statement-ready li { display: grid; gap: 0; } }

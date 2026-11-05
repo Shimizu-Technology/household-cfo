@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_05_010000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2791,7 +2791,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
     t.index ["chat_message_id"], name: "index_savings_chat_cards_on_chat_message_id", unique: true
     t.index ["savings_enrollment_id", "status", "id"], name: "savings_chat_cards_pending"
     t.index ["savings_enrollment_id"], name: "index_savings_chat_cards_on_savings_enrollment_id"
-    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying]::text[])", name: "savings_chat_card_kind"
+    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying, 'savings'::character varying]::text[])", name: "savings_chat_card_kind"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'closed'::character varying]::text[])", name: "savings_chat_card_status"
   end
 
