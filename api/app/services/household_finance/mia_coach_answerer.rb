@@ -122,10 +122,26 @@ module HouseholdFinance
       value = text.to_s
       return false if value.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN)
 
-      return true if value.match?(/\b(?:evicted (?:me|us)|(?:my|our) landlord[^.!?]{0,35}evict|(?:scared|afraid|worried)[^.!?]{0,45}(?:make|pay|cover) rent|(?:my|our) (?:husband|wife|partner) left|(?:i|we) need to talk to someone)\b/i)
+      return true if eviction_hardship?(value)
+      return true if rent_worry?(value)
+      return true if value.match?(/\b(?:(?:my|our) (?:husband|wife|partner) left|(?:i|we) need to talk to someone)\b/i)
       # Food has its own tested household, timing, and discretionary exclusions.
       # This extension covers present household housing/medical/utility hardship.
       value.match?(/\b(?:i|we)\s+(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
+    end
+
+    def self.eviction_hardship?(text)
+      value = text.tr("’", "'").gsub(/\b(i|we)'ve\b/i, '\1 have').gsub(/\bi'm\b/i, "i am").gsub(/\bwe're\b/i, "we are")
+      return false if value.match?(/\b(?:not|never|won't|isn't|aren't|wasn't|weren't|haven't|hasn't)\s+(?:(?:be|been|being|getting)\s+){0,2}evict(?:ed|ing)?\b/i)
+
+      value.match?(/\b(?:evict(?:ed|ing)?\s+(?:me|us)|(?:i|we)\s+(?:(?:am|are|was|were|will|might|could|have|been|be|being|just|got|get|getting)\s+){1,5}evicted|(?:i|we)\s+(?:(?:just|have|already)\s+){0,2}(?:got|received|have)\s+(?:an?\s+)?eviction notice)\b/i)
+    end
+
+    def self.rent_worry?(value)
+      value.to_enum(:scan, /\b(?:scared|afraid|worried)[^.!?]{0,45}\b(?:make|pay(?:ing)?|cover(?:ing)?|miss(?:ing)?)\s+(?:the\s+)?rent\b/i).any? do
+        prefix = Regexp.last_match.pre_match.split(/[,;]|\b(?:but|and)\b/i).last.to_s
+        !prefix.match?(/\b(?:not|never)\s+(?:\w+\s+){0,2}\z/i)
+      end
     end
 
     def self.essential_skipped?(text)

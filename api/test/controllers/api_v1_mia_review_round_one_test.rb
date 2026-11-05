@@ -45,7 +45,7 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
   test "hardship anywhere outranks a purchase across varied sentences" do
     five_answers
     HouseholdFinance::SetupUpdater.new(@household, debt_payment: "95").call
-    [ "I haven't eaten in two days", "I've been skipping meals so the kids could eat", "I skip meals to feed my kids", "My landlord just evicted us", "I'm scared we won't make rent" ].each do |hardship|
+    [ "I haven't eaten in two days", "I've been skipping meals so the kids could eat", "I skip meals to feed my kids", "My landlord just evicted us", "I'm scared we won't make rent", "We just got evicted yesterday", "We're being evicted", "Our landlord is evicting us", "We received an eviction notice", "I'm worried about covering the rent next week" ].each do |hardship|
       ask("Can I afford a $300 stroller? #{hardship}")
       assert_match(/food|housing|essential|eat|meals/i, reply, hardship)
       assert_match(/coach|trusted/i, reply, hardship)

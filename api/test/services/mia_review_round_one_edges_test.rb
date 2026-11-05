@@ -58,6 +58,15 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
     refute_match(/leaves -\$|plan figure for Stroller/, answer)
   end
 
+  test "housing hardship recognizes eviction forms without negation or third party claims" do
+    [ "We just got evicted yesterday", "We're being evicted", "Our landlord is evicting us", "We received an eviction notice", "I'm worried about covering the rent next week" ].each do |message|
+      assert HouseholdFinance::MiaCoachAnswerer.essential_hardship?(message), message
+    end
+    [ "We weren't evicted", "Our landlord is not evicting us", "My friend's landlord evicted her", "Last year we got evicted", "I am not worried about paying the rent", "I am never really scared about covering rent" ].each do |message|
+      refute HouseholdFinance::MiaCoachAnswerer.essential_hardship?(message), message
+    end
+  end
+
   test "food verb forms and contractions recognize hunger but meeting lunch does not" do
     [ "I've been skipping meals so the kids could eat", "I haven't eaten in two days", "I skip meals to feed my kids", "We’ve been missing meals so our children can eat" ].each do |text|
       assert HouseholdFinance::MoneyMovementText.food_insecurity?(text), text
