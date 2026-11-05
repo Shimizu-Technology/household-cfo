@@ -1297,9 +1297,15 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     response = provider_response(model: "exact/model", content: JSON.generate("assistant_message" => "All set.", "operations" => []))
     resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
 
+    # This checks response wording. Admission denial is covered separately;
+    # the database semaphore's one-second deadline is unrelated to this contract.
+    original = HouseholdFinance::MiaProviderAdmission.method(:with_slot)
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot) { |**_options, &provider_call| provider_call.call }
     result = resolver.call(context: {}, user_message: "Make Mia warmer.")
     assert_equal [], result.operations
     assert_includes result.assistant_message, "Nothing has been saved."
     refute_includes result.assistant_message, "Review these proposed draft changes"
+  ensure
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot, original) if original
   end
 end
