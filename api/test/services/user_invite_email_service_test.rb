@@ -24,6 +24,20 @@ class UserInviteEmailServiceTest < ActiveSupport::TestCase
     assert_includes result.fetch(:error), "RESEND_API_KEY"
   end
 
+  test "coach-name lookup completes once before any provider invitation mutation" do
+    user = create_user(email: "lookup@example.test")
+    original_selector = InvitationCoachName.method(:for)
+    original_provider = WorkosInvitationService.method(:send_invite)
+    events = []
+    InvitationCoachName.define_singleton_method(:for) { |**_| events << :name; "Mrs. Mel" }
+    WorkosInvitationService.define_singleton_method(:send_invite) { |**_| events << :provider; { sent: true } }
+    UserInviteEmailService.send_invite(user: user, invited_by: nil)
+    assert_equal [ :name, :provider ], events
+  ensure
+    InvitationCoachName.define_singleton_method(:for, original_selector) if original_selector
+    WorkosInvitationService.define_singleton_method(:send_invite, original_provider) if original_provider
+  end
+
   # Branded custom delivery content is covered end to end in WorkosInvitationServiceTest.
 
   private
@@ -53,5 +67,40 @@ class UserInviteEmailServiceTest < ActiveSupport::TestCase
     previous.each do |key, value|
       value.nil? ? ENV.delete(key) : ENV[key] = value
     end
+  end
+end
+
+class InvitationCoachNameTest < ActiveSupport::TestCase
+  test "cohort workspace inference multiple-workspace fallback personal name and no inviter" do
+    coach = User.create!(clerk_id: "selector-coach", email: "selector-coach@example.test", first_name: "Mel", last_name: "Mendiola", role: "coach", invitation_status: "accepted")
+    other = User.create!(clerk_id: "selector-other", email: "selector-other@example.test", role: "coach", invitation_status: "accepted")
+    recipient = User.create!(clerk_id: "selector-recipient", email: "selector-recipient@example.test")
+    own = CoachWorkspaces::Provisioner.ensure_for!(coach)
+    target = CoachWorkspaces::Provisioner.ensure_for!(other)
+    own.coach_profile.update!(display_name: "Own coaching")
+    target.coach_profile.update!(display_name: "Target coaching")
+    first = Cohort.create!(name: "Target group", created_by_user: other, coach_workspace: target)
+    recipient.cohort_memberships.create!(cohort: first, role: "participant")
+    assert_equal "Target coaching", InvitationCoachName.for(user: recipient, invited_by: coach)
+    second = Cohort.create!(name: "Own group", created_by_user: coach, coach_workspace: own)
+    recipient.cohort_memberships.create!(cohort: second, role: "participant")
+    assert_equal "Own coaching", InvitationCoachName.for(user: recipient, invited_by: coach)
+    own.coach_profile.update!(display_name: coach.email)
+    assert_equal "Mel Mendiola", InvitationCoachName.for(user: recipient, invited_by: coach)
+    assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: nil)
+  end
+
+  test "uses explicit coach display name and never falls back to an email alias" do
+    coach = User.create!(clerk_id: "name_coach", email: "shimizu+qa@example.test", role: "coach", invitation_status: "accepted")
+    recipient = User.create!(clerk_id: "name_recipient", email: "recipient@example.test")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(coach)
+    workspace.coach_profile.update!(display_name: "Mrs. Mel")
+    assert_equal "Mrs. Mel", InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: coach.email)
+    assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: "shimizu")
+    assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
+    workspace.coach_profile.update!(display_name: "shimizu+qa")
+    assert_equal "Your coaching team", InvitationCoachName.for(user: recipient, invited_by: coach)
   end
 end

@@ -1925,6 +1925,7 @@ export type CohortExperienceConfiguration = {
 }
 
 export type CohortExperiencePreview = {
+  challenge_open?: boolean
   upgrade_notice?: string | null
   module_order?: ExperienceModuleId[]
   digest: string
@@ -3465,6 +3466,26 @@ export async function previewAdminPersona(id: number, draftRevision: number, sam
       ...(samplePrompt === undefined ? {} : { sample_prompt: samplePrompt }),
     },
   })
+}
+
+export type CoachLaunchReview = {
+  persona: { id: number; draft_revision: number; published_version_id: number | null; preview_digest: string; voice_changes: boolean; candidate: AdminPersonaReleaseReadiness['candidate'] | undefined; evaluation_run: AdminPersonaReleaseReadiness['evaluation_run'] | undefined; behavioral_preview_evidence: AdminPersonaReleaseReadiness['behavioral_preview_evidence'] | undefined }
+  brand: { draft_revision: number; published_version_id: number | null; preview_digest: string }
+  tools: Array<{ id: number; draft_revision: number; published_version_id: number | null; preview_digest: string }>
+  groups: Array<{ id: number; name: string; roster_digest: string; participant_ids: number[]; active_release_id: number | null; assignment_persona_id: number | null; bundle_digest: string }>
+}
+export type CoachLaunchGroupResult = {
+  id: number
+  name: string
+  challenge_closed: boolean
+  deferred_participants: Array<{ user_id: number; state: 'awaiting_acceptance' | 'revoked'; reason: string }>
+}
+export async function postCoachLaunch(review: CoachLaunchReview, key: string): Promise<{ persona: AdminPersonaDetail; launch: { groups: CoachLaunchGroupResult[] } }> {
+  return fetchJson(`/api/v1/admin/personas/${review.persona.id}/go_live`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ review }) })
+}
+
+export async function resolveCoachLaunch(review: CoachLaunchReview, key: string): Promise<{ persona: AdminPersonaDetail } & ({ status: 'live'; launch: { groups: CoachLaunchGroupResult[] } } | { status: 'not_committed' })> {
+  return fetchJson(`/api/v1/admin/personas/${review.persona.id}/resolve_go_live`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ review }) })
 }
 
 export async function publishAdminPersona(id: number, values: AdminPersonaPublishInput): Promise<AdminPersonaPublicationResponse> {

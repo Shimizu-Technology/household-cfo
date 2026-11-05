@@ -12,6 +12,11 @@ module CohortRollouts
 
     module_function
 
+    def participant_display_name(user)
+      name = [ user.first_name, user.last_name ].compact_blank.join(" ").squish
+      name.presence || "Participant #{user.id}"
+    end
+
     def canonical_json(value)
       JSON.generate(canonicalize(value))
     end
@@ -48,9 +53,9 @@ module CohortRollouts
       member_ids = member_user_ids || participant_user_ids(cohort)
       return "removed" unless member_ids.include?(user.id)
       return "revoked" if user.revoked?
-      return "ready" if user.invitation_accepted?
+      return "awaiting_acceptance" unless user.invitation_status == "accepted"
 
-      "awaiting_acceptance"
+      user.invitation_accepted? ? "ready" : "needs_account"
     end
 
     def readiness_snapshot(cohort:, users: nil)

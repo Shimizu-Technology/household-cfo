@@ -1,0 +1,58 @@
+# frozen_string_literal: true
+
+module Api
+  module V1
+    module Admin
+      class CoachLaunchesController < BaseController
+        before_action :authenticate_user!
+        before_action :require_staff!
+        before_action :require_selected_coach_workspace!
+
+        def create
+          perform_launch { |publisher| { launch: publisher.call! } }
+        end
+
+        def resolve
+          perform_launch(&:resolve!)
+        end
+
+        private
+
+        def perform_launch
+          unless params[:review].is_a?(ActionController::Parameters)
+            return render json: { error: "Reopen Go live to review this update." }, status: :unprocessable_entity
+          end
+          policy = Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
+          persona = policy.publishable_personas.find(params[:id])
+          publisher = CoachLaunches::Publisher.new(persona:, actor: current_user,
+            review: params.require(:review).to_unsafe_h, request_key: request.headers["Idempotency-Key"])
+          result = yield publisher
+          render json: result.merge(persona: Mia::PersonaStudioSerializer.new(persona.reload, policy:).detail)
+        rescue ActiveRecord::RecordNotFound
+          render json: { error: "Ask a program owner to review and publish this update." }, status: :forbidden
+        rescue CoachLaunches::Publisher::Conflict, Branding::Publisher::PublicationError,
+          CohortExperience::Publisher::PublicationError, Mia::PersonaPublisher::PublicationError,
+          Mia::PersonaRelease::AudienceAttester::Error, Mia::PersonaRelease::RunApprover::Error,
+          CoachOperations::Runner::Error, CohortReleases::Sealer::Stale,
+          CohortReleases::Sealer::Incomplete, CohortReleases::Sealer::ReadOnly,
+          CohortRollouts::StateMachine::Error, CohortReleases::InitialLauncher::Conflict,
+          CohortReleases::InitialLauncher::Incomplete, Mia::PersonaAssignmentCompatibility::Conflict,
+          Mia::PersonaRelease::ReviewRules::Error => error
+          Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
+          render json: { error: error.message, rejected: true }, status: :conflict
+        rescue ActiveRecord::StatementInvalid, ActiveRecord::ConnectionNotEstablished => error
+          Rails.logger.info("[CoachLaunch] database outcome #{error.class.name}")
+          state = error.cause.respond_to?(:result) ? error.cause.result&.error_field(PG::Result::PG_DIAG_SQLSTATE) : nil
+          if state&.start_with?("23") || state == "P0001"
+            render json: { error: "This update was not saved. Reopen Go live to review the latest settings and people.", rejected: true }, status: :conflict
+          else
+            render json: { error: "We could not confirm this update. Choose Check this update before trying again." }, status: :service_unavailable
+          end
+        rescue ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
+          Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
+          render json: { error: "This update was not saved. Reopen Go live to review the latest settings and people.", rejected: true }, status: :conflict
+        end
+      end
+    end
+  end
+end

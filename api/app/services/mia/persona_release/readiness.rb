@@ -117,6 +117,9 @@ module Mia
 
       def blockers(run, approval, behavioral_preview, phrase_reviews, approval_ready)
         values = []
+        if run&.requested_by_user_id == actor.id && !approval_ready && !persona.coach_workspace.self_review_authority?(actor)
+          values << "A different workspace owner or reviewer must complete this review"
+        end
         values << "Change the persona draft before publishing another version." unless publication_needed?
         values << "Run and save a live behavioral preview for this exact release candidate." unless behavioral_preview&.integrity_valid?
         values << "Run the required persona evaluation." unless run

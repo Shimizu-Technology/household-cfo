@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, fetchAdminPlaidHealth, updateAdminCohort, updateAdminUser, resendAdminUserInvitation } from '../api'
-import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminPlaidHealth, AdminUser, AdminUserInput, AdminUserMutationResponse, CurrentUser, InvitationStatus, UserRole } from '../api'
+import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminPlaidHealth, CreatedCoachWorkspace, AdminUser, AdminUserInput, AdminUserMutationResponse, CurrentUser, InvitationStatus, UserRole } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { PilotFeedbackInbox } from './PilotFeedbackInbox'
 import { SetupSupportInbox } from './SetupSupportInbox'
 import { CreateCoachProgram } from './CoachProgramSettings'
+import { ProgramCreatedNotice } from './ProgramCreatedNotice'
+import { rememberCreatedProgram } from '../lib/programCreated'
 import { SavingsChallengeAccessPanel } from './SavingsChallengeAccessPanel'
 import './AdminConsole.css'
 import { confirmAction, confirmDiscard } from '../lib/confirmAction'
@@ -34,11 +36,11 @@ const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
 }
 
 export function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
-  const { activeCoachWorkspaceId } = useAuthContext()
-  return <AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} />
+  const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
+  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
 }
 
-function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
+function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
@@ -480,7 +482,7 @@ function AdminPanel({ currentUser }: { currentUser: CurrentUser }) {
       {adminMutationPending && <p className="admin-muted" role="status">{loading ? 'Loading program data…' : 'Please wait for the current change to finish before continuing.'}</p>}
 
       <div hidden={area !== 'programs'}>
-      {currentUser.is_admin && <CreateCoachProgram firstProgram={coachWorkspaces.length === 0} key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
+      {currentUser.is_admin && <CreateCoachProgram onCreated={onProgramCreated} firstProgram={coachWorkspaces.length === 0} key={activeCoachWorkspaceId ?? 'platform'} disabled={adminMutationPending || adminDraftsDirty} onDirtyChange={setProgramCreateDirty} onPendingChange={setProgramCreating} />}
 
       {adminDraftsDirty && <p className="admin-muted">Save or discard your access, invitation or cohort changes before creating a program.</p>}
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />

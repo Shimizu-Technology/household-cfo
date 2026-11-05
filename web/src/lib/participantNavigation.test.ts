@@ -1,3 +1,4 @@
+import { participantSectionLabel } from './participantNavigation'
 import { describe, expect, it } from 'vitest'
 import { partitionParticipantSections, participantSectionsForModules } from './participantNavigation'
 
@@ -52,4 +53,10 @@ it('keeps staff sections in More when a custom order enables fewer than four par
 it('hides Statements on an old profile-based experience when the review contract denies it', () => {
   expect(participantSectionsForModules(['home', 'profile'], { statementsAvailable: false })).not.toContain('Statements')
   expect(participantSectionsForModules(['home', 'profile'], { statementsAvailable: true })).toContain('Statements')
+})
+
+it('uses the same compact assistant name in participant navigation and the coach review', () => {
+  expect(participantSectionLabel('Ask Mia', true, 'Mia Rose', true)).toBe('Mia Rose')
+  expect(participantSectionLabel('Ask Mia', true, 'Mia for Mrs. Mel', true)).toBe('Mia')
+  expect(participantSectionLabel('Ask Mia', false, 'Mia Rose')).toBe('Ask Mia Rose')
 })

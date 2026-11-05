@@ -32,10 +32,14 @@ module CohortRollouts
       return blockers unless reviewed_wave
 
       states = readiness_for_users(reviewed_wave.participants.includes(:user).map(&:user))
-      blocked = states.reject { |entry| entry.fetch(:state) == "ready" }
+      blocked = states.reject { |entry| entry.fetch(:state).in?(%w[ready awaiting_acceptance revoked]) }
       if blocked.any?
-        action = next_wave ? "advance" : "complete"
-        blockers << "Every participant in wave #{reviewed_wave.position} must be ready before it can #{action}."
+        names = User.where(id: blocked.map { |entry| entry.fetch(:user_id) }).index_by(&:id)
+        blocked.each do |entry|
+          person = names.fetch(entry.fetch(:user_id))
+          remedy = entry.fetch(:state) == "needs_account" ? "finish setting up their sign-in" : "have their group access reviewed in Participant access"
+          blockers << "#{Contract.participant_display_name(person)} needs to #{remedy} before this update can go live."
+        end
       end
       blockers
     end

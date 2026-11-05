@@ -47,13 +47,9 @@ class WorkosInvitationService
     end
     invitation = pending_invitation
     if invitation
-      @invitation_id = invitation.fetch("id")
-      response = request(:post, "/user_management/invitations/#{@invitation_id}/resend")
+      response = resend_invitation(invitation)
     else
       payload = { email: @user.email }
-      creator = @user.invited_by_user || @invited_by
-      inviter_identity = creator&.authentication_identities&.find_by(provider: "workos", issuer: WorkosAuth.issuer)
-      payload[:inviter_user_id] = inviter_identity.subject if inviter_identity
       response = request(:post, "/user_management/invitations", body: payload, recover_duplicate: true)
     end
     validate_invitation!(response)
@@ -74,6 +70,57 @@ class WorkosInvitationService
   end
 
   private
+
+  # Native subjects use a provider profile or email when an inviter is supplied.
+  # Omit it for a generic subject. Custom emails use our scoped coach display name.
+  def resend_invitation(invitation)
+    @invitation_id = invitation.fetch("id")
+    if !self.class.custom_delivery? && invitation["inviter_user_id"].present?
+      return replace_legacy_invitation(@invitation_id)
+    end
+    request(:post, "/user_management/invitations/#{@invitation_id}/resend")
+  end
+
+  def replace_legacy_invitation(old_id)
+    revoked = false
+    revoke_attempted = false
+    begin
+      replacement = request(:post, "/user_management/invitations", body: { email: @user.email }, duplicate_as_error: true)
+    rescue DuplicateInvitation
+      revoke_attempted = true
+      revoke_legacy!(old_id)
+      revoked = true
+      replacement = request(:post, "/user_management/invitations", body: { email: @user.email })
+    end
+    validate_invitation!(replacement)
+    raise DeliveryError, "The replacement reused the earlier invitation." if replacement["id"] == old_id
+
+    @invitation_id = replacement.fetch("id")
+    unless revoked
+      revoke_attempted = true
+      revoke_legacy!(old_id)
+    end
+    replacement
+  rescue DeliveryError => error
+    if replacement && @invitation_id != old_id
+      raise DeliveryError, "A new invitation was created and emailed, but the earlier link could not be revoked and may still work. Check the invitation status before taking further action."
+    end
+    link = if revoked
+      "The old invitation link no longer works."
+    elsif revoke_attempted
+      "The old invitation link may no longer work."
+    else
+      "The old invitation link still works."
+    end
+    raise DeliveryError, "#{error.message} #{link} Send the invitation again to create a working link."
+  end
+
+  def revoke_legacy!(id)
+    revoked = request(:post, "/user_management/invitations/#{id}/revoke")
+    unless revoked["id"] == id && revoked["email"].to_s.strip.downcase == @user.email && revoked["state"] == "revoked" && revoked["organization_id"].blank?
+      raise DeliveryError, "The earlier invitation could not be replaced safely. Refresh its status before retrying."
+    end
+  end
 
   def result(sent:, error: nil)
     # Tokens and acceptance URLs are deliberately absent from results and audit data.
@@ -125,18 +172,20 @@ class WorkosInvitationService
     id.is_a?(String) && id.match?(/\Ainvitation_[A-Za-z0-9]+\z/)
   end
 
-  def request(method, path, query: {}, body: nil, allow_missing: false, recover_duplicate: false)
+  class DuplicateInvitation < DeliveryError; end
+
+  def request(method, path, query: {}, body: nil, allow_missing: false, recover_duplicate: false, duplicate_as_error: false)
     options = { headers: { "Authorization" => "Bearer #{ENV.fetch('WORKOS_API_KEY')}", "Content-Type" => "application/json" },
       timeout: 5, open_timeout: 3, follow_redirects: false }
     options[:query] = query if query.any?
     options[:body] = JSON.generate(body) if body
     response = HTTParty.public_send(method, "#{WorkosAuth.api_origin}#{path}", **options)
     return nil if allow_missing && response.code == 404
+    raise DuplicateInvitation if duplicate_as_error && response.code.in?([ 409, 422 ])
     if recover_duplicate && response.code.in?([ 409, 422 ])
       existing = pending_invitation
       raise DeliveryError, "WorkOS could not create this invitation. Refresh its status before retrying." unless existing
-      @invitation_id = existing.fetch("id")
-      return request(:post, "/user_management/invitations/#{@invitation_id}/resend")
+      return resend_invitation(existing)
     end
     if response.code == 429
       raise DeliveryError, "WorkOS invitations are rate limited. Try again shortly."

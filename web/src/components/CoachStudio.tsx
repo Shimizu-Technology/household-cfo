@@ -7,6 +7,7 @@ import { CoachProgramSettings } from './CoachProgramSettings'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachTeachingWorkspace } from './CoachTeaching'
 import { PersonaSetupChat } from './PersonaSetupChat'
+import { ProgramCreatedNotice } from './ProgramCreatedNotice'
 import { CoachGoLive } from './CoachGoLive'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
@@ -109,7 +110,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
 
-  return <section className="screen-grid coach-studio-screen coach-simple" aria-busy={loading || busy || groupsBusy}>
+  return <><ProgramCreatedNotice userId={currentUser.id} workspaceId={workspaceId}/><section className="screen-grid coach-studio-screen coach-simple" aria-busy={loading || busy || groupsBusy}>
     <header className={area === 'people' && cohorts.length > 0 && !showProgramPicker ? 'sr-only' : 'coach-simple-heading'}><div><h2 data-page-heading tabIndex={-1}>{workspace?.name ?? 'Coach Studio'}</h2></div>
       {showProgramPicker && <label>Program<select aria-label="Program" value={workspaceId ?? ''} disabled={busy || groupsBusy || lifecycle.pending} onChange={(event) => leave(() => selectWorkspace(Number(event.target.value)))}><option value="" disabled>Choose your program</option>{currentUser.coach_workspaces?.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
     </header>
@@ -133,7 +134,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
       </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { setArea('assistant'); setTask('voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open advanced settings</Button></details>
-  </section>
+  </section></>
 }
 
 function readView(key: string): { area: Area; task: Task } {

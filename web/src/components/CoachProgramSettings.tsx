@@ -3,10 +3,11 @@ import {
   createCoachWorkspace, fetchCoachWorkspaceSettings, fetchWorkspaceBrand,
   previewWorkspaceBrand, publishWorkspaceBrand, restoreWorkspaceBrandVersion,
   saveWorkspaceBrand, updateCoachWorkspaceSettings, uploadWorkspaceBrandLogo,
-  type BrandConfig, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
+  type BrandConfig, type CreatedCoachWorkspace, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
+import { rememberCreatedProgram } from '../lib/programCreated'
 import { Button } from './Button'
 import { BrandLogo } from './BrandChrome'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -30,9 +31,9 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   disabled?: boolean
   onDirtyChange?: (dirty: boolean) => void
   onPendingChange?: (pending: boolean) => void
-  onCreated?: (workspace: CoachWorkspaceSettings) => void
+  onCreated?: (workspace: CreatedCoachWorkspace) => void
 }) {
-  const { refreshCurrentUser } = useAuthContext()
+  const { refreshCurrentUser, currentUser } = useAuthContext()
   const initialIdentity = { ...blankIdentity, coach_profile: { ...blankIdentity.coach_profile, display_name: defaultCoachName } }
   const [open, setOpen] = useState(autoOpen)
   const [values, setValues] = useState<CoachWorkspaceSettingsInput>(initialIdentity)
@@ -61,12 +62,13 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
       if (!requestKey) { requestKey = crypto.randomUUID(); creationKeys.current.set(fingerprint, requestKey) }
       const created = await createCoachWorkspace(payload, requestKey)
       if (!mounted.current) return
+      rememberCreatedProgram(currentUser?.id, created)
       creationKeys.current.clear()
       setValues(initialIdentity); setOwnerEmail(''); setSendEmail(true); setOpen(false)
       const ownerNote = created.owner_invitation
         ? ` ${created.owner_invitation.email} was invited as its owner${created.owner_invitation.delivery?.sent ? ' and emailed' : created.owner_invitation.delivery?.status === 'skipped' ? '. No email was sent; share their sign-in link yourself' : ', but the invitation email did not send, so share their sign-in link yourself'}.`
         : ''
-      const savedNotice = `${created.name} was created.${ownerNote} Choose it in the program selector to finish its assistant and branding.`
+      const savedNotice = `${created.name} was created.${ownerNote} You can now set up its assistant and branding.`
       setNotice(savedNotice)
       try { await refreshCurrentUser() }
       catch { if (mounted.current) setNotice(`${created.name} was created, but the program selector could not refresh. Reload to find this program; do not create it again.`) }

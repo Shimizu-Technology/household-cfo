@@ -7,6 +7,7 @@ module CoachWorkspaces
     def self.send_invite(user:, workspace:, role:, invited_by:, sign_in_url:, requested:)
       provider = AuthenticationProvider.public_provider if requested
       user = User.find(user.id) if provider == "workos"
+      inviter_name = InvitationCoachName.for(user: user, invited_by: invited_by, workspace: workspace) if requested
       result = if !requested
         { sent: false, status: "skipped", provider_message_id: nil }
       elsif provider == "workos" && user.invitation_pending?
@@ -16,11 +17,11 @@ module CoachWorkspaces
         WorkosInvitationService.acceptance_url(sign_in_url, "validation") if WorkosInvitationService.custom_delivery?
         WorkosInvitationService.send_invite(user: user, invited_by: invited_by) do |token, recipient|
           link = WorkosInvitationService.acceptance_url(sign_in_url, token)
-          text = "#{invited_by.full_name} invited you to collaborate in #{workspace.name} as #{role}. Open #{link} and sign up or sign in using #{recipient.email}. This invitation does not share any participant's financial records."
+          text = "#{inviter_name} invited you to collaborate in #{workspace.name} as #{role}. Open #{link} and sign up or sign in using #{recipient.email}. This invitation does not share any participant's financial records."
           begin
             response = Resend::Emails.send({ from: ENV["RESEND_FROM_EMAIL"].presence || ENV["MAILER_FROM_EMAIL"], to: recipient.email,
               subject: "Your collaborator access to #{workspace.name}", text: text,
-              html: "<p>#{CGI.escapeHTML(invited_by.full_name)} invited you to #{CGI.escapeHTML(workspace.name)} as #{CGI.escapeHTML(role)}.</p><p><a href=\"#{CGI.escapeHTML(link)}\">Open your coaching workspace</a></p>" })
+              html: "<p>#{CGI.escapeHTML(inviter_name)} invited you to #{CGI.escapeHTML(workspace.name)} as #{CGI.escapeHTML(role)}.</p><p><a href=\"#{CGI.escapeHTML(link)}\">Open your coaching workspace</a></p>" })
           rescue StandardError
             raise WorkosInvitationService::DeliveryError, "The invitation email provider could not confirm delivery. Retry later."
           end
@@ -30,7 +31,7 @@ module CoachWorkspaces
       elsif ENV["RESEND_API_KEY"].blank? || (ENV["RESEND_FROM_EMAIL"].blank? && ENV["MAILER_FROM_EMAIL"].blank?) || sign_in_url.blank?
         { sent: false, status: "failed", provider_message_id: nil }
       else
-        text = "#{invited_by.full_name} invited you to collaborate in #{workspace.name} as #{role}. Open #{sign_in_url} and sign up or sign in using #{user.email}. This invitation does not share any participant's financial records."
+        text = "#{inviter_name} invited you to collaborate in #{workspace.name} as #{role}. Open #{sign_in_url} and sign up or sign in using #{user.email}. This invitation does not share any participant's financial records."
         response = Resend::Emails.send({
           from: ENV["RESEND_FROM_EMAIL"].presence || ENV["MAILER_FROM_EMAIL"], to: user.email,
           subject: "Your collaborator access to #{workspace.name}", text: text,

@@ -137,6 +137,7 @@ module Api
             digest: digest,
             draft_revision: editable_configuration.draft_revision,
             generated_at: editable_configuration.previewed_at,
+            challenge_open: cohort.savings_challenge_enabled && !cohort.savings_challenge_release_hold,
             module_order: capabilities.fetch(:module_order, []),
             modules: capabilities.fetch(:modules)
           }

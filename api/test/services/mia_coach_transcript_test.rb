@@ -16,10 +16,11 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
   end
 
   test "transcripts propose enum voice and examples with source evidence without changing names or guardrails" do
-    message = "Propose a voice and example replies from these transcripts. Transcript: We take our time and choose one small step."
+    example = "Participant: I overspent. Coach: Take a breath. What small step feels possible today?"
+    message = "Propose a voice and example replies from these transcripts. Transcript: We take our time and choose one small step. #{example}"
     operations = [
       operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time"),
-      operation("curriculum.examples", [ { "participant" => "I overspent.", "assistant" => "Take a breath. What small step feels possible today?" } ], "choose one small step")
+      operation("curriculum.examples", [ { "participant" => "I overspent.", "assistant" => "Take a breath. What small step feels possible today?" } ], example)
     ]
     built = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build(operations)
     assert_equal %w[warm direct respectful patient], built.dig(:after_state, "draft_config", "voice", "tone_traits")
@@ -80,22 +81,22 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     phrase = { "text" => "One small step", "meaning" => "Choose a manageable next move.",
       "allowed_contexts" => [ "general" ], "prohibited_contexts" => [], "frequency" => "rare", "caution" => "Use gently." }
     op = { "op" => "add_phrase", "path" => "phrases", "value" => phrase,
-      "source_basis" => "coach_quote", "evidence_quote" => "One small step" }
+      "source_basis" => "coach_quote", "evidence_quote" => "One small step means Choose a manageable next move." }
     result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
-      user_message: "Use the phrase One small step.").build([ op ])
+      user_message: "One small step means Choose a manageable next move.").build([ op ])
     assert_includes result.dig(:after_state, "draft_config", "phrases", 0, "prohibited_contexts"), "crisis"
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
-        user_message: "Use the phrase One small step.").build([ op.deep_merge("value" => { "allowed_contexts" => [ "crisis" ] }) ])
+        user_message: "One small step means Choose a manageable next move.").build([ op.deep_merge("value" => { "allowed_contexts" => [ "crisis" ] }) ])
     end
   end
 
   test "selecting a phrase preserves its sealed identity and original capture role" do
-    message = "Propose voice from transcripts: One small step. We take our time."
+    message = "Propose voice from transcripts: One small step means Choose a manageable next move. We take our time."
     phrase = { "text" => "One small step", "meaning" => "Choose a manageable next move.",
       "allowed_contexts" => [ "general" ], "prohibited_contexts" => [ "crisis" ], "frequency" => "rare", "caution" => "Use gently." }
     operations = [ { "op" => "add_phrase", "path" => "phrases", "value" => phrase,
-      "source_basis" => "coach_quote", "evidence_quote" => "One small step" },
+      "source_basis" => "coach_quote", "evidence_quote" => "One small step means Choose a manageable next move." },
       operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
     built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
     turn = @session.turns.create!(position: 1, idempotency_key: "phrase-turn", status: "ready",
@@ -136,10 +137,11 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
       config = @persona.draft_config.deep_dup
       config["phrases"] = 2.times.map { persona_phrase_artifact({ text: "One small step" }, source_user_id: @coach.id) }
       @persona.update!(draft_config: config)
-      message = "Propose voice from transcripts: One small step. We take our time."
       value = action == "add" ? config.fetch("phrases").first.slice(*Mia::PersonaSchema::PHRASE_AUTHORING_KEYS) : "One small step"
+      quote = action == "add" ? "One small step means #{value.fetch('meaning')}" : "One small step"
+      message = "Propose voice from transcripts: #{quote}. We take our time."
       operations = [ { "op" => "#{action}_phrase", "path" => "phrases", "value" => value,
-        "source_basis" => "coach_quote", "evidence_quote" => "One small step" }, operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
+        "source_basis" => "coach_quote", "evidence_quote" => quote }, operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
       built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
       turn = @session.turns.create!(position: 1, idempotency_key: "duplicate-phrase-turn", status: "ready",
         assistant_message: "Review these suggestions.", user_message: message, base_draft_revision: @persona.draft_revision,

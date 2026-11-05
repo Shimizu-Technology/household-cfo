@@ -29,7 +29,8 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
       posts = @requests.select { |method, _url, _options| method == :post }
       assert_equal 1, posts.length
       payload = JSON.parse(posts.first.last.fetch(:body))
-      assert_equal({ "email" => @invitee.email, "inviter_user_id" => "user_inviter" }, payload)
+      assert_equal({ "email" => @invitee.email }, payload)
+      refute @requests.any? { |_method, url, _| url.include?("/users/") }
       refute payload.key?("organization_id")
       refute payload.key?("role_slug")
       assert_equal false, posts.first.last[:follow_redirects]
@@ -250,6 +251,115 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "native invitation has a generic subject and never depends on a provider profile call" do
+    with_workos do
+      workspace = CoachWorkspaces::Provisioner.ensure_for!(@inviter)
+      workspace.coach_profile.update!(display_name: "Mrs. Mel")
+      @inviter.authentication_identities.create!(provider: "workos", issuer: WorkosAuth.issuer, subject: "user_inviter")
+      stub_method(HTTParty, :put, ->(*) { flunk "No WorkOS profile writes" }) do
+        stub_method(HTTParty, :get, lambda { |url, **_|
+          flunk "Invitation must not depend on a profile read" if url.include?("/users/")
+          WorkosResponse.new(200, { "data" => [], "list_metadata" => {} })
+        }) do
+          stub_method(HTTParty, :post, lambda { |_url, **options|
+            assert_equal({ "email" => @invitee.email }, JSON.parse(options.fetch(:body)))
+            WorkosResponse.new(200, invitation)
+          }) do
+            assert WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)[:sent]
+          end
+        end
+      end
+    end
+  end
+
+  [ false, true ].each do |duplicate|
+    test "legacy replacement creates first and revokes before retry only if duplicate #{duplicate}" do
+      with_workos do
+        legacy = invitation.merge("inviter_user_id" => "user_alias")
+        urls = []
+        stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+          stub_method(HTTParty, :post, lambda { |url, **_|
+            urls << url
+            if duplicate && urls.one?
+              WorkosResponse.new(409, {})
+            elsif url.end_with?("/revoke")
+              WorkosResponse.new(200, legacy.merge("state" => "revoked"))
+            else
+              WorkosResponse.new(200, invitation.merge("id" => "invitation_replacement"))
+            end
+          }) do
+            assert WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)[:sent]
+          end
+        end
+        root = "https://api.workos.com/user_management/invitations"
+        assert_equal duplicate ? [ root, "#{root}/invitation_native/revoke", root ] : [ root, "#{root}/invitation_native/revoke" ], urls
+      end
+    end
+  end
+
+  [ false, true ].each do |duplicate|
+    test "replacement failure explains whether the old invitation still works #{duplicate}" do
+      with_workos do
+        legacy = invitation.merge("inviter_user_id" => "user_alias")
+        urls = []
+        stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+          stub_method(HTTParty, :post, lambda { |url, **_|
+            urls << url
+            if url.end_with?("/revoke")
+              WorkosResponse.new(200, legacy.merge("state" => "revoked"))
+            else
+              WorkosResponse.new(duplicate && urls.one? ? 409 : 500, {})
+            end
+          }) do
+            result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+            refute result[:sent]
+            assert_includes result[:error], duplicate ? "old invitation link no longer works" : "old invitation link still works"
+            assert_includes result[:error], "Send the invitation again"
+          end
+        end
+        assert_equal duplicate ? 3 : 1, urls.length
+      end
+    end
+  end
+
+  [ nil, { "id" => "invitation_wrong" }, { "email" => "wrong@example.test" }, { "state" => "pending" }, { "organization_id" => "org_other" } ].each_with_index do |mismatch, index|
+    test "replacement already emailed reports the failed legacy revoke #{index}" do
+      with_workos do
+        legacy = invitation.merge("inviter_user_id" => "user_alias")
+        stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+          stub_method(HTTParty, :post, lambda { |url, **_|
+            url.end_with?("/revoke") ? WorkosResponse.new(mismatch ? 200 : 500, legacy.merge("state" => "revoked").merge(mismatch || {})) : WorkosResponse.new(200, invitation.merge("id" => "invitation_replacement"))
+          }) do
+            result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+            refute result[:sent]
+            assert_equal "invitation_replacement", result[:provider_message_id]
+            assert_includes result[:error], "created and emailed"
+            refute_includes result[:error], "Send the invitation again"
+          end
+        end
+      end
+    end
+  end
+
+  test "a replacement reusing the legacy ID never revokes the only working link" do
+    with_workos do
+      legacy = invitation.merge("inviter_user_id" => "user_alias")
+      urls = []
+      stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+        stub_method(HTTParty, :post, lambda { |url, **_|
+          urls << url
+          WorkosResponse.new(200, invitation)
+        }) do
+          result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+          refute result[:sent]
+          assert_includes result[:error], "old invitation link still works"
+          assert_equal "invitation_native", result[:provider_message_id]
+          assert_equal [ "https://api.workos.com/user_management/invitations" ], urls
+        end
+      end
+    end
+  end
+
   private
 
   def invitation
@@ -261,7 +371,12 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
   def with_http(rows, response, code: 200, &block)
     stub_method(HTTParty, :get, lambda { |url, **options|
       @requests << [ :get, url, options ]
-      WorkosResponse.new(200, url.end_with?("/invitation_native") ? invitation : { "data" => rows, "list_metadata" => {} })
+      data = if url.include?("/users/")
+        { "id" => "user_inviter", "first_name" => "Your coaching team", "last_name" => "" }
+      else
+        url.end_with?("/invitation_native") ? invitation : { "data" => rows, "list_metadata" => {} }
+      end
+      WorkosResponse.new(200, data)
     }) do
       stub_method(HTTParty, :post, lambda { |url, **options|
         @requests << [ :post, url, options ]
@@ -287,7 +402,9 @@ class WorkosInvitationControllerTest < ActionDispatch::IntegrationTest
       cohort = Cohort.create!(name: "Invited program", created_by_user: actor)
       target.cohort_memberships.create!(cohort: cohort, role: "participant")
       gets = lambda do |url, **_options|
-        data = if url.include?("/sso/jwks/")
+        data = if url.include?("/users/")
+          { "id" => "user_test", "email" => actor.email, "email_verified" => true, "first_name" => "your coach", "last_name" => "" }
+        elsif url.include?("/sso/jwks/")
           { "keys" => [ @signing_jwk.export.deep_stringify_keys ] }
         else
           { "data" => [], "list_metadata" => {} }
@@ -301,7 +418,7 @@ class WorkosInvitationControllerTest < ActionDispatch::IntegrationTest
           stub_method(Resend::Emails, :send, ->(*) { flunk "Native provider sends only one invitation email" }) do
             post "/api/v1/admin/users/#{target.id}/resend_invitation", headers: { "Authorization" => "Bearer #{workos_token}" }
             assert_response :success
-            assert response.parsed_body.fetch("invitation_sent")
+            assert response.parsed_body.fetch("invitation_sent"), response.body
             assert_equal "workos", target.invitation_email_attempts.last.provider
             assert_equal "invitation_controller", target.reload.invitation_email_provider_id
             assert_equal "pending", target.invitation_status

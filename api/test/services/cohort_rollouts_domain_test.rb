@@ -41,6 +41,17 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     assert_equal "removed", CohortRollouts::Contract.readiness_state(cohort: @cohort, user: revoked)
   end
 
+  test "accepted readiness uses one fresh identity lookup per participant" do
+    queries = []
+    observer = ->(*args) { queries << args.last.fetch(:sql) if args.last.fetch(:sql).start_with?("SELECT") }
+    User.uncached do
+      ActiveSupport::Notifications.subscribed(observer, "sql.active_record") do
+        assert_equal "ready", CohortRollouts::Contract.readiness_state(cohort: @cohort, user: @first, member_user_ids: [ @first.id ])
+      end
+    end
+    assert_equal 1, queries.length, "Readiness must not double the per-participant identity queries"
+  end
+
   test "plans the exact current roster as immutable ordered waves without changing runtime" do
     result = plan!(waves: [
       { name: "First households", user_ids: [ @first.id ] },
@@ -74,8 +85,8 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     assert_empty @cohort.cohort_rollouts
   end
 
-  test "advances only a ready next wave then pauses resumes and completes" do
-    @second.update!(invitation_status: "pending", clerk_id: "pending_#{SecureRandom.hex(6)}")
+  test "an accepted unlinked next wave still blocks then pauses resumes and completes" do
+    @second.update!(invitation_status: "accepted", clerk_id: "pending_#{SecureRandom.hex(6)}")
     rollout = plan!(waves: [
       { name: "Ready first", user_ids: [ @first.id ] },
       { name: "Waiting second", user_ids: [ @second.id ] }
@@ -90,7 +101,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     error = assert_raises(CohortRollouts::StateMachine::Ineligible) do
       @machine.advance!(rollout: rollout, input: blocked_input)
     end
-    assert_includes error.blockers, "Every participant in wave 2 must be ready before it can advance."
+    assert error.blockers.any? { |message| message.include?("finish setting up their sign-in") }
 
     @second.update!(invitation_status: "accepted", clerk_id: "clerk_#{SecureRandom.hex(6)}")
     assert_raises(CohortRollouts::StateMachine::Stale) do
@@ -127,7 +138,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
   test "completion rechecks the final wave instead of hashing an empty participant set" do
     rollout = plan!.rollout
     @machine.advance!(rollout: rollout, input: advance_input(rollout))
-    @first.update!(invitation_status: "revoked")
+    @first.update!(invitation_status: "accepted", clerk_id: "pending_unlinked")
 
     digest = CohortRollouts::Contract.readiness_digest_for_advance(rollout.reload)
     snapshot = CohortRollouts::Contract.wave_readiness_snapshot(
@@ -140,7 +151,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     error = assert_raises(CohortRollouts::StateMachine::Ineligible) do
       @machine.advance!(rollout: rollout, input: advance_input(rollout))
     end
-    assert_includes error.blockers, "Every participant in wave 1 must be ready before it can complete."
+    assert error.blockers.any? { |message| message.include?("finish setting up their sign-in") }
     assert_equal "active", rollout.reload.status
   end
 
