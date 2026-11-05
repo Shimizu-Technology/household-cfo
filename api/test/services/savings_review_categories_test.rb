@@ -27,6 +27,11 @@ class SavingsReviewCategoriesTest < ActiveSupport::TestCase
       assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Island Power", event_type: event_type), event_type
     end
   end
+  test "explicit bank fees can be reviewed in the broad bills category" do
+    assert_equal 1, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Monthly service fee", event_type: "fee")
+    assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Unrecognized fee", event_type: "fee")
+  end
+
   test "one active household category in each stack gets hints regardless of its name" do
     @categories[0].name = "Fixed essentials"
     @categories[1].name = "Flexible spending"

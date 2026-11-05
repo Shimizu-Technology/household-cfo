@@ -51,7 +51,7 @@ module SavingsChallenge
         return deterministic(daily_report_answer) if @daily_report
         return deterministic(daily_rejection_answer) if @daily_rejection
         return deterministic(savings_intake_answer) if @savings_intake
-        return deterministic(savings_total_answer) if @message.match?(/\b(?:how much|total)\b.{0,50}\b(?:saved|savings|set aside)\b|\b(?:saved|savings)\b.{0,30}\b(?:so far|total)\b/i)
+        return deterministic(savings_total_answer) if !@message.match?(/\b(?:progress|goals?|targets?)\b/i) && @message.match?(/\b(?:how much|total)\b.{0,50}\b(?:saved|savings|set aside)\b|\b(?:saved|savings)\b.{0,30}\b(?:so far|total)\b/i)
         return deterministic(target_change_answer) if target_change?
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)

@@ -129,7 +129,7 @@ module Api
       # Optional status=pending|approved lets Home list what is waiting for the
       # participant separately from what they already confirmed.
       def entry_drafts
-        scope = SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment!.id })
+        scope = SavingsEntryDraft.joins(:savings_entry).includes(:savings_entry).where(savings_entries: { savings_enrollment_id: enrollment!.id })
         unless params[:status].nil?
           status = params[:status].to_s
           raise ArgumentError, "Draft status must be pending or approved" unless %w[pending approved].include?(status)

@@ -10552,6 +10552,19 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
 })
+test('BOG UI daily Mia waits for the current question before offering today', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(prompt).toBeVisible()
+  const reply = (content: string, id: number) => ({
+    user_message: { id, role: 'user', author: 'You', content: 'What spending patterns do you see?' },
+    assistant_message: { id: id + 1, role: 'assistant', author: 'Mia', content },
+  })
+  await sendMiaDailyReport(page, reply('Would you rather cut back at Ross or Kmart?', 8201))
+  await expect(prompt).toHaveCount(0)
+  await sendMiaDailyReport(page, reply('Your saved total is $20.00.', 8203))
+  await expect(prompt).toBeVisible()
+})
 test('BOG UI daily Mia asks how today went until today is checked in',async({page},testInfo)=>{
   const{calls}=await openDaily(page,{active:true})
   const prompt=page.getByRole('group',{name:/asks about today/});const composer=page.getByRole('textbox',{name:'Ask Mia',exact:true})

@@ -228,9 +228,9 @@ module SavingsChallenge
       standalone = self.class.amount_reply?(message, session: @session)
       weekly = message.match?(GoalAmount::WEEKLY)
       return false unless message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || standalone || suggestion || self.class.weekly_offer?(message)
-      malformed = message.match?(/(?:\$\s*|\b(?:to|at|be|save)\s+)[0-9][0-9,]*\.\d{3,}/i)
+      malformed = message.match?(/(?:\$\s*|\b(?:to|at|be|save|set aside)\s+)[0-9][0-9,]*\.\d{3,}/i)
       amounts = message.scan(/\$\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/).flatten
-      amounts = message.scan(/\b(?:to|at|of|be|is|save|do)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i).flatten if amounts.empty?
+      amounts = message.scan(/\b(?:to|at|of|be|is|save|do|set aside)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i).flatten if amounts.empty?
       amounts = [ message.match(BARE_AMOUNT)[1] ] if amounts.empty? && standalone && message.match?(BARE_AMOUNT)
       # A polite request with an explicit amount is still a proposal. A question
       # about reaching the existing goal must not silently propose the default.
@@ -238,7 +238,7 @@ module SavingsChallenge
       # The requested destination wins even when the old amount alone has a
       # dollar sign. "Be $500 instead of $400" also names a destination.
       destination = message[/\b(?:goal|target)\s+(?:to\s+be|to|at|be|of|is)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
-      replacement = destination || message[/\b(?:to|at|be|save|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
+      replacement = destination || message[/\b(?:to|at|be|save|set aside|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
       chosen = replacement || (amounts.first if amounts.one?)
       @goal_cents = if malformed
         nil

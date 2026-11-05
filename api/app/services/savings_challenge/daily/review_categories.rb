@@ -33,6 +33,8 @@ module SavingsChallenge
         return unless event_type.in?(%w[purchase fee])
         text = merchant.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
         return if text.match?(/\b(?:transfers?|payments?|refunds?|reversals?)\b/)
+        return if event_type == "purchase" && text.match?(/\bfees?\b/)
+        return if event_type == "fee" && !text.match?(/\b(?:(?:service|bank|monthly|maintenance|overdraft) fee|service charge)\b/)
         stack = if event_type == "fee" || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|groceries|supermarkets?|payless|cost u less|fuel|gasoline|shell|mobil|service fee)\b/)
           "non_discretionary"
         elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|includes tip|netflix|streaming|subscription|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
