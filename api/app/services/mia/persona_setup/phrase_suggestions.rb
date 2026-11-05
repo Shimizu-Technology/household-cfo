@@ -32,7 +32,7 @@ module Mia
           # A speaker label is not limited to alphabetic names: transcripts
           # also use numbered, annotated, or unfamiliar speakers. Only explicit
           # prose/authoring introductions may keep the whole line as evidence.
-          if body && !speaker.match?(/\A\s*(?:(?:i|we|she|he|they)(?:\s|['’])|the coach\s|her (?:phrase|saying) is\b|(?:please\s+)?(?:add|use|keep)\b)/i)
+          if body && !speaker.match?(/\A\s*(?:(?:i|we|she|he|they)(?:\s|['’])|the coach\s|her (?:phrase|saying|voice|tone|coaching|method|style) (?:is|was)\b|(?:please\s+)?(?:add|use|keep)\b)/i)
             allowed = [ "coach", "me", "#{@coach_name}" ].reject(&:blank?)
             next unless allowed.any? { |name| speaker.strip.casecmp?(name) }
           else
