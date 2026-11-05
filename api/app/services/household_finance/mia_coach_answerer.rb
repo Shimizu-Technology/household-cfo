@@ -1234,7 +1234,7 @@ module HouseholdFinance
 
     def non_purchase_amount_request?
       if (clause = purchase_intent_clause)
-        return recurring_purchase_amount?(clause) || clause.match?(/\b(?:car payment|car lease)\b|\brent\s+(?:of\s+)?\$/i)
+        return recurring_purchase_amount?(clause) || clause.match?(/\b(?:car payment|car lease)\b|\brent\s+(?:of\s+)?\$|\b(?:afford|want|need|have)\s+to\s+(?:quit|save)\b/i)
       end
 
       normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)

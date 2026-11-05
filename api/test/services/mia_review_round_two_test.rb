@@ -41,6 +41,13 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     end
   end
 
+  test "saving and quitting within their own clause are not purchases" do
+    [ "Can I afford to save $300?", "Can I afford to quit my job for $300?" ].each do |message|
+      refute answerer(message).send(:purchase_question?), message
+      refute_match(/The \$.*purchase/i, answerer(message).call.to_s, message)
+    end
+  end
+
   test "monthly without a recurring purchase amount cannot create a commitment" do
     subject = answerer("Can I buy a monthly planner to save receipts?")
     assert_nil subject.send(:recurring_purchase_answer)
