@@ -2,7 +2,7 @@ module HouseholdFinance
   # Resolve a correction in the same turn before any purchase comparison.
   module PurchaseQuestionText
     Result = Data.define(:text, :needs_clarification)
-    CORRECTION = /\A(?:(?:no|actually|sorry|correction|wait)[,:;]?\s+)*(?:(?:it|the (?:price|cost))\s+(?:actually\s+)?(?:is|costs?)\b|i meant\b|make (?:it|that)\b|\$)/i.freeze
+    CORRECTION = /\A(?:(?:no|actually|sorry|correction|wait)[,:;]?\s+)*(?:(?:it|the (?:price|cost))\s+(?:actually\s+)?(?:is|costs?)\b|i meant\b|make (?:it|that)\b|\$\s*[\d,.]+(?:k|\s+dollars?)?[.!]?\s*\z)/i.freeze
 
     def self.for_comparison(message)
       segments = message.to_s.split(/(?<=[?!])\s+/)

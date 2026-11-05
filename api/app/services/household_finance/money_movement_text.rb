@@ -196,7 +196,7 @@ module HouseholdFinance
       value = text.to_s.squish.gsub(/['’]/, "'").gsub(/\b(?:I've|we've)\b/i) { |word| word.downcase.start_with?("i") ? "I have" : "we have" }
       return false if value.match?(NOT_HARDSHIP_PATTERN)
       return true if value.match?(/\b(?:i|we|(?:my|our|the) kids?)\s+(?:have not|haven't|had not|hadn't)\s+eaten\b/i)
-      return true if value.match?(/\b(?:i|we)\s+(?:(?:have|been|am|are|keep)\s+){0,3}skip(?:ped|ping)?\s+meals?\b[^.!?]{0,70}\b(?:to feed|so .*eat)\b/i)
+      return true if value.match?(/\b(?:i|we)\s+(?:(?:have|been|am|are|keep)\s+){0,3}skip(?:ped|ping)?\s+meals?\b[^.!?]{0,70}\b(?:to feed\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family|husband|wife|partner|parents?|mom|dad|them)|so\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family|husband|wife|partner|parents?|mom|dad|they)\s+(?:could|can|would)\s+eat)\b/i)
       return true if STRONG_FOOD_INSECURITY_PATTERNS.any? { |pattern| value.match?(pattern) }
       return true if value.match?(/\b(?:i|we)\s+(?:(?:have|had|been|am|are|was|were|keep)\s+){0,3}(?:skip(?:ped|ping)?|miss(?:ed|ing)?|went\s+without|go(?:ing)?\s+without)\s+(?:(?:my|our|some|a)\s+)?(?:meals?|food|breakfast|lunch|dinner)\b[^.!?]{0,60}\bso\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family)\s+(?:could|can|would)\s+eat\b/i)
       return false if value.match?(DISCRETIONARY_FOOD_PATTERN) || value.match?(FOOD_BUDGET_PATTERN)

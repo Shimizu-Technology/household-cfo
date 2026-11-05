@@ -15,7 +15,7 @@ module SpendingPatterns
     end
 
     def patterns_rejection(content)
-      return :unqualified_flexible_pattern if content.match?(/\b(?:biggest|largest|top)\s+(?:overall\s+)?(?:spending stops?|merchants?|stores?)\b/i)
+      return :unqualified_flexible_pattern if content.match?(/\b(?:biggest|largest|top)\s+(?:(?:spending stops?|merchants?|stores?)|overall\b[\w\s-]*?\b(?:spending stops?|merchants?|stores?|totals?|amounts?))\b/i)
       sentences = content.to_s.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
       return :patterns_response_length unless persona.respond_to?(:response_shape) || sentences.length.between?(3, 5)
       return :spelled_pattern_figure if content.match?(/\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion)\s+(?:dollars?|purchases?|buys|percent|months?|days?|payments?|charges?|transactions?)\b/i)

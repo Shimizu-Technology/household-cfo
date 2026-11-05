@@ -1126,8 +1126,17 @@ module HouseholdFinance
       return unavailable_plan_answer unless plan_available?
 
       dated = text.match?(/\b(?:today|tomorrow|last month|this month|next month|next week|next year|20\d{2})\b/i) || MonthTerms.detect_number(text)
-      date = dated ? MiaMonthAnswer.question_date(text) : Date.new(annual_budget_manager.year, reference_month, 1)
-      date = Date.current.prev_month.beginning_of_month if text.match?(/\blast month\b/i)
+      date = if text.match?(/\btomorrow\b/i)
+        Date.tomorrow
+      elsif text.match?(/\bnext week\b/i)
+        Date.current + 7
+      elsif text.match?(/\bnext year\b/i)
+        Date.current.next_year
+      elsif dated
+        MiaMonthAnswer.question_date(text)
+      else
+        Date.new(annual_budget_manager.year, reference_month, 1)
+      end
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
       MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(Money.chat_cents(amount)), label: item, effective_on: date&.iso8601,
         annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
@@ -1224,11 +1233,27 @@ module HouseholdFinance
     end
 
     def non_purchase_amount_request?
+      if (clause = purchase_intent_clause)
+        return recurring_purchase_amount?(clause) || clause.match?(/\b(?:car payment|car lease)\b|\brent\s+(?:of\s+)?\$/i)
+      end
+
       normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)
     end
 
+    def purchase_intent_clause
+      message.split(/(?<=[.!?;])\s+|,\s+|\s+(?:and|but)\s+(?=(?:i|we|can|should|could|may|is it)\b)/i).find do |clause|
+        PURCHASE_INTENT_PATTERNS.any? { |pattern| clause.match?(pattern) }
+      end
+    end
+
+    def recurring_purchase_amount?(clause)
+      amount = Money::CHAT_DOLLAR_AMOUNT_PATTERN.source
+      clause.match?(/#{amount}\s+(?:(?:a|per|each|every)\s+month|monthly)\b|\bmonthly\s+(?:(?:for|at|of)\s+)?#{amount}/i)
+    end
+
     def recurring_purchase_answer
-      return unless non_purchase_amount_request? && message.match?(/\b(?:buy|purchase)\b/i) && message.match?(/\b(?:monthly|(?:a|per|each|every) month)\b/i)
+      clause = purchase_intent_clause
+      return unless clause && recurring_purchase_amount?(clause)
 
       "This is a recurring monthly commitment. Check how it would change each month’s plan, including food, bills and required payments, before deciding. Which monthly category would fund it?"
     end

@@ -49,7 +49,7 @@ module SpendingPatterns
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       category_names = @patterns[:discretionary_categories].first(2).pluck(:label)
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
-      observed = "#{observed} Your largest flexible spending categories were #{category_names.to_sentence}." if category_names.any?
+      observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first

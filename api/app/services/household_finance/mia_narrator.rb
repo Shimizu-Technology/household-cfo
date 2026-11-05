@@ -309,6 +309,11 @@ module HouseholdFinance
       if MoneyMovementText.food_insecurity?(user_message)
         first = content.split(/(?<=[.!?])\s+/).first.to_s
         return :food_support_missing unless first.match?(/\b(?:food|meals?|eat|eating|hungry)\b/i) && content.match?(/\bcoach\b/i) && content.match?(/\btoday\b/i)
+        acknowledgment = first.match?(/\b(?:you\s+(?:(?:have|been|are|were|keep)\s+){0,3}(?:skip(?:ped|ping)?|miss(?:ed|ing)?)\s+meals?|(?:go(?:ing)?|went)\s+without\s+(?:food|meals?)|you\s+(?:have not|haven['’]t|had not|hadn['’]t)\s+eaten|you(?:['’]re| are)\s+hungry|(?:no|not enough|out of)\s+food)\b/i)
+        food_step = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).any? do |sentence|
+          !sentence.end_with?("?") && sentence.match?(/\b(?:get(?:ting)?|find(?:ing)?)\s+(?:some\s+)?food\b[^.!?]{0,60}\btoday\b|\btoday\b[^.!?]{0,60}\b(?:get|find)\s+(?:some\s+)?food\b|\b(?:please|need to)\s+eat\s+today\b/i)
+        end
+        return :food_support_missing unless acknowledgment && food_step
         question = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).last.to_s
         return :food_support_missing unless question.end_with?("?") && question.match?(/\b(?:food|meals?|eat|eating)\b/i) && question.match?(/\btoday\b/i) && question.match?(/\b(?:you|your|everyone|everybody|all|home|household|family)\b/i)
         return :essentials_not_first if content.match?(/\b(?:discipline|win|great job|proud|achievement|well done|celebrate)\b/i)

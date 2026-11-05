@@ -35,7 +35,7 @@ class MiaReviewLateFindingsTest < ActiveSupport::TestCase
     [ "Food comes first. Talk with your coach today. Which bill is due next?", "You need food today and should talk with your coach. Can you postpone the stroller?" ].each do |message|
       assert narrator("coaching", "I missed meals so my kids could eat").send(:narration_rejection_reason, message), message
     end
-    assert_nil narrator("coaching", "I missed meals so my kids could eat").send(:narration_rejection_reason, "You need food today; talk with your coach. Does everyone in your home have enough food today?")
+    assert_nil narrator("coaching", "I missed meals so my kids could eat").send(:narration_rejection_reason, "You missed meals so your kids could eat. Please get food today and talk with your coach. Does everyone in your home have enough food today?")
   end
 
   test "explicit missed meals outrank an empty food budget but hypothetical hunger does not" do
