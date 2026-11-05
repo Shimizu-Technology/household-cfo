@@ -166,6 +166,18 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_equal answerer("Can I buy a $200 stroller?").call, answerer(message).call
   end
 
+  test "a correction followed by an unclear price asks instead of guessing" do
+    result = HouseholdFinance::PurchaseQuestionText.for_comparison("Can I buy a $300 stroller? Actually, $200! $250 with tax.")
+    assert result.needs_clarification
+  end
+
+  test "naming the paying account keeps the stated price, while a stated balance does not become one" do
+    priced = answerer("Can I buy a $300 stroller with my checking account?").call
+    assert_equal answerer("Can I buy a $300 stroller?").call.to_s[/\$[\d,]+/], priced.to_s[/\$[\d,]+/]
+    assert_includes priced, "$300"
+    refute_includes answerer("I have $500 in checking. Can I buy a stroller?").call.to_s, "$500 purchase"
+  end
+
   test "unrecognized later dollar fragments clarify rather than retain the earlier price" do
     result = HouseholdFinance::PurchaseQuestionText.for_comparison("Can I buy a $300 stroller? $200 maybe, or $250")
     assert result.needs_clarification

@@ -10,11 +10,11 @@ module HouseholdFinance
       segments = text.split(/(?<=[?!])\s+/)
       first = segments.first.to_s
       corrections = segments.drop(1).select { |segment| segment.match?(CORRECTION) }
-      unparsed_price = segments.drop(1).any? do |segment|
+      unparsed_price = (segments.drop(1) - corrections).any? do |segment|
         !segment.end_with?("?") && (segment.match?(/\b(?:costs?|price|i meant)\b/i) ||
           (segment.match?(/\A\$\s*\d/) && !segment.match?(/\A\$\s*[\d,.]+(?:k)?\s+of\s+that\b/i)))
       end
-      return Result.new(first, unparsed_price) if corrections.empty?
+      return Result.new(first, unparsed_price) if corrections.empty? || unparsed_price
 
       amounts = corrections.last.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
       return Result.new(first, true) unless amounts.one? && first.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one? && Money.chat_cents(amounts.first.first).positive?

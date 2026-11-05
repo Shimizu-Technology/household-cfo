@@ -1268,7 +1268,9 @@ module HouseholdFinance
         text = PurchaseQuestionText.for_comparison(message).text
         return unless text.match?(/\b(?:costs?|price|is|are)\s+\$/i)
       end
-      return if text.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
+      # Paying with an account names no balance; "$500 in checking" states one.
+      return if text.match?(/\b(?:balances?|income|salary|paycheck|bonuses?)\b/i)
+      return if text.match?(/#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}\s+(?:in|into|from|left in)\s+(?:(?:my|our|the)\s+)?(?:checking|savings|accounts?)\b/i)
 
       amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
       return unless amounts.one?
