@@ -12,9 +12,8 @@ module HouseholdFinance
         def normalize(input)
           occurred_on = parsed_date(input[:occurred_on])
           merchant = bounded_text(input[:merchant], 120)
-          household.budget_categories.active.each do |category|
-            merchant = merchant.sub(/\s+for\s+#{Regexp.escape(category.name)}\z/i, "")
-          end
+          category_suffix = explicit_category_name(input[:category_context]) if input[:source_type].to_s == "manual_chat"
+          merchant = merchant.sub(/\s+for\s+#{Regexp.escape(category_suffix)}\z/i, "") if category_suffix
           raise ArgumentError, "Transaction merchant is required" if merchant.blank?
 
           total_cents = if input.key?(:amount_cents)

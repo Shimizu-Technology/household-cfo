@@ -204,10 +204,11 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      return "Which purchase price should I compare with the plan? Nothing changed." if purchase_question? && PurchaseQuestionText.for_comparison(message).needs_clarification
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
 
-      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      recurring_purchase_answer || avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -1100,10 +1101,11 @@ module HouseholdFinance
     def purchase_price_cents
       amount = '\$\s*([\d,]+(?:\.\d{1,2})?)'
       item = "(?:purse|handbag|bag)"
-      match = message.match(/#{amount}\s+#{item}\b/i) ||
-        message.match(/\b(?:spend|spending|pay|paying)\s*#{amount}\s+(?:on|for)\s+(?:(?:a|an|the|this|that)\s+)?#{item}\b/i) ||
-        message.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
-        message.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
+      text = PurchaseQuestionText.for_comparison(message).text
+      match = text.match(/#{amount}\s+#{item}\b/i) ||
+        text.match(/\b(?:spend|spending|pay|paying)\s*#{amount}\s+(?:on|for)\s+(?:(?:a|an|the|this|that)\s+)?#{item}\b/i) ||
+        text.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
+        text.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
       Money.chat_cents(match[1]) if match
     end
 
@@ -1116,15 +1118,18 @@ module HouseholdFinance
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
-      return unless purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
+      text = PurchaseQuestionText.for_comparison(message).text
+      amount = text.match(Money::CHAT_DOLLAR_AMOUNT_PATTERN)&.[](1)
+      return unless purchase_question? && amount && Money.chat_cents(amount).positive? && text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
       return if normalized_message.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
       return incomplete_setup_answer unless SetupStatus.new(household).complete?
       return unavailable_plan_answer unless plan_available?
 
-      date = MiaMonthAnswer.question_date(message)
-      date = Date.current.prev_month.beginning_of_month if message.match?(/\blast month\b/i)
+      dated = text.match?(/\b(?:today|tomorrow|last month|this month|next month|next week|next year|20\d{2})\b/i) || MonthTerms.detect_number(text)
+      date = dated ? MiaMonthAnswer.question_date(text) : Date.new(annual_budget_manager.year, reference_month, 1)
+      date = Date.current.prev_month.beginning_of_month if text.match?(/\blast month\b/i)
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
-      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: item, effective_on: date&.iso8601,
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(Money.chat_cents(amount)), label: item, effective_on: date&.iso8601,
         annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
     end
 
@@ -1220,6 +1225,12 @@ module HouseholdFinance
 
     def non_purchase_amount_request?
       normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)
+    end
+
+    def recurring_purchase_answer
+      return unless non_purchase_amount_request? && message.match?(/\b(?:buy|purchase)\b/i) && message.match?(/\b(?:monthly|(?:a|per|each|every) month)\b/i)
+
+      "This is a recurring monthly commitment. Check how it would change each month’s plan, including food, bills and required payments, before deciding. Which monthly category would fund it?"
     end
 
     def purchase_question?

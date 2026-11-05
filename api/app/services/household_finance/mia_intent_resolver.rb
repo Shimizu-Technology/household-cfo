@@ -837,6 +837,14 @@ module HouseholdFinance
       scenario_type = deterministic_scenario_type(scenario_text)
       return unless scenario_type
 
+      comparison = PurchaseQuestionText.for_comparison(user_message) if scenario_type == "purchase"
+      scenario_text = comparison.text if comparison
+      if comparison&.needs_clarification
+        return Result.new(intent: "clarification", confidence: 1.0, continuation: false, resolved_message: user_message,
+          needs_clarification: true, clarification: "Which purchase price should I compare with the plan? Nothing changed.",
+          topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+      end
+
       participant_amounts = money_cents_from_participant_text(scenario_text)
       rejected_amounts = rejected_money_cents(scenario_text)
       amounts = participant_amounts - rejected_amounts

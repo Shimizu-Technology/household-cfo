@@ -28,7 +28,12 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
     assert_includes text, "Your plan starts in November 2026"
     assert_includes text, "not known yet"
     refute_match(/\$0|exactly|over the planned|under the planned/, text)
-    assert_nil HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: @plan).call[:spent_so_far_cents]
+    november = @household.budget_years.find_by!(year: 2026).budget_periods.find_by!(starts_on: Date.new(2026, 11, 1))
+    transaction = @household.household_transactions.create!(budget_period: november, occurred_on: Date.new(2026, 11, 5), merchant: "November market", total_amount_cents: 500, source_type: "statement", status: "confirmed")
+    transaction.transaction_splits.create!(budget_category: @household.budget_categories.active.find_by!(stack_key: "discretionary"), amount_cents: 500)
+    @plan = @manager.plan_data
+    assert_equal 500, HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: @plan, month: 11).call[:spent_so_far_cents]
+    assert_nil HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: @plan, month: 8).call[:spent_so_far_cents]
   end
 
   test "M5 purchase answer uses plan even when no cash balance has been entered" do

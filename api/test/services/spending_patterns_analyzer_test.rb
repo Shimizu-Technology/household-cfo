@@ -19,6 +19,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
       answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
       refute_match(/spending stops? in /, answer)
       assert_includes answer, "largest flexible spending categories"
+      assert_includes answer, "biggest flexible spending stops"
     end
   end
 

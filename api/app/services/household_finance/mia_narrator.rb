@@ -302,13 +302,15 @@ module HouseholdFinance
       return claim_rejection if claim_rejection
       if purchase_coaching?
         return :scenario_conclusion if ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
-        return :purchase_figures_in_coaching if content.match?(/[\p{N}\p{Sc}]|\b(?:dollars?|hundred|thousand|million)\b/i)
+        return :purchase_figures_in_coaching if content.match?(/\b(?:(?:would|will)\s+leave|plan\s+leaves)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b|[\p{N}\p{Sc}]|\b(?:dollars?|bucks|cents?|hundred|thousand|million)\b|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?\s+(?:left|remaining|available|to spend)\b/i)
         sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
         return :purchase_coaching_shape unless content.length <= 400 && sentences.length.between?(1, 2) && content.end_with?("?") && content.count("?") == 1
       end
       if MoneyMovementText.food_insecurity?(user_message)
         first = content.split(/(?<=[.!?])\s+/).first.to_s
         return :food_support_missing unless first.match?(/\b(?:food|meals?|eat|eating|hungry)\b/i) && content.match?(/\bcoach\b/i) && content.match?(/\btoday\b/i)
+        question = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).last.to_s
+        return :food_support_missing unless question.end_with?("?") && question.match?(/\b(?:food|meals?|eat|eating)\b/i) && question.match?(/\btoday\b/i) && question.match?(/\b(?:you|your|everyone|everybody|all|home|household|family)\b/i)
         return :essentials_not_first if content.match?(/\b(?:discipline|win|great job|proud|achievement|well done|celebrate)\b/i)
       end
       return :internal_voice_instruction if content.match?(INTERNAL_VOICE_RULE_PATTERN) || content.match?(VOICE_ABSTENTION_PATTERN)

@@ -136,10 +136,28 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     HouseholdFinance::MiaNarrator.define_method(:call, original) if original
   end
 
+  test "late review purchase corrections and selected periods keep their own facts" do
+    five_answers
+    HouseholdFinance::SetupUpdater.new(@household, debt_payment: "95").call
+    ask("Can I buy a $300 stroller?", month: 12, year: 2026)
+    assert_includes reply, "December 2026"
+    [ "Can I afford a $300 stroller? No, it costs $400", "Should I buy a $300 stroller? Sorry, I meant $400" ].each do |message|
+      ask(message)
+      assert_match(/\$400.*\$1,005/, reply, message)
+      assert_nil response.parsed_body["mia_action_draft"]
+      assert_nil response.parsed_body["transaction_draft"]
+    end
+    ask("Can I buy a $300 stroller? Actually, the price is $400 or $450")
+    assert_match(/which.*price/i, reply)
+    ask("Can I afford a $300 stroller? I missed meals so my kids could eat, but my food budget is empty")
+    assert_match(/food.*today|eat.*today/i, reply)
+    refute_includes reply, "The $300 purchase"
+  end
+
   private
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
-  def ask(message)
-    post "/api/v1/mia/messages", params: { message: message }, headers: headers, as: :json
+  def ask(message, **period)
+    post "/api/v1/mia/messages", params: { message: message }.merge(period), headers: headers, as: :json
     assert_response :created
   end
   def reply = response.parsed_body.dig("assistant_message", "content")
