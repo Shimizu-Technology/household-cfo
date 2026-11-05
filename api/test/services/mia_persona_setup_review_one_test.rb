@@ -42,6 +42,40 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     end
   end
 
+  [ "Client 1", "Participant #2", "Speaker 3", "Note: Client 1", "Guest / visitor", '"Client 1"' ].each do |speaker|
+    test "review followup rejects nested #{speaker} inside a coach line" do
+      message = %(Coach: #{speaker}: I say "Chelu")
+      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+    end
+  end
+
+  [ "but do not use that phrase", "but don't add that phrase", "but never use that phrase" ].each do |refusal|
+    test "review followup rejects quoted wording followed by #{refusal}" do
+      message = %(She says "Chelu" #{refusal})
+      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+    end
+  end
+
+  test "review followup unquoted authoring also respects a later refusal" do
+    message = "Use the exact phrase Chelu but do not use that phrase"
+    assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+  end
+
+  test "review followup keeps a coach note as prose rather than a client label" do
+    message = %(Coach: Note: I say "Chelu")
+    assert_equal "Chelu", Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+    assert_equal "Chelu", contract(message).build([ phrase("Chelu") ]).dig(:after_state, "draft_config", "phrases").sole["text"]
+  end
+
+  test "review followup preserves a colon inside a direct coach quote" do
+    message = %(Coach: "Pause: name your choice.")
+    assert_equal "Pause: name your choice.", Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Pause: name your choice.")
+    assert_equal "Pause: name your choice.", contract(message).build([ phrase("Pause: name your choice.") ]).dig(:after_state, "draft_config", "phrases").sole["text"]
+  end
+
   test "R2 thirty transcript quotes do not fail a valid name change" do
     message = "Call the assistant Lani.\n" + 30.times.map { |i| %(Client: my friend says "I can't pay #{i}") }.join("\n")
     result = run_turn(message, [ op("identity.assistant_name", "Lani", "Lani") ])

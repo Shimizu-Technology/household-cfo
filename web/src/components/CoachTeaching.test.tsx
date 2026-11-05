@@ -94,8 +94,11 @@ it('R4 warns before a Teaching save destroys pending suggestions and preserves b
  expect(api.updateAdminPersona).toHaveBeenCalledTimes(1);expect(preview).not.toHaveBeenCalled()
  expect(screen.getByLabelText('Teaching method')).toHaveProperty('value','A revised teaching method')
  confirm.mockReturnValue(true)
+ api.updateAdminPersona.mockRejectedValueOnce(new ApiRequestError('Pending suggestions need review.',{status:422,code:'persona_pending_suggestions'})).mockResolvedValueOnce(originalPersona)
  fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
- await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(2))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(3))
+ expect(api.updateAdminPersona.mock.calls[2][1].discard_pending_suggestions).toBe(true)
+ expect(confirm).toHaveBeenCalledTimes(2)
 })
 it('R13 shows the server safety reason for a refused Teaching save',async()=>{
  api.updateAdminPersona.mockRejectedValue(new ApiRequestError('$.coaching.method contains a regional or cultural stereotype',{status:422}))

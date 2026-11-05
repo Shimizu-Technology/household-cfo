@@ -18,10 +18,18 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     coach = create_user(email: "r15-coach@example.test", role: "coach")
     cohort = Cohort.create!(name: "R15", status: "enrolling", created_by_user: admin)
     coach.cohort_memberships.create!(cohort: cohort, role: "coach")
-    post "/api/v1/admin/users", params: { user: { email: "r15-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(coach), as: :json
-    assert_response :created
-    refute JSON.parse(response.body).key?("invitation_error")
-    refute_includes response.body, "WorkOS"
+    diagnostic = "R15 private provider diagnostic"
+    with_user_invite_email_stub(sent: false, status: "failed", provider_message_id: "r15-private-provider-id", error: diagnostic) do
+      post "/api/v1/admin/users", params: { user: { email: "r15-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(coach), as: :json
+      assert_response :created
+      assert_equal "failed", response.parsed_body.fetch("invitation_status")
+      refute response.parsed_body.key?("invitation_error")
+      refute_includes response.body, diagnostic
+      post "/api/v1/admin/users", params: { user: { email: "r15-admin-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(admin), as: :json
+      assert_response :created
+      assert_equal diagnostic, response.parsed_body.fetch("invitation_error")
+      assert_includes response.body, diagnostic
+    end
   end
 
   test "CR1 nonadmin legacy serializer never exposes nested delivery diagnostics" do
