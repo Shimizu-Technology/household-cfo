@@ -25,12 +25,30 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
     refute queries.any? { |sql| sql.match?(/JOIN "debts"/) }, queries.grep(/JOIN "debts"/).join("\n")
   end
 
+  test "five essential completion does not read optional debt records" do
+    @household.reload
+    queries = []
+    capture = ->(*args) { queries << args.last[:sql] }
+    complete = ActiveSupport::Notifications.subscribed(capture, "sql.active_record") { HouseholdFinance::SetupStatus.new(@household).complete? }
+    assert complete
+    refute queries.any? { |sql| sql.match?(/FROM "(?:debts|household_profiles)"/) }, queries.join("\n")
+  end
+
   test "recurring bills savings and job changes never become a one time purchase" do
     [ "Can I afford $300 a month for a car payment?", "Can I afford rent of $900?", "Can I afford to quit my job for $300?", "Can I afford to save $300?", "Can I afford a $400 monthly car lease?" ].each do |message|
       answer = HouseholdFinance::MiaCoachAnswerer.new(@household, message).call
       refute_match(/The \$.*purchase|plan figure for Monthly/i, answer.to_s, message)
       result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: {}, api_key: "").deterministic_scenario_result
       assert_nil result, message
+    end
+  end
+
+  test "unpriced planned bills retain their specific coaching before a generic price question" do
+    [ "Can I afford my car registration next month?", "Could I afford car registration this month?" ].each do |message|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(@household, message).call
+      assert_includes answer, "planned yearly costs", message
+      assert_includes answer, "specific car registration line", message
+      refute_includes answer, "What does the item cost", message
     end
   end
 

@@ -17,6 +17,8 @@ module Mia
           next unless sentence.match?(/\b(?:saved|recorded|updated|logged)\b/i)
           new_write = sentence.match?(/\b(?:i|we|mia)(?:['’]ve| have)?\s+(?:just\s+|already\s+)?(?:saved|recorded|updated|logged)\b/i)
           return :false_write_claim if new_write
+          saved_balance_description = sentence.match?(/\bsaved\s+[^.!?]{0,100}\bbalances?\b/i) && !sentence.match?(/\b(?:is|are|was|were|been|being)\s+(?:just\s+)?saved\b/i)
+          next if saved_balance_description
           next if sentence.match?(/\b(?:already on record|historical|existing|previously recorded)\b/i)
           next if sentence.match?(/\b(?:not|nothing|never)\b.{0,50}\b(?:saved|recorded|updated|logged)\b|\b(?:until|before)\b.{0,50}\b(?:saved|recorded|updated|logged)\b|\b(?:saved (?:plan|records?|amounts?)|recorded (?:purchases|spending|transactions|amounts))\b/i)
 

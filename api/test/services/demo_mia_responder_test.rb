@@ -62,7 +62,11 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       test "rejects self answered or monetary approval #{index} in #{preview ? 'preview' : 'participant'} replies" do
         responder = Demo::MiaResponder.new(api_key: nil)
         context = preview ? Mia::PersonaPreviewer::PREVIEW_CONTEXT : { metrics: {} }
-        expected = !preview && reply.include?("$100") ? "unverified_amount" : "scenario_conclusion"
+        expected = if reply.include?("go ahead")
+          :purchase_verdict
+        else
+          !preview && reply.include?("$100") ? "unverified_amount" : "scenario_conclusion"
+        end
         assert_equal expected, responder.send(:generic_claim_rejection, reply,
           context: context.to_json, user_message: "I want to spend $100 this weekend. How can I decide?")
       end
@@ -934,7 +938,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     context = { metrics: { readiness: "unavailable_until_debt_minimums_confirmed", monthly_income: "$4,800" } }.to_json
     reply = stubbed_model_responder("Your readiness is Red.").call("whats my readiness color", context: context)
 
-    assert reply.start_with?("I can’t give a readiness color yet because your monthly debt minimums are not confirmed"), reply
+    assert reply.start_with?("Still to add: debt minimums"), reply
+    refute_includes reply, "readiness color"
     refute_match(/readiness is (?:red|yellow|green)/i, reply)
   end
 

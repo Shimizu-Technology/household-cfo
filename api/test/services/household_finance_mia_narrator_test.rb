@@ -10,11 +10,25 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "saved balance descriptions are historical data while save receipts still fail" do
+    assert_nil Mia::NarrationClaims.rejection_reason("Your saved Everyday checking balance is unknown.")
+    [ "I saved your checking balance.", "Your plan was saved with a checking balance." ].each do |receipt|
+      assert_equal :false_write_claim, Mia::NarrationClaims.rejection_reason(receipt), receipt
+    end
+  end
+
   test "review one purchase narration adds only short numberless coaching to fixed facts" do
     packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
     safe = "Protect food and bills first. Which category would cover it?"
     assert_equal "#{packet[:fallback_response]} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
     [ "The $300 purchase would leave $1,405 in the plan. Cash is unknown. Which category?", "It would leave one thousand dollars. What next?", "Protect bills first.", "Choose a category. Protect bills. Check food. What next?" ].each do |unsafe|
+      assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
+    end
+  end
+
+  test "review one numberless purchase coaching excludes unicode figures and currencies" do
+    packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
+    [ "Consider the ３ options. Which protects food and bills?", "Protect food and bills before spending ₹. Which category would cover it?" ].each do |unsafe|
       assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
     end
   end

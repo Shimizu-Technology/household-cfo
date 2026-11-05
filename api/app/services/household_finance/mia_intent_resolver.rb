@@ -669,8 +669,8 @@ module HouseholdFinance
       name.split.map { |word| word.sub(/\A[[:alpha:]]/, &:upcase) }.join(" ")
     end
 
-    def household_name_shape?(name)
-      normalized_bounded_text(name).length <= setup_text_limit(:household_name) && name.split.length <= 12 &&
+    def household_name_shape?(name, check_length: true)
+      (!check_length || normalized_bounded_text(name).length <= setup_text_limit(:household_name)) && name.split.length <= 12 &&
         !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN) &&
         !name.match?(/\A(?:i|we|my|our|they|he|she)\b|\b(?:is|are|was|were|have|has|had|need|needs|left|broke|lost|wants?|eaten|hospital|yesterday|tonight|because|since|not)\b/i)
     end
@@ -715,7 +715,9 @@ module HouseholdFinance
         field = next_missing_setup_field
         if guided_setup_question_asked?(field)
           value = guided_setup_value(field)
-          if value.present?
+          if field == "household_name" && normalized_bounded_text(user_message).length > setup_text_limit(field) && household_name_shape?(cleaned_household_name(user_message), check_length: false)
+            deterministic_setup_clarification(field, clarification: "Keep the household name to #{setup_text_limit(field)} characters or fewer. Nothing changed.")
+          elsif value.present?
             setup_reply_result(field, value)
           elsif user_message.match?(/\A(?:i (?:am not sure|don['’]?t know|do not know)|not sure|unknown|lol|haha|hmm+|um|ok(?:ay)?|maybe|\$?[\d,.]+)[.!]?\z/i)
             deterministic_setup_clarification(field, clarification: field == "debt_payment" ? "It is okay not to know yet. Check Debt in My Money for the minimums; leave unknown amounts blank. Nothing changed." : MiaSetupGuide.question_message(field))

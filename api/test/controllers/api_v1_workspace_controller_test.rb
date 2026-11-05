@@ -179,7 +179,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
     assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
-    assert_equal({ "setup_complete" => false }, setup_audit.metadata)
+    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
 
   test "manual setup uses typed household operations and replays one idempotent request" do
@@ -888,9 +888,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "The $500 purchase"
-    assert_includes content, "plan figure"
-    assert_includes content, "You decide"
+    assert_includes content, "$500 purse"
+    assert_includes content, "not your bank balance"
+    assert_includes content, "Would this come from"
     refute_match(/guam|chamorro|chelu|lanya|island/i, content)
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
@@ -1194,7 +1194,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Narrated in Mia voice from Rails facts.", JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_equal "coaching", packets.first.fetch(:kind)
     assert_equal "no_write", packets.first.fetch(:write_state)
-    assert_includes packets.first.fetch(:fallback_response), "safe-to-spend"
+    assert_includes packets.first.fetch(:fallback_response), "What does the item cost"
   end
 
   test "mia chat preserves deterministic compound decision math when intent labels it a budget question" do

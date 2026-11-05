@@ -302,7 +302,7 @@ module HouseholdFinance
       return claim_rejection if claim_rejection
       if purchase_coaching?
         return :scenario_conclusion if ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
-        return :purchase_figures_in_coaching if content.match?(/[\d$£€¥]|\b(?:dollars?|hundred|thousand|million)\b/i)
+        return :purchase_figures_in_coaching if content.match?(/[\p{N}\p{Sc}]|\b(?:dollars?|hundred|thousand|million)\b/i)
         sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
         return :purchase_coaching_shape unless content.length <= 400 && sentences.length.between?(1, 2) && content.end_with?("?") && content.count("?") == 1
       end

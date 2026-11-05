@@ -190,9 +190,8 @@ module HouseholdFinance
       return nil if transaction_report?
       return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
       return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
-      return "What does the item cost, and which month are you considering it for?" if purchase_question? && amount_from_message_cents.nil? && !normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
 
-      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || unpriced_purchase_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -313,7 +312,7 @@ module HouseholdFinance
       return unless setup_status.complete?
       return unless setup_dependent_coaching_request?
       return if AssetPortfolio.new(household).liquid_balance_known?
-      return if purchase_question?
+      return if purchase_question? && !normalized_message.match?(DEBT_TERM_PATTERN)
 
       overview = if ::Mia::FinancialReadOnlyRequest.matches?(message) && normalized_message.match?(/\b(?:what (?:we|i) know|what (?:s|is) missing|household picture)\b/i)
         "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
@@ -1092,6 +1091,13 @@ module HouseholdFinance
       Money.chat_cents(match[1]) if match
     end
 
+    def unpriced_purchase_answer
+      return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
+      return unless purchase_question? && amount_from_message_cents.nil?
+
+      "What does the item cost, and which month are you considering it for?"
+    end
+
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
       return unless purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
@@ -1121,7 +1127,7 @@ module HouseholdFinance
     end
 
     def planned_purchase_detail_answer
-      return if normalized_message.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
+      return if non_purchase_amount_request?
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
@@ -1195,8 +1201,12 @@ module HouseholdFinance
         last_assistant.to_s.match?(/\b(?:send me the (?:price|amount|cost)|the (?:price|amount|cost) and (?:timing|due date)|what (?:does|would) it cost|how much (?:is it|does it cost|would it be))\b/i)
     end
 
+    def non_purchase_amount_request?
+      normalized_message.match?(/\b(?:car payment|car lease)\b|\$\s*[\d,.]+\s+(?:(?:a|per|each)\s+month|monthly)\b|\bmonthly\s+\$|\brent\s+(?:of\s+)?\$|\bto\s+(?:quit|save)\b/i)
+    end
+
     def purchase_question?
-      return false if normalized_message.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
+      return false if non_purchase_amount_request? && !essential_purchase?
       return false if normalized_message.match?(/\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b/i)
       return false if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
 

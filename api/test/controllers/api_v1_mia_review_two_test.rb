@@ -139,7 +139,8 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
     @household.update!(created_at: Date.new(2025, 1, 1))
     plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2025).read_only_plan_data.merge(plan_available: false)
     answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: plan, month: 9)
-    assert_match(/\AFor September 2025/, answer.response)
+    assert_includes answer.response, "2025 plan is not set up yet"
+    assert_includes answer.response, "September 2025"
     refute_match(/not a bank balance/, answer.response)
   end
 

@@ -26,17 +26,11 @@ module HouseholdFinance
     end
 
     def complete?
-      (missing_field_keys - [ "debt_payment" ]).empty?
+      (REQUIRED_FIELDS.map(&:to_s) - [ "debt_payment" ] - confirmed_setup_keys).empty?
     end
 
     def confirmed_field_keys
-      @confirmed_field_keys ||= (
-        Array(household.confirmed_setup_fields).map(&:to_s) +
-        additional_confirmed_fields
-      ).select { |field| field.in?(SetupUpdater::INPUT_KEYS.map(&:to_s)) }
-        .select { |field| confirmed_value_present?(field) }
-        .then { |fields| debt_minimum_known? ? fields | [ "debt_payment" ] : fields - [ "debt_payment" ] }
-        .uniq
+      @confirmed_field_keys ||= (debt_minimum_known? ? confirmed_setup_keys | [ "debt_payment" ] : confirmed_setup_keys - [ "debt_payment" ]).uniq
     end
 
     def missing_field_keys
@@ -64,6 +58,11 @@ module HouseholdFinance
     private
 
     attr_reader :household, :additional_confirmed_fields, :proposed_values
+
+    def confirmed_setup_keys
+      @confirmed_setup_keys ||= (Array(household.confirmed_setup_fields).map(&:to_s) + additional_confirmed_fields)
+        .select { |field| field.in?(SetupUpdater::INPUT_KEYS.map(&:to_s)) && confirmed_value_present?(field) }
+    end
 
     def debt_minimum_known?
       return DebtPortfolio.new(household).minimum_payment_known? if household.household_profile

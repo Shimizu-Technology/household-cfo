@@ -260,7 +260,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       assert_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
     end
 
-    refute HouseholdFinance::SetupStatus.new(household.reload).complete?
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
     assert_equal "debt_payment", HouseholdFinance::SetupStatus.new(household).missing_field_keys.first
 
     post "/api/v1/mia/messages", params: { message: "no debt payments" }, headers: auth_headers(user), as: :json

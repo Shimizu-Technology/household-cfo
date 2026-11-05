@@ -13,9 +13,9 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "Can I take a $900 trip and make a $750 extra debt payment this month?"
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
-      assert_includes answer, "liquid account picture is incomplete", prompt
+      assert_includes answer, "account balances yet", prompt
       refute_includes answer, "no outstanding debt", prompt
-      assert_includes answer, "No financial decision was made", prompt
+      assert_includes answer, "Accounts in My Money", prompt
     end
   end
 
@@ -41,8 +41,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       assert_includes answer, "From approved records, monthly income is $8,500", prompt
       assert_includes answer, "planned fixed essentials are $6,925", prompt
       assert_includes answer, "monthly debt minimums are $920", prompt
-      assert_includes answer, "liquid account picture is incomplete", prompt
-      assert_includes answer, "No financial decision was made and no numbers changed", prompt
+      assert_includes answer, "account balances yet", prompt
+      assert_includes answer, "leaving anything unknown blank", prompt
     end
   end
 
