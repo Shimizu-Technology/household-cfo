@@ -161,7 +161,7 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     @groups.each do |cohort|
       rollout = cohort.cohort_rollouts.sole
       assert_equal "completed", rollout.status
-      assert rollout.integrity_report.fetch(:valid)
+      assert cohort.reload.active_cohort_release.integrity_report.fetch(:valid)
       states = CohortRollouts::Contract.readiness_snapshot(cohort:).fetch("participants")
       state = states.find { |p| p["user_id"] == @participants[@groups.index(cohort)].id }.fetch("state")
       assert_equal cohort == @groups.first ? "awaiting_acceptance" : "revoked", state

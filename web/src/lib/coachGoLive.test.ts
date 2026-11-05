@@ -24,6 +24,6 @@ it('allows an empty first launch but explains the empty live group update requir
 })
 
 it('warns about named participant conflicts before approval but allows unpublished settings to be prepared',async()=>{
- api.fetchCohortReleaseStudio.mockResolvedValue({candidate,permissions:{seal:true},readiness:{blockers:['Maria has different assistant or tools settings. Remove the extra group in Participant access.']}})
+ api.fetchCohortReleaseStudio.mockResolvedValue({candidate:{...candidate,blockers:['Maria has different assistant or tools settings. Remove the extra group in Participant access.']},permissions:{seal:true}})
  await expect(reviewCoachGroup(group)).rejects.toThrow('Maria')
 })
