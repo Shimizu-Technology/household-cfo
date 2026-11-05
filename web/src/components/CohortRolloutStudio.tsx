@@ -396,9 +396,10 @@ function ActiveRollout({ rollout, pending, onAction }: {
 
 function RosterReadiness({ studio }: { studio: CohortRolloutStudioData }) {
   const counts = studio.current_roster.counts
+  const needsAccount = studio.current_roster.participants.filter(person => person.readiness === 'needs_account').length
   return <article className="panel cohort-rollout-roster-readiness">
     <header><div><h3>{counts.ready} of {studio.current_roster.total_count} ready</h3></div></header>
-    <dl><div><dt>Ready</dt><dd>{counts.ready}</dd></div><div><dt>Awaiting acceptance</dt><dd>{counts.awaiting_acceptance}</dd></div><div><dt>Revoked</dt><dd>{counts.revoked}</dd></div><div><dt>Removed</dt><dd>{counts.removed}</dd></div></dl>
+    <dl><div><dt>Ready</dt><dd>{counts.ready}</dd></div><div><dt>Awaiting acceptance</dt><dd>{counts.awaiting_acceptance}</dd></div><div><dt>Revoked</dt><dd>{counts.revoked}</dd></div><div><dt>Removed</dt><dd>{counts.removed}</dd></div>{needsAccount > 0 && <div><dt>Finish sign-in</dt><dd>{needsAccount}</dd></div>}</dl>
     <p>Readiness is checked again when each wave advances. A changed roster or invitation state requires a fresh review.</p>
   </article>
 }
@@ -592,7 +593,7 @@ function rolloutProgressLabel(rollout: CohortRolloutRecord) {
 function effectiveReleaseLabel(release: CohortRolloutRelease | null) { return release ? `Using Version ${release.release_number}` : 'No active version' }
 function releaseLabel(release: CohortRolloutRelease | null) { return release ? `Version ${release.release_number}` : 'No active version' }
 function historyLabel(total: number, shown: number, truncated: boolean, noun: string) { return truncated ? `${shown} of ${total} ${noun}s` : `${total} ${noun}${total === 1 ? '' : 's'}` }
-function readinessLabel(value: string) { return titleize(value) }
+function readinessLabel(value: string) { return value === 'needs_account' ? 'Sign-in setup incomplete' : titleize(value) }
 function titleize(value: string) { return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) }
 function errorMessage(caught: unknown, fallback: string) { return coachVersionGuidance(caught instanceof Error && caught.message ? caught.message : fallback) }
 function formatDate(value: string) { const date = new Date(value); return !value || Number.isNaN(date.getTime()) ? 'Time unavailable' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date) }

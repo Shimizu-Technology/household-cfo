@@ -400,3 +400,12 @@ it('describes a cancelled update as unchanged in history', async () => {
   expect(within(history).getByText(/Participant settings unchanged/)).toBeTruthy()
   expect(within(history).queryByText(/Ready to update participants/)).toBeNull()
 })
+
+it('counts accepted people who still need a linked sign-in and labels the recovery plainly', async () => {
+  const studio = studioFixture()
+  studio.current_roster.participants[0].readiness = 'needs_account'
+  studio.current_roster.counts.ready = 1
+  renderStudio(studio)
+  expect(await screen.findByText('Finish sign-in')).toBeTruthy()
+  expect(screen.getByText(/Sign-in setup incomplete/)).toBeTruthy()
+})
