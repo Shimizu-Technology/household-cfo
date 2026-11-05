@@ -176,6 +176,9 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_equal answerer("Can I buy a $300 stroller?").call.to_s[/\$[\d,]+/], priced.to_s[/\$[\d,]+/]
     assert_includes priced, "$300"
     refute_includes answerer("I have $500 in checking. Can I buy a stroller?").call.to_s, "$500 purchase"
+    [ "Can I buy a stroller if my checking account has $500?", "Can I buy a stroller? My savings only has $500." ].each do |message|
+      refute_includes answerer(message).call.to_s, "$500 purchase", message
+    end
   end
 
   test "unrecognized later dollar fragments clarify rather than retain the earlier price" do

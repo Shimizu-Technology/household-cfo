@@ -1271,6 +1271,7 @@ module HouseholdFinance
       # Paying with an account names no balance; "$500 in checking" states one.
       return if text.match?(/\b(?:balances?|income|salary|paycheck|bonuses?)\b/i)
       return if text.match?(/#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}\s+(?:in|into|from|left in)\s+(?:(?:my|our|the)\s+)?(?:checking|savings|accounts?)\b/i)
+      return if text.match?(/\b(?:checking|savings|accounts?)\s+(?:only\s+)?(?:has|have|had|is|shows?|holds?)\b[^.?!]*#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}/i)
 
       amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
       return unless amounts.one?
