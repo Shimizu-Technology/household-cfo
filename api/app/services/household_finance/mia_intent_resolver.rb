@@ -2155,7 +2155,11 @@ module HouseholdFinance
     end
 
     def distinct_money_occurrences(text)
-      money_occurrences(text).sort_by { |occurrence| [ occurrence.fetch(:start), -occurrence.fetch(:finish) ] }
+      # The digits in a date are never amounts: "$5 on 2026-11-06" is one figure.
+      dates = text.to_s.to_enum(:scan, PurchaseReportParser::DATE_PATTERN).map { Regexp.last_match.begin(0)...Regexp.last_match.end(0) }
+      money_occurrences(text)
+        .reject { |occurrence| dates.any? { |date| occurrence.fetch(:start) < date.end && date.begin < occurrence.fetch(:finish) } }
+        .sort_by { |occurrence| [ occurrence.fetch(:start), -occurrence.fetch(:finish) ] }
         .each_with_object([]) do |occurrence, kept|
           kept << occurrence unless kept.any? { |prior| occurrence.fetch(:start) < prior.fetch(:finish) && prior.fetch(:start) < occurrence.fetch(:finish) }
         end
