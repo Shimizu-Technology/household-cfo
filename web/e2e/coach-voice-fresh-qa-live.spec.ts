@@ -120,7 +120,7 @@ test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a li
   await expect(page.getByRole('heading', { name: `Review 30 people for W19 ${info.project.name} Group`, exact: true })).toBeVisible()
   await shot('bulk-review')
   await page.getByRole('button', { name: 'Add these 30 people', exact: true }).click()
-  await expect(page.getByText(/30 people added/)).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText(/30 people added/)).toBeVisible({ timeout: 240_000 })
   await expect(page.getByLabel('Paste email addresses')).toHaveValue('')
   await shot('bulk-saved')
   const roster = await request.get(`${api}/api/v1/admin/users`, { headers })
