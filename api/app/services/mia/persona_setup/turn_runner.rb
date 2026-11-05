@@ -129,12 +129,14 @@ module Mia
 
           proposal = nil
           dropped = []
-          if provider_result.operations.any?
+          operations = PhraseSuggestions.new(message: turn.user_message).call(provider_result.operations)
+          if operations.any?
             built = ProposalBuilder.new(
               persona: authorization.persona,
               actor: authorization.actor,
-              user_message: turn.user_message
-            ).call(provider_result.operations, partial: true)
+              user_message: turn.user_message,
+              previous: session.proposals.lock.find_by(status: "pending")
+            ).call(operations, partial: true)
             dropped = built.fetch(:dropped, [])
             dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
             session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
@@ -172,14 +174,14 @@ module Mia
       def review_message(message, dropped)
         return message if dropped.empty?
 
-        notes = dropped.map { |item| "Left out: ‘#{item.fetch(:label)}’ — #{item.fetch(:message)}" }.uniq
+        notes = dropped.map { |item| "Left out: ‘#{item.fetch(:label)}’. #{item.fetch(:message)}" }.uniq
         # Preserve every item name; group reasons separately to fit 2,000 chars.
         labels = dropped.map { |item| "‘#{item.fetch(:label)}’" }.uniq.join(", ")
         reasons = dropped.map { |item| item.fetch(:message) }.uniq.join(" ")
         full = [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
         return full if full.length <= 2_000
 
-        "Review the suggestions below. Nothing has been saved.\n\nLeft out: #{labels}. #{reasons.truncate(500)}"
+        "Review the suggestions below. Nothing has been saved.\n\nLeft out: #{labels}. #{reasons.truncate(500, separator: " ")}"
       end
 
       def log_contract_failure(code, turn_id, index = nil)

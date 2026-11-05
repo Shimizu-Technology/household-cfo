@@ -70,7 +70,7 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     @participants.last.cohort_memberships.create!(cohort: extra, role: "participant")
     assert_no_difference [ "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseExposure.count", "CoachLaunchReceipt.count" ] do
       error = assert_raises(CoachLaunches::Publisher::Conflict) { publish(request_key: "failed-update") }
-      assert_includes error.message, @participants.last.full_name
+      assert_includes error.message, CohortRollouts::Contract.participant_display_name(@participants.last)
       assert_includes error.message, "Participant access"
     end
     assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
@@ -188,14 +188,16 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
   end
 
-  test "nameless sign-in blocker matches the participant roster identifier" do
+  test "nameless sign-in blocker uses plain email-free wording" do
     publish
     @participants.last.update!(clerk_id: "pending_nameless_#{@participants.last.id}", first_name: nil, last_name: nil)
     brand = @workspace.workspace_brand_configuration.reload
     brand.update!(draft_config: brand.draft_config.merge("product_name" => "Nameless blocked update"))
     @review = build_review
     error = assert_raises(CohortRollouts::StateMachine::Ineligible) { publish(request_key: "nameless-update") }
-    assert_includes error.message, "Participant #{@participants.last.id} needs to finish setting up their sign-in"
+    assert_includes error.message, "Someone in this group needs to finish setting up their sign-in"
+    refute_includes error.message, @participants.last.email
+    refute_includes error.message, "Participant #{@participants.last.id}"
   end
 
   private

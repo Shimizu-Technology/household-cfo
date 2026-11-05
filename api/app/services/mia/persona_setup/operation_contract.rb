@@ -45,7 +45,7 @@ module Mia
           {
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
-            "persona_setup_text_evidence" => "The suggestion added details beyond its supporting words.",
+            "persona_setup_text_evidence" => "Mia could not match this to your words. Say it again in your own words, or add a phrase in Teaching.",
             "persona_setup_voice_evidence" => "Please describe which voice choices you want to add or remove.",
             "persona_setup_drafting_not_requested" => "Please ask for a coaching philosophy before Mia writes one.",
             "persona_setup_crisis_phrase" => "Coaching phrases cannot be used during crisis support.",
@@ -76,7 +76,7 @@ module Mia
           when "persona_setup_no_change"
             "These suggestions already match your assistant. Tell Mia what you would like to change."
           when "persona_setup_too_large"
-            "There were too many suggestions to review at once. Please describe one change at a time."
+            "There were too many suggestions to review at once. Save or reject the current suggestions, then describe one change at a time."
           when "persona_invalid"
             if message.include?("stereotype")
               "This suggestion could stereotype a group of people. Please describe your own coaching approach."
@@ -91,10 +91,12 @@ module Mia
         end
       end
 
-      def initialize(actor:, user_message:, persona:)
+      def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil)
         @actor = actor
         @user_message = normalize_text(user_message, max: 24_000)
         @persona = persona
+        @previous_operations = previous_operations
+        @evidence_state = evidence_state || persona.draft_config
       end
 
       # Keep the strict contract as the authority. Each accepted prefix is fully
@@ -104,7 +106,7 @@ module Mia
         return build(raw_operations) if operations.empty? || operations.length > MAX_OPERATIONS
 
         begin
-          return build(operations).merge(dropped: [])
+          return build(merge_previous(operations)).merge(dropped: [])
         rescue ContractError
           # A mixed proposal can still contain useful, safe changes.
         end
@@ -119,7 +121,7 @@ module Mia
           dropped = []
           pending.each do |operation, index|
             begin
-              candidate = build(accepted + [ operation ])
+              candidate = build(merge_previous(accepted + [ operation ]))
               accepted << operation
               built = candidate
             rescue ContractError => error
@@ -193,7 +195,8 @@ module Mia
         raise ContractError, "Mia returned an unsupported change operation." unless op.in?(OPERATIONS)
         raise ContractError, "Mia returned an unsupported evidence type." unless source.in?(SOURCES)
         value = op == "add_phrase" ? normalize_phrase_value(operation["value"]) : operation["value"]
-        validate_evidence!(op:, path:, value:, source:, evidence:)
+        value = preserve_pending_list(path, value) if op == "set"
+        validate_evidence!(op:, path:, value:, source:, evidence:) unless @previous_operations.include?(operation)
 
         normalized = { "op" => op, "path" => path, "value" => value, "source_basis" => source, "evidence_quote" => evidence }
         yield normalized
@@ -201,7 +204,7 @@ module Mia
         when "set"
           raise ContractError, "Mia tried to change a protected persona field." unless path.in?(SET_PATHS)
 
-          set_path!(after_state, path, operation["value"])
+          set_path!(after_state, path, value)
         when "add_phrase"
           raise ContractError, "Phrase changes must use the phrases field." unless path == "phrases"
 
@@ -252,11 +255,11 @@ module Mia
             values = if op == "add_phrase"
               [ value.fetch("meaning") ]
             elsif path.start_with?("curriculum.")
-              current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+              current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
               added = Array(value) - Array(current)
               added.flat_map { |item| item.is_a?(Hash) ? item.values : item }
             else
-              current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+              current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
               exact_strings(value) - exact_strings(current)
             end
             unless exact_strings(values).all? { |item| TextEvidence.supports?(evidence, item) }
@@ -266,7 +269,7 @@ module Mia
         end
         return unless path.start_with?("voice.")
 
-        current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+        current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
         added = exact_strings(value) - exact_strings(current)
         removed = value.is_a?(Array) && current.is_a?(Array) ? exact_strings(current) - exact_strings(value) : []
         return if added.empty? && removed.empty?
@@ -280,11 +283,49 @@ module Mia
         end
       end
 
+      # Only the server passes already sealed, pending operations here. New
+      # claims still use this turn's evidence and replace only the same target.
+      def preserve_pending_list(path, value)
+        previous = @previous_operations.find { |operation| operation["op"] == "set" && operation["path"] == path }
+        return value unless value.is_a?(Array) && previous && previous["value"].is_a?(Array)
+        return value if path.start_with?("voice.") # Voice removals have their own evidence check.
+
+        kept = previous["value"].reject do |item|
+          item.is_a?(String) && user_message.match?(/\b(?:remove|drop|replace)\b/i) && user_message.include?(item)
+        end
+        (kept + value).uniq
+      end
+
+      def merge_previous(operations)
+        targets = operations.filter_map do |operation|
+          next unless operation.is_a?(Hash) && operation.key?("op") && operation.key?("path") && operation.key?("value")
+
+          mutation_target(PersonaSchema.normalize(operation))
+        end
+        @previous_operations.reject { |operation| targets.include?(mutation_target(operation)) } + operations
+      end
+
       def suggestion_label(operation)
         value = operation.is_a?(Hash) ? operation["value"] : nil
         # Bound the excerpt so all 24 rejected operations fit the reply limit.
-        preview = exact_strings(value).join("; ").squish
-        return preview.truncate(48) if preview.present?
+        preview = if value.is_a?(Hash) && value["text"].is_a?(String)
+          value["text"]
+        else
+          exact_strings(value).join("; ").squish
+        end
+        if preview.present?
+          return preview if preview.length <= 48
+
+          words = preview.split
+          kept = []
+          words.each do |word|
+            break if (kept + [ word ]).join(" ").length > 44
+
+            kept << word
+          end
+          excerpt = kept.join(" ")
+          return excerpt.present? ? "#{excerpt}…" : "A long suggestion"
+        end
 
         path = operation.is_a?(Hash) ? operation["path"] : nil
         {
@@ -367,7 +408,7 @@ module Mia
       end
 
       def changed_exact_strings(path, value)
-        current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
+        current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
         added = exact_strings(value) - exact_strings(current)
         return added unless value.is_a?(Array) && current.is_a?(Array)
 

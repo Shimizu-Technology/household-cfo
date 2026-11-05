@@ -6,8 +6,10 @@ module Mia
     # voice presets, new prose must keep its factual words, numbers and polarity.
     # Unsupported paraphrases are left out, never silently treated as coach words.
     class TextEvidence
-      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were do does did and then someone people participant participants client clients coach coaching use using used give say said start starts make followed by].freeze
+      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were do does did and then someone people participant participants client clients coach coaching she he her his use using used give say said start starts make followed by].freeze
       SYNONYMS = {
+        "asks" => "ask", "asking" => "ask", "gives" => "give",
+        "celebrates" => "celebrate", "celebrating" => "celebrate", "celebrated" => "celebrate",
         "feeling" => "feel", "feelings" => "feel", "feels" => "feel", "felt" => "feel",
         "shaming" => "shame", "shamed" => "shame", "shames" => "shame",
         "protecting" => "protect", "protects" => "protect",
