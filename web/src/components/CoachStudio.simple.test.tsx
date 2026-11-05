@@ -154,7 +154,12 @@ it('R14 cancellation restores the current history entry and discard accepts the 
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
  fireEvent.click(screen.getByRole('button',{name:'Your assistant'}))
  fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Private edit'}})
- await travel('back');await waitFor(()=>expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant'))
+ const currentIndex=window.history.state.coachStudioIndex
+ await act(async()=>{await new Promise<void>(resolve=>{
+  const restored=(event:PopStateEvent)=>{if(event.state?.coachStudioIndex===currentIndex){window.removeEventListener('popstate',restored);resolve()}}
+  window.addEventListener('popstate',restored);window.history.back()
+ })})
+ expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
  expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Private edit')
  confirm.mockReturnValue(true);await travel('back');await screen.findByText('Get your program ready')
  expect(new URL(location.href).searchParams.get('coach_area')).toBe('people')

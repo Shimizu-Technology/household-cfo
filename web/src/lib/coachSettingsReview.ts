@@ -1,3 +1,4 @@
+import type { CohortExperienceDraft } from '../api'
 import { fetchWorkspaceBrand, previewWorkspaceBrand, fetchCohortExperienceConfiguration, previewCohortExperienceConfiguration, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview, type CohortExperienceConfiguration, type CohortExperiencePreview } from '../api'
 
 export type CoachSettingsReview = {
@@ -25,8 +26,8 @@ export async function reviewCoachSettings(groupIds: number[], isCurrent: () => b
   return { brand: { configuration: brandPreview.brand_configuration, preview: brandPreview.preview }, tools }
 }
 
-export function toolChanges(item: CoachSettingsReview['tools'][number]): string[] {
-  const previous = item.configuration.published_version?.config
+export function toolChanges(item: CoachSettingsReview['tools'][number], activeConfiguration?: CohortExperienceDraft | null): string[] {
+  const previous = activeConfiguration ?? item.configuration.published_version?.config
   if (!previous) return [`Tools included: ${item.preview.modules.filter(module => module.enabled).map(module => module.label).join(', ')}.`]
   const changes = []
   for (const module of item.preview.modules) {

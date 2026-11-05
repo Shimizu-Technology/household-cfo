@@ -576,6 +576,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
   const [dirty, setDirty] = useState(false)
   const [notice, setNotice] = useState('')
+  const [unavailableRoute, setUnavailableRoute] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [enterpriseOpen, setEnterpriseOpen] = useState(false)
@@ -593,14 +594,15 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
       if (target !== activeSection) setDirty(false)
       setActive(target)
       const unavailable = Boolean(section && !sections.includes(section))
+      setUnavailableRoute(unavailable)
       setNotice(unavailable ? 'Your coaching workspace is ready. Choose People to manage your groups.' : `${target} screen loaded.`)
-      if (browserNavigation || target === activeSection) window.history.replaceState({ section: target }, '', canonicalUrl(target))
+      if (browserNavigation || target === activeSection) window.history.replaceState({ ...window.history.state, section: target }, '', canonicalUrl(target))
       else window.history.pushState({ section: target }, '', canonicalUrl(target))
       focusHeading()
     }
     if (target !== activeSection && dirty) {
       // Keep the address on the current screen while the question is open.
-      window.history.replaceState({ section: activeSection }, '', canonicalUrl(activeSection))
+      window.history.replaceState({ ...window.history.state, section: activeSection }, '', canonicalUrl(activeSection))
       void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => { if (discard) proceed() })
       return
     }
@@ -639,7 +641,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
       </AccountMenu>
     </header>
     <ParticipantTabs staffOnly sections={sections} activeSection={activeSection} onChange={navigate} />
-    {notice && <p role="status" className={notice.includes('Household money') ? 'document-alert' : 'sr-only'}>{notice}</p>}
+    {notice && <p role="status" className={unavailableRoute ? 'document-alert' : 'sr-only'}>{notice}</p>}
     {activeSection === ADMIN_SECTION && currentUser.is_admin ? <AdminConsole currentUser={currentUser} /> : <CoachStudio currentUser={currentUser} onDirtyChange={setDirty} />}
     <BrandFooter />
     {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}

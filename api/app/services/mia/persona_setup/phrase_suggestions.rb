@@ -45,13 +45,16 @@ module Mia
             next if suffix.match?(/\b(?:should never|must not|is off limits|should not|is banned)\b/i)
 
             prefix = body[0...match.begin(0)].split(/[.!?;]/).last.to_s
-            next if negative_introduction?(prefix) || prefix.match?(/\b(?:client|friend|mother|father|husband|wife|participant|maria)\b/i)
-            next unless prefix.match?(/\b(?:i|we|she|her|coach)\b.*\b(?:say|says|saying|phrase)\b|\b(?:add|use|keep)\b.*\b(?:phrase|saying|word for word)\b/i) || (body != line && prefix.strip.empty?)
+            next if negative_introduction?(prefix)
+            next unless prefix.match?(/\b(?:(?:i|we|she|the coach)\s+(?:(?:always|often|sometimes|usually)\s+)?(?:say|says|am saying|is saying)|her\s+(?:phrase|saying)\s+is)\s*[:,-]?\s*\z|\A\s*(?:please\s+)?(?:add|use|keep)\b[^"“]*\b(?:phrase|saying|word for word)\b[^"“]*\z/i) || (body != line && prefix.strip.empty?)
 
             return match[1]
           end
           # Exact unquoted authoring commands remain supported.
-          return text if body.include?(text) && body.match?(/\b(?:use|add|keep)\b.*\b(?:exact phrase|phrase)\b/i) && !negative_introduction?(body.split(text, 2).first)
+          if body.include?(text)
+            prefix = body.split(text, 2).first.split(/[.!?;]/).last.to_s
+            return text if prefix.match?(/\A\s*(?:please\s+)?(?:use|add|keep)\s+(?:the\s+)?(?:exact\s+)?phrase\s*[:,-]?\s*\z/i) && !negative_introduction?(prefix)
+          end
         end
         nil
       end

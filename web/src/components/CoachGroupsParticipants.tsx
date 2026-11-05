@@ -190,7 +190,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   }
 
   function reviewList() {
-    const entries = emailList.split(/[,;\n]+/).flatMap(line => line.includes('<') || line.includes('>') || (line.match(/@/g)?.length === 1) ? [line.trim()] : line.trim().split(/\s+/)).filter(Boolean)
+    const entries = emailList.split(/[,;\n]+/).flatMap(line => line.match(/[^<>]*<[^<>]*>|[^<>]+|[<>]/g) ?? []).flatMap(line => line.includes('<') || line.includes('>') || (line.match(/@/g)?.length === 1) ? [line.trim()] : line.trim().split(/\s+/)).filter(Boolean)
     const emails: string[] = []
     const problems: string[] = []
     const valid = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/
@@ -220,7 +220,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
           added += 1
           if (sendEmail && result.invitation_status === 'failed') unsent += 1
         } catch (caught) {
-          if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500 && caught.status !== 429) {
+          if (caught instanceof ApiRequestError && [400, 403, 409, 422].includes(caught.status)) {
             problems.push(`${address}: ${messageFor(caught)}`)
             continue
           }

@@ -38,12 +38,12 @@ module Mia
           expected = self.class.digest_for(persona:, base_draft_revision: @previous.base_draft_revision,
             base_config_digest: @previous.base_config_digest, operations: @previous.operations,
             before_state: @previous.before_state, after_state: @previous.after_state, prompt_version: @previous.prompt_version)
-          unless @previous.status == "pending" && @previous.prompt_version.in?([ "coach_persona_setup_v4", PROMPT_VERSION ]) &&
+          unless @previous.status == "pending" && @previous.prompt_version == PROMPT_VERSION &&
               @previous.schema_version == SCHEMA_VERSION && @previous.base_draft_revision == persona.draft_revision &&
               @previous.base_config_digest == PersonaSchema.digest(persona.draft_config) &&
               @previous.proposal_digest == expected &&
               @previous.before_state == PersonaDraftUpdater.state_for(persona)
-            raise OperationContract::ContractError, "Your saved voice changed. Reopen setup before continuing."
+            raise OperationContract::ContractError.new("The pending proposal uses an older review contract.", code: "persona_setup_stale_proposal")
           end
           previous_operations = @previous.operations
         end

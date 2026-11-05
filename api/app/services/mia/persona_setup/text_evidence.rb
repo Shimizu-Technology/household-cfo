@@ -26,7 +26,7 @@ module Mia
         "without" => "not", "never" => "not", "no" => "not", "don't" => "not",
         "can't" => "not", "cannot" => "not", "won't" => "not", "wouldn't" => "not",
         "doesn't" => "not", "didn't" => "not", "shouldn't" => "not", "couldn't" => "not",
-        "stop" => "not", "stopped" => "not", "avoid" => "not", "avoids" => "not", "avoided" => "not", "rarely" => "not", "seldom" => "not", "hardly" => "not", "scarcely" => "not", "refuses" => "not", "refused" => "not", "nobody" => "not", "none" => "not", "nothing" => "not", "doesnt" => "not", "didnt" => "not", "wouldnt" => "not", "shouldnt" => "not", "isnt" => "not", "hasn't" => "not", "hasnt" => "not", "haven't" => "not", "hadn't" => "not", "dont" => "not", "cant" => "not", "wont" => "not",
+        "stop" => "not", "stopped" => "not", "avoid" => "not", "avoids" => "not", "avoided" => "not", "avoiding" => "not", "stopping" => "not", "stops" => "not", "refusing" => "not", "refuse" => "not", "rarely" => "not", "seldom" => "not", "hardly" => "not", "scarcely" => "not", "refuses" => "not", "refused" => "not", "nobody" => "not", "none" => "not", "nothing" => "not", "doesnt" => "not", "didnt" => "not", "wouldnt" => "not", "shouldnt" => "not", "isnt" => "not", "hasn't" => "not", "hasnt" => "not", "haven't" => "not", "hadn't" => "not", "dont" => "not", "cant" => "not", "wont" => "not",
         "aren't" => "not", "isn't" => "not", "wasn't" => "not", "weren't" => "not", "mustn't" => "not"
       }.freeze
 
@@ -51,6 +51,16 @@ module Mia
             ordered_subset?(words, evidence) && (!restricted || ordered_subset?(protected_words, words)) &&
               (!nested || (negatives - words).empty?)
           end
+        end
+      end
+
+      def self.reconcile_prohibitions!(state)
+        coaching = state.dig("draft_config", "coaching")
+        return unless coaching.is_a?(Hash) && coaching["do"].is_a?(Array) && coaching["do_not"].is_a?(Array)
+        return unless (coaching["do"] + coaching["do_not"]).all? { |item| item.is_a?(String) }
+
+        coaching["do"] = coaching["do"].reject do |item|
+          coaching["do_not"].any? { |ban| supports?(ban.gsub(/\b(?:do not|don['’ʼ]?t|never|avoid|stop)\b/i, ""), item) }
         end
       end
 

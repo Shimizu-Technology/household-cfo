@@ -31,3 +31,10 @@ it('names added and removed tools on a second review even when they are under Mo
  const preview={modules:[{id:'cfo_filter',label:'CFO Filter',enabled:true,core:false},{id:'optionality',label:'Optionality',enabled:false,core:false}]} as CohortExperiencePreview
  expect(toolChanges({configuration,preview})).toEqual(['Adds CFO Filter.','Removes Optionality.'])
 })
+
+it('CR20 compares tools with the active group release even after Advanced publishes the draft',()=>{
+ const configuration={published_version:{config:{optional_modules:{cfo_filter:true}}},draft:{experience_mode:'household_cfo'}} as CohortExperienceConfiguration
+ const preview={modules:[{id:'cfo_filter',label:'CFO Filter',enabled:true,core:false}]} as CohortExperiencePreview
+ const active={optional_modules:{cfo_filter:false}} as NonNullable<CohortExperienceConfiguration['published_version']>['config']
+ expect(toolChanges({configuration,preview},active)).toEqual(['Adds CFO Filter.'])
+})

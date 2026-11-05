@@ -148,6 +148,63 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     refute Mia::PersonaSetup::TextEvidence.supports?("She hadnt asked questions", "Ask questions")
   end
 
+  test "CR4 malformed phrase siblings are left out without losing a valid name" do
+    result = contract("Call the assistant Lani").build_partial([ op("identity.assistant_name", "Lani", "Lani"), phrase.merge("value" => { "meaning" => "Missing text" }) ])
+    assert_equal "Lani", result.dig(:after_state, "draft_config", "identity", "assistant_name")
+    assert_equal 1, result[:dropped].length
+  end
+
+  test "CR5 malformed list items do not crash partial salvage or become coerced arrays" do
+    [ 123, [ "Nested" ] ].each do |invalid|
+      result = contract("Call the assistant Lani").build_partial([ op("identity.assistant_name", "Lani", "Lani"), op("coaching.do_not", [ invalid ], "Lani") ])
+      assert_equal "Lani", result.dig(:after_state, "draft_config", "identity", "assistant_name")
+      assert_equal 1, result[:dropped].length
+    end
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract("Ask one question").build([ op("coaching.do", "Ask one question", "Ask one question") ]) }
+  end
+
+  [ 'Her mom says "Chelu"', 'Her auntie says "Chelu"', 'Her sister says "Chelu"', 'I heard my neighbor say "Chelu"' ].each do |message|
+    test "CR6 direct coach subject required #{message}" do
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+    end
+  end
+
+  test "CR7 a previous prohibition does not ban a later explicit unquoted phrase command" do
+    result = run_turn("Never shame anyone. She celebrates small wins. Use the exact phrase Håfa adai.", [ phrase("Håfa adai") ])
+    assert_equal "Håfa adai", result.proposal.after_state.dig("draft_config", "phrases").sole["text"]
+  end
+
+  test "CR3 legacy crisis context stays readable but cannot be introduced by a new edit" do
+    legacy = persona_phrase_artifact({}, source_user_id: @coach.id)
+    legacy["allowed_contexts"] = [ "crisis" ]; legacy["prohibited_contexts"] = []
+    legacy["fingerprint"] = Mia::PersonaSchema.artifact_fingerprint(legacy)
+    config = @persona.draft_config.deep_merge("phrases" => [ legacy ])
+    @persona.update_columns(draft_config: config)
+    assert Mia::PersonaSchema.digest(@persona.reload.draft_config)
+    assert_equal [ legacy ], Mia::PersonaSchema.prepare_draft_artifacts(config, source_user_id: @coach.id, existing_configuration: config)["phrases"]
+    changed = config.deep_dup; changed["phrases"][0]["meaning"] = "Changed meaning"
+    assert_raises(Mia::PersonaSchema::InvalidConfiguration) { Mia::PersonaSchema.prepare_draft_artifacts(changed, source_user_id: @coach.id, existing_configuration: config) }
+  end
+
+  test "CR18 another coaches pending suggestions require atomic confirmation before manual save" do
+    run_turn("Call the assistant Lani", [ op("identity.assistant_name", "Lani", "Lani") ])
+    other = persona_user; @workspace.coach_workspace_memberships.create!(user: other, role: "editor")
+    config = @persona.draft_config.deep_dup; config["coaching"]["method"] = "Ask one question."
+    args = { expected_draft_revision: @persona.draft_revision, description: @persona.description, draft_config: config }
+    error = assert_raises(Mia::PersonaDraftUpdater::Error) { Mia::PersonaDraftUpdater.new(persona: @persona, actor: other, workspace: @workspace, protect_pending_suggestions: true).call!(**args) }
+    assert_equal "persona_pending_suggestions", error.code
+    assert_equal "pending", @session.proposals.sole.status
+    Mia::PersonaDraftUpdater.new(persona: @persona, actor: other, workspace: @workspace, protect_pending_suggestions: true, discard_pending_suggestions: true).call!(**args)
+    assert_equal "stale", @session.proposals.sole.status
+    assert_equal "Ask one question.", @persona.reload.draft_config.dig("coaching", "method")
+  end
+
+  [ "She is avoiding celebrating small wins", "She keeps stopping short of celebrating small wins", "She is refusing to celebrate small wins", "She stops celebrating small wins" ].each do |source|
+    test "CR10 negative verb inflections #{source}" do
+      refute Mia::PersonaSetup::TextEvidence.supports?(source, "Celebrate small wins")
+    end
+  end
+
   private
   def contract(message, prior = [])
     evidence_state = @persona.draft_config.deep_dup

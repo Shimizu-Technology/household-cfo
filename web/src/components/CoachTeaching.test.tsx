@@ -98,9 +98,19 @@ it('R4 warns before a Teaching save destroys pending suggestions and preserves b
  await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(1))
 })
 it('R13 shows the server safety reason for a refused Teaching save',async()=>{
- api.updateAdminPersona.mockRejectedValue(new ApiRequestError('This suggestion could stereotype a group of people.',{status:422}))
+ api.updateAdminPersona.mockRejectedValue(new ApiRequestError('$.coaching.method contains a regional or cultural stereotype',{status:422}))
  render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={vi.fn()}/>)
  fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'Unsafe wording'}})
  fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
- expect((await screen.findByRole('alert')).textContent).toBe('This suggestion could stereotype a group of people.')
+ expect((await screen.findByRole('alert')).textContent).toBe('This description could stereotype a group of people. Describe your own coaching approach.')
+})
+
+it('CR18 asks before discarding another coaches pending suggestions after an atomic server refusal',async()=>{
+ api.updateAdminPersona.mockRejectedValueOnce(new ApiRequestError('Pending suggestions need review.',{status:422,code:'persona_pending_suggestions'})).mockResolvedValueOnce(originalPersona)
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true)
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={vi.fn()}/>)
+ fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'A changed method'}});fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(2))
+ expect(confirm).toHaveBeenCalledWith(expect.stringContaining('another coach'))
+ expect(api.updateAdminPersona.mock.calls[1][1].discard_pending_suggestions).toBe(true)
 })

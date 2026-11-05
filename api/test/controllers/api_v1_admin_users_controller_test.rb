@@ -24,6 +24,33 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     refute_includes response.body, "WorkOS"
   end
 
+  test "CR1 nonadmin legacy serializer never exposes nested delivery diagnostics" do
+    coach = create_user(email: "cr1-coach@example.test", role: "coach")
+    target = create_user(email: "cr1-invite@example.test", role: "participant")
+    target.update!(invitation_email_error: "Private provider reason", invitation_email_provider_id: "private-provider-id", invitation_email_status: "failed")
+    controller = Api::V1::Admin::UsersController.new
+    controller.define_singleton_method(:current_user) { coach }
+    controller.define_singleton_method(:workspace_scoped_mode?) { false }
+    details = controller.send(:serialize_invite_email, target)
+    assert_nil details[:error]; assert_nil details[:provider_message_id]; assert_empty details[:delivery_log]
+    admin = create_user(email: "cr1-admin@example.test", role: "admin")
+    controller.define_singleton_method(:current_user) { admin }
+    assert_equal "Private provider reason", controller.send(:serialize_invite_email, target)[:error]
+  end
+
+  test "CR11 invitation email length boundary is 254 characters" do
+    admin = create_user(email: "cr11-admin@example.test", role: "admin")
+    cohort = Cohort.create!(name: "CR11", status: "enrolling", created_by_user: admin)
+    email = "#{'a' * 64}@#{'b' * 63}.#{'c' * 63}.#{'d' * 61}"
+    assert_equal 254, email.length
+    post "/api/v1/admin/users", params: { user: { email: email, role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+    assert_response :created
+    assert_no_difference -> { User.count } do
+      post "/api/v1/admin/users", params: { user: { email: "a#{email}", role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+    end
+    assert_response :unprocessable_entity
+  end
+
   test "admin users endpoint requires authentication" do
     get "/api/v1/admin/users"
 

@@ -50,6 +50,7 @@ module Mia
             "persona_setup_drafting_not_requested" => "Please ask for a coaching philosophy before Mia writes one.",
             "persona_setup_crisis_phrase" => "Coaching phrases cannot be used during crisis support.",
             "persona_setup_participant_phrase" => "A participant’s own phrase must stay unchanged.",
+            "persona_setup_stale_proposal" => "Reject the old pending proposal, then send your description again.",
             "persona_setup_duplicate" => "Only one change to each setting can be reviewed at a time.",
             "persona_setup_no_change" => "It already matches your assistant.",
             "persona_setup_too_large" => "It was too large to review at once.",
@@ -73,6 +74,8 @@ module Mia
             "A participant’s own phrase must stay unchanged."
           when "persona_setup_duplicate"
             "Mia suggested two changes to the same setting. Please keep one."
+          when "persona_setup_stale_proposal"
+            "These pending suggestions need a fresh review. Reject this proposal, then send your description again. Nothing has been saved."
           when "persona_setup_no_change"
             "These suggestions already match your assistant. Tell Mia what you would like to change."
           when "persona_setup_too_large"
@@ -154,7 +157,7 @@ module Mia
             raise ContractError.new("Mia proposed more than one change to the same field.", code: "persona_setup_duplicate") unless mutation_targets.add?(target)
           end
         end
-        reconcile_prohibitions!(after_state)
+        TextEvidence.reconcile_prohibitions!(after_state)
         unless participant_artifacts(before_state) == participant_artifacts(after_state)
           raise ContractError.new("Participant-supplied phrase artifacts cannot be changed by setup chat.", code: "persona_setup_participant_phrase")
         end
@@ -364,19 +367,8 @@ module Mia
         return "set:#{operation.fetch('path')}" if operation.fetch("op") == "set"
 
         value = PersonaSchema.normalize(operation.fetch("value"))
-        phrase = value.is_a?(Hash) ? value.fetch("text").to_s : value.to_s
+        phrase = value.is_a?(Hash) ? value["text"].to_s : value.to_s
         "phrase:#{PhraseSuggestions.key(phrase)}"
-      end
-
-      def reconcile_prohibitions!(state)
-        coaching = state.fetch("draft_config").fetch("coaching")
-        prohibitions = Array(coaching["do_not"])
-        coaching["do"] = Array(coaching["do"]).reject do |item|
-          prohibitions.any? do |ban|
-            positive = ban.gsub(/\b(?:do not|don['’ʼ]?t|never|avoid|stop)\b/i, "")
-            TextEvidence.supports?(positive, item)
-          end
-        end
       end
 
       def set_path!(state, path, value)

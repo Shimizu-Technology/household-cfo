@@ -132,10 +132,7 @@ module Mia
             state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } if phrase
           end
         end
-        coaching = state.dig("draft_config", "coaching")
-        coaching["do"] = Array(coaching["do"]).reject do |item|
-          Array(coaching["do_not"]).any? { |ban| TextEvidence.supports?(ban.gsub(/\b(?:do not|don['’ʼ]?t|never|avoid|stop)\b/i, ""), item) }
-        end
+        TextEvidence.reconcile_prohibitions!(state)
         state
       end
 

@@ -157,6 +157,16 @@ describe('PersonaSetupChat', () => {
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(next)
     render(<Harness />);expect(await screen.findByText('Answers: 2 to 6 sentences')).toBeTruthy()
   })
+  it('CR19 lets the coach exclude an empty list while keeping a name suggestion',async()=>{
+    const proposed=proposalSession()
+    proposed.proposal!.operations.push({op:'set',path:'coaching.do',value:[],source_basis:'coach_quote',evidence_quote:'Remove all guidance'})
+    proposed.proposal!.grouped_changes.push({group:'Coaching',changes:[{group:'Coaching',path:'coaching.do',label:'Do',before:['Old guidance'],after:[],source_basis:'coach_quote',evidence_quote:'Remove all guidance'}]})
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
+    render(<Harness />);await screen.findByText('Your voice suggestions');await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    await userEvent.click(screen.getByRole('checkbox',{name:'Keep: What to do'}))
+    expect(screen.getByRole('checkbox',{name:'Keep: Coach name'})).toHaveProperty('checked',true)
+    expect(screen.getByRole('button',{name:'Use selected suggestions'})).toBeTruthy()
+  })
   it('describes answer length in plain words and keeps both sentence limits reviewable',async()=>{
     const proposed=proposalSession()
     for(const [path,value] of [['response_shape.min_sentences',3],['response_shape.max_sentences',4]] as const){

@@ -137,7 +137,7 @@ export function PersonaSetupChat({
       })))
       if (!session?.proposal) setFocusedReview(false)
     })
-  }, [session?.proposal])
+  }, [session])
 
   const allSelected = acceptedIndexes.length === session?.proposal?.operations.length && Object.entries(listChoices).every(([index, choices]) => choices.length === (proposedValue(session, session?.proposal?.operations[Number(index)]) as unknown[] | undefined)?.length)
   const groupedChanges = useMemo(() => {
@@ -397,7 +397,7 @@ export function PersonaSetupChat({
                     const occurrence = group.changes.slice(0, changeIndex).filter((item) => item.path === change.path).length
                     const operationIndex = matching[occurrence]?.opIndex ?? index
                     const operation = session.proposal!.operations[operationIndex]
-                    if (Array.isArray(change.after) && change.after.every(item => typeof item === 'string')) return <div key={`${change.path}-${changeIndex}`}><strong>{suggestionLabel(change)}</strong>{change.after.map((item, itemIndex) => <label key={item}><input type="checkbox" checked={acceptedIndexes.includes(operationIndex) && (listChoices[String(operationIndex)] ?? (change.after as string[]).map((_, i) => i)).includes(itemIndex)} disabled={pending !== null} onChange={event => {
+                    if (Array.isArray(change.after) && change.after.length > 0 && change.after.every(item => typeof item === 'string')) return <div key={`${change.path}-${changeIndex}`}><strong>{suggestionLabel(change)}</strong>{change.after.map((item, itemIndex) => <label key={item}><input type="checkbox" checked={acceptedIndexes.includes(operationIndex) && (listChoices[String(operationIndex)] ?? (change.after as string[]).map((_, i) => i)).includes(itemIndex)} disabled={pending !== null} onChange={event => {
                       choicesRef.current.set(choiceKey(operation, item), event.target.checked)
                       const current = listChoices[String(operationIndex)] ?? (change.after as string[]).map((_, i) => i)
                       const next = event.target.checked ? [...current, itemIndex] : current.filter(i => i !== itemIndex)

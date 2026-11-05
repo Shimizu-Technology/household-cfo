@@ -1,6 +1,13 @@
 require "test_helper"
 
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
+  test "CR3 legacy crisis-allowed phrases never reach a crisis reply" do
+    phrase = { "text" => "One small step", "meaning" => "A phrase", "allowed_contexts" => [ "crisis" ], "prohibited_contexts" => [], "frequency" => "rare" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    result = Mia::LanguagePolicy.new(user_message: "I want to die", persona: persona).sanitize("One small step. Please reach someone now.")
+    refute_includes result, "One small step"
+  end
+
   test "a repeated store visit permits accountability but recall does not" do
     assert Mia::LanguagePolicy.new(user_message: "I went to Ross again").cultural_language_allowed?
     refute Mia::LanguagePolicy.new(user_message: "What was that Ross amount again?").cultural_language_allowed?

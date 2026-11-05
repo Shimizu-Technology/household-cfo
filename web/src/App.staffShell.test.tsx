@@ -104,3 +104,14 @@ it('opens a first admin with no programs on Admin while preserving explicit Stud
   render(<App />)
   expect(screen.getByText('Daily coaching')).toBeTruthy()
 })
+
+it('CR12 keeps unavailable route explanations visible',()=>{
+ window.history.replaceState({},'','/#Budget');render(<App />)
+ expect(screen.getByRole('status').classList.contains('document-alert')).toBe(true)
+})
+it('CR17 preserves the restored Coach Studio history identity across Admin navigation',async()=>{
+ state.auth.currentUser=user(true);window.history.replaceState({coachStudioIndex:7},'','/?coach_area=assistant#Coach%20Studio')
+ render(<App/>);fireEvent.click(screen.getByRole('link',{name:'Admin'}));await screen.findByRole('heading',{name:'Program operations'})
+ await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,30))})
+ await screen.findByText('Daily coaching');expect(window.history.state.coachStudioIndex).toBe(7)
+})

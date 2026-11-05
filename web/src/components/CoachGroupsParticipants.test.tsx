@@ -405,3 +405,19 @@ it('R12 skips people already in the group and uses singular invitation copy',asy
  fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add this person'}))
  await screen.findByText('1 person added. 1 invitation email did not send. Open Participant access to resend.')
 })
+
+it('CR15 accepts space separated named email entries',async()=>{
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'Jane Doe <jane@example.test> Bob <bob@example.test>'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}))
+ expect(screen.getByRole('heading',{name:'Review 2 people for Tuesday group'})).toBeTruthy()
+})
+it.each([401,408])('CR16 keeps the current and remaining addresses after HTTP %s',async(status)=>{
+ mocks.createAdminUser.mockRejectedValueOnce(new ApiRequestError('Please retry shortly.',{status}))
+ harness();await screen.findByText('Participants in Tuesday group');await userEvent.click(screen.getByText('Add a participant',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'one@example.test two@example.test'}})
+ fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
+ await screen.findByText(/0 people added.*2 still to add/)
+ expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value','one@example.test\ntwo@example.test')
+ expect(mocks.createAdminUser).toHaveBeenCalledTimes(1)
+})

@@ -273,6 +273,7 @@ module CohortRollouts
         workspace_brand_version_id: release.workspace_brand_version_id,
         brand_snapshot_digest: release.manifest_schema == CohortReleases::Contract::V1_SCHEMA ?
           CohortReleases::Contract.digest(CohortReleases::Contract.legacy_brand_snapshot) : release.brand_snapshot_digest,
+        experience_config: release.experience_snapshot["config"],
         bundle_digest: release.bundle_digest,
         integrity_valid: integrity.fetch(:valid),
         runtime_compatible: integrity.fetch(:runtime_compatible),
@@ -341,7 +342,7 @@ module CohortRollouts
     end
 
     def participant_display_name(user)
-      Contract.participant_display_name(user)
+      [ user.first_name, user.last_name ].compact_blank.join(" ").squish.presence || user.email
     end
 
     def workspace_member_display_name(user)

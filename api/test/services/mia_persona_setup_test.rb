@@ -503,7 +503,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   test "operation contract rejects duplicate mutation targets before sealing" do
     contract = Mia::PersonaSetup::OperationContract.new(
       actor: @coach,
-      user_message: "Use a warm tone and call the phrase Håfa adai. Greeting.",
+      user_message: "Use a warm tone. Use the exact phrase Håfa adai. Greeting.",
       persona: @persona
     )
 
@@ -1250,11 +1250,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       base_draft_revision: legacy.base_draft_revision, base_config_digest: legacy.base_config_digest,
       operations: legacy.operations, before_state: legacy.before_state, after_state: legacy.after_state,
       prompt_version: legacy.prompt_version)
-    built = Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach,
-      user_message: "Use 4 sentences.", previous: legacy).call([
-        operation("response_shape.max_sentences", 4, evidence: "4 sentences")
-      ], partial: true)
-    assert_equal "Lina", built.dig(:after_state, "draft_config", "identity", "assistant_name")
+    error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach,
+        user_message: "Use 4 sentences.", previous: legacy).call([ operation("response_shape.max_sentences", 4, evidence: "4 sentences") ], partial: true)
+    end
+    assert_equal "persona_setup_stale_proposal", error.code
+    assert_includes error.public_message, "Reject this proposal"
     legacy.operations = [ operation("identity.assistant_name", "Forged", evidence: "Forged") ]
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach,

@@ -98,10 +98,10 @@ it('keeps success when parent props refresh and does not restart preview',async(
  await waitFor(()=>expect(screen.getByRole('button',{name:'Review changes'})).toHaveProperty('disabled',false))
  expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(1)
 })
-it('shows actual Savings navigation and the unopened challenge before approval and after success',async()=>{
+it('CR21 shows actual Savings navigation and the unopened challenge before approval and after success',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:false,upgrade_notice:'This update adds Statements',modules:['home','review','ask_mia','budget','profile','wealth','statements'].map(id=>({id,enabled:true,label:id}))}}]})
  api.postCoachLaunch.mockResolvedValue({persona:published,launch:{groups:[{...group,challenge_closed:true}]}})
- render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More')).toBeTruthy()
+ render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy()
  expect(screen.getByText('This update adds Statements')).toBeTruthy()
  expect(screen.getByText(/program team still needs to open/)).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('program team still needs to open')
@@ -199,4 +199,11 @@ it('uses plain audience and community wording while preserving custom approved t
  expect(screen.getByText(/Who this is for: People in your coaching program/)).toBeTruthy()
  expect(screen.getByText(/Only the details you have approved/)).toBeTruthy()
  expect(screen.queryByText(/human coach's financial education/)).toBeNull()
+})
+
+it('CR21 shows the ordered secondary tools inside More',async()=>{
+ const order=['home','ask_mia','budget','statements','optionality','cfo_filter']
+ settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'household_cfo'}},preview:{module_order:order,modules:order.map(id=>({id,enabled:true,label:id}))}}]})
+ render(<Harness/>);await review()
+ expect(screen.getByText('Home · Mia · Budget · Statements · More: Optionality · CFO Filter')).toBeTruthy()
 })

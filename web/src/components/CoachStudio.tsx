@@ -100,7 +100,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     action()
   }
   const historyIndex = useRef<number>(window.history.state?.coachStudioIndex ?? 0)
-  const restoringHistory = useRef(false)
+  const restoringHistory = useRef<number | null>(null)
   function navigate(nextArea: Area, nextTask: Task = task) {
     writeView(nextArea, nextTask)
     historyIndex.current = window.history.state?.coachStudioIndex ?? 0
@@ -112,14 +112,16 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
   useEffect(() => {
     writeView(area, task, true)
     const follow = () => {
-      if (restoringHistory.current) { restoringHistory.current = false; return }
+      const restoredIndex = window.history.state?.coachStudioIndex ?? 0
+      if (restoringHistory.current === restoredIndex) { restoringHistory.current = null; return }
+      restoringHistory.current = null
       if (window.location.hash !== '#Coach%20Studio') return
       const nextArea = readUrlView() ?? 'people'
       const nextTask = readUrlTask() ?? 'voice'
       const nextIndex = window.history.state?.coachStudioIndex ?? 0
       const restore = () => {
         const delta = historyIndex.current - nextIndex
-        if (delta) { restoringHistory.current = true; window.history.go(delta) }
+        if (delta) { restoringHistory.current = historyIndex.current; window.history.go(delta) }
       }
       if (nextArea === area && nextTask === task) { historyIndex.current = nextIndex; return }
       if (busy || groupsBusy || lifecycle.pending) { restore(); return }

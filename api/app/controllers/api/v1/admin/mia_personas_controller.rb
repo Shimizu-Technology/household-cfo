@@ -58,6 +58,8 @@ module Api
             persona:,
             actor: current_user,
             workspace: coach_workspace_for_policy || persona.coach_workspace,
+            protect_pending_suggestions: true,
+            discard_pending_suggestions: params.dig(:persona, :discard_pending_suggestions) == true,
             allow_phrase_artifact_edits: policy.can_manage_phrase_artifacts?(persona)
           ).call!(
             expected_draft_revision:,

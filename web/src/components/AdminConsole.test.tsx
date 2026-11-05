@@ -270,7 +270,8 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toHaveProperty('disabled', false))
   }, 15_000)
   it('shows scoped invitation attention and removes roster controls from unrelated areas', async () => {
-    const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, status: 'failed', last_attempted_at: '2026-11-05T04:00:00Z', error: 'WorkOS authentication is not configured' } } as AdminUser
+    authScope.workspaceId = null
+    const pending = { ...people[0], invitation_status: 'pending', invite_email: { ...people[0].invite_email, workspace_scoped: false, status: 'failed', last_attempted_at: '2026-11-05T04:00:00Z', error: 'WorkOS authentication is not configured' } } as AdminUser
     const elsewhere = { ...people[1], invitation_status: 'pending', cohorts: [] } as AdminUser
     mocks.fetchAdminUsers.mockResolvedValue([pending, elsewhere])
     render(<AdminConsole currentUser={actor} />)
@@ -350,4 +351,14 @@ it('selects a created program and keeps its confirmation after switching program
   authScope.workspaceId=3
   view.rerender(<AdminConsole currentUser={{...actor,coach_workspaces:[...actor.coach_workspaces!,{id:3,name:'New coach program'}] } as CurrentUser}/>)
   expect(screen.getByText(/New coach program was created and selected/)).toBeTruthy()
+})
+
+it.each(['coach','admin'])('CR14 failed %s invitations do not promise an unavailable resend button',async(role)=>{
+ const pending={...people[0],id:140,email:'new-staff@example.test',role,can_resend_invitation:false} as AdminUser
+ mocks.createAdminUser.mockResolvedValue({user:pending,created:true,invitation_sent:false,invitation_status:'failed'})
+ render(<AdminConsole currentUser={actor}/>);await screen.findAllByText('Participant 00')
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh'})).toHaveProperty('disabled',false))
+ const form=screen.getByRole('button',{name:'Create invite'}).closest('form')!
+ fireEvent.change(within(form).getByLabelText(/Email/),{target:{value:pending.email}});fireEvent.submit(form)
+ expect((await screen.findByText(/Check their email address and invitation access/)).textContent).not.toContain('Resend email')
 })
