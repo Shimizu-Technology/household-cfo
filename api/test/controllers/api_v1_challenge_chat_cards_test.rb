@@ -15,6 +15,29 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "weekly check in frequency does not multiply a whole challenge goal" do
+    [ "I check in once a week. Set my goal to $500.", "Set my goal to $500; I will check in weekly." ].each_with_index do |message, index|
+      ask message, "check-in-frequency-#{index}"
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert_equal 50_000, card.dig("input", "target_cents")
+      assert_nil card.dig("input", "weekly_cents")
+    end
+    [ "$20 a week", "$20 per week", "twenty dollars per week" ].each_with_index do |amount, index|
+      ask "I want to save #{amount}", "real-weekly-#{index}"
+      assert_equal 25_714, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    end
+  end
+
+  test "general savings questions do not short circuit into a personal saved total" do
+    with_savings_runtime do
+      [ "How much should I have saved by now?", "What is the total I can save?", "How much savings do I need for an emergency fund?", "What's the total in my savings account?" ].each do |message|
+        coach = SavingsChallenge::CoachAnswerer.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment, message: message)
+        coach.define_singleton_method(:savings_total_answer) { "WRONG SAVED TOTAL ROUTE" }
+        refute_equal "WRONG SAVED TOTAL ROUTE", coach.call, message
+      end
+    end
+  end
+
   test "everyday goal words and weekly pace remain proposals until the card is accepted" do
     ask "My goal is three hundred dollars", "words-goal"
     assert_equal 30_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")

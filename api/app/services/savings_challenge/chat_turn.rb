@@ -226,7 +226,7 @@ module SavingsChallenge
       return false if message.match?(/\b(?:household|paid|spent|saved|withdrew|card balance)\b/i) || (message.match?(/\bset aside\b/i) && !self.class.weekly_offer?(message))
       return false if message.match?(/\bdebt\b/i) && !message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
       standalone = self.class.amount_reply?(message, session: @session)
-      weekly = message.match?(GoalAmount::WEEKLY)
+      weekly = message.match?(/(?:#{AMOUNT_SOURCE})\s*(?:dollars?\s*)?(?:#{GoalAmount::WEEKLY})/i)
       return false unless message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || standalone || suggestion || self.class.weekly_offer?(message)
       malformed = message.match?(/(?:\$\s*|\b(?:to|at|be|save|set aside)\s+)[0-9][0-9,]*\.\d{3,}/i)
       amounts = message.scan(/\$\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/).flatten

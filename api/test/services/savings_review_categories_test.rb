@@ -27,6 +27,17 @@ class SavingsReviewCategoriesTest < ActiveSupport::TestCase
       assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Island Power", event_type: event_type), event_type
     end
   end
+  test "merchant service fees are never bank fee hints" do
+    [ "DOORDASH SERVICE FEE", "Delivery service charge", "Amazon monthly fee" ].each do |merchant|
+      %w[purchase fee].each do |event_type|
+        assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant, event_type: event_type), merchant
+      end
+    end
+    [ "Bank service fee", "Bank of Guam service charge", "Monthly maintenance fee", "Overdraft fee", "Monthly service fee" ].each do |merchant|
+      assert_equal 1, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant, event_type: "fee"), merchant
+    end
+  end
+
   test "explicit bank fees can be reviewed in the broad bills category" do
     assert_equal 1, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Monthly service fee", event_type: "fee")
     assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Unrecognized fee", event_type: "fee")

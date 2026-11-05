@@ -23,6 +23,47 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     suggest(@events.fetch("Payless"), @groceries)
   end
 
+  test "a narrow single category asks before Ross and Amazon can be approved together" do
+    @clothing.update!(active: false)
+    @groceries.update!(name: "Dining out")
+    source = build_source(rows: [ [ "Ross", -500, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, source[:revision])
+    assert_empty plan.ready_ids
+    assert_equal [ :suggested_category, :suggested_category ], plan.attention.map(&:kind)
+    assert_equal [ @groceries.id, @groceries.id ], plan.attention.map(&:category_id)
+    ids = plan.lines.map { |line| line.event.id }
+    assert_no_difference "HouseholdTransaction.count" do
+      approve_lines({ expect_ready_ids: ids, lines: as_read(ids, source: source) }, source: source)
+      assert_response :conflict
+    end
+    approve_lines({ lines: as_read([ ids.first ], source: source) }, source: source)
+    assert_response :success
+    assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
+  end
+
+  test "a stale coverage answer cannot replace a newer answer even after an intervening change back" do
+    approve_lines({ lines: @events.values.map { |event| { event_id: event.id, decision: "leave_out" } }, coverage_answer: "nothing_missing", expected_coverage_id: nil })
+    assert_response :success
+    old_id = SourceRevisionApproval.where(household: @household).order(:id).last.id
+    approve_lines({ lines: [], coverage_answer: "something_missing", expected_coverage_id: old_id })
+    assert_response :success
+    new_id = SourceRevisionApproval.where(household: @household).order(:id).last.id
+    [ old_id, nil ].each do |stale|
+      assert_no_difference "SourceRevisionApproval.count" do
+        approve_lines({ lines: [], coverage_answer: "nothing_missing", expected_coverage_id: stale })
+        assert_response :conflict
+      end
+    end
+    assert_equal "something_missing", review_plan.dig("coverage", "answer")
+    approve_lines({ lines: [], coverage_answer: "nothing_missing", expected_coverage_id: new_id })
+    assert_response :success
+    assert_equal "nothing_missing", review_plan.dig("coverage", "answer")
+    assert_no_difference "SourceRevisionApproval.count" do
+      approve_lines({ lines: [], coverage_answer: "something_missing", expected_coverage_id: old_id })
+      assert_response :conflict
+    end
+  end
+
   test "the plan sorts the statement into what looks right and the few lines that need an answer" do
     plan = review_plan
     assert_equal 5, plan.fetch("total")
@@ -1007,6 +1048,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
 
   def approve_lines(input, key: SecureRandom.uuid, source: @source)
+    if input[:coverage_answer] && !input.key?(:expected_coverage_id)
+      input = input.merge(expected_coverage_id: FinancialDocuments::SourceReview::CoverageQuestion.latest(source[:revision])&.id)
+    end
     post "/api/v1/document_imports/#{source[:import].id}/review/approve_lines", params: { revision_id: source[:revision].id, input: input }, headers: headers.merge("Idempotency-Key" => key), as: :json
   end
 

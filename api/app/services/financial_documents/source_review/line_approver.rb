@@ -23,6 +23,9 @@ module FinancialDocuments
         entries = Array(input[:lines]).map { |entry| entry.to_h.deep_symbolize_keys }
         answer = input[:coverage_answer].presence
         raise ArgumentError, "Choose whether anything is missing from this statement" if answer && !answer.in?(CoverageQuestion::ANSWERS)
+        if answer && input[:expected_coverage_id] != CoverageQuestion.latest(revision)&.id
+          raise Domain::StaleReview, "The coverage answer was changed in another window. Nothing was saved. Refresh to review the latest answer."
+        end
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         domain.overlap_context = OverlapDetector::Context.new(household)
