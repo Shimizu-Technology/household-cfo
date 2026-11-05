@@ -166,10 +166,10 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
   end
 
   test "hardship and wellbeing narration do not rewrite safety length" do
-    [ "I cannot afford food this week", "I feel hopeless" ].each do |message|
-      narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator,
-        [ "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" ], message: message)
-      assert_equal "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?", narrator.call
+    { "I cannot afford food this week" => "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?",
+      "I feel hopeless" => "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" }.each do |message, reply|
+      narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
+      assert_equal reply, narrator.call
       assert_equal 1, attempts.length
     end
   end
