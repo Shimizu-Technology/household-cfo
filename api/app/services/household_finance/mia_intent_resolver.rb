@@ -34,7 +34,7 @@ module HouseholdFinance
     SCENARIO_TYPES = %w[none purchase one_time_income essential_expense extra_debt_payment].freeze
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
     HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical(?:ly)?|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
-    PURCHASE_SCENARIO_PATTERN = /\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend)\b/i.freeze
+    PURCHASE_SCENARIO_PATTERN = /\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend)\b/i.freeze
     DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\b(?:if|given(?:\s+that)?)\s+(?:our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
     SAME_AMOUNT_PATTERN = /\b(?:(?:same|unchanged)\s+(?:amount|price|cost)|(?:amount|price|cost)\s+(?:is\s+)?(?:the\s+)?same|keep .{0,80}\b(?:amount|price|cost)\b.{0,30}\bsame)\b/i.freeze
@@ -238,7 +238,7 @@ module HouseholdFinance
       setup_result = setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
-          user_message.match?(/\A(?:can|could|may)\s+(?:i|we)\s+(?:afford|buy|purchase)\b/i) &&
+          user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
           !user_message.match?(/\b(?:and|also|then|plus)\b/i) &&
           !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::DEBT_TERM_PATTERN)
         scenario = deterministic_scenario_fallback
@@ -670,7 +670,9 @@ module HouseholdFinance
     end
 
     def household_name_shape?(name)
-      normalized_bounded_text(name).length <= setup_text_limit(:household_name) && !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN)
+      normalized_bounded_text(name).length <= setup_text_limit(:household_name) && name.split.length <= 12 &&
+        !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN) &&
+        !name.match?(/\A(?:i|we|my|our|they|he|she)\b|\b(?:is|are|was|were|have|has|had|need|needs|left|broke|lost|wants?|eaten|hospital|yesterday|tonight|because|since|not)\b/i)
     end
 
     def normalized_setup_money(raw)
@@ -713,7 +715,11 @@ module HouseholdFinance
         field = next_missing_setup_field
         if guided_setup_question_asked?(field)
           value = guided_setup_value(field)
-          value.nil? ? deterministic_setup_clarification(field, clarification: MiaSetupGuide.question_message(field)) : setup_reply_result(field, value)
+          if value.present?
+            setup_reply_result(field, value)
+          elsif user_message.match?(/\A(?:i (?:am not sure|don['’]?t know|do not know)|not sure|unknown|lol|haha|hmm+|um|ok(?:ay)?|maybe|\$?[\d,.]+)[.!]?\z/i)
+            deterministic_setup_clarification(field, clarification: field == "debt_payment" ? "It is okay not to know yet. Check Debt in My Money for the minimums; leave unknown amounts blank. Nothing changed." : MiaSetupGuide.question_message(field))
+          end
         end
       end
     end
@@ -740,12 +746,15 @@ module HouseholdFinance
     def guided_setup_value(field)
       return guided_text_setup_value(field) if field.in?(GUIDED_TEXT_SETUP_FIELDS)
       return unless field.in?(REQUIRED_ZERO_SETUP_FIELDS)
-      return "0" if field == "debt_payment" && user_message.squish.match?(/\A(?:(?:i|we)\s+have\s+)?no debt payments[.!]?\z/i)
+      return "0" if field == "debt_payment" && user_message.squish.match?(/\A(?:(?:i|we)\s+have\s+)?(?:no debt payments|none|no debts?)[.!]?\z/i)
       return if guided_setup_non_answer?
 
       match = user_message.match(GUIDED_MONEY_REPLY_PATTERN)
       if !match && field == "primary_income" && !ambiguous_setup_statement?
         match = user_message.match(/\A(?:i|we)\s+(?:take|bring)\s+home\s+(?:about\s+)?\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:a|per|each)\s+month(?:\s+from\s+(?:my|our)\s+(?:job|work)(?:\s+at\s+[^.!?]+)?)?[.!]?\z/i)
+      end
+      if !match && field == "debt_payment"
+        match = user_message.match(/\A(?:i|we)\s+pay\s+(?:about\s+)?\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:a|per|each)\s+month[.!]?\z/i)
       end
       return unless match
 
@@ -790,6 +799,12 @@ module HouseholdFinance
     def setup_reply_result(field, value)
       label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
       if field == "debt_payment"
+        if value.to_s == "0" && Array(context[:active_debts]).any? { |debt| debt[:minimum_payment].to_f.positive? }
+          return deterministic_setup_clarification(field, clarification: "A debt on file has a monthly minimum. Review your debts in My Money before confirming no debt payments. Nothing changed.")
+        end
+        if context.dig(:debt_tracking, :mode).to_s == "individual" && Array(context[:active_debts]).any?
+          return deterministic_setup_clarification(field, clarification: "Your individual debts are on file. Review their minimums in My Money, Debt, or name the debt to change. Nothing changed.")
+        end
         return Result.new(intent: "debt_action", confidence: 1.0, continuation: true,
           resolved_message: "Set monthly debt minimums to #{value}", needs_clarification: false, clarification: "",
           topic: { type: "household_setup", title: "Starting household picture", subject: label },
@@ -816,11 +831,12 @@ module HouseholdFinance
     end
 
     def deterministic_scenario_fallback
-      scenario_type = deterministic_scenario_type
+      scenario_text = user_message.split(/(?<=[?!])\s+/).first.to_s
+      scenario_type = deterministic_scenario_type(scenario_text)
       return unless scenario_type
 
-      participant_amounts = money_cents_from_participant_text(user_message)
-      rejected_amounts = rejected_money_cents(user_message)
+      participant_amounts = money_cents_from_participant_text(scenario_text)
+      rejected_amounts = rejected_money_cents(scenario_text)
       amounts = participant_amounts - rejected_amounts
       return unless amounts.one? && amounts.first.positive?
 
@@ -829,8 +845,8 @@ module HouseholdFinance
       label = participant_amounts.one? && rejected_amounts.empty? ? deterministic_scenario_label(scenario_type) : ""
       item = {
         kind: "scenario",
-        source_text: user_message,
-        resolved_question: user_message,
+        source_text: scenario_text,
+        resolved_question: scenario_text,
         basis: "hypothetical",
         scenario_type: scenario_type,
         scenario_label: label,
@@ -838,7 +854,7 @@ module HouseholdFinance
         effective_on: ""
       }
       effective_on, timing_unavailable = normalized_scenario_effective_on(
-        user_message,
+        scenario_text,
         "",
         item: item,
         amount: raw_amount,
@@ -857,22 +873,32 @@ module HouseholdFinance
         clarification: "",
         topic: { type: "read_only_plan", title: title, subject: title },
         action: { type: "none" },
-        read_only_plan: { title: title, items: [ item ] },
+        read_only_plan: { title: title, items: [ item, *additional_scenario_questions ] },
         source: "deterministic"
       )
     rescue ArgumentError, TypeError
       nil
     end
 
-    def deterministic_scenario_type
-      text = normalized_user_message
+    def additional_scenario_questions
+      user_message.split(/(?<=[?!])\s+/).drop(1).first(5).filter_map do |question|
+        next unless question.end_with?("?")
+        next if question.match?(/\A(?:do not|don['’]?t|without)\b/i)
+
+        { kind: "coaching", source_text: question, resolved_question: question, basis: "saved_household" }
+      end
+    end
+
+    def deterministic_scenario_type(value = user_message)
+      text = normalized_text(value)
       return unless text.match?(HYPOTHETICAL_PATTERN) || text.match?(PURCHASE_SCENARIO_PATTERN)
       # Lending to or helping family is a family-support decision, not a purchase.
       return if text.match?(FAMILY_LENDING_PATTERN)
       return "extra_debt_payment" if text.match?(/\b(?:extra|additional)\b.{0,50}\b(?:debt|credit card|loan|principal|payment)\b|\b(?:debt|credit card|loan)\b.{0,50}\b(?:extra|additional)\b/i)
       return "one_time_income" if text.match?(/\b(?:bonus|refund|windfall|one[- ]time income|receive|received)\b/i)
       return "essential_expense" if text.match?(/\b(?:medical|doctor|dental|essential|repair|bill|expense)\b/i)
-      "purchase" if text.match?(/\b(?:buy(?:ing)?|purchas(?:e|ing)|afford(?:ing)?|spend(?:ing)?|get(?:ting)?|book(?:ing)?|order(?:ing)?|tak(?:e|ing))\b/i)
+      return if text.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
+      "purchase" if text.match?(/\b(?:buy(?:ing)?|bought|purchas(?:e|ing)|afford(?:ing)?|spend(?:ing)?|get(?:ting)?|book(?:ing)?|order(?:ing)?|tak(?:e|ing))\b/i)
     end
 
     def deterministic_scenario_label(scenario_type)
@@ -1480,6 +1506,8 @@ module HouseholdFinance
     def normalized_scenario_effective_on(source_text, supplied_value, item:, amount:, continuation:)
       grounded = if source_text.match?(/\bnext month\b/i)
         Date.current.next_month.beginning_of_month
+      elsif source_text.match?(/\blast month\b/i)
+        Date.current.prev_month.beginning_of_month
       elsif source_text.match?(/\bthis month\b/i)
         Date.current.beginning_of_month
       elsif source_text.match?(/\btomorrow\b/i)
@@ -1508,7 +1536,7 @@ module HouseholdFinance
       elsif (month_index = calendar_month_index(source_text))
         explicit_year = source_text.match(/\b(20\d{2})\b/)&.[](1)&.to_i
         target_year = explicit_year || Date.current.year
-        target_year += 1 if explicit_year.nil? && month_index + 1 < Date.current.month
+        target_year += 1 if explicit_year.nil? && month_index + 1 < Date.current.month && !source_text.match?(/\b(?:could.*have|bought|last|previous)\b/i)
         Date.new(target_year, month_index + 1, 1)
       end
 
@@ -2468,7 +2496,7 @@ module HouseholdFinance
     end
 
     def money_cents_from_participant_text(text)
-      text = PurchaseReportText.normalize(text).to_s.gsub(PurchaseReportParser::DATE_PATTERN) { |date| " " * date.length }
+      text = PurchaseReportText.normalize(text).to_s.gsub(/\b(?:#{MonthTerms.pattern})\s+\d{1,2}(?:,?\s+20\d{2})?\b/i) { |date| " " * date.length }.gsub(PurchaseReportParser::DATE_PATTERN) { |date| " " * date.length }
       currency = text.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| chat_cents_or_nil(value) }
       plain = text.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
         match = Regexp.last_match

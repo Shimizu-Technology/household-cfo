@@ -116,9 +116,13 @@ module HouseholdFinance
     end
 
     def self.essential_hardship?(text)
+      clauses = text.to_s.split(/(?<=[.!?;])\s+/)
+      return clauses.any? { |clause| essential_hardship?(clause) } if clauses.length > 1
+
       value = text.to_s
       return false if value.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN)
 
+      return true if value.match?(/\b(?:evicted (?:me|us)|(?:my|our) landlord[^.!?]{0,35}evict|(?:scared|afraid|worried)[^.!?]{0,45}(?:make|pay|cover) rent|(?:my|our) (?:husband|wife|partner) left|(?:i|we) need to talk to someone)\b/i)
       # Food has its own tested household, timing, and discretionary exclusions.
       # This extension covers present household housing/medical/utility hardship.
       value.match?(/\b(?:i|we)\s+(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
@@ -184,6 +188,9 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
+      return "I do not have your coach’s contact details here. Ask your program organizer to connect you with your coach. What would you like your coach to know?" if message.match?(/\b(?:contact|reach|get in touch with|talk to)\s+(?:my|our|the)\s+coach\b/i)
+      return "A sinking fund is money you set aside a little at a time for a planned cost, such as car registration or school supplies. Which future cost would you like to prepare for?" if message.match?(/\Awhat (?:is|are) (?:a |an |the )?sinking funds?\??\z/i)
+      return "What does the item cost, and which month are you considering it for?" if purchase_question? && amount_from_message_cents.nil? && !normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
 
       avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
@@ -224,6 +231,8 @@ module HouseholdFinance
     end
 
     def essential_hardship_answer
+      return "Your partner leaving is a lot to take in. Please talk with your coach or someone you trust; we can go one step at a time. What feels most urgent today?" if message.match?(/\b(?:my|our) (?:husband|wife|partner) left\b/i)
+      return "You do not have to carry this alone. Please reach out to your coach or someone you trust today. What would you like to talk through first?" if message.match?(/\b(?:i|we) need to talk to someone\b/i)
       "Not being able to cover an essential cost is hard; food, housing, utilities, and medicine come first. Contact your coach to talk through what can wait, and ask the landlord or bill provider about payment options before the due date. Which essential payment is most urgent right now?"
     end
 
@@ -304,11 +313,12 @@ module HouseholdFinance
       return unless setup_status.complete?
       return unless setup_dependent_coaching_request?
       return if AssetPortfolio.new(household).liquid_balance_known?
+      return if purchase_question?
 
       overview = if ::Mia::FinancialReadOnlyRequest.matches?(message) && normalized_message.match?(/\b(?:what (?:we|i) know|what (?:s|is) missing|household picture)\b/i)
         "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
       end
-      "#{overview}I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
+      "#{overview}I do not know your account balances yet, so I cannot tell what cash is available. Add your checking, savings, and emergency-fund balances under Accounts in My Money, leaving anything unknown blank."
     end
 
     def incomplete_debt_balances_answer
@@ -1083,13 +1093,16 @@ module HouseholdFinance
     end
 
     def purchase_plan_answer
+      return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
       return unless purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
       return if normalized_message.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
       return incomplete_setup_answer unless SetupStatus.new(household).complete?
       return unavailable_plan_answer unless plan_available?
 
+      date = MiaMonthAnswer.question_date(message)
+      date = Date.current.prev_month.beginning_of_month if message.match?(/\blast month\b/i)
       item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
-      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: item,
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: item, effective_on: date&.iso8601,
         annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
     end
 
@@ -1108,6 +1121,7 @@ module HouseholdFinance
     end
 
     def planned_purchase_detail_answer
+      return if normalized_message.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil unless purchase_question? || message.match?(PURCHASE_DETAIL_CONTEXT_PATTERN) || purchase_conversation?
@@ -1182,6 +1196,7 @@ module HouseholdFinance
     end
 
     def purchase_question?
+      return false if normalized_message.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
       return false if normalized_message.match?(/\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b/i)
       return false if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
 

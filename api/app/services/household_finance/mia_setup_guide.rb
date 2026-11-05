@@ -54,7 +54,7 @@ module HouseholdFinance
       return after_apply_message if self.class.setup_request?(value)
       return unless value.to_s.squish.match?(/\Awhat (?:else )?do you (?:still )?need from me to finish (?:setting up|setup)\??\z/i)
 
-      return complete_message if setup_status.complete?
+      return complete_message if setup_status.missing_field_keys.empty?
 
       missing = setup_status.as_json[:missing_fields].map { |field| field[:label].downcase }.to_sentence
       "Still to add: #{missing}. #{after_apply_message}"

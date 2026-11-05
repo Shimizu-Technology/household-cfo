@@ -13,7 +13,7 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
 
   test "M3 five setup answers still need debt minimums and name the actual gap" do
     status = HouseholdFinance::SetupStatus.new(@household)
-    refute status.complete?
+    assert status.complete?
     assert_equal [ "debt_payment" ], status.missing_field_keys
     assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "debt"
     answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: @plan)

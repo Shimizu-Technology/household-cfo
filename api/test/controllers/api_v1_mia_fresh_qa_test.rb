@@ -13,7 +13,7 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
     post_message("$3,900")
     assert_includes reply, "What would you like to call this household?"
     refute_match(/readiness|safe.to.spend/, reply)
-    name = "The Santos Cruz Dela Rosa extended household in Dededo with Nana and the grandchildren"
+    name = "The Santos Cruz Dela Rosa extended family household of Dededo"
     post_message(name)
     draft = response.parsed_body.fetch("mia_action_draft")
     assert draft, reply

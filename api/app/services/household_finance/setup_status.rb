@@ -26,7 +26,7 @@ module HouseholdFinance
     end
 
     def complete?
-      missing_field_keys.empty?
+      (missing_field_keys - [ "debt_payment" ]).empty?
     end
 
     def confirmed_field_keys

@@ -63,7 +63,7 @@ module HouseholdFinance
       mode = command[:debt_tracking_mode].to_s
       return validation_result("Choose summary or individual debt tracking. Nothing changed.") unless mode.in?(HouseholdProfile::DEBT_TRACKING_MODES)
       portfolio = DebtPortfolio.new(household)
-      setup_progress = SetupStatus.new(household).missing_field_keys == [ "debt_payment" ]
+      setup_progress = mode == "summary" && SetupStatus.new(household).missing_field_keys == [ "debt_payment" ]
       payload = { mode: mode }
       if mode == "summary"
         unless debt_balance_command_present? && command.key?(:minimum_payment)
