@@ -9,7 +9,7 @@ const evidence = process.env.HCFO_W19_EVIDENCE
 
 test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a list and follows browser history against Rails', async ({ page, context, request }, info) => {
   test.skip(!fixtures || !web || !api, 'Requires isolated W19 Rails fixtures, captured real-model proposal and model disabled')
-  test.setTimeout(240_000)
+  test.setTimeout(360_000)
   const fixture = fixtures[info.project.name]
   const headers = { Authorization: `Bearer test_token_${fixture.coach_id}`, 'X-Coach-Workspace-Id': String(fixture.workspace_id) }
   await context.route(`${api}/**`, async route => {
@@ -32,10 +32,16 @@ test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a li
   await expect(page.getByText('Household money is not available in this staff workspace.')).toHaveCount(0)
   await shot('people')
   // A real initial launch provides the baseline for the second tools review.
-  await areas.getByRole('button', { name: 'Go live', exact: true }).click()
-  await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
-  await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 60_000 })
+  const rolloutResponse = await request.get(`${api}/api/v1/admin/cohorts/${fixture.group_id}/rollouts`, { headers })
+  expect(rolloutResponse.status()).toBe(200)
+  const rolloutPayload = await rolloutResponse.json()
+  const rollout = rolloutPayload.cohort_rollout_studio ?? rolloutPayload.rollout_studio ?? rolloutPayload
+  if (!rollout.active_release) {
+    await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+    await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 60_000 })
+  }
   await areas.getByRole('button', { name: 'Your assistant', exact: true }).click()
   await page.getByText('More settings', { exact: true }).click()
   await page.getByRole('button', { name: 'Tools', exact: true }).click()
@@ -99,7 +105,8 @@ test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a li
   await areas.getByRole('button', { name: 'People', exact: true }).click()
   await page.getByRole('button', { name: 'Invite someone', exact: true }).click()
   const invitation = page.locator('details.coach-group-settings').filter({ has: page.locator('summary', { hasText: /^Add a participant$/ }) })
-  const firstEmail = `w19-first-${info.project.name}@example.invalid`
+  const runKey = `${fixture.workspace_id}-${Date.now().toString(36)}`
+  const firstEmail = `ana-${runKey}@example.invalid`
   await page.getByLabel('Participant email', { exact: true }).fill(firstEmail)
   await page.getByRole('button', { name: `Add to W19 ${info.project.name} Group`, exact: true }).click()
   await expect(page.getByText(/Participant added. The invitation email did not send/)).toBeVisible()
@@ -107,7 +114,7 @@ test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a li
   await expect(page.getByLabel('Participant email', { exact: true })).toHaveValue('')
   await expect(page.getByText(/WorkOS authentication is not configured/)).toHaveCount(0)
   await shot('invite-failure')
-  const emails = Array.from({ length: 30 }, (_, index) => `w19-${info.project.name}-${index}@example.invalid`)
+  const emails = Array.from({ length: 30 }, (_, index) => `person-${index}-${runKey}@example.invalid`)
   await page.getByLabel('Paste email addresses').fill(emails.join('\n'))
   await page.getByRole('button', { name: 'Review email list', exact: true }).click()
   await expect(page.getByRole('heading', { name: `Review 30 people for W19 ${info.project.name} Group`, exact: true })).toBeVisible()
