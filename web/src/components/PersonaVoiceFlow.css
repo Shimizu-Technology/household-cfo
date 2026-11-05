@@ -39,6 +39,10 @@
 .coach-phrase-entry input, .coach-phrase-entry textarea {
   width: 100%; min-width: 0; min-height: 44px; padding: .75rem;
   border: 1px solid var(--line); border-radius: var(--radius-sm);
-  background: var(--surface); color: var(--ink); font: inherit;
+  background: var(--paper); color: var(--ink); font: inherit; font-size: 1rem;
 }
-.coach-invitation-review { max-block-size: 16rem; overflow: auto; overflow-wrap: anywhere; }
+.coach-invitation-review { max-block-size: 16rem; overflow: auto; overflow-wrap: anywhere; overscroll-behavior: contain; }
+
+@media (pointer: coarse) {
+  .coach-simple .coach-phrase-entry input, .coach-simple .coach-phrase-entry textarea { font-size: 16px; }
+}
