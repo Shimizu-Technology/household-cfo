@@ -34,6 +34,15 @@ it('greets with starting points that fill the composer instead of sending', () =
   expect(choose).toHaveBeenCalledWith('Help me update one of my household debts.')
 })
 
+it('opens the server-specified missing money input from Mia’s answer', () => {
+  const open = vi.fn()
+  render(<ChatHistory {...baseProps} totalMessageCount={1} onOpenMoneyInput={open} messages={[{role:'assistant', author:'Mia', content:'Still to add: debt minimums.', setup_help:{available:false,money_inputs:['debt','accounts']}}]} />)
+  fireEvent.click(screen.getByRole('button',{name:'Add debt minimums'}))
+  expect(open).toHaveBeenCalledWith('debt')
+  fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
+  expect(open).toHaveBeenLastCalledWith('accounts')
+})
+
 it('omits starting points when none are offered', () => {
   render(<ChatHistory {...baseProps} />)
   expect(screen.queryByRole('group', { name: 'Ways to start' })).toBeNull()

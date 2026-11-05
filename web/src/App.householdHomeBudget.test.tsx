@@ -125,6 +125,15 @@ it('never recalculates Home from a different budget cache and preserves unknown 
  expect(screen.getAllByText('$0')).toHaveLength(4)
 })
 
+it('names debt minimums as the plan gap and links missing cushion balances', () => {
+ const openDebt = vi.fn(), openAccounts = vi.fn()
+ render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label:'debt minimums',destination:'debt'}], cushion_missing_inputs: [{label:'checking, savings, and emergency-fund balances',destination:'accounts'}], readiness_guidance:'Add checking, savings, and emergency-fund balances before judging your emergency cushion.'}}} budget={{annual_plan:plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} onOpenAccounts={openAccounts}/>)
+ expect(screen.getByText('Still to add: debt minimums.')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
+ expect(openAccounts).toHaveBeenCalledOnce()
+ expect(screen.queryByText(/missing income or planned costs/)).toBeNull()
+})
+
 it('makes an irregular shortfall visible and withholds the year when an allocation is unknown', () => {
  const spikePlan = { ...plan, annual_outlook: { ...plan.annual_outlook, months: plan.annual_outlook.months.map((month, index) => index === 11 ? { ...month, baseline_surplus: -1320, planned_outflow: 7520, expected_contributors: [{ name: 'Holiday travel', amount: 3800 }] } : month) } }
  const view = render(<YearOutlook plan={spikePlan} />)

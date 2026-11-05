@@ -30,6 +30,7 @@ type ChatHistoryProps = {
   onOpenReview?: () => void
   reviewCount?: number
   onSetupHelp?: () => void
+  onOpenMoneyInput?: (destination: 'profile' | 'budget' | 'debt' | 'accounts') => void
   onFinancialRestart?: () => void
   starterPrompts?: { label: string; message: string }[]
   emptyIntro?: string
@@ -60,6 +61,7 @@ export function ChatHistory({
   pendingPurchaseCount = 0,
   onOpenReview,
   onSetupHelp,
+  onOpenMoneyInput,
   onFinancialRestart,
   starterPrompts = [],
   emptyIntro,
@@ -108,6 +110,10 @@ export function ChatHistory({
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripAuthorPrefix={message.role === 'assistant' ? message.author : undefined} />}
                 {message.role === 'assistant' && message.setup_help?.available && onSetupHelp && <button type="button" className="secondary-button mia-message-restart" disabled={miaLoading} onClick={onSetupHelp}>Fix my setup</button>}
+                {message.role === 'assistant' && onOpenMoneyInput && message.setup_help?.money_inputs?.map(destination => {
+                  const label = { profile: 'Add income', budget: 'Add planned costs', debt: 'Add debt minimums', accounts: 'Add account balances' }[destination]
+                  return label && <button key={destination} type="button" className="text-button" onClick={() => onOpenMoneyInput(destination)}>{label}</button>
+                })}
                 {message.role === 'assistant' && message.financial_restart?.available && onFinancialRestart && <button type="button" className="secondary-button mia-message-restart" disabled={miaLoading} onClick={onFinancialRestart}>Review start over</button>}
                 {message.role === 'assistant' && (message.citations ?? []).length > 0 && (
                   <details className="mia-content-sources">
