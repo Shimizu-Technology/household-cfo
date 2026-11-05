@@ -48,8 +48,9 @@ module FinancialDocuments
         totals = CoverageQuestion.totals_check(revision)
         # "ready" is exactly what "Approve the rest" will save: each line's category (and how it was chosen) is shown to her and sent back.
         { total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), ready_event_ids: plan.ready_ids, totals_check: totals,
-          ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before } },
-          coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision) },
+          ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
+            merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
+          coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
           attention: plan.attention.map { |line| attention_row(line, names) } }
       end
@@ -96,7 +97,7 @@ module FinancialDocuments
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
         { event_id: event.id, kind: line.kind, event_type: event.event_type, question: question, answers: answers,
           merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
-          category_id: line.category_id, category_name: names[line.category_id] }
+          category_id: line.category_id, category_name: names[line.category_id], expected_head: line.expected_head }
       end
 
       # One name and last four for every sentence that names the account, so none of them shows a system label.

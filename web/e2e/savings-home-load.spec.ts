@@ -103,3 +103,33 @@ test('BOG UI walkthrough saved-day shortcut and short Statements label fit phone
   await expect(today.getByRole('region', { name: 'Saved purchases', exact: true })).toContainText('$12.50')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+test('BOG UI chat savings approval preserves its Saved notice and open entry panel when intake clears', async ({ page }) => {
+  await mockSavingsHome(page)
+  const actor = { user_id: 901, household_id: 1 }
+  const challenge = { ...savingsFixture(), cohort_id: 1 }
+  challenge.enrollment!.cohort_id = 1
+  const draft = { id: 71, savings_entry_id: 31, lock_version: 0, status: 'pending', signed_cents: 2500, effective_on: '2026-10-04', funding_source: 'new_money_reserved', base_version_id: null, base_entry_lock_version: 0, reason: '' }
+  let staged = false, approved = false
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: staged ? [] : [{ id: 90, kind: 'savings', status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 801, input: { kind: 'contribution', amount_cents: 2500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input' }, state: {} }], actor_scope: actor, cohort_id: 1, enrollment_id: 1 } }))
+  await page.route('http://api.test/api/v1/savings_challenge/entry_drafts**', async route => {
+    const request = route.request()
+    if (request.method() === 'POST') {
+      if (request.url().endsWith('/approve')) approved = true
+      else { expect(request.postDataJSON()).toMatchObject({ chat_card_id: 90 }); staged = true }
+      return route.fulfill({ json: { record: approved ? { ...draft, status: 'approved' } : draft, challenge: { ...challenge, pending_entry_count: approved ? 0 : 1 }, replayed: false } })
+    }
+    return route.fulfill({ json: { records: staged && !approved ? [draft] : [], next_cursor: null, actor_scope: actor, cohort_id: 1, enrollment_id: 1 } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Review savings', exact: true }).click()
+  const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
+  await expect(home.getByLabel('Amount in US dollars', { exact: true })).toHaveValue('25.00')
+  await home.getByLabel(/This was new money/).check()
+  await home.getByRole('button', { name: 'Review savings record', exact: true }).click()
+  await home.getByRole('button', { name: 'Confirm $25.00 set aside on Sun, Oct 4' }).click()
+  await expect(home).toContainText('Saved. Your total is up to date.')
+  await expect(home.getByLabel('Amount in US dollars', { exact: true })).toBeVisible()
+  await expect(home.getByLabel('Amount in US dollars', { exact: true })).toHaveValue('')
+  expect(approved).toBe(true)
+})

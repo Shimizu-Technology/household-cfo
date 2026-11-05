@@ -5,6 +5,7 @@ import { statementCents } from './participantSourceReview'
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
 export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep'
+export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
 export type PlanAttention = {
   event_id: number
   kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
@@ -16,9 +17,10 @@ export type PlanAttention = {
   signed_amount_cents: number | null
   category_id: number | null
   category_name: string | null
+  expected_head?: ExpectedLineHead
 }
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
-export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean }
+export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 export type StatementPlan = {
   total: number
@@ -26,7 +28,7 @@ export type StatementPlan = {
   without_category?: number
   ready_event_ids: number[]
   ready: PlanReady[]
-  coverage: { question: string | null; answer: CoverageAnswer | null }
+  coverage: { question: string | null; answer: CoverageAnswer | null; version_id?: number | null }
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
@@ -37,9 +39,9 @@ export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 're
 export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
-export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown }
+export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
 export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer }
+export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
 

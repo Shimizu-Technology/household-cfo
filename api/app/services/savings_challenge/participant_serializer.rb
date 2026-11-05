@@ -38,6 +38,7 @@ module SavingsChallenge
           .merge("proof_display" => evidence_display(record))
       when SavingsEntryDraft
         record.attributes.slice("id", "savings_entry_id", "base_version_id", "base_entry_lock_version", "approved_version_id", "signed_cents", "effective_on", "funding_source", "reason", "status", "lock_version")
+          .merge("replaced" => record.status == "approved" && record.approved_version_id != record.savings_entry.current_approved_version_id)
       when SavingsPlanVersion
         plan_context(record.attributes.slice("id", "previous_version_id", "version_number", "approval_sequence", "target_cents", "reason", "approved_at", "financial_baseline_version_id", "baseline_digest", "spending_changes"), record)
       when SavingsPlanDraft

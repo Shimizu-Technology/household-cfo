@@ -58,7 +58,9 @@ it('keeps pending review cards after the conversation in one group', () => {
   const queue = document.querySelector('.chat-review-queue')
   expect(queue?.textContent).toBe('Transactions to review')
   const rows = document.querySelectorAll('.chat-card > *')
-  expect(rows[rows.length - 1]).toBe(queue)
+  expect(rows[rows.length - 2]).toBe(queue)
+  expect(rows[rows.length - 1].className).toBe('chat-turn-spacer')
+  expect(queue?.previousElementSibling?.classList.contains('message-row')).toBe(true)
 })
 
 it('uses the same review wording and destination in a thread and keeps Latest independent', () => {

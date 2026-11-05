@@ -7,7 +7,7 @@ export type SavingsPlanVersion = SavingsPlanContext & { id: number; previous_ver
 export type SavingsPlanDraft = SavingsPlanContext & { id: number; base_plan_version_id: number | null; approved_plan_version_id: number | null; target_cents: number | null; reason: string; status: string; lock_version: number }
 export type SavingsEntryVersion = { id: number; savings_entry_id: number; previous_version_id: number | null; version_number: number; approval_sequence: number; signed_cents: number; effective_on: string; currency: 'USD'; funding_source: SavingsFundingSource; evidence_supported_cents: number; evidence_status: 'not_linked' | 'linked' | 'stale' | 'revoked'; evidence_version_id?: number | null; evidence_head_lock_version?: number; reason: string; approved_at: string }
 export type SavingsEntry = { id: number; current_approved_version_id: number | null; lock_version: number; current_approved_version: SavingsEntryVersion | null }
-export type SavingsEntryDraft = { id: number; savings_entry_id: number; base_version_id: number | null; base_entry_lock_version: number; approved_version_id: number | null; signed_cents: number; effective_on: string; funding_source: SavingsFundingSource; reason: string; status: string; lock_version: number }
+export type SavingsEntryDraft = { replaced?: boolean; id: number; savings_entry_id: number; base_version_id: number | null; base_entry_lock_version: number; approved_version_id: number | null; signed_cents: number; effective_on: string; funding_source: SavingsFundingSource; reason: string; status: string; lock_version: number }
 export type SavingsProjection = { calculation_version: number; cutoff_on: string; reporting_known: boolean; zero_attested: boolean; reported_cents: number | null; evidence_supported_cents: number | null; target_cents: number | null; achieved: boolean | null; progress_basis_points: number | null; contribution_cents: number | null; withdrawal_cents: number | null; included_entry_count: number; excluded_entry_count: number; pending_entry_count: number; included_version_ids: string[]; approval_sequence: number; accepted_plan_version_id: number | null; zero_attestation_id: number | null }
 export type SavingsCalendar = { local_today: string; time_zone: string; starts_on: string; ends_on: string; phase: 'upcoming' | 'active' | 'window_ended'; day: number | null; checkpoints: Record<'30' | '60' | '90', string> }
 export type SavingsOffer = { cohort_release_id: number; acceptance_digest: string; policy_version: string; time_zone: string; cohort_label: string; local_today: string; configured_starts_on: string | null; configured_ends_on: string | null; personal_starts_on: string | null; personal_ends_on: string | null; late_start_acceptance_required: boolean | null; accepting_enrollments: boolean }
@@ -17,7 +17,7 @@ export type SavingsPage<T> = { records: T[]; next_cursor: number | null; actor_s
 export type SavingsMutation<T> = { record: T; replayed: boolean; challenge: SavingsChallenge }
 export type SavingsPlanInput = Partial<SavingsPlanContextInput> & { target_cents: number | null; expected_plan_version_id: number | null; reason?: string }
 export type SavingsPlanApproval = { accepted: true; expected_draft_lock_version: number; expected_plan_version_id: number | null }
-export type SavingsEntryInput = { signed_cents: number; effective_on: string; funding_source: SavingsFundingSource; expected_version_id: number | null; entry_id?: number; expected_entry_lock_version?: number; reason?: string }
+export type SavingsEntryInput = { chat_card_id?: number; signed_cents: number; effective_on: string; funding_source: SavingsFundingSource; expected_version_id: number | null; entry_id?: number; expected_entry_lock_version?: number; reason?: string }
 export type SavingsEntryApproval = { accepted: true; expected_draft_lock_version: number; expected_version_id: number | null; expected_entry_lock_version: number }
 
 // Decimal strings become exact integer cents. No rounding, exponent notation,
@@ -71,7 +71,7 @@ export function savingsDefaultDate(calendar: SavingsCalendar | undefined): strin
   return calendar.local_today < calendar.starts_on ? calendar.starts_on : calendar.local_today > calendar.ends_on ? calendar.ends_on : calendar.local_today
 }
 
-export type SavingsIntake = { kind: 'purchase' | 'contribution' | 'withdrawal'; amount_cents: number; effective_on: string; merchant?: string; signed_cents?: number; approval_state: 'unreviewed_input'; counted: false; new_money_confirmation_required?: true }
+export type SavingsIntake = { staged_entry_id?: number; kind: 'purchase' | 'contribution' | 'withdrawal'; amount_cents: number; effective_on: string; merchant?: string; signed_cents?: number; approval_state: 'unreviewed_input'; counted: false; new_money_confirmation_required?: boolean; chat_card_id?: number; correction?: SavingsEntry; reason?: string }
 export function checkedSavingsIntake(value: SavingsIntake | DailyReportIntake | null | undefined): SavingsIntake | null {
   if(!value || value.kind==='daily_report')return null
   if(!['purchase','contribution','withdrawal'].includes(value.kind) || value.approval_state!=='unreviewed_input' || value.counted!==false || !Number.isSafeInteger(value.amount_cents) || value.amount_cents<1 || value.amount_cents>2147483647 || !/^\d{4}-\d{2}-\d{2}$/.test(value.effective_on))return null
