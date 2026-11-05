@@ -21,7 +21,10 @@ class SavingsEntryVersion < ApplicationRecord
 
   def private_values_valid
     errors.add(:signed_cents, "must be integer cents") unless signed_cents_before_type_cast.instance_of?(Integer)
-    errors.add(:evidence_supported_cents, "must remain server-set zero") unless evidence_supported_cents_before_type_cast.instance_of?(Integer) && evidence_supported_cents_before_type_cast.zero?
+    # The column default arrives uncast; anything assigned must be an exact integer zero.
+    server_default = !evidence_supported_cents_came_from_user? && evidence_supported_cents.zero?
+    assigned = evidence_supported_cents_before_type_cast
+    errors.add(:evidence_supported_cents, "must remain server-set zero") unless server_default || (assigned.instance_of?(Integer) && assigned.zero?)
     errors.add(:approved_by_user, "must be the participant") unless approved_by_user_id == savings_enrollment&.user_id
     errors.add(:savings_entry, "must belong to this enrollment") unless savings_entry&.savings_enrollment_id == savings_enrollment_id
     if previous_version
