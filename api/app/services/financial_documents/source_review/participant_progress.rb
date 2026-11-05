@@ -16,7 +16,7 @@ module FinancialDocuments
         done = versions.count
         without_category = versions.where(budget_category_id: nil, disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0").count
         { total: total, done: done, without_category: without_category,
-          coverage: { question: CoverageQuestion.text(@revision, deficiencies: CoverageQuestion.document_covered?(@revision) ? [] : [ "document_page_or_sheet_coverage_unverified" ]), answer: CoverageQuestion.answer(@revision) } }
+          coverage: { question: CoverageQuestion.text(@revision, deficiencies: CoverageQuestion.document_covered?(@revision) ? [] : [ "document_page_or_sheet_coverage_unverified" ]), answer: CoverageQuestion.answer(@revision), version_id: CoverageQuestion.latest(@revision)&.id } }
       end
     end
   end

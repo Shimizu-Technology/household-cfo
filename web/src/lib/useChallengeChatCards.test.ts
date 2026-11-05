@@ -59,3 +59,13 @@ it('offers recovery when server restoration fails instead of silently losing the
   await waitFor(() => expect(hook.result.current.reports).toHaveLength(1))
   expect(hook.result.current.readFailed).toBe(false)
 })
+
+it('restores set-aside and withdrawal review cards and removes closed cards on a later turn', async () => {
+  const savings: ChallengeChatCard = { ...card, kind: 'savings', input: { kind: 'contribution', amount_cents: 2500, signed_cents: 2500, effective_on: '2026-11-02', counted: false, approval_state: 'unreviewed_input' } }
+  vi.mocked(fetchChallengeChatCards).mockResolvedValueOnce(response([savings])).mockResolvedValueOnce(response([]))
+  const hook = renderHook(() => useChallengeChatCards(true, scope, actor, 3))
+  await waitFor(() => expect(hook.result.current.savings).toEqual([savings]))
+  act(() => hook.result.current.retry())
+  await waitFor(() => expect(hook.result.current.savings).toEqual([]))
+  expect(hook.result.current.reports).toEqual([])
+})

@@ -23,6 +23,47 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     suggest(@events.fetch("Payless"), @groceries)
   end
 
+  test "a narrow single category asks before Ross and Amazon can be approved together" do
+    @clothing.update!(active: false)
+    @groceries.update!(name: "Dining out")
+    source = build_source(rows: [ [ "Ross", -500, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, source[:revision])
+    assert_empty plan.ready_ids
+    assert_equal [ :suggested_category, :suggested_category ], plan.attention.map(&:kind)
+    assert_equal [ @groceries.id, @groceries.id ], plan.attention.map(&:category_id)
+    ids = plan.lines.map { |line| line.event.id }
+    assert_no_difference "HouseholdTransaction.count" do
+      approve_lines({ expect_ready_ids: ids, lines: as_read(ids, source: source) }, source: source)
+      assert_response :conflict
+    end
+    approve_lines({ lines: as_read([ ids.first ], source: source) }, source: source)
+    assert_response :success
+    assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
+  end
+
+  test "a stale coverage answer cannot replace a newer answer even after an intervening change back" do
+    approve_lines({ lines: @events.values.map { |event| { event_id: event.id, decision: "leave_out" } }, coverage_answer: "nothing_missing", expected_coverage_id: nil })
+    assert_response :success
+    old_id = SourceRevisionApproval.where(household: @household).order(:id).last.id
+    approve_lines({ lines: [], coverage_answer: "something_missing", expected_coverage_id: old_id })
+    assert_response :success
+    new_id = SourceRevisionApproval.where(household: @household).order(:id).last.id
+    [ old_id, nil ].each do |stale|
+      assert_no_difference "SourceRevisionApproval.count" do
+        approve_lines({ lines: [], coverage_answer: "nothing_missing", expected_coverage_id: stale })
+        assert_response :conflict
+      end
+    end
+    assert_equal "something_missing", review_plan.dig("coverage", "answer")
+    approve_lines({ lines: [], coverage_answer: "nothing_missing", expected_coverage_id: new_id })
+    assert_response :success
+    assert_equal "nothing_missing", review_plan.dig("coverage", "answer")
+    assert_no_difference "SourceRevisionApproval.count" do
+      approve_lines({ lines: [], coverage_answer: "something_missing", expected_coverage_id: old_id })
+      assert_response :conflict
+    end
+  end
+
   test "the plan sorts the statement into what looks right and the few lines that need an answer" do
     plan = review_plan
     assert_equal 5, plan.fetch("total")
@@ -54,22 +95,57 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "a household's single active stack category is suggested and waits for confirmation" do
+  test "a household's suggested category is shown for approval together with the other lines" do
     @clothing.update!(active: false)
     @groceries.update!(name: "Flexible spending")
     plan = review_plan
-    ross = plan.fetch("attention").find { |row| row["merchant"] == "Ross" }
-    assert_equal "suggested_category", ross.fetch("kind")
-    assert_equal "Was this Flexible spending?", ross.fetch("question")
+    ross = plan.fetch("ready").find { |row| row["merchant"] == "Ross" }
+    assert_equal "Flexible spending", ross.fetch("category_name")
     assert_equal @groceries.id, ross.fetch("category_id")
-    assert_equal %w[Yes Change], ross.fetch("answers").pluck("label")
-    assert_not_includes plan.fetch("ready_event_ids"), ross.fetch("event_id")
+    assert_includes plan.fetch("ready_event_ids"), ross.fetch("event_id")
     assert_empty @household.household_transactions
 
     approve_lines({ lines: [ { event_id: ross.fetch("event_id"), decision: "as_read", shown: ross.slice("event_type", "category_id") } ] })
     assert_response :success, response.body
     assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
     assert_equal 500, @household.household_transactions.sole.total_amount_cents
+  end
+
+  [ false, true ].each do |linked|
+    test "an account changed in another window rejects an open line edit with linked #{linked}" do
+      account = @source[:revision].financial_source_accounts.sole
+      if linked
+        approve_lines({ accounts: [ { source_account_id: account.id, label: "Original bank", account_basis: "asset" } ], lines: [] })
+        assert_response :success
+      end
+      old = review_plan.fetch("ready").find { |line| line["merchant"] == "Payless" }
+      approve_lines({ accounts: [ { source_account_id: account.id, label: "Different bank", account_basis: "asset" } ], lines: [] })
+      assert_response :success
+      assert_no_difference [ "SourceReviewVersion.count", "SourceReviewDraft.count", "HouseholdTransaction.count" ] do
+        approve_lines({ lines: [ { event_id: old.fetch("event_id"), expected_head: old.fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] })
+      end
+      assert_response :conflict
+      assert_includes response.parsed_body.fetch("errors").join, "another window"
+    end
+  end
+
+  test "an old phone edit cannot overwrite a desktop answer to the same statement line" do
+    old = review_plan.fetch("ready").find { |line| line["merchant"] == "Payless" }
+    first = { event_id: old.fetch("event_id"), expected_head: old.fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
+    approve_lines({ lines: [ first ] })
+    assert_response :success
+    approved = SourceReviewHead.find_by!(financial_source_event_id: old.fetch("event_id")).approved_version
+    assert_equal @clothing.id, approved.budget_category_id
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ lines: [ first.merge(edit: { kind: "spending", category_id: @groceries.id }) ] })
+      assert_response :conflict
+    end
+    assert_includes response.parsed_body.fetch("errors").join, "another window"
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ lines: [ first.except(:expected_head).merge(edit: { kind: "spending", category_id: @groceries.id }) ] })
+      assert_response :conflict
+    end
+    assert_equal @clothing.id, approved.source_review_head.reload.approved_version.budget_category_id
   end
 
   test "approving the rest links the account, saves exactly those lines and counts only categorized spending" do
@@ -442,7 +518,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     later = build_source(rows: [ [ "Zippy's", -700, "purchase", 3 ], [ "Payroll", 20_000, "income", 4 ] ])
     plan = plan_for(later)
     zippys = plan.fetch("ready").find { |row| row["event_id"] == later[:revision].financial_source_events.order(:position).first.id }
-    assert_equal({ "category_id" => dining.id, "category_name" => "Dining out", "as_before" => true, "event_type" => "purchase" }, zippys.except("event_id"))
+    assert_equal({ "category_id" => dining.id, "category_name" => "Dining out", "as_before" => true, "event_type" => "purchase" }, zippys.slice("category_id", "category_name", "as_before", "event_type"))
     payroll = plan.fetch("ready").find { |row| row["event_type"] == "income" }
     assert_equal({ "category_id" => nil, "category_name" => nil, "as_before" => false }, payroll.slice("category_id", "category_name", "as_before"))
     ids = plan.fetch("ready_event_ids")
@@ -865,12 +941,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     with_budgetless_challenge do
       @source = build_source(rows: [ [ "Ross", -12000, "purchase", 1 ], [ "Kmart", -9000, "purchase", 2 ], [ "GPA power", -18000, "purchase", 3 ], [ "Mystery shop", -500, "purchase", 4 ] ])
       plan = review_plan
-      rows = plan.fetch("attention").index_by { |row| row.fetch("merchant") }
+      rows = (plan.fetch("ready") + plan.fetch("attention")).index_by { |row| row.fetch("merchant") }
       assert_equal "Everyday spending", rows.fetch("Ross").fetch("category_name")
       assert_equal "Everyday spending", rows.fetch("Kmart").fetch("category_name")
       assert_equal "Bills & essentials", rows.fetch("GPA power").fetch("category_name")
       assert_nil rows.fetch("Mystery shop").fetch("category_id")
-      assert_empty plan.fetch("ready")
+      assert_equal 3, plan.fetch("ready").length
       assert_empty @household.household_transactions
       assert_nil SourceReviewHead.find_by(financial_source_event_id: rows.fetch("Ross").fetch("event_id"))
       %w[Ross Kmart].each do |name|
@@ -886,15 +962,13 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "challenge bill and everyday hints are defaults and preserve earlier approved choices" do
     with_budgetless_challenge do
-      bills = [ "Rent", "GPA power", "GWA water", "GTA internet", "Docomo phone" ]
-      everyday = [ "Ross", "Kmart", "Jamba", "McDonald's", "Port of Mocha", "Amazon" ]
+      bills = [ "Rent", "GPA power", "GWA water", "GTA internet", "Docomo phone", "Payless Supermarkets", "Cost-U-Less", "Shell", "Mobil", "Monthly service fee" ]
+      everyday = [ "Ross", "Kmart", "Jamba", "McDonald's", "Port of Mocha", "Amazon", "Netflix monthly subscription", "Restaurant (includes tip)" ]
       @source = build_source(rows: (bills + everyday).each_with_index.map { |name, i| [ name, -1000 - i, "purchase", i + 1 ] })
-      rows = review_plan.fetch("attention")
+      rows = review_plan.fetch("ready")
       assert_equal bills + everyday, rows.pluck("merchant")
       rows.each do |row|
-        assert_equal "suggested_category", row.fetch("kind")
         assert_equal(bills.include?(row.fetch("merchant")) ? "Bills & essentials" : "Everyday spending", row.fetch("category_name"))
-        assert_equal %w[Yes Change], row.fetch("answers").pluck("label")
       end
       assert_empty @household.household_transactions
       ross = rows.find { |row| row["merchant"] == "Ross" }
@@ -911,7 +985,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   test "one tap confirmation of a statement refund nets the merchant in patterns" do
     with_budgetless_challenge do
       @source = build_source(rows: [ [ "Ross", -5525, "purchase", 1 ], [ "Kmart", -3175, "purchase", 2 ], [ "Amazon Marketplace", -3899, "purchase", 3 ], [ "Amazon refund order DEMO-8001", 1299, "refund", 4 ] ])
-      rows = review_plan.fetch("attention").index_by { |row| row.fetch("merchant") }
+      rows = (review_plan.fetch("ready") + review_plan.fetch("attention")).index_by { |row| row.fetch("merchant") }
       [ "Ross", "Kmart", "Amazon Marketplace" ].each do |name|
         row = rows.fetch(name)
         approve_lines({ lines: [ { event_id: row.fetch("event_id"), decision: "as_read", shown: row.slice("event_type", "category_id") } ] })
@@ -937,7 +1011,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       assert_empty @household.household_transactions
       review_plan
       category = @household.budget_categories.find_by!(name: "Everyday spending")
-      approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
+      head = SourceReviewHead.find_by!(financial_source_event_id: event.id)
+      approve_lines({ lines: [ { event_id: event.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: SourceAccountReviewHead.find_by!(financial_source_account_id: event.financial_source_account_id).approved_version_id }, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
       assert_response :success, response.body
       assert_equal 12000, @household.household_transactions.sole.total_amount_cents
       assert_equal [ "Ross" ], SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call.fetch(:discretionary_merchants).pluck(:label)
@@ -973,6 +1048,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
 
   def approve_lines(input, key: SecureRandom.uuid, source: @source)
+    if input[:coverage_answer] && !input.key?(:expected_coverage_id)
+      input = input.merge(expected_coverage_id: FinancialDocuments::SourceReview::CoverageQuestion.latest(source[:revision])&.id)
+    end
     post "/api/v1/document_imports/#{source[:import].id}/review/approve_lines", params: { revision_id: source[:revision].id, input: input }, headers: headers.merge("Idempotency-Key" => key), as: :json
   end
 

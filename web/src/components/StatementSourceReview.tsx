@@ -28,6 +28,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const [savingLines, setSavingLines] = useState(0)
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
+  const coverageVersion = useRef<number | null>(null)
   // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
   const [coverageFailed, setCoverageFailed] = useState(false)
   const [unsavedAnswer, setUnsavedAnswer] = useState<{ input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' } | null>(null)
@@ -41,6 +42,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const viewKey = `${importId}:${revisionId}:${page}`
   const requestKey = `${viewKey}:${attempt}:${refreshKey}`
   const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => { setUnsavedAnswer(null); setAttempt((value) => value + 1) } })
+  const clearMutationError = mutation.clearError
   const scoped = result?.data?.participant_review
   const actorReady = !scoped || Boolean(scoped.actor_scope && isStatementReviewActor(scoped.actor_scope))
   // The summary and the questions belong to the whole statement, so they stay on screen while another page of lines loads
@@ -56,12 +58,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
       validateSourceReview(payload, importId, revisionId, page, 'all')
       const review = payload.participant_review
       if (!review?.plan || !review.actor_scope || !Number.isSafeInteger(review.actor_scope.user_id) || !Number.isSafeInteger(review.actor_scope.household_id)) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) setResult({ key: requestKey, data: payload })
+      if (live) { setResult({ key: requestKey, data: payload }); clearMutationError(); if ((review.plan.coverage.version_id ?? null) !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) } }
     }).catch((failure: unknown) => {
       if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
     })
     return () => { live = false; controller.abort() }
-  }, [importId, revisionId, page, requestKey, viewKey])
+  }, [importId, revisionId, page, requestKey, viewKey, clearMutationError])
 
   // After an answer is saved the row disappears; keyboard focus moves to the next question, or back to the summary.
   useEffect(() => {
@@ -102,7 +104,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
     focusAfter.current = focusIndex
-    const saved = await mutation.mutate('approve_lines', coverageAnswer && !input.coverage_answer ? { ...input, coverage_answer: coverageAnswer } : input)
+    const answer = input.coverage_answer ?? coverageAnswer
+    const saved = await mutation.mutate('approve_lines', answer ? { ...input, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : input)
     if (!saved) focusAfter.current = undefined
     return saved
   }
@@ -114,11 +117,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     setSavingLines(page.length)
     void save({
       expect_ready_ids: page.map((line) => line.event_id), ...(plan.ready.length > APPROVE_PAGE ? { paged: true } : {}),
-      lines: page.map((line): LineDecision => ({ event_id: line.event_id, decision: 'as_read', shown: { event_type: line.event_type, category_id: line.category_id } })),
+      lines: page.map((line): LineDecision => ({ event_id: line.event_id, decision: 'as_read', shown: { event_type: line.event_type, category_id: line.category_id }, expected_head: line.expected_head })),
     }).finally(() => setSavingLines(0))
   }
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
+    coverageVersion.current = plan?.coverage.version_id ?? null
     setCoverageAnswer(value)
     setCoverageFailed(false)
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
@@ -139,9 +143,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
           // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
           : { event_id: item.event_id, decision: id, shown: { event_type: item.event_type, category_id: item.category_id } }
     const pending = { input: { lines: [entry] }, index, eventId: item.event_id, choice: id, categoryId }
+    entry.expected_head = item.expected_head
     void save(pending.input, index).then((saved) => setUnsavedAnswer(saved ? null : pending))
   }
   async function saveSheet(entry: LineDecision) {
+    if (sheet?.kind === 'line') entry.expected_head = sheet.line.expectedHead
     if (await save({ lines: [entry] })) setSheet(null)
   }
   async function saveAccounts(changes: AccountChange[]) {
@@ -150,7 +156,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   const money = (cents: number | null) => (cents == null ? 'Unknown' : sourceMoney(Math.abs(cents)))
   function sheetFromAttention(item: PlanAttention): SheetLine {
-    return { eventId: item.event_id, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? null : Math.abs(item.signed_amount_cents),
+    return { eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? null : Math.abs(item.signed_amount_cents),
       kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
   }
   function sheetFromEvent(event: SourceEvent): SheetLine {
@@ -161,11 +167,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return sheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { eventId: event.id, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
-    return { eventId: event.id, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+    return { eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }
@@ -182,7 +188,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         </div>
         <details><summary>Details for support</summary><p>Reference: {mutation.pendingRequest.key}</p></details>
       </div>}
-      {mutation.error && !sheet && !mutation.pendingRequest && <p className="statement-notice" role="alert">{mutation.error}</p>}
+      {mutation.error && !sheet && !mutation.pendingRequest && <div className="statement-notice" role="alert"><p>{mutation.error}</p><Button variant="secondary" disabled={busy} onClick={() => { setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null; setAttempt(value => value + 1) }}>Refresh statement</Button></div>}
       {error && <div className="statement-notice" role="alert"><p>{error}</p><div className="statement-answers">
         <Button variant="secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</Button>
         {page > 1 && <Button variant="secondary" onClick={() => setPage(1)}>Back to the first lines</Button>}
@@ -214,7 +220,15 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
             </div>
           </div>}
           {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
-          {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={approveRest}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
+          {needBasis.length === 0 && counts.action && <>
+            <ul className="statement-ready" aria-label="Lines to approve together">
+              {plan.ready.slice(0, APPROVE_PAGE).map(line => <li key={line.event_id}>
+                <span>{line.merchant || 'Statement line'}</span>
+                <span>{line.signed_amount_cents == null ? '' : sourceMoney(line.signed_amount_cents, true)} · {line.informational ? 'Information only' : readyCategoryLabel(line) || LINE_KIND_OPTIONS.find(option => option.value === lineKindFor(line.event_type, line.signed_amount_cents ?? null))?.label}</span>
+              </li>)}
+            </ul>
+            <Button disabled={busy} onClick={approveRest}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>
+          </>}
           {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!askCoverage || recorded) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
 

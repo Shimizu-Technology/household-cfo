@@ -20,6 +20,63 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('refreshes a coverage conflict to the newer answer and clears the old mutation error', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }
+    fetchReview.mockResolvedValue(data)
+    mutate.mockRejectedValueOnce(new ApiRequestError('Coverage changed in another window.', { status: 409 }))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Nothing’s missing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    const refresh = await screen.findByRole('button', { name: 'Refresh statement' })
+    const newer = structuredClone(data)
+    newer.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: 'something_missing', version_id: 910 }
+    fetchReview.mockResolvedValue(newer)
+    fireEvent.click(refresh)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByText('Coverage changed in another window.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh statement' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).not.toHaveProperty('coverage_answer')
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(3))
+    expect(mutate.mock.calls[2][3]).toMatchObject({ coverage_answer: 'nothing_missing', expected_coverage_id: 910 })
+  })
+
+  it('carries the observed account and line heads into an already reviewed line edit', async () => {
+    const data = participantReviewFixture()
+    const event = data.events[1]
+    data.participant_review!.plan.ready = []
+    data.participant_review!.plan.attention = []
+    data.participant_review!.rows[event.id].head = { id: 900, approved_version_id: 800, lock_version: 2 }
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('heading', { level: 5 })
+    fireEvent.click(screen.getByText('See all 137 lines'))
+    fireEvent.click(await screen.findByRole('button', { name: `Fictional entry ${event.id - 4000 + 1}` }))
+    const sheet = await screen.findByRole('dialog')
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: { approved_version_id: 800, lock_version: 2, account_version_id: 100 } }] })
+    expect((mutate.mock.calls[0][3] as { lines: { expected_head: object }[] }).lines[0].expected_head).not.toHaveProperty('id')
+  })
+  it('shows every default category beside its merchant before bulk approval, sending the seen head', async () => {
+    const data = participantReviewFixture()
+    const head = { approved_version_id: null, lock_version: 0 }
+    data.participant_review!.plan.ready = [{ event_id: 4001, event_type: 'purchase', category_id: 70, category_name: 'Bills & essentials', as_before: false, merchant: 'GPA power', signed_amount_cents: -18000, posted_on: '2026-09-05', expected_head: head }]
+    fetchReview.mockResolvedValue(data)
+    mount()
+    const list = await screen.findByRole('list', { name: 'Lines to approve together' })
+    expect(within(list).getByText('GPA power')).toBeTruthy()
+    expect(within(list).getByText(/Bills & essentials/)).toBeTruthy()
+    expect(mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve the other one' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4001, expected_head: head, shown: { event_type: 'purchase', category_id: 70 } }] })
+  })
   it('lets a budgetless participant choose an everyday category in one tap and refreshes the upload badge', async () => {
     const data = participantReviewFixture()
     data.participant_review!.categories = [{ id: 70, name: 'Bills & essentials' }, { id: 71, name: 'Everyday spending' }]
@@ -332,7 +389,7 @@ describe('statement review a participant can finish', () => {
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
-    expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing' })
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: null })
     // The server has not said it recorded the answer yet, so nothing moves on.
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
   })
@@ -351,7 +408,7 @@ describe('statement review a participant can finish', () => {
     fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...plan, coverage: { ...plan.coverage, answer: 'something_missing' } } } })
     fireEvent.click(within(screen.getByText('We couldn’t save your answer yet. Please try again.').closest('div')!).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
-    expect(mutate.mock.calls[1][3]).toEqual({ lines: [], coverage_answer: 'something_missing' })
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [], coverage_answer: 'something_missing', expected_coverage_id: null })
     expect(await screen.findByRole('button', { name: 'See what Mia notices' })).toBeTruthy()
     expect(screen.queryByText('We couldn’t save your answer yet. Please try again.')).toBeNull()
   })

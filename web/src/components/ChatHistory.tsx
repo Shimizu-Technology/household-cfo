@@ -145,8 +145,8 @@ export function ChatHistory({
             </div>
           </div>
         )}
-        {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
         {shownReviewContent && <div className="chat-review-queue">{shownReviewContent}</div>}
+        {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
       </article>
       {totalMessageCount > 0 && ((reviewCount > 0 && onOpenReview) || showScrollButton) && (
         <div className="chat-history-navigation">

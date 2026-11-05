@@ -1,5 +1,5 @@
 import { requestStorageError } from './durableRequestIdentity'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiRequestError, fetchStatementReviewRequestStatus, mutateStatementReview } from '../api'
 import type { SourceReviewAction, StatementReviewActorScope } from './participantSourceReview'
 import { bindStatementReviewActor, clearStatementReviewRecovery, isStatementReviewActor, readStatementReviewRecovery, saveStatementReviewRecovery, subscribeStatementReviewRecovery } from './statementReviewRecovery'
@@ -62,7 +62,8 @@ export function useStatementReviewMutation({ importId, revisionId, scope, refres
       else saveStatementReviewRecovery({ ...recovery, working: false, error: participantErrorMessage(failure, 'Could not check the earlier request.') })
     }
   }
-  return { accessDenied, busy: Boolean(recovery), error: recovery?.error ?? error, pendingRequest: recovery,
+  const clearError = useCallback(() => setError(null), [])
+  return { clearError, accessDenied, busy: Boolean(recovery), error: recovery?.error ?? error, pendingRequest: recovery,
     mutate: ((action, input) => perform(action, input)) as Mutation,
     checkStatus: recovery ? checkStatus : null,
     retry: recovery?.input && !recovery.working ? () => perform(recovery.action, recovery.input!, recovery.key, recovery.importId, recovery.revisionId) : null }

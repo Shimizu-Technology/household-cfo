@@ -1,7 +1,7 @@
 import type { SavingsChallenge, SavingsMutation } from './savingsChallenge'
 export type HomeSavingsAction = 'enrollment' | 'entry_stage' | 'entry_approve' | 'zero_attest'
 export type HomeSavingsScope = { user_id: number; household_id: number; cohort_id: number }
-export type HomeSavingsIdentity = { scope: HomeSavingsScope; action: HomeSavingsAction; key: string; enrollmentId: number | null; draftId?: number; entryId?: number }
+export type HomeSavingsIdentity = { scope: HomeSavingsScope; action: HomeSavingsAction; key: string; enrollmentId: number | null; draftId?: number; entryId?: number; chatCardId?: number }
 export type HomeSavingsStatus = ({ state: 'committed'; record: unknown; replayed: true; challenge: SavingsChallenge } | { state: 'unknown'; can_retry: true } | { state: 'in_flight' }) & { actor_scope: { user_id: number; household_id: number }; cohort_id: number }
 export const homeSavingsStorage = 'savings-home-request-identities-v1'
 const validId = (id: unknown): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0
@@ -10,8 +10,8 @@ function records(): Record<string, unknown> { const saved: unknown = JSON.parse(
 function clean(value: unknown): HomeSavingsIdentity | null {
   if (!value || typeof value !== 'object') return null
   const saved = value as HomeSavingsIdentity
-  if (!saved.scope || ![saved.scope.user_id, saved.scope.household_id, saved.scope.cohort_id].every(validId) || !['enrollment', 'entry_stage', 'entry_approve', 'zero_attest'].includes(saved.action) || typeof saved.key !== 'string' || !saved.key.trim() || saved.key.length > 200 || !(saved.enrollmentId === null || validId(saved.enrollmentId)) || (saved.action !== 'enrollment' && saved.enrollmentId === null) || (saved.action === 'entry_approve' && !validId(saved.draftId)) || (saved.entryId !== undefined && !validId(saved.entryId))) return null
-  return { scope: {user_id:saved.scope.user_id,household_id:saved.scope.household_id,cohort_id:saved.scope.cohort_id}, action: saved.action, key: saved.key, enrollmentId: saved.enrollmentId, ...(saved.action === 'entry_approve' ? { draftId: saved.draftId } : {}), ...(saved.action === 'entry_stage' && saved.entryId !== undefined ? { entryId: saved.entryId } : {}) }
+  if (!saved.scope || ![saved.scope.user_id, saved.scope.household_id, saved.scope.cohort_id].every(validId) || !['enrollment', 'entry_stage', 'entry_approve', 'zero_attest'].includes(saved.action) || typeof saved.key !== 'string' || !saved.key.trim() || saved.key.length > 200 || !(saved.enrollmentId === null || validId(saved.enrollmentId)) || (saved.action !== 'enrollment' && saved.enrollmentId === null) || (saved.action === 'entry_approve' && !validId(saved.draftId)) || (saved.entryId !== undefined && !validId(saved.entryId)) || (saved.chatCardId !== undefined && !validId(saved.chatCardId))) return null
+  return { ...(saved.action === 'entry_stage' && saved.chatCardId !== undefined ? { chatCardId: saved.chatCardId } : {}), scope: {user_id:saved.scope.user_id,household_id:saved.scope.household_id,cohort_id:saved.scope.cohort_id}, action: saved.action, key: saved.key, enrollmentId: saved.enrollmentId, ...(saved.action === 'entry_approve' ? { draftId: saved.draftId } : {}), ...(saved.action === 'entry_stage' && saved.entryId !== undefined ? { entryId: saved.entryId } : {}) }
 }
 export function readHomeSavingsIdentity(scope: HomeSavingsScope): HomeSavingsIdentity | null { try { const saved = clean(records()[homeScopeKey(scope)]); return saved && homeScopeKey(saved.scope) === homeScopeKey(scope) ? saved : null } catch { return null } }
 export function saveHomeSavingsIdentity(request: HomeSavingsIdentity): boolean { try { const saved = clean(request); if (!saved) return false; sessionStorage.setItem(homeSavingsStorage, JSON.stringify({ ...records(), [homeScopeKey(request.scope)]: saved })); return true } catch { return false } }
@@ -21,4 +21,4 @@ export function homeChallengeMatches(challenge: SavingsChallenge, request: HomeS
   return cohort === request.scope.cohort_id && (request.action === 'enrollment' || challenge.enrollment?.id === request.enrollmentId)
 }
 export function homeStatusMatches(result: HomeSavingsStatus, request: HomeSavingsIdentity) { return result.actor_scope?.user_id === request.scope.user_id && result.actor_scope?.household_id === request.scope.household_id && result.cohort_id === request.scope.cohort_id && (result.state !== 'committed' || homeChallengeMatches(result.challenge, request)) }
-export type HomeSavingsAttempt = { action: HomeSavingsAction; enrollmentId: number | null; draftId?: number; entryId?: number; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }
+export type HomeSavingsAttempt = { action: HomeSavingsAction; enrollmentId: number | null; draftId?: number; entryId?: number; chatCardId?: number; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }

@@ -4,7 +4,7 @@ import { clearHomeSavingsIdentity, homeChallengeMatches, homeScopeKey, homeStatu
 import type { SavingsMutation } from './savingsChallenge'
 import { participantErrorMessage } from './participantErrorMessage'
 type Pending = HomeSavingsIdentity & { attempt?: HomeSavingsAttempt; working: boolean; unknown?: boolean; fresh?: boolean; recovery?: boolean; error?: string }
-export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDone: (result: SavingsMutation<unknown>, action: HomeSavingsAction) => void, onDenied: () => void, blocked: () => boolean, onConflict?: (message: string) => void) {
+export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDone: (result: SavingsMutation<unknown>, action: HomeSavingsAction, request: HomeSavingsIdentity) => void, onDenied: () => void, blocked: () => boolean, onConflict?: (message: string) => void) {
   const [pending, setPending] = useState<Pending | null>(null)
   const [error, setError] = useState<string | null>(null)
   const current = useRef<Pending | null>(null), active = useRef<string | null>(null), generation = useRef(0), controllers = useRef(new Set<AbortController>())
@@ -33,7 +33,7 @@ export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDo
         if (!homeStatusMatches(status, request)) throw new ApiRequestError('The private challenge scope changed. Reopen Home for the current participant.', { status: 403 })
         if (status.state !== 'committed') { save({ ...request, working: false, fresh: false, unknown: status.state === 'unknown', error: status.state === 'in_flight' ? 'The earlier request is still processing. Check again before making changes.' : request.attempt ? 'No committed result found. Retry the exact request with its original key.' : 'No committed result found. Re-review this same action with its original request key.' }); return }
       } else if (!homeChallengeMatches((result as SavingsMutation<unknown>).challenge, request)) throw new ApiRequestError('The private challenge scope changed. Reopen Home for the current participant.', { status: 403 })
-      clearHomeSavingsIdentity(request); save(null); callbacks.current.onDone(result as SavingsMutation<unknown>, request.action); request.attempt?.done?.()
+      clearHomeSavingsIdentity(request); save(null); callbacks.current.onDone(result as SavingsMutation<unknown>, request.action, request); request.attempt?.done?.()
     } catch (failure) {
       if (active.current !== key || epoch !== generation.current) return
       const message = participantErrorMessage(failure, 'This savings request is unavailable.')
@@ -45,8 +45,8 @@ export function useHomeSavingsMutation(scope: HomeSavingsScope | undefined, onDo
   return { pending, error, isPending: () => Boolean(current.current), submit: (attempt: HomeSavingsAttempt) => {
     if (!scope) return Promise.resolve()
     const old = current.current
-    if (old) { if (!old.fresh || old.action !== attempt.action || old.draftId !== attempt.draftId || old.entryId !== attempt.entryId || old.enrollmentId !== attempt.enrollmentId) return Promise.resolve(); return run({ ...old, attempt, working: false, fresh: false, recovery: true }) }
-    return run({ scope, action: attempt.action, key: crypto.randomUUID(), enrollmentId: attempt.enrollmentId, draftId: attempt.draftId, entryId: attempt.entryId, attempt, working: false })
+    if (old) { if (!old.fresh || old.action !== attempt.action || old.draftId !== attempt.draftId || old.entryId !== attempt.entryId || old.chatCardId !== attempt.chatCardId || old.enrollmentId !== attempt.enrollmentId) return Promise.resolve(); return run({ ...old, attempt, working: false, fresh: false, recovery: true }) }
+    return run({ scope, action: attempt.action, key: crypto.randomUUID(), enrollmentId: attempt.enrollmentId, draftId: attempt.draftId, entryId: attempt.entryId, chatCardId: attempt.chatCardId, attempt, working: false })
   }, check: pending && !pending.working ? () => run(pending, true) : null, retry: pending?.attempt && !pending.working ? () => run(pending) : null,
   reviewFresh: pending?.unknown && !pending.attempt && !pending.working ? () => save({ ...pending, fresh: true, unknown: false, error: 'Only this same action is available for fresh review. The original request key is retained.' }) : null }
 }

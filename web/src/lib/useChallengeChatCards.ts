@@ -4,7 +4,7 @@ import type { BaselineScope } from './financialBaseline'
 import type { ChallengeChatCard } from './challengeChatCards'
 import { clearDailyCards, forgetDailyCard, reconcileServerDailyCards, registerServerDailyCard, type DailyCardEntry } from './dailyCheckIn'
 
-export function useChallengeChatCards(enabled: boolean, scope: string, actor: BaselineScope | undefined, cohortId: number | undefined) {
+export function useChallengeChatCards(enabled: boolean, scope: string, actor: BaselineScope | undefined, cohortId: number | undefined, refreshKey?: string) {
   const [loaded, setLoaded] = useState<{ scope: string; cards: ChallengeChatCard[]; reports: DailyCardEntry[] } | null>(null)
   const [readError, setReadError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
@@ -40,7 +40,7 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
       })
     }).catch(() => { if (!controller.signal.aborted && startClear === cleared.current) setReadError(scope) })
     return () => controller.abort()
-  }, [enabled, scope, actor, cohortId, attempt])
+  }, [enabled, scope, actor, cohortId, attempt, refreshKey])
   const remove = useCallback((id: number) => {
     changed.current.set(id, ++revision.current)
     forgetDailyCard(`server-card-${id}`)
@@ -52,5 +52,5 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
     clearDailyCards(scope)
     setLoaded({ scope, cards: [], reports: [] })
   }, [scope])
-  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
+  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], savings: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'savings' && card.status === 'pending') : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
 }

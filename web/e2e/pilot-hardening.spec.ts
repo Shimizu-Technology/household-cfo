@@ -9374,7 +9374,7 @@ test('BOG UI removing an original file or deleting an upload asks first and send
   await expect.poll(() => deletes).toEqual(['/api/v1/document_imports/1201/source', '/api/v1/document_imports/1201'])
 })
 
-async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string, selectionRegression = false) {
+async function openTypedStatementReview(page: Page, failSecondPage = false, participant?: (data: SourceReview) => SourceReview, coachName?: string, selectionRegression = false, refreshRegression = false) {
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-137-row-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: selectionRegression ? null : '2026-09-01', period_end_on: selectionRegression ? null : '2026-09-30', extracted_summary: 'Fictional statement with 137 represented rows.', extraction_error: null,
@@ -9389,6 +9389,17 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
   })
   await page.route('http://api.test/api/v1/workspace', (route) => {
     const workspace = realWorkspaceData(true)
+    if (refreshRegression) {
+      workspace.budget.annual_plan!.pending_mia_action_drafts = []
+      if (finished) {
+        workspace.budget.annual_plan!.pending_transaction_drafts = []
+        workspace.budget.annual_plan!.pending_transaction_drafts_meta = { total_count: 0, returned_count: 0, limit: 500, truncated: false }
+        workspace.dashboard.action_center.transaction_review_count = 0
+        workspace.dashboard.action_center.mia_action_review_count = 0
+        workspace.dashboard.action_center.total_review_count = 0
+        workspace.dashboard.month_answer.pending_count = 0
+      }
+    }
     if (coachName) workspace.profile.coach.name = coachName
     return route.fulfill({ json: workspace })
   })
@@ -9417,6 +9428,16 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
   }
   return page.getByRole('region', { name: 'Statement review', exact: true })
 }
+
+test('BOG UI completing a statement refreshes Home purchase counts without a page reload', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, undefined, undefined, true, true)
+  await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()
+  await expect(review).toContainText('All 137 lines are saved.')
+  await openSection(page, 'Home')
+  await expect(page.getByRole('button', { name: /Review \d+ purchases/ })).toHaveCount(0)
+  await openSection(page, 'Review')
+  await expect(page.getByText('All caught up', { exact: false })).toBeVisible()
+})
 
 test('BOG UI typed statement opens with one summary, the lines that need an answer, and every line in pages', async ({ page }) => {
   const review = await openTypedStatementReview(page)
@@ -9806,7 +9827,7 @@ test('BOG UI savings Home preserves approved totals through proposals correction
   await home.getByRole('button', { name: 'Fix the $25.50 set aside on Sun, Oct 4' }).click()
   await openSetAside(page)
   await home.getByLabel('Amount in US dollars').fill('10.00')
-  await home.getByLabel('Reason for correction').fill('Fictional amount correction')
+  await home.getByLabel('Reason for correction (required)').fill('Fictional amount correction')
   await home.getByRole('button', { name: 'Review savings record' }).click()
   await expect(progress.locator('.savings-total')).toHaveText('$25.50')
   expect(calls.at(-1)!.input).toMatchObject({ entry_id: 41, expected_version_id: 51, expected_entry_lock_version: 1, signed_cents: 1000 })
@@ -10530,6 +10551,19 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await expect(page.getByText(/call or text 988/)).toBeVisible();await expect(prompt).toHaveCount(0);await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toHaveCount(0)
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
+})
+test('BOG UI daily Mia waits for the current question before offering today', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(prompt).toBeVisible()
+  const reply = (content: string, id: number) => ({
+    user_message: { id, role: 'user', author: 'You', content: 'What spending patterns do you see?' },
+    assistant_message: { id: id + 1, role: 'assistant', author: 'Mia', content },
+  })
+  await sendMiaDailyReport(page, reply('Would you rather cut back at Ross or Kmart?', 8201))
+  await expect(prompt).toHaveCount(0)
+  await sendMiaDailyReport(page, reply('Your saved total is $20.00.', 8203))
+  await expect(prompt).toBeVisible()
 })
 test('BOG UI daily Mia asks how today went until today is checked in',async({page},testInfo)=>{
   const{calls}=await openDaily(page,{active:true})
