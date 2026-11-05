@@ -1,6 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const port = Number(process.env.PLAYWRIGHT_PORT ?? 4173)
+// CI tests real Chrome. Local runs use Playwright's full bundled Chromium: real Chrome starts more
+// slowly and each launch costs macOS's ctkd smart-card service about a second of CPU.
+const chromeChannel = process.env.CI ? 'chrome' : 'chromium'
 
 export default defineConfig({
   testDir: './e2e',
@@ -17,12 +20,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
+    { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'], channel: chromeChannel } },
     {
       name: 'tablet-768-chrome',
       grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
       use: {
-        channel: 'chrome',
+        channel: chromeChannel,
         viewport: { width: 768, height: 1024 },
         deviceScaleFactor: 2,
         hasTouch: true,
@@ -32,7 +35,7 @@ export default defineConfig({
       name: 'tablet-1024-chrome',
       grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
       use: {
-        channel: 'chrome',
+        channel: chromeChannel,
         viewport: { width: 1024, height: 768 },
         deviceScaleFactor: 2,
         hasTouch: true,
@@ -41,7 +44,7 @@ export default defineConfig({
     {
       name: 'mobile-chrome',
       use: {
-        channel: 'chrome',
+        channel: chromeChannel,
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 3,
         hasTouch: true,
@@ -51,7 +54,7 @@ export default defineConfig({
     {
       name: 'compact-mobile-chrome',
       use: {
-        channel: 'chrome',
+        channel: chromeChannel,
         viewport: { width: 320, height: 568 },
         deviceScaleFactor: 2,
         hasTouch: true,
