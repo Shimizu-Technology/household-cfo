@@ -91,8 +91,9 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "cancelled", response.parsed_body.dig("rollout", "status")
   end
 
-  test "advance rejects unready and stale evidence before recording a ready wave" do
+  test "advance rejects an accepted unlinked participant and stale evidence before recording a ready wave" do
     owner, cohort, participants, release = rollout_components(second_status: "pending")
+    participants.second.update!(invitation_status: "accepted")
     rollout = plan_through_api(owner, cohort, plan_payload(cohort, release, participants.reverse))
     headers = workspace_headers(owner, cohort.coach_workspace)
     stale_payload = transition_payload(rollout).merge(
@@ -103,7 +104,7 @@ class ApiV1AdminCohortRolloutsControllerTest < ActionDispatch::IntegrationTest
       headers: headers.merge("Idempotency-Key" => "advance-blocked"), as: :json
     assert_response :unprocessable_entity
     assert_equal "cohort_rollout_incomplete", response.parsed_body.fetch("code")
-    assert_includes response.parsed_body.fetch("errors").join(" "), "must be ready"
+    assert_includes response.parsed_body.fetch("errors").join(" "), "finish setting up their sign-in"
     assert_equal "planned", rollout.reload.status
 
     participants.second.update!(invitation_status: "accepted", clerk_id: "clerk_#{SecureRandom.hex(8)}")

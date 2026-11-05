@@ -41,6 +41,17 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
     assert_equal "removed", CohortRollouts::Contract.readiness_state(cohort: @cohort, user: revoked)
   end
 
+  test "accepted readiness uses one fresh identity lookup per participant" do
+    queries = []
+    observer = ->(*args) { queries << args.last.fetch(:sql) if args.last.fetch(:sql).start_with?("SELECT") }
+    User.uncached do
+      ActiveSupport::Notifications.subscribed(observer, "sql.active_record") do
+        assert_equal "ready", CohortRollouts::Contract.readiness_state(cohort: @cohort, user: @first, member_user_ids: [ @first.id ])
+      end
+    end
+    assert_equal 1, queries.length, "Readiness must not double the per-participant identity queries"
+  end
+
   test "plans the exact current roster as immutable ordered waves without changing runtime" do
     result = plan!(waves: [
       { name: "First households", user_ids: [ @first.id ] },
