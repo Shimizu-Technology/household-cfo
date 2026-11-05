@@ -254,7 +254,7 @@ function miaChatAnchorTop(chatCard: HTMLElement, sentTurn = false) {
   const spacer = chatCard.querySelector<HTMLElement>('.chat-turn-spacer')
   // Only a newly sent turn needs extra room. Opening a short thread or tapping
   // Latest must not leave an artificial gap between messages and review cards.
-  if (spacer) spacer.style.height = sentTurn && target && last && !chatCard.querySelector('.chat-review-queue')
+  if (spacer) spacer.style.height = sentTurn && target && last && !chatCard.querySelector('.chat-review-queue:not(:empty)')
     ? `${Math.max(0, chatCard.clientHeight - (last.getBoundingClientRect().bottom - target.getBoundingClientRect().top) - 24)}px`
     : '0px'
   if (!sentTurn || !target) {

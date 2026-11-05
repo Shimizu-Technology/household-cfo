@@ -82,6 +82,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       assert_response :conflict
     end
     assert_includes response.parsed_body.fetch("errors").join, "another window"
+    assert_no_difference "SourceReviewVersion.count" do
+      approve_lines({ lines: [ first.except(:expected_head).merge(edit: { kind: "spending", category_id: @groceries.id }) ] })
+      assert_response :conflict
+    end
     assert_equal @clothing.id, approved.source_review_head.reload.approved_version.budget_category_id
   end
 
@@ -948,7 +952,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       assert_empty @household.household_transactions
       review_plan
       category = @household.budget_categories.find_by!(name: "Everyday spending")
-      approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
+      head = SourceReviewHead.find_by!(financial_source_event_id: event.id)
+      approve_lines({ lines: [ { event_id: event.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version }, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
       assert_response :success, response.body
       assert_equal 12000, @household.household_transactions.sole.total_amount_cents
       assert_equal [ "Ross" ], SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call.fetch(:discretionary_merchants).pluck(:label)
