@@ -10,7 +10,8 @@ module CohortReleases
 
     def entries
       @entries ||= begin
-        participant_ids = @cohort.cohort_memberships.where(role: "participant").select(:user_id)
+        participant_ids = @cohort.cohort_memberships.where(role: "participant")
+          .joins(:user).where(users: { invitation_status: "accepted" }).select(:user_id)
         memberships = CohortMembership.includes(:user, cohort: %i[cohort_persona_assignment cohort_experience_configuration])
           .joins(:cohort).where(user_id: participant_ids, role: "participant",
             cohorts: { status: Mia::PersonaResolver::ASSIGNABLE_COHORT_STATUSES })

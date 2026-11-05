@@ -88,6 +88,54 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     refute Mia::PersonaSetup::TextEvidence.supports?("warm but firm", "Be empathetic and decisive")
   end
 
+  test "round two preserves negation and whole numbers 1" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Dont shame clients.", "Shame clients.")
+  end
+
+  test "round two preserves negation and whole numbers 2" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("cant shame clients.", "Shame clients.")
+  end
+
+  test "round two preserves negation and whole numbers 3" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("wont shame clients.", "Shame clients.")
+  end
+
+  test "round two preserves negation and whole numbers 4" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Clients aren’t shamed.", "Shame clients.")
+  end
+
+  test "round two preserves negation and whole numbers 5" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("We mustn’t shame people", "Shame people")
+  end
+
+  test "round two preserves negation and whole numbers 6" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Don’t tell people to stop spending.", "Tell people to stop spending.")
+  end
+
+  test "round two preserves negation and whole numbers 7" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Don’t shame people for spending.", "Don’t spend.")
+  end
+
+  test "round two preserves negation and whole numbers 8" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Instead of telling people what to do, ask questions.", "Tell people what to do.")
+  end
+
+  test "round two preserves negation and whole numbers 9" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("I refuse to shame people.", "Shame people.")
+  end
+
+  test "round two preserves negation and whole numbers 10" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Donʼt shame clients.", "Shame clients.")
+  end
+
+  test "round two preserves negation and whole numbers 11" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Save $1,500 a month.", "$500 a month.")
+  end
+
+  test "round two preserves negation and whole numbers 12" do
+    refute Mia::PersonaSetup::TextEvidence.supports?("Spend 2.5 hours.", "5 hours.")
+  end
+
   private
   def operation(path, value, evidence)
     { "op" => "set", "path" => path, "value" => value, "source_basis" => "coach_quote", "evidence_quote" => evidence }

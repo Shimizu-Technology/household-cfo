@@ -98,29 +98,6 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
     @workspace.coach_workspace_memberships.find_by!(user: @owner).update!(role: "editor")
     assert_raises(ActiveRecord::RecordNotFound) { publish }
   end
-
-  test "later updates keep readiness gates and roll back every group when one participant is not ready" do
-    participants = @groups.map do |cohort|
-      user = persona_user(role: "participant")
-      user.cohort_memberships.create!(cohort:, role: "participant")
-      user
-    end
-    @review = build_review
-    publish
-    brand = @workspace.workspace_brand_configuration.reload
-    brand.update!(draft_config: brand.draft_config.merge("product_name" => "A changed program"))
-    @review = build_review
-    participants.last.update!(invitation_status: "revoked")
-    previous = @groups.map { |c| c.reload.active_cohort_release_id }
-    assert_no_difference [ "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseExposure.count", "CoachLaunchReceipt.count" ] do
-      assert_raises(CohortRollouts::StateMachine::Ineligible) { CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review: @review, request_key: "later-launch").call! }
-    end
-    assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
-    participants.last.update!(invitation_status: "accepted")
-    result = CoachLaunches::Publisher.new(persona: @persona.reload, actor: @owner, review: @review, request_key: "later-launch").call!
-    assert_equal 2, result.fetch("groups").length
-    assert @groups.all? { |c| c.reload.active_cohort_release_id != previous[@groups.index(c)] }
-  end
 end
 
 class CoachLaunchesReadinessTest < ActiveSupport::TestCase

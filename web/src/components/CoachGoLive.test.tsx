@@ -161,3 +161,18 @@ it.each([401,403,500])('keeps recovery when checking status fails with %s',async
  await waitFor(()=>expect(screen.getByRole('alert').textContent).toContain(status===500?'still could not confirm':'Sign in'))
  expect(localStorage.length).toBe(1);expect(screen.queryByText(/^Nothing went live/)).toBeNull()
 })
+
+it('shows a definite server rejection plainly while keeping the receipt available to fence before another review',async()=>{
+ api.postCoachLaunch.mockRejectedValueOnce(Object.assign(new Error('Maria needs attention in Participant access before this update can go live.'),{status:409,rejected:true}))
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ expect(screen.getByRole('alert').textContent).toContain('Maria needs attention')
+ expect(screen.getByRole('alert').textContent).not.toContain('could not confirm')
+ expect(localStorage.length).toBe(1)
+})
+
+it('explains the second-owner review rule before offering approval',async()=>{
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,blockers:['A different workspace owner or reviewer must complete this review']})
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('different workspace owner or reviewer')
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
+})

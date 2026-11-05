@@ -48,6 +48,7 @@ module CohortRollouts
       member_ids = member_user_ids || participant_user_ids(cohort)
       return "removed" unless member_ids.include?(user.id)
       return "revoked" if user.revoked?
+      return "needs_account" if user.invitation_status == "accepted" && !user.invitation_accepted?
       return "ready" if user.invitation_accepted?
 
       "awaiting_acceptance"

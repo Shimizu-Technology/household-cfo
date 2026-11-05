@@ -39,7 +39,7 @@ module CoachLaunches
           publish_settings!(cohorts)
           publish_voice!
           cohorts.each { |cohort| launch_group!(cohort, groups.find { |g| g.fetch("id") == cohort.id }) }
-          result = { "groups" => cohorts.map { |c| { "id" => c.id, "name" => c.name, "challenge_closed" => challenge_closed?(c) } } }
+          result = { "groups" => cohorts.map { |c| { "id" => c.id, "name" => c.name, "challenge_closed" => challenge_closed?(c), "deferred_participants" => deferred_participants(c) } } }
           CoachLaunchReceipt.create!(coach_workspace: workspace, user: actor, coach_persona: persona, request_key:, request_digest: digest, result:)
           result
         end
@@ -152,13 +152,12 @@ module CoachLaunches
     def launch_group!(cohort, expected)
       ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort:)
       Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: ids)
-      Mia::PersonaAssignmentCompatibility.ensure_cohort_can_use!(cohort:, persona:)
       assignment = cohort.cohort_persona_assignment || cohort.build_cohort_persona_assignment
       assignment.update!(coach_persona: persona, coach_persona_version: persona.current_published_version, assigned_by_user: actor)
       cohort.reload
       studio = CohortReleases::StudioSerializer.new(cohort:, actor:).call
       readiness = studio.fetch(:readiness)
-      raise Conflict, "#{cohort.name} needs attention before going live." unless readiness.fetch(:ready) && readiness.fetch(:blockers).empty?
+      raise Conflict, readiness.fetch(:blockers).join(" ") unless readiness.fetch(:ready) && readiness.fetch(:blockers).empty?
 
       candidate = readiness.fetch(:candidate)
       release_id = candidate[:expected_latest_release_id]
@@ -200,6 +199,13 @@ module CoachLaunches
     def operation!(cohort, key, input, suffix)
       operation = CoachOperations::Registry::OPERATIONS.fetch(key)
       CoachOperations::Runner.new(cohort:, actor:).call!(operation_key: key, operation_version: operation::VERSION, input:, request_key: "#{request_key}:#{suffix}")
+    end
+
+    def deferred_participants(cohort)
+      CohortRollouts::Eligibility.new(cohort:).readiness_for_users(
+        User.where(id: CohortRollouts::Contract.participant_user_ids(cohort))
+      ).select { |entry| entry.fetch(:state).in?(%w[awaiting_acceptance revoked]) }
+        .map { |entry| entry.stringify_keys.merge("reason" => "No active experience; latest release is available when access is accepted.") }
     end
 
     def challenge_closed?(cohort)

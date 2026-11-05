@@ -66,13 +66,16 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     brand = @workspace.workspace_brand_configuration.reload
     brand.update!(draft_config: brand.draft_config.merge("product_name" => "Atomic later change"))
     @review = build_review
-    @participants.last.update!(invitation_status: "revoked")
+    extra = Cohort.create!(name: "Extra group", status: "active", created_by_user: @owner, coach_workspace: @workspace)
+    @participants.last.cohort_memberships.create!(cohort: extra, role: "participant")
     assert_no_difference [ "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseExposure.count", "CoachLaunchReceipt.count" ] do
-      assert_raises(CohortRollouts::StateMachine::Ineligible) { publish(request_key: "failed-update") }
+      error = assert_raises(CoachLaunches::Publisher::Conflict) { publish(request_key: "failed-update") }
+      assert_includes error.message, @participants.last.full_name
+      assert_includes error.message, "Participant access"
     end
     assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
     assert_equal 0, CohortRollout.where(cohort_id: @groups.map(&:id)).count
-    @participants.last.update!(invitation_status: "accepted")
+    @participants.last.cohort_memberships.find_by!(cohort: extra).destroy!
     publish(request_key: "failed-update")
     assert @groups.each_with_index.all? { |c, i| c.reload.active_cohort_release_id != previous[i] }
   end
@@ -139,6 +142,48 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
   ensure
     CoachOperationExecution.define_method(:save!, original) if original
+  end
+
+  test "pending and revoked invitees do not block real committed updates and retain honest readiness evidence" do
+    @participants.first.update!(invitation_status: "pending")
+    @participants.last.update!(invitation_status: "revoked")
+    publish
+    accepted = persona_user(role: "participant")
+    @participants << accepted
+    accepted.cohort_memberships.create!(cohort: @groups.first, role: "participant")
+    brand = @workspace.workspace_brand_configuration.reload
+    brand.update!(draft_config: brand.draft_config.merge("product_name" => "Latest invitation program"))
+    @review = build_review
+    result = publish(request_key: "pending-update")
+    assert_equal 2, result.fetch("groups").length
+    assert_equal %w[awaiting_acceptance revoked], result.fetch("groups").flat_map { |g| g.fetch("deferred_participants").pluck("state") }
+    assert_equal result, CoachLaunchReceipt.find_by!(request_key: "pending-update").result
+    @groups.each do |cohort|
+      rollout = cohort.cohort_rollouts.sole
+      assert_equal "completed", rollout.status
+      assert rollout.integrity_report.fetch(:valid)
+      states = CohortRollouts::Contract.readiness_snapshot(cohort:).fetch("participants")
+      state = states.find { |p| p["user_id"] == @participants[@groups.index(cohort)].id }.fetch("state")
+      assert_equal cohort == @groups.first ? "awaiting_acceptance" : "revoked", state
+      assert_equal "Latest invitation program", cohort.reload.active_cohort_release.workspace_brand_version.config["product_name"]
+    end
+    @participants.first.update!(invitation_status: "accepted")
+    assert_equal @groups.first.active_cohort_release_id,
+      Mia::ParticipantRuntimeResolver.new(user: @participants.first).call.release.id
+  end
+
+  test "accepted participant without a linked sign-in still blocks and rolls back every group" do
+    publish
+    previous = @groups.map { |c| c.reload.active_cohort_release_id }
+    @participants.last.update!(clerk_id: "pending_unlinked_#{@participants.last.id}", first_name: "Maria")
+    brand = @workspace.workspace_brand_configuration.reload
+    brand.update!(draft_config: brand.draft_config.merge("product_name" => "Blocked update"))
+    @review = build_review
+    assert_no_difference [ "CohortRelease.count", "WorkspaceBrandVersion.count", "CohortReleaseExposure.count", "CoachLaunchReceipt.count" ] do
+      error = assert_raises(CohortRollouts::StateMachine::Ineligible) { publish(request_key: "unlinked-update") }
+      assert_includes error.message, "Maria needs to finish setting up their sign-in"
+    end
+    assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
   end
 
   private

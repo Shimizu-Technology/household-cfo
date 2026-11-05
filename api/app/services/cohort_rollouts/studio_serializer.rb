@@ -236,7 +236,7 @@ module CohortRollouts
     end
 
     def readiness_counts(participants)
-      counts = %w[ready awaiting_acceptance revoked removed].index_with { 0 }
+      counts = %w[ready awaiting_acceptance revoked removed needs_account].index_with { 0 }
       participants.each { |participant| counts[participant.fetch(:readiness)] += 1 }
       counts
     end

@@ -24,7 +24,8 @@ module Mia
         "without" => "not", "never" => "not", "no" => "not", "don't" => "not",
         "can't" => "not", "cannot" => "not", "won't" => "not", "wouldn't" => "not",
         "doesn't" => "not", "didn't" => "not", "shouldn't" => "not", "couldn't" => "not",
-        "stop" => "not", "avoid" => "not"
+        "stop" => "not", "avoid" => "not", "dont" => "not", "cant" => "not", "wont" => "not",
+        "aren't" => "not", "isn't" => "not", "wasn't" => "not", "weren't" => "not", "mustn't" => "not"
       }.freeze
 
       def self.supports?(quote, value)
@@ -36,7 +37,7 @@ module Mia
           words = tokens(claim)
           words.any? && sources.any? do |source|
             evidence = tokens(source)
-            (words - evidence).empty? && words.include?("not") == evidence.include?("not")
+            (words - evidence).empty?
           end
         end
       end
@@ -44,14 +45,27 @@ module Mia
       def self.clauses(text)
         # Normalize phone punctuation before contraction matching. Polarity is
         # local: a prohibition in one clause cannot authorize another clause.
-        text.unicode_normalize(:nfkc).tr("‘’", "'").downcase
-          .split(/[,.!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
+        text.unicode_normalize(:nfkc).tr("‘’ʼ", "'").downcase
+          .gsub(/\binstead of\b|\brefuse to\b/, "not ")
+          .split(/(?<!\d)[,.]|[,.](?!\d)|[!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
       end
 
       def self.tokens(text)
-        text.scan(/[[:alnum:]]+(?:'[[:alpha:]]+)?/)
+        words = text.scan(/\d+(?:,\d{3})*(?:\.\d+)?|[[:alpha:]]+(?:'[[:alpha:]]+)?/)
           .reject { |word| FILLER.include?(word) }
-          .map { |word| SYNONYMS.fetch(word, word) }.uniq
+          .map { |word| SYNONYMS.fetch(word, word.delete(",")) }
+        # Bind each prohibition to its object; two negatives in a sentence must
+        # not cancel or move from "shame" to "spend" during word alignment.
+        negative = false
+        words.filter_map do |word|
+          if word == "not"
+            negative = true
+            next
+          end
+          token = negative ? "not:#{word}" : word
+          negative = false
+          token
+        end.uniq
       end
       private_class_method :clauses, :tokens
     end

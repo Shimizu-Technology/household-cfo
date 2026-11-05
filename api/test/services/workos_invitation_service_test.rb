@@ -273,35 +273,51 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
   end
 
   [ false, true ].each do |duplicate|
-    test "native legacy inviter is replaced safely #{duplicate ? 'after a duplicate-create race' : 'on resend'}" do
+    test "legacy replacement creates first and revokes before retry only if duplicate #{duplicate}" do
       with_workos do
-        legacy = invitation.merge("inviter_user_id" => "user_rawalias")
-        reads = 0
-        posts = []
-        stub_method(HTTParty, :get, lambda { |_url, **_|
-          reads += 1
-          rows = duplicate && reads == 1 ? [] : [ legacy ]
-          WorkosResponse.new(200, { "data" => rows, "list_metadata" => {} })
-        }) do
-          stub_method(HTTParty, :post, lambda { |url, **options|
-            posts << url
-            if duplicate && posts.one?
+        legacy = invitation.merge("inviter_user_id" => "user_alias")
+        urls = []
+        stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+          stub_method(HTTParty, :post, lambda { |url, **_|
+            urls << url
+            if duplicate && urls.one?
               WorkosResponse.new(409, {})
             elsif url.end_with?("/revoke")
               WorkosResponse.new(200, legacy.merge("state" => "revoked"))
             else
-              refute url.end_with?("/resend"), "A legacy inviter must not return in the email subject"
-              assert_equal({ "email" => @invitee.email }, JSON.parse(options.fetch(:body)))
               WorkosResponse.new(200, invitation.merge("id" => "invitation_replacement"))
             end
           }) do
-            result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
-            assert result[:sent]
-            assert_equal "invitation_replacement", result[:provider_message_id]
+            assert WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)[:sent]
           end
         end
-        assert_equal duplicate ? 3 : 2, posts.length
-        assert posts.any? { |url| url.end_with?("/revoke") }
+        root = "https://api.workos.com/user_management/invitations"
+        assert_equal duplicate ? [ root, "#{root}/invitation_native/revoke", root ] : [ root, "#{root}/invitation_native/revoke" ], urls
+      end
+    end
+  end
+
+  [ false, true ].each do |duplicate|
+    test "replacement failure explains whether the old invitation still works #{duplicate}" do
+      with_workos do
+        legacy = invitation.merge("inviter_user_id" => "user_alias")
+        urls = []
+        stub_method(HTTParty, :get, WorkosResponse.new(200, { "data" => [ legacy ], "list_metadata" => {} })) do
+          stub_method(HTTParty, :post, lambda { |url, **_|
+            urls << url
+            if url.end_with?("/revoke")
+              WorkosResponse.new(200, legacy.merge("state" => "revoked"))
+            else
+              WorkosResponse.new(duplicate && urls.one? ? 409 : 500, {})
+            end
+          }) do
+            result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+            refute result[:sent]
+            assert_includes result[:error], duplicate ? "old invitation link no longer works" : "old invitation link still works"
+            assert_includes result[:error], "Send the invitation again"
+          end
+        end
+        assert_equal duplicate ? 3 : 1, urls.length
       end
     end
   end

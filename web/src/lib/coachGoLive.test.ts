@@ -22,3 +22,8 @@ it('allows an empty first launch but explains the empty live group update requir
  api.fetchCohortRolloutStudio.mockResolvedValue({...rollout,current_roster:{participants:[],digest:'empty'},active_release:{id:3}})
  await expect(reviewCoachGroup(group)).rejects.toThrow('Add a participant')
 })
+
+it('warns about named participant conflicts before approval but allows unpublished settings to be prepared',async()=>{
+ api.fetchCohortReleaseStudio.mockResolvedValue({candidate,permissions:{seal:true},readiness:{blockers:['Maria has different assistant or tools settings. Remove the extra group in Participant access.']}})
+ await expect(reviewCoachGroup(group)).rejects.toThrow('Maria')
+})

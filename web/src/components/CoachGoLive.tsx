@@ -79,6 +79,8 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         const saved = await fetchAdminPersona(source.id)
         if (!current()) return
         if (saved.draft_revision !== source.draft_revision || saved.published_version?.id !== source.published_version?.id || ready.candidate?.draft_revision !== source.draft_revision || ready.candidate?.manifest_digest !== run.candidate_digest || ready.evaluation_run?.id !== run.id || ready.evaluation_run?.run_digest !== run.run_digest || ready.behavioral_preview_evidence?.digest !== lastEvidence?.digest || ready.candidate?.manifest_digest !== lastEvidence?.candidate_digest) throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
+        const reviewRule = ready.blockers?.find(message => message.includes('different workspace owner or reviewer'))
+        if (reviewRule) throw new Error(reviewRule)
         setReviewedPersona(saved)
         setReadiness(ready)
       }
@@ -129,6 +131,10 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         const code = caught && typeof caught === 'object' && 'status' in caught ? caught.status : null
         if (!savedForRecovery) {
           setStatus(''); setError('Your browser could not save the update for recovery. Allow storage for this site, then try again.')
+        } else if (caught && typeof caught === 'object' && 'payload' in caught && caught.payload && typeof caught.payload === 'object' && 'rejected' in caught.payload && caught.payload.rejected === true) {
+          setStatus(''); setError(`${caught instanceof Error ? caught.message : 'This update was not saved.'} Choose Check this update before reviewing again.`)
+        } else if (code === 409 || code === 422) {
+          setStatus(''); setError(`${caught instanceof Error ? caught.message : 'This update was refused.'} Choose Check this update before reviewing again.`)
         } else if (code === 401 || code === 403) {
           setStatus(''); setError('We could not confirm whether your update went live. Sign in with access to this program, then choose Check this update.')
         } else {

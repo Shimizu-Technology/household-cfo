@@ -37,9 +37,12 @@ module Api
           CohortReleases::Sealer::Incomplete, CohortReleases::Sealer::ReadOnly,
           CohortRollouts::StateMachine::Error, CohortReleases::InitialLauncher::Conflict,
           CohortReleases::InitialLauncher::Incomplete, Mia::PersonaAssignmentCompatibility::Conflict,
-          ActiveRecord::StatementInvalid, ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
+          Mia::PersonaRelease::ReviewRules::Error => error
           Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
-          render json: { error: "This update could not finish. Check this update before trying again." }, status: :conflict
+          render json: { error: error.message, rejected: true }, status: :conflict
+        rescue ActiveRecord::StatementInvalid, ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
+          Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
+          render json: { error: "This update was not saved. Reopen Go live to review the latest settings and people.", rejected: true }, status: :conflict
         end
       end
     end

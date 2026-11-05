@@ -81,6 +81,7 @@ function apiUser(subject: string): CurrentUser {
 }
 
 beforeEach(() => {
+  localStorage.clear()
   mocks.sessionUserId = 'user-1'
   mocks.isLoaded = true
   mocks.isSignedIn = true
@@ -278,4 +279,21 @@ describe('WorkOS verified identity boundary', () => {
     expect(screen.getByTestId('name').textContent).toBe('none')
     expect(screen.getByTestId('error').textContent).toBe('Secure session expired')
   })
+})
+
+it('restores only an accessible selected program for the same platform admin after remount', async () => {
+ const admin = {...apiUser('user-1'),is_admin:true,role:'admin',coach_workspaces:[{id:2}]} as CurrentUser
+ mocks.fetchCurrentUser.mockResolvedValue(admin)
+ const first=render(<VerifiedSession><AuthProbe/></VerifiedSession>)
+ await waitFor(()=>expect(screen.getByTestId('verification').textContent).toBe('settled'))
+ await act(async()=>screen.getByRole('button',{name:'Choose workspace'}).click())
+ first.unmount()
+ const second=render(<VerifiedSession><AuthProbe/></VerifiedSession>)
+ await waitFor(()=>expect(screen.getByTestId('verification').textContent).toBe('settled'))
+ expect(screen.getByTestId('workspace').textContent).toBe('2')
+ second.unmount()
+ mocks.fetchCurrentUser.mockResolvedValue({...admin,coach_workspaces:[]})
+ render(<VerifiedSession><AuthProbe/></VerifiedSession>)
+ await waitFor(()=>expect(screen.getByTestId('verification').textContent).toBe('settled'))
+ expect(screen.getByTestId('workspace').textContent).toBe('none')
 })

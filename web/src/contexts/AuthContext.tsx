@@ -8,6 +8,7 @@ import type { AuthProviderName } from '../lib/authConfig'
 import { authIdentityKey, matchesAuthIdentity } from '../lib/authIdentity'
 import { ApiRequestError, fetchCurrentUser, setActiveCoachWorkspaceId, setApiActorIdentity, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
+import { restoredAdminProgram, rememberAdminProgram } from '../lib/adminProgramSelection'
 import { clearDailyCards } from '../lib/dailyCheckIn'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue, AuthSignInOptions } from './authContextValue'
@@ -221,7 +222,7 @@ function AuthVerificationBody({ children, session, verificationEnabled = true }:
         throw new Error('Unable to verify program access for this account')
       }
       setApiActorIdentity(`${authIdentityKey(provider, authIdentityId, user.id)}:${session.sessionScope ?? ''}`)
-      const workspaceId = user.active_coach_workspace?.id ?? null
+      const workspaceId = restoredAdminProgram(user)
       setActiveCoachWorkspaceState(workspaceId)
       setActiveCoachWorkspaceId(workspaceId)
       setApiCurrentUser(user)
@@ -245,9 +246,10 @@ function AuthVerificationBody({ children, session, verificationEnabled = true }:
   }, [authIdentityId, isLoaded, isSignedIn, provider, sessionKey, sessionError, session.sessionScope, verificationEnabled])
 
   const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
+    rememberAdminProgram(apiCurrentUser, workspaceId)
     setActiveCoachWorkspaceState(workspaceId)
     setActiveCoachWorkspaceId(workspaceId)
-  }, [])
+  }, [apiCurrentUser])
 
   useEffect(() => {
     let cancelled = false
@@ -339,9 +341,10 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   )
 
   const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
+    rememberAdminProgram(currentUser, workspaceId)
     setActiveCoachWorkspaceState(workspaceId)
     setActiveCoachWorkspaceId(workspaceId)
-  }, [])
+  }, [currentUser])
 
   useLayoutEffect(() => {
     setApiActorIdentity(seedUser?.clerk_id ?? null)
@@ -374,7 +377,7 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
       const user = await fetchCurrentUser()
       if (!liveMounted.current || request !== liveRequest.current) return
       if (user.clerk_id !== seedUser.clerk_id) throw new Error('QA account identity did not match the API')
-      const workspaceId = user.active_coach_workspace?.id ?? null
+      const workspaceId = restoredAdminProgram(user)
       setActiveCoachWorkspaceState(workspaceId)
       setActiveCoachWorkspaceId(workspaceId)
       setApiUser(user)

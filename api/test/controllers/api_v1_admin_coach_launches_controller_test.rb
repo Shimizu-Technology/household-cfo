@@ -45,10 +45,20 @@ class ApiV1AdminCoachLaunchesControllerTest < ActionDispatch::IntegrationTest
     CoachLaunches::Publisher.define_method(:call!) { raise ActiveRecord::StatementInvalid, "PG::private detail" }
     post launch_path, params: { review: @review }, headers:, as: :json
     assert_response :conflict
-    assert_includes response.parsed_body.fetch("error"), "Check this update"
+    assert_includes response.parsed_body.fetch("error"), "not saved"
     refute_includes response.body, "private detail"
   ensure
     CoachLaunches::Publisher.define_method(:call!, original) if original
+  end
+
+  test "definite rejection explains the rule without hiding it as an uncertain outcome" do
+    other_owner = persona_user
+    @workspace.coach_workspace_memberships.create!(user: other_owner, role: "owner")
+    post launch_path, params: { review: @review }, headers:, as: :json
+    assert_response :conflict
+    assert_includes response.parsed_body.fetch("error"), "different workspace owner or reviewer"
+    assert_equal true, response.parsed_body.fetch("rejected")
+    assert_nil @persona.reload.current_published_version_id
   end
 
   private
