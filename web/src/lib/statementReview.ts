@@ -5,7 +5,7 @@ import { statementCents } from './participantSourceReview'
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
 export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep'
-export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number }
+export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
 export type PlanAttention = {
   event_id: number
   kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'

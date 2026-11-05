@@ -90,6 +90,19 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_equal 2_000, savings_projection[:reported_cents]
   end
 
+  test "a dismissed savings card cannot stage a new draft" do
+    ask "I set aside $25 today", "dismiss-reserve"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    post "/api/v1/savings_challenge/chat_cards/#{card['id']}", params: { action: "dismiss", expected_lock_version: card["lock_version"] }, headers: auth, as: :json
+    assert_response :success
+    assert_no_difference [ "SavingsEntryDraft.count", "SavingsEntryVersion.count" ] do
+      post "/api/v1/savings_challenge/entry_drafts", params: { signed_cents: 2_500, effective_on: @savings_enrollment.local_today.iso8601, funding_source: "new_money_reserved", expected_version_id: nil, chat_card_id: card["id"] }, headers: auth.merge("Idempotency-Key" => "after-dismiss"), as: :json
+    end
+    assert_response :conflict
+    assert_includes response.parsed_body.fetch("errors").join, "already reviewed"
+    assert_equal({}, SavingsChatCard.find(card["id"]).state)
+  end
+
   test "reviewing a savings card hands off once to a retained savings draft" do
     ask "I set aside $25 today", "reserve-for-form"
     card = response.parsed_body.fetch("challenge_chat_card")

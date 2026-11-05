@@ -26,6 +26,7 @@ module FinancialDocuments
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
         domain.overlap_context = OverlapDetector::Context.new(household)
+        check_account_heads!(entries)
         link_accounts!
         plan = ParticipantPlan.new(household, revision, unlinked_account_ids: @linked_now)
         check_expected!(plan, entries)
@@ -69,6 +70,20 @@ module FinancialDocuments
         looked = shown.is_a?(Hash) && shown.key?(:category_id) && shown.key?(:event_type) &&
           shown[:event_type].to_s == line.event.event_type && shown[:category_id]&.to_i == line.category_id
         raise Domain::StaleReview, "This line changed while you were looking at it. Nothing was saved. Please look again." unless looked
+      end
+
+      # Check the account she saw before linking accounts in this request. A first
+      # review can itself create the identity; another window's choice cannot be reused.
+      def check_account_heads!(entries)
+        observed = entries.select { |entry| entry.key?(:expected_head) }
+        events = revision.financial_source_events.where(id: observed.map { |entry| entry.fetch(:event_id) }).index_by(&:id)
+        observed.each do |entry|
+          event = events[entry.fetch(:event_id).to_i] || raise(ActiveRecord::RecordNotFound)
+          current = domain.overlap_context.accounts[event.financial_source_account_id]&.approved_version_id
+          unless entry[:expected_head].is_a?(Hash) && entry[:expected_head][:account_version_id] == current
+            raise Domain::StaleReview, "This line was changed in another window. Nothing was saved. Refresh to review the latest answer."
+          end
+        end
       end
 
       def link_accounts!
@@ -123,7 +138,7 @@ module FinancialDocuments
           counts[:unchanged] += 1
           return
         end
-        if (head || entry.key?(:expected_head)) && entry[:expected_head] != line.expected_head
+        if (head || entry.key?(:expected_head)) && entry[:expected_head]&.except(:account_version_id) != line.expected_head.except(:account_version_id)
           raise Domain::StaleReview, "This line was changed in another window. Nothing was saved. Refresh to review the latest answer."
         end
         check_allowed!(line, decision, entry)

@@ -20,7 +20,7 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
-  it('carries only the version and lock from an already reviewed line into its edit', async () => {
+  it('carries the observed account and line heads into an already reviewed line edit', async () => {
     const data = participantReviewFixture()
     const event = data.events[1]
     data.participant_review!.plan.ready = []
@@ -34,7 +34,7 @@ describe('statement review a participant can finish', () => {
     const sheet = await screen.findByRole('dialog')
     fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
-    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: { approved_version_id: 800, lock_version: 2 } }] })
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ expected_head: { approved_version_id: 800, lock_version: 2, account_version_id: 100 } }] })
     expect((mutate.mock.calls[0][3] as { lines: { expected_head: object }[] }).lines[0].expected_head).not.toHaveProperty('id')
   })
   it('shows every default category beside its merchant before bulk approval, sending the seen head', async () => {

@@ -197,7 +197,8 @@ module Api
         if operation_key == "savings.entry.stage" && input[:chat_card_id]
           card = own_chat_cards.find(input.delete(:chat_card_id))
           raise ArgumentError, "Choose a savings review card" unless card.kind == "savings"
-          if card.status == "closed" && runner.private_request_result(operation_key: operation_key, idempotency_key: key)&.subject&.id != card.state["entry_draft_id"]
+          staged_id = card.state["entry_draft_id"]
+          if card.status == "closed" && (staged_id.nil? || runner.private_request_result(operation_key: operation_key, idempotency_key: key)&.subject&.id != staged_id)
             raise HouseholdFinance::Operations::Base::StaleOperation, "This savings card was already reviewed. Open Savings to confirm or fix its record."
           end
           expected_entry = card.input.dig("correction", "id")

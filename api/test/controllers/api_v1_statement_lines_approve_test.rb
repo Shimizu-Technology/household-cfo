@@ -70,6 +70,24 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal 500, @household.household_transactions.sole.total_amount_cents
   end
 
+  [ false, true ].each do |linked|
+    test "an account changed in another window rejects an open line edit with linked #{linked}" do
+      account = @source[:revision].financial_source_accounts.sole
+      if linked
+        approve_lines({ accounts: [ { source_account_id: account.id, label: "Original bank", account_basis: "asset" } ], lines: [] })
+        assert_response :success
+      end
+      old = review_plan.fetch("ready").find { |line| line["merchant"] == "Payless" }
+      approve_lines({ accounts: [ { source_account_id: account.id, label: "Different bank", account_basis: "asset" } ], lines: [] })
+      assert_response :success
+      assert_no_difference [ "SourceReviewVersion.count", "SourceReviewDraft.count", "HouseholdTransaction.count" ] do
+        approve_lines({ lines: [ { event_id: old.fetch("event_id"), expected_head: old.fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] })
+      end
+      assert_response :conflict
+      assert_includes response.parsed_body.fetch("errors").join, "another window"
+    end
+  end
+
   test "an old phone edit cannot overwrite a desktop answer to the same statement line" do
     old = review_plan.fetch("ready").find { |line| line["merchant"] == "Payless" }
     first = { event_id: old.fetch("event_id"), expected_head: old.fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
@@ -953,7 +971,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
       review_plan
       category = @household.budget_categories.find_by!(name: "Everyday spending")
       head = SourceReviewHead.find_by!(financial_source_event_id: event.id)
-      approve_lines({ lines: [ { event_id: event.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version }, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
+      approve_lines({ lines: [ { event_id: event.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: SourceAccountReviewHead.find_by!(financial_source_account_id: event.financial_source_account_id).approved_version_id }, decision: "edited", edit: { kind: "spending", category_id: category.id } } ] })
       assert_response :success, response.body
       assert_equal 12000, @household.household_transactions.sole.total_amount_cents
       assert_equal [ "Ross" ], SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 4)).call.fetch(:discretionary_merchants).pluck(:label)
