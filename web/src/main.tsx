@@ -1,3 +1,4 @@
+import { NewVersionNotice } from './components/NewVersionNotice'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
@@ -32,6 +33,7 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrandProvider>
       <Sentry.ErrorBoundary fallback={({ resetError }) => <AppErrorFallback resetError={resetError} />}>
+        <NewVersionNotice />
         <Root />
       </Sentry.ErrorBoundary>
     </BrandProvider>

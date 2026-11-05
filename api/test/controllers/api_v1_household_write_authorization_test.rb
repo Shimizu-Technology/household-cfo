@@ -57,7 +57,7 @@ class ApiV1HouseholdWriteAuthorizationTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { household_name: "Partner-updated household" } },
-      headers: auth_headers(partner),
+      headers: auth_headers(partner).merge(setup_revision_header(partner)),
       as: :json
 
     assert_response :success
@@ -78,5 +78,9 @@ class ApiV1HouseholdWriteAuthorizationTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+  def setup_revision_header(user)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    { "X-Setup-Revision" => HouseholdFinance::SetupRevision.for(household.reload) }
   end
 end

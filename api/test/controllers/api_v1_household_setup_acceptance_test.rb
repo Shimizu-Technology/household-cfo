@@ -94,7 +94,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     @household.debts.create!(label: "Car loan", debt_type: "auto_loan", minimum_payment_cents: 35000, minimum_payment_known: true, balance_known: false)
     patch "/api/v1/workspace/setup", params: { workspace: {
       household_name: "QA Test household", primary_goal: "Build a $1,000 emergency cushion", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700
-    } }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    } }, headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
     assert_response :success
     assert response.parsed_body.dig("workspace", "setup_complete")
     assert_month_picture(@applied || response.parsed_body)
@@ -108,7 +108,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     source = @household.income_sources.sole
     patch "/api/v1/workspace/setup", params: { workspace: {
       household_name: "QA Test household", primary_goal: "Build a $1,000 emergency cushion", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700
-    } }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    } }, headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
     assert_response :success
     assert_month_picture(response.parsed_body)
     assert response.parsed_body.dig("workspace", "setup_complete")
@@ -159,7 +159,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
   test "approved income alone does not turn missing planned costs into zero" do
     @household.create_household_profile!(debt_tracking_mode: "summary", debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true) unless @household.household_profile
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true)
-    patch "/api/v1/workspace/setup", params: { workspace: { primary_income: 5200 } }, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    patch "/api/v1/workspace/setup", params: { workspace: { primary_income: 5200 } }, headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
     assert_response :success
     assert_equal 520000, response.parsed_body.dig("dashboard", "month_answer", "money_in_cents")
     assert_nil response.parsed_body.dig("dashboard", "month_answer", "planned_out_cents")
@@ -208,5 +208,9 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     november = plan.fetch("months").fetch(10)
     assert_equal 5200, plan.fetch("monthly_income").fetch(november.fetch("id").to_s)
     assert_equal 2100, payload.dig("wealth", "summary", "monthly_surplus_available")
+  end
+  def setup_revision_header(user)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    { "X-Setup-Revision" => HouseholdFinance::SetupRevision.for(household.reload) }
   end
 end

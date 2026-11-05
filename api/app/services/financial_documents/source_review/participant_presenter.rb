@@ -47,7 +47,7 @@ module FinancialDocuments
         dates = plan.lines.filter_map { |line| line.event.posted_on }
         totals = CoverageQuestion.totals_check(revision)
         # "ready" is exactly what "Approve the rest" will save: each line's category (and how it was chosen) is shown to her and sent back.
-        { total: plan.lines.length, done: plan.lines.count(&:done), ready_event_ids: plan.ready_ids, totals_check: totals,
+        { total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision) },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,

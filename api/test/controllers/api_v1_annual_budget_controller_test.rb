@@ -8,7 +8,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       user = create_user(email: "income-timeline@example.com")
       patch "/api/v1/workspace/setup",
         params: { workspace: { primary_income: 1_000 } },
-        headers: auth_headers(user),
+        headers: auth_headers(user).merge(setup_revision_header(user)),
         as: :json
       source_id = user.households.first.income_sources.find_by!(source_type: "job").id
 
@@ -167,7 +167,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
             unexpected_sinking_fund: 200
           }
         },
-        headers: auth_headers(user),
+        headers: auth_headers(user).merge(setup_revision_header(user)),
         as: :json
 
       assert_response :success
@@ -446,7 +446,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "category-history@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -478,7 +478,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "category-pending-draft@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -544,7 +544,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "transaction-loop@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_difference("TransactionDraft.count", 1) do
@@ -601,7 +601,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "draft-year-crossing@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -642,7 +642,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -668,7 +668,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "confirm-empty-body@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -693,7 +693,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "confirm-null-body@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -716,7 +716,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "confirm-status-best-effort@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -749,7 +749,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "ignore-status-message@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -772,7 +772,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     prior_year = Date.current.year - 1
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -789,7 +789,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     prior_year = Date.current.year - 1
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     get "/api/v1/budget?year=#{prior_year}", headers: auth_headers(user)
@@ -820,7 +820,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "spending-report@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -990,7 +990,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "spending-report-archived@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/budget_categories",
@@ -1026,7 +1026,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-planned-budget@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/budget_categories",
@@ -1170,7 +1170,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
           target_runway_months: 6
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
     confirm_setup_for_test(user)
 
@@ -1206,7 +1206,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
           target_runway_months: 6
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
     confirm_setup_for_test(user)
 
@@ -1240,7 +1240,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
           target_runway_months: 6
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
     confirm_setup_for_test(user)
 
@@ -1274,7 +1274,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
           target_runway_months: 6
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_no_difference("TransactionDraft.count") do
@@ -1321,7 +1321,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
           target_runway_months: 6
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
     confirm_setup_for_test(user)
 
@@ -1372,7 +1372,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-bare-amount-draft@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_difference("TransactionDraft.count", 1) do
@@ -1509,7 +1509,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-pending-drafts-answer@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -1533,7 +1533,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-pending-injection@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -1617,7 +1617,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-transaction-category-mapping@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { fixed_expenses: 3_000, flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -1939,7 +1939,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "corrected-draft@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -1998,7 +1998,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "blank-corrected-amount@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -2025,7 +2025,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "zero-corrected-amount@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     post "/api/v1/mia/messages",
@@ -2473,5 +2473,9 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
   def monthly_income_values(plan)
     plan.fetch("months").map { |month| plan.fetch("monthly_income").fetch(month.fetch("id").to_s) }
+  end
+  def setup_revision_header(user)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    { "X-Setup-Revision" => HouseholdFinance::SetupRevision.for(household.reload) }
   end
 end

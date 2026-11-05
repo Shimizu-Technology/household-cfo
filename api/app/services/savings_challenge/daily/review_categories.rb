@@ -27,8 +27,8 @@ module SavingsChallenge
         end
       end
 
-      # Only these broad defaults get broad merchant hints. A participant's
-      # detailed budget and previously approved choices keep their own meaning.
+      # A single active choice in a stack is a broad household category.
+      # Detailed budgets and previously approved choices keep their own meaning.
       def self.suggestion(categories, merchant, event_type: "purchase")
         return unless event_type == "purchase"
         text = merchant.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
@@ -39,8 +39,8 @@ module SavingsChallenge
           "discretionary"
         end
         return unless stack
-        label = DEFAULTS.fetch(stack)
-        categories.find { |category| category.stack_key == stack && (category.name == label || category.name.start_with?("#{label} (default")) }&.id
+        choices = categories.select { |category| category.active? && category.stack_key == stack }
+        choices.one? ? choices.first.id : nil
       end
     end
   end

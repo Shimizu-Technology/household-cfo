@@ -95,7 +95,7 @@ import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/ho
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
 import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
-import { documentNeedsReview, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
+import { documentNeedsReview, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   captureApiOperation,
@@ -666,6 +666,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [budgetNotice, setBudgetNotice] = useState<string | null>(null)
   const [bulkConfirmRequest, setBulkConfirmRequest] = useState<{ drafts: TransactionDraft[]; total: number } | null>(null)
   // What the profile form showed when editing began; only fields that differ are saved.
+  const [setupConflict, setSetupConflict] = useState(false)
+  const setupRevisionRef = useRef<string | null>(null)
   const [profileEditBaseline, setProfileEditBaseline] = useState<WorkspaceSetupValues | null>(null)
   const profileEditingRef = useRef(isProfileEditing)
   profileEditingRef.current = isProfileEditing
@@ -1324,6 +1326,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(payloadStorageKey)
         setMessagesStorageKey(payloadStorageKey)
         setData(payload)
+        setupRevisionRef.current = payload.workspace?.setup_revision ?? null
         setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
         setHistoricalMessageCount(realWorkspace ? payload.mia.historical_message_count ?? 0 : 0)
@@ -1343,7 +1346,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges && !hasUnsavedFirstSetupChanges) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges && !hasUnsavedFirstSetupChanges && !hasUnsavedCoachChanges && !question.trim() && pendingMiaAttachments.length === 0 && !setupSaving && !miaLoading && !uploadingKind && !budgetAction && !documentAction) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -1351,7 +1354,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges, hasUnsavedCoachChanges, question, pendingMiaAttachments.length, setupSaving, miaLoading, uploadingKind, budgetAction, documentAction])
 
   const documentsVisible = activeSection === 'Statements' || activeSection === 'Ask Mia' || isFirstSessionUpload
   const spendingVisible = activeSection === 'Review' || activeSection === 'Budget'
@@ -3568,6 +3571,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     setSetupSaving(true)
     setSetupError(null)
     try {
+      if (setupConflict) return
       const setupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
       const allSetupValues = activeSection === 'My Profile' && wasSetupComplete ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
       // A profile edit sends only what the person changed. Re-sending untouched
@@ -3587,8 +3591,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       }
       const idempotencyKey = setupSaveIdempotencyKeyRef.current ?? clientSideId('workspace-setup')
       setupSaveIdempotencyKeyRef.current = idempotencyKey
-      const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey)
+      const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey, setupRevisionRef.current ?? '')
       setupSaveIdempotencyKeyRef.current = null
+      setupRevisionRef.current = payload.workspace?.setup_revision ?? null
       setData({ type: 'shared_financial_mutation', update: payload })
       await restoreSelectedBudgetPlan(payload.budget)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
@@ -3611,10 +3616,31 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     } catch (caught) {
       trackPilotWorkflowFailure('setup', 'save')
       captureAnalyticsEvent('workspace_setup_save_failed')
-      setSetupError(participantErrorMessage(caught, 'Your numbers could not be saved. Please try again.'))
+      if (caught instanceof ApiRequestError && caught.code === 'changed_elsewhere') {
+        setSetupConflict(true)
+        setSetupError('Your starting numbers changed in another tab or on another device. Please review the latest numbers before saving. Your entries are still here.')
+      } else {
+        setSetupError(participantErrorMessage(caught, 'Your numbers could not be saved. Please try again.'))
+      }
     } finally {
       setSetupSaving(false)
     }
+  }
+
+  async function reviewLatestSetup() {
+    setSetupSaving(true)
+    try {
+      const payload = await fetchAppData(true)
+      setData(payload)
+      await restoreSelectedBudgetPlan(payload.budget)
+      setupRevisionRef.current = payload.workspace?.setup_revision ?? null
+      setupSaveIdempotencyKeyRef.current = null
+      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
+      setSetupConflict(false)
+      setSetupError(null)
+    } catch {
+      setSetupError('We couldn’t load the latest numbers. Your entries are still here. Please try again.')
+    } finally { setSetupSaving(false) }
   }
 
   function captureWorkspaceReloadGuard() {
@@ -3689,6 +3715,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   function beginProfileEditing() {
     if (!profileEditingRef.current) {
       const workspace = data?.workspace
+      setupRevisionRef.current = workspace?.setup_revision ?? null
+      setSetupConflict(false)
       setProfileEditBaseline(workspace?.setup_values ? workspaceSetupBaseline(workspace.setup_values, workspace.setup_status) : null)
     }
     setIsProfileEditing(true)
@@ -3696,6 +3724,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
   function cancelProfileEditing() {
     setSetupError(null)
+    setSetupConflict(false)
     setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : setupDraft)
     setIsProfileEditing(false)
   }
@@ -4320,7 +4349,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               </article>
             )}
             {moneyTopic === 'spending' && isRealWorkspace && setupDraft && <ProfileDisclosure label="Starting household numbers" forceOpen={isProfileEditing}>
-              <WorkspaceSetupForm formRef={setupFormRef} values={setupDraft} editing={isProfileEditing} saving={setupSaving} error={setupError} firstSession={false} onBeginEdit={beginProfileEditing} onCancel={cancelProfileEditing} onChange={updateSetupDraft} onSubmit={handleSetupSubmit} monthPlan={profileMonthPlan} />
+              <WorkspaceSetupForm formRef={setupFormRef} values={setupDraft} editing={isProfileEditing} saving={setupSaving} error={setupError} onReviewLatest={setupConflict ? reviewLatestSetup : undefined} firstSession={false} onBeginEdit={beginProfileEditing} onCancel={cancelProfileEditing} onChange={updateSetupDraft} onSubmit={handleSetupSubmit} monthPlan={profileMonthPlan} />
             </ProfileDisclosure>}
             {moneyTopic === 'debt' && (
               <>
@@ -4391,6 +4420,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
               editing={isProfileEditing || isFirstSessionSetup}
               saving={setupSaving}
               error={setupError}
+              onReviewLatest={setupConflict ? reviewLatestSetup : undefined}
               onBeginEdit={beginProfileEditing}
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
@@ -4408,7 +4438,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { void refreshDocumentImports({ quiet: true }) }}
+            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }) }}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -4453,7 +4483,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
             onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
-            onStatementSaved={() => { void refreshDocumentImports({ quiet: true }) }}
+            onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }) }}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
@@ -5308,7 +5338,7 @@ function DocumentImportHistory({
   const filteredImports = useMemo(() => {
     const query = search.trim().toLowerCase()
     return imports
-      .filter((documentImport) => statusFilter === 'all' || (statusFilter === 'needs_review' ? documentNeedsReview(documentImport) : documentImport.status === statusFilter))
+      .filter((documentImport) => statusFilter === 'all' || (statusFilter === 'needs_review' ? documentNeedsReview(documentImport) : statusFilter === 'applied' && documentImport.statement_review ? !documentNeedsReview(documentImport) && documentImport.statement_review.done > 0 : statusFilter === 'partially_applied' && documentImport.statement_review ? documentImport.statement_review.done > 0 && documentNeedsReview(documentImport) : documentImport.status === statusFilter))
       .filter((documentImport) => kindFilter === 'all' || documentImport.document_kind === kindFilter)
       .filter((documentImport) => {
         if (!query) return true
@@ -5319,7 +5349,7 @@ function DocumentImportHistory({
           documentImport.items.map((item) => `${item.label} ${item.evidence ?? ''} ${item.amount ?? ''} ${item.balance ?? ''} ${item.payment ?? ''}`).join(' '),
           documentImport.transaction_drafts.map((draft) => `${draft.merchant} ${draft.summary ?? ''}`).join(' '),
           documentKindLabel(documentImport.document_kind),
-          importStatusLabel(documentImport.status),
+          uploadStatusLabel(documentImport),
           importPeriodLabel(documentImport),
         ].join(' ').toLowerCase().includes(query)
       })
@@ -5355,13 +5385,13 @@ function DocumentImportHistory({
             <select value={statusFilter} onChange={(event) => { setStatusFilter(event.currentTarget.value as DocumentHistoryStatusFilter); setPage(0) }}>
               <option value="all">All statuses</option>
               <option value="needs_review">Needs review</option>
-              <option value="processing">Processing</option>
-              <option value="uploaded">Uploaded</option>
-              <option value="applied">Applied</option>
-              <option value="partially_applied">Partially applied</option>
+              <option value="processing">Reading</option>
+              <option value="uploaded">Waiting to read</option>
+              <option value="applied">Saved</option>
+              <option value="partially_applied">Some saved</option>
               <option value="nothing_applied">Nothing saved</option>
               <option value="failed">Failed</option>
-              <option value="source_deleted">Source deleted</option>
+              <option value="source_deleted">Original removed</option>
             </select>
           </label>
           <label>
@@ -5407,7 +5437,7 @@ function DocumentImportHistory({
                 className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
                 onClick={() => onSelectImport(documentImport.id)}
               >
-                <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
+                <span className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{uploadStatusLabel(documentImport)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
                 {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
                 <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
@@ -6278,11 +6308,6 @@ function hasPayStubSignal(name: string) {
   return /(^|[^a-z0-9])(pay[-_\s]?stub|pay[-_\s]?slip|payslip|earnings[-_\s]?statement|payroll)([^a-z0-9]|$)/.test(name)
 }
 
-function importStatusLabel(status: FinancialDocumentImport['status']) {
-  if (status === 'nothing_applied') return 'Nothing saved'
-  return titleize(status)
-}
-
 function importStatusTone(status: FinancialDocumentImport['status']) {
   if (status === 'applied') return 'green'
   if (status === 'partially_applied' || status === 'needs_review') return 'gold'
@@ -6304,8 +6329,8 @@ function importPeriodLabel(documentImport: FinancialDocumentImport) {
   if (start && end) return `${start} – ${end}`
   if (end) return `Through ${end}`
   if (documentDate) return documentDate
-  if (documentImport.applied_at) return `Applied ${shortDateTime(documentImport.applied_at)}`
-  if (documentImport.processed_at) return `Processed ${shortDateTime(documentImport.processed_at)}`
+  if (documentImport.applied_at) return `Saved ${shortDateTime(documentImport.applied_at)}`
+  if (documentImport.processed_at) return `Read ${shortDateTime(documentImport.processed_at)}`
 
   return 'Date pending'
 }
@@ -6545,6 +6570,7 @@ export function WorkspaceSetupForm({
   firstSession,
   personalOnly = false,
   monthPlan,
+  onReviewLatest,
   onBeginEdit,
   onCancel,
   onChange,
@@ -6558,6 +6584,7 @@ export function WorkspaceSetupForm({
   firstSession: boolean
   personalOnly?: boolean
   monthPlan?: { label: string; fixed: number; flexible: number } | null
+  onReviewLatest?: () => void
   onBeginEdit: () => void
   onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
@@ -6578,7 +6605,7 @@ export function WorkspaceSetupForm({
           {editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
-              <button type="submit" disabled={saving}>{saving ? 'Saving' : personalOnly ? 'Save details' : 'Save numbers'}</button>
+              <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : personalOnly ? 'Save details' : 'Save numbers'}</button>
             </>
           ) : (
             <button type="button" onClick={onBeginEdit}>Edit profile</button>
@@ -6638,9 +6665,10 @@ export function WorkspaceSetupForm({
       </details>}
 
       {error && <p className="setup-error" role="alert">{error}</p>}
+      {onReviewLatest && <Button variant="secondary" disabled={saving} onClick={onReviewLatest}>Review latest numbers</Button>}
       {/* After the fields, so keyboard and screen-reader order reach Save last. */}
       {firstSession && <div className="setup-form-actions setup-form-actions-end">
-        <button type="submit" disabled={saving}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
+        <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
       </div>}
     </form>
   )
