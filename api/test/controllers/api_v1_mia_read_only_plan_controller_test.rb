@@ -222,7 +222,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("mia_action_draft")
     assert_nil body.fetch("transaction_draft")
     assert_includes body.dig("assistant_message", "content"), "for #{next_month.strftime('%B %Y')}"
-    assert_includes body.dig("assistant_message", "content"), "Still to add:"
+    assert_includes body.dig("assistant_message", "content"), "plan is not set up yet"
     refute_includes body.dig("assistant_message", "content"), "safe-to-spend guardrail is $0"
     assert_equal 0, @household.budget_years.count
     assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count

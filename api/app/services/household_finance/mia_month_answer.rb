@@ -79,7 +79,7 @@ module HouseholdFinance
         snapshot = SnapshotBuilder.new(household, reference_date: Date.new(year, month, 1), ensure_plan: false).call
         readiness_known = income && planned && snapshot[:liquid_assets_known] && SetupStatus.new(household).complete?
         {
-          plan_starts_on: PlanCoverage.new(household).starts_on.iso8601, before_plan_start: before_start,
+          plan_available: approved, plan_starts_on: PlanCoverage.new(household).starts_on.iso8601, before_plan_start: before_start,
           main_income_missing: !income_known && !fields.include?("primary_income"),
           missing_plan_inputs: missing_plan_inputs(income, categories, debt),
           cushion_missing_inputs: cushion_missing_inputs(snapshot, income, categories, debt),
@@ -115,6 +115,8 @@ module HouseholdFinance
         end
         return [ "Your plan starts in #{start}, so #{facts[:period_label]} has no plan to compare against. #{spending}", review_next_step(facts, next_move: next_move) ].compact.join(" ")
       end
+
+      return "Your #{facts[:year]} plan is not set up yet, so I cannot show a plan comparison for #{facts[:period_label]}. Open Budget to set up that year’s plan when you are ready. Nothing has been created or saved." unless facts[:plan_available]
 
       left = facts[:plan_left_cents]
       plan_line = if left.nil?

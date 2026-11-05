@@ -9,6 +9,19 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "review one separately ranked merchants never inherit unrelated category names" do
+    travel_to Time.zone.local(2026, 11, 5, 12) do
+      dining = @household.budget_categories.create!(name: "Meals out", stack_key: "discretionary", sort_order: 2)
+      travel = @household.budget_categories.create!(name: "Trips", stack_key: "discretionary", sort_order: 3)
+      purchase(Date.new(2026, 10, 5), "Ross", 15000)
+      purchase(Date.new(2026, 10, 6), "Penny Cafe", 10000, category: dining)
+      purchase(Date.new(2026, 10, 7), "Island Flights", 5000, category: travel)
+      answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?", persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      refute_match(/spending stops? in /, answer)
+      assert_includes answer, "largest flexible spending categories"
+    end
+  end
+
   test "partial pattern coverage joins the merchant clause grammatically for one or several months" do
     travel_to Time.zone.local(2026, 11, 2, 12) do
       purchase(Date.new(2026, 10, 5), "Ross", 10_000)

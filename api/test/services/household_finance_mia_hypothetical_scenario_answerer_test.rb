@@ -59,9 +59,10 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
       reference_month: 1
     ).call
 
-    assert_includes result.body, "could not ground the requested timing"
-    assert_includes result.body, "did not apply the selected budget month"
-    assert_includes result.body, "was not saved"
+    assert_includes result.body, "Which month and year"
+    assert_includes result.body, "compare it with your plan"
+    assert_includes result.body, "Nothing changed"
+    refute_match(/purchase|Scenario only|ground the requested timing/, result.body)
   end
 
   private

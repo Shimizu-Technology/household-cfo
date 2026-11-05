@@ -103,7 +103,7 @@ class HouseholdFinanceMiaReadOnlyPlanAnswererTest < ActiveSupport::TestCase
     assert_equal before, financial_counts
     assert_equal "scenario_only", result.presentation.fetch(:basis)
     assert_equal [ "$1,000", "$1,200", "$500" ], result.presentation.dig(:scenario, :values).pluck(:display_value)
-    assert_equal 3, result.answer.scan(/Scenario only/).length
+    assert_equal 3, result.answer.scan(/For this possibility/).length
     assert_includes result.answer, "not saved or approved income"
     assert_includes result.answer, "not a saved bill"
     assert_includes result.answer, "not scheduled, paid, or deducted"

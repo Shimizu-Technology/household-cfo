@@ -27,18 +27,18 @@ module HouseholdFinance
       raise ArgumentError, "Scenario amount must be positive" unless amount_cents.positive?
 
       body = if timing_unavailable
-        "Scenario only — I could not ground the requested timing to a specific month, so I did not apply the selected budget month or model a dated impact. #{money(amount_cents)} remains unapproved and was not saved. Restate the month or date to compare it safely."
+        "Which month and year do you mean for this #{money(amount_cents)}? I need that date to compare it with your plan. Nothing changed."
       elsif scenario_type == "purchase"
         purchase_answer
       elsif setup_status.complete?
         if liquid_balance_required? && !AssetPortfolio.new(household).liquid_balance_known?
-          "Scenario only#{timing_phrase} — #{money(amount_cents)} is not saved or approved. I cannot model safe-to-spend or runway because the liquid account picture is incomplete. Add at least one checking, savings, or emergency-fund account and enter every active liquid balance, then ask again."
+          "For this possibility#{timing_phrase}, #{money(amount_cents)} is not saved or approved. I cannot model safe-to-spend or runway because your account balances are not known yet. Add at least one checking, savings, or emergency-fund account and enter every active liquid balance, then ask again."
         else
           send("#{scenario_type}_answer")
         end
       else
         missing = setup_status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
-        "Scenario only#{timing_phrase} — #{money(amount_cents)} is not saved or approved. I cannot model it against readiness until the starting picture is confirmed. Complete these setup details first: #{missing}."
+        "For this possibility#{timing_phrase}, #{money(amount_cents)} is not saved or approved. I cannot model it against readiness until the starting picture is confirmed. Complete these setup details first: #{missing}."
       end
 
       Result.new(
@@ -57,13 +57,15 @@ module HouseholdFinance
       manager = date.year == annual_budget_manager.year ? annual_budget_manager : AnnualBudgetManager.new(household, year: date.year)
       facts = MiaMonthAnswer.new(household, annual_plan: manager.read_only_plan_data, month: date.month).call
       return "Your plan starts in #{Date.iso8601(facts[:plan_starts_on]).strftime('%B %Y')}, so #{facts[:period_label]} has no plan to compare the #{money(amount_cents)} purchase against. Which month are you considering it for?" if facts[:before_plan_start]
+      return "Your #{date.year} plan is not set up yet, so I cannot compare this purchase for #{facts[:period_label]}. Open Budget to set up that year’s plan when you are ready. Nothing has been created or saved." unless facts[:plan_available]
       left = facts[:plan_left_cents]
       return "I cannot compare the #{money(amount_cents)} purchase for #{facts[:period_label]} with your plan yet. Still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}. Can you add those in My Money before we work through this purchase?" if left.nil?
 
       remaining = left - amount_cents
       comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
-      named_item = label == TITLES.fetch("purchase") ? "" : " for #{label}"
-      "The #{money(amount_cents)} purchase #{comparison} if it is extra spending; your #{facts[:period_label]} plan leaves #{money(left)} before it. That is a plan figure#{named_item}, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      item = label == TITLES.fetch("purchase") ? "" : " of the #{label}"
+      before = left.negative? ? "is short by #{money(left.abs)}" : "leaves #{money(left)}"
+      "The #{money(amount_cents)} purchase#{item} #{comparison} if it is extra spending; your #{facts[:period_label]} plan #{before} before it. That is a plan figure, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the
@@ -75,7 +77,7 @@ module HouseholdFinance
     end
 
     def one_time_income_answer
-      "Scenario only#{timing_phrase} — #{label} at #{money(amount_cents)} is not saved or approved income. It would be one-time money, so recurring monthly income remains #{money(snapshot.fetch(:monthly_income_cents))} and readiness does not automatically change. Protect due essentials and expected bills first, then compare the remainder with the gap to the Yellow runway threshold of #{money(yellow_runway_gap_cents)} before considering extra debt or wants."
+      "For this possibility#{timing_phrase}, #{label} at #{money(amount_cents)} is not saved or approved income. It would be one-time money, so recurring monthly income remains #{money(snapshot.fetch(:monthly_income_cents))} and readiness does not automatically change. Protect due essentials and expected bills first, then compare the remainder with the gap to the Yellow runway threshold of #{money(yellow_runway_gap_cents)} before considering extra debt or wants."
     end
 
     def essential_expense_answer
@@ -85,14 +87,14 @@ module HouseholdFinance
       else
         "on top of a #{money(surplus.abs)} monthly shortfall in"
       end
-      "Scenario only#{timing_phrase} — #{label} at #{money(amount_cents)} is not a saved bill, approved purchase, or transaction. As an essential medical or household bill, it would rank ahead of wants and sits #{comparison} the approved monthly baseline. I cannot calculate an exact runway or account impact until you name the funding account, due date, and any payment plan."
+      "For this possibility#{timing_phrase}, #{label} at #{money(amount_cents)} is not a saved bill, approved purchase, or transaction. As an essential medical or household bill, it would rank ahead of wants and sits #{comparison} the approved monthly baseline. I cannot calculate an exact runway or account impact until you name the funding account, due date, and any payment plan."
     end
 
     def extra_debt_payment_answer
       surplus = [ snapshot.fetch(:baseline_surplus_cents), 0 ].max
       remaining = surplus - amount_cents
       comparison = remaining.negative? ? "exceed the approved baseline surplus by #{money(remaining.abs)}" : "leave #{money(remaining)} of approved baseline surplus"
-      "Scenario only#{timing_phrase} — the #{money(amount_cents)} extra debt payment is not scheduled, paid, or deducted from the saved debt balance. After protected minimums, it would #{comparison}. Keep expected bills and runway protected before approving extra principal."
+      "For this possibility#{timing_phrase}, the #{money(amount_cents)} extra debt payment is not scheduled, paid, or deducted from the saved debt balance. After protected minimums, it would #{comparison}. Keep expected bills and runway protected before approving extra principal."
     end
 
     def snapshot

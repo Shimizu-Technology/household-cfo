@@ -714,7 +714,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:liquid_assets_known)
         return {
-          title: "Finish the liquid account picture before making a cash-flow call.",
+          title: "Add account balances to see what cash is available.",
           body: readiness_unavailable_reason
         }
       end

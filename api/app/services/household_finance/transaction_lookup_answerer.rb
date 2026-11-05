@@ -197,7 +197,7 @@ module HouseholdFinance
         not_spending_line(not_spending),
         recent_outflow_line(outflows),
         top_bank_merchants_line(outflows),
-        "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
+        confirmed.exists? ? "From bank purchases you approved, spending totals #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}." : "Spending from approved bank purchases is not known yet.",
         "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
         "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
       ].compact.join("\n\n")

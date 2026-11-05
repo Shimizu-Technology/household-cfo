@@ -12,6 +12,9 @@ module HouseholdFinance
         def normalize(input)
           occurred_on = parsed_date(input[:occurred_on])
           merchant = bounded_text(input[:merchant], 120)
+          household.budget_categories.active.each do |category|
+            merchant = merchant.sub(/\s+for\s+#{Regexp.escape(category.name)}\z/i, "")
+          end
           raise ArgumentError, "Transaction merchant is required" if merchant.blank?
 
           total_cents = if input.key?(:amount_cents)
@@ -91,11 +94,18 @@ module HouseholdFinance
           draft_snapshot(draft.reload)
         end
 
+        def explicit_category_name(text)
+          matches = household.budget_categories.active.select do |category|
+            text.to_s.match?(/\bfor\s+#{Regexp.escape(category.name)}(?=\s+(?:today|yesterday|on)\b|[.!?]|\z)/i)
+          end
+          matches.one? ? matches.first.name : nil
+        end
+
         def suggested_category(merchant, input)
           suggester = TransactionCategorySuggester.new(household)
           suggestion = suggester.suggest(
             merchant: merchant,
-            category_name: input[:category_name],
+            category_name: input[:category_name].presence || explicit_category_name(input[:category_context]),
             stack_key: input[:stack_key],
             text: input[:category_context],
             confidence: BigDecimal("0.90")

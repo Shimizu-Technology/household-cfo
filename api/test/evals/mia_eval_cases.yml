@@ -11,8 +11,8 @@ cases:
     route: controller
     prompt: Can I buy concert tickets?
     expected_phrases:
-      - safe-to-spend
-      - Next CFO move
+      - What does the item cost
+      - which month
     forbidden_phrases:
       - I approved
       - go buy

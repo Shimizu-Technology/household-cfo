@@ -97,7 +97,7 @@ module HouseholdFinance
         reference_month: reference_month,
         conversation_messages: conversation_messages,
         ensure_plan: false
-      ).call
+      ).call.presence || "You also asked: #{question.to_s.truncate(300)} I need a little more information to answer that part. Could you tell me more?"
     end
 
     def answer_budget_question(question)
