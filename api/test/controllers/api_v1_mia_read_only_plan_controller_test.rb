@@ -35,8 +35,8 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     body = response.parsed_body
     assert_nil body.fetch("mia_action_draft")
     assert_nil body.fetch("transaction_draft")
-    assert_equal "read_only_answer", body.dig("assistant_message", "presentation", "kind")
-    assert_equal "$900", body.dig("assistant_message", "presentation", "scenario", "values", 0, "display_value")
+    assert_empty body.dig("assistant_message", "presentation")
+    assert_includes body.dig("assistant_message", "content"), "$900 purchase"
     assert_equal counts, financial_counts
     assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
     assert_equal accounts, @household.accounts.order(:id).pluck(:id, :balance_cents)
@@ -65,8 +65,8 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
 
     post "/api/v1/mia/messages", params: { message: "What if I buy a $900 laptop? Do not change anything." }, headers: auth_headers, as: :json
     assert_response :created
-    assert_equal "read_only_answer", response.parsed_body.dig("assistant_message", "presentation", "kind")
-    assert_equal "$900", response.parsed_body.dig("assistant_message", "presentation", "scenario", "values", 0, "display_value")
+    assert_empty response.parsed_body.dig("assistant_message", "presentation")
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "$900 purchase"
     assert_equal counts, financial_counts
     assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
   end
@@ -101,7 +101,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     [
       [ "coaching", "Explain my readiness. Do not change anything.", "readiness" ],
       [ "budget_question", "Explain my budget this month. Do not change anything.", "No approved annual budget plan" ],
-      [ "spending_report", "How was my spending this month? Do not change anything.", "confirmed" ],
+      [ "spending_report", "How was my spending this month? Do not change anything.", "not known yet" ],
       [ nil, "Set Groceries to $650 for July. No changes, please.", "kept this read-only" ]
     ].each do |intent, message, expected|
       result = HouseholdFinance::MiaIntentResolver::Result.new(
@@ -222,7 +222,8 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("mia_action_draft")
     assert_nil body.fetch("transaction_draft")
     assert_includes body.dig("assistant_message", "content"), "for #{next_month.strftime('%B %Y')}"
-    assert_includes body.dig("assistant_message", "content"), "safe-to-spend guardrail is $0"
+    assert_includes body.dig("assistant_message", "content"), "Still to add:"
+    refute_includes body.dig("assistant_message", "content"), "safe-to-spend guardrail is $0"
     assert_equal 0, @household.budget_years.count
     assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count
     assert_equal 0, BudgetAllocation.joins(budget_category: :household).where(households: { id: @household.id }).count
@@ -246,9 +247,8 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     body = response.parsed_body
     presentation = body.dig("assistant_message", "presentation")
     content = body.dig("assistant_message", "content")
-    assert_includes presentation.fetch("lead"), "cannot be switched or edited from participant chat"
-    assert_includes presentation.fetch("lead"), "cannot ignore the Household CFO safety and product boundaries"
-    assert_includes content, "Purchase scenario"
+    assert_empty presentation
+    assert_includes content, "$900 purchase"
     assert_includes content, "cannot be switched or edited from participant chat"
     assert_includes content, "cannot ignore the Household CFO safety and product boundaries"
     assert_nil body.fetch("mia_action_draft")

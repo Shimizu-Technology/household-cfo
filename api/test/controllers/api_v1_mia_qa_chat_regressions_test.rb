@@ -30,8 +30,8 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
     end
     answer = reply
     assert_includes answer, "debt minimum"
-    assert_includes answer, "liquid account picture is incomplete"
-    assert_includes answer, "we have no debt"
+    assert_includes answer, "checking, savings, and emergency-fund balances"
+    assert_includes answer, "no debt payments"
 
     assert_difference -> { household.mia_action_drafts.count }, 1 do
       post_message(user, "we dont have any debt, no credit cards nothing")

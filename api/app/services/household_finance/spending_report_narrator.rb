@@ -49,9 +49,10 @@ module HouseholdFinance
       spending = if report[:actual_known] == false
         "Approved spending for #{report.fetch(:period_label)} is not known yet."
       else
-        "From your approved statement lines, you spent #{money(totals.fetch(:actual))} in #{report.fetch(:period_label)}."
+        "From your approved purchases, you spent #{money(totals.fetch(:actual))} in #{report.fetch(:period_label)}."
       end
-      "Your plan starts in #{start}, so #{report.fetch(:period_label)} has no plan to compare against. #{spending}"
+      details = merchant_focus_answer || category_focus_answer(report.fetch(:categories)) || recent_transaction_line unless report[:actual_known] == false
+      [ "Your plan starts in #{start}, so #{report.fetch(:period_label)} has no plan to compare against. #{spending}", details ].compact.join("\n\n")
     end
 
     def budget_status_question?
@@ -64,7 +65,7 @@ module HouseholdFinance
 
     def category_status_answer(categories, totals)
       unless plan_available?
-        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot label categories over or under plan. Confirmed actuals are #{money(totals.fetch(:actual))}; pending drafts remain separate."
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot label categories over or under plan. Confirmed actuals are #{money(totals.fetch(:actual))}; purchases waiting for review remain separate."
       end
 
       over_categories = categories.select { |category| category.fetch(:actual).to_f > category.fetch(:planned).to_f }
@@ -75,7 +76,7 @@ module HouseholdFinance
           "Confirmed actuals are #{money(totals.fetch(:actual))} against #{planned_phrase(totals.fetch(:planned))}.",
           pace_note,
           pending_line,
-          "Next CFO move: review pending drafts before treating the remaining plan as safe-to-spend."
+          "Next CFO move: check purchases waiting for review before treating the remaining plan as safe-to-spend."
         ].compact.join("\n\n")
       end
 
@@ -93,7 +94,7 @@ module HouseholdFinance
 
     def budget_status_answer(totals, top_line)
       unless plan_available?
-        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot say whether the household was within budget. Confirmed actuals are #{money(totals.fetch(:actual))}, and pending drafts total #{money(totals.fetch(:pending))}."
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot say whether the household was within budget. Confirmed actuals are #{money(totals.fetch(:actual))}, and purchases waiting for review total #{money(totals.fetch(:pending))}."
       end
 
       planned = totals.fetch(:planned).to_f

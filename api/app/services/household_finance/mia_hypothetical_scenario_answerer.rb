@@ -58,11 +58,12 @@ module HouseholdFinance
       facts = MiaMonthAnswer.new(household, annual_plan: manager.read_only_plan_data, month: date.month).call
       return "Your plan starts in #{Date.iso8601(facts[:plan_starts_on]).strftime('%B %Y')}, so #{facts[:period_label]} has no plan to compare the #{money(amount_cents)} purchase against. Which month are you considering it for?" if facts[:before_plan_start]
       left = facts[:plan_left_cents]
-      return "I cannot compare the #{money(amount_cents)} purchase with your plan yet. Still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}. Can you add those in My Money before we work through this purchase?" if left.nil?
+      return "I cannot compare the #{money(amount_cents)} purchase for #{facts[:period_label]} with your plan yet. Still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}. Can you add those in My Money before we work through this purchase?" if left.nil?
 
       remaining = left - amount_cents
       comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
-      "The #{money(amount_cents)} purchase #{comparison} if it is extra spending; your #{facts[:period_label]} plan leaves #{money(left)} before it. That is a plan figure, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      named_item = label == TITLES.fetch("purchase") ? "" : " for #{label}"
+      "The #{money(amount_cents)} purchase #{comparison} if it is extra spending; your #{facts[:period_label]} plan leaves #{money(left)} before it. That is a plan figure#{named_item}, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the

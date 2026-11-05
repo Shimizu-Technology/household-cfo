@@ -18,7 +18,7 @@ module HouseholdFinance
 
       drafts = pending_drafts
       if drafts.empty?
-        return "No pending transaction drafts are waiting right now. Based on confirmed transactions only, nothing pending is counted as actuals. Next CFO move: keep logging spending before it turns into a mystery, then confirm only the drafts that match real money movement."
+        return "No purchases are waiting for review right now. Keep adding your purchases, then confirm the ones that match what you spent."
       end
 
       total_cents = drafts.sum(&:total_amount_cents)
@@ -26,13 +26,13 @@ module HouseholdFinance
         category = draft.budget_category&.name || "Uncategorized"
         "#{draft.merchant} #{money(draft.total_amount_cents)} in #{category}"
       end.to_sentence
-      more_line = drafts.length > 5 ? " There are #{drafts.length - 5} more pending drafts after those." : ""
+      more_line = drafts.length > 5 ? " There are #{drafts.length - 5} more purchases waiting for review after those." : ""
       prefix = if message.match?(/pretend\s+pending/i)
-        "No — I will not pretend pending drafts are confirmed actuals."
+        "No — purchases waiting for review are not counted as spending."
       elsif message.match?(/counted|count\s+as\s+actuals?|actuals?/i)
-        "No — pending drafts are not counted in actuals."
+        "No — purchases waiting for review are not counted as spending."
       else
-        "You have #{drafts.length} pending transaction #{'draft'.pluralize(drafts.length)} waiting for review."
+        "You have #{drafts.length} #{'purchase'.pluralize(drafts.length)} waiting for review."
       end
 
       "#{prefix} Purchases waiting for review total #{money(total_cents)} and do not count in your spending until you confirm them. Waiting for review: #{preview}.#{more_line} Check the merchant, amount, date, and category; confirm what is right and correct or leave out the rest."

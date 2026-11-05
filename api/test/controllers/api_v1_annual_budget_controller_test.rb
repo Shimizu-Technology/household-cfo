@@ -686,7 +686,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     messages = JSON.parse(response.body).fetch("workspace").fetch("mia").fetch("messages")
-    assert_includes messages.last.fetch("content"), "Confirmed McDonald's for $25"
+    assert_includes messages.last.fetch("content"), "Saved McDonald's for $25"
   end
 
   test "confirm treats null transaction draft wrapper as no corrections" do
@@ -1093,9 +1093,9 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       body = JSON.parse(response.body)
       content = body.fetch("assistant_message").fetch("content")
       assert_equal 2026, body.fetch("budget").fetch("annual_plan").fetch("year")
-      assert_includes content, "Dec 2026"
-      assert_includes content, "Dining Out $175 planned"
-      refute_includes content, "Jan 2027"
+      assert_includes content, "December 2026"
+      assert_includes content, "no plan to compare against"
+      refute_includes content, "$175"
     end
   end
 
@@ -1121,7 +1121,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     body = JSON.parse(response.body)
-    assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
+    assert_includes body.fetch("assistant_message").fetch("content"), "you spent $45"
     assert_equal 45, body.fetch("spending_report").fetch("totals").fetch("actual")
   end
 
@@ -1150,8 +1150,10 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_equal Date.current.beginning_of_year.iso8601, body.fetch("spending_report").fetch("start_on")
     assert_equal Date.current.iso8601, body.fetch("spending_report").fetch("end_on")
-    assert_includes body.fetch("assistant_message").fetch("content"), "For #{Date.current.year} year to date"
-    assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
+    content = body.fetch("assistant_message").fetch("content")
+    assert_includes content, "#{Date.current.year} year to date"
+    assert_includes content, "you spent $45"
+    assert_includes content, "no plan to compare against"
   end
 
   test "mia creates a readiness plan instead of treating plan language as merchant lookup" do
@@ -1277,6 +1279,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
+    confirm_setup_for_test(user)
+
     assert_no_difference("TransactionDraft.count") do
       post "/api/v1/mia/messages",
         params: { message: "They cost $85 and are for my kid's basketball league. Does that change the answer?" },
@@ -1286,9 +1290,9 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "family need or commitment"
-    assert_includes content, "pre-spend CFO decision"
-    assert_includes content, "money has not left yet"
+    assert_includes content, "The $85 purchase"
+    assert_includes content, "plan figure"
+    assert_includes content, "Which account and spending category"
     refute_includes content.downcase, "confirm the draft"
 
     assert_no_difference("TransactionDraft.count") do
@@ -1300,8 +1304,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     school_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes school_content, "family need or commitment"
-    assert_includes school_content, "pre-spend CFO decision"
+    assert_includes school_content, "The $120 purchase"
+    assert_includes school_content, "plan figure"
     refute_includes school_content.downcase, "confirm the draft"
   end
 
@@ -1524,8 +1528,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "pending transaction draft"
-    assert_includes content, "not counted as actuals until you confirm"
+    assert_includes content, "purchase waiting for review"
+    assert_includes content, "do not count in your spending until you confirm"
     assert_includes content, "McDonald's"
   end
 
@@ -1548,8 +1552,8 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "will not pretend pending drafts are confirmed actuals"
-    assert_includes content, "not counted as actuals until you confirm"
+    assert_includes content, "purchases waiting for review are not counted as spending"
+    assert_includes content, "do not count in your spending until you confirm"
   end
 
   test "mia answers category over plan questions as spending reports" do

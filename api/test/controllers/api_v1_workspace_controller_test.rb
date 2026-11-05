@@ -179,7 +179,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
     assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
-    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
+    assert_equal({ "setup_complete" => false }, setup_audit.metadata)
   end
 
   test "manual setup uses typed household operations and replays one idempotent request" do
@@ -888,8 +888,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "pause on the $500 purse for now"
-    assert_includes content, "funded flexible category"
+    assert_includes content, "The $500 purchase"
+    assert_includes content, "plan figure"
+    assert_includes content, "You decide"
     refute_match(/guam|chamorro|chelu|lanya|island/i, content)
 
     get "/api/v1/mia/messages", headers: auth_headers(user)

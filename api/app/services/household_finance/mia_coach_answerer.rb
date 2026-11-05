@@ -184,14 +184,8 @@ module HouseholdFinance
       priority = priority_answer
       return priority if priority
       return nil if transaction_report?
-      if purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one? && !normalized_message.match?(CAR_REGISTRATION_PATTERN) && !normalized_message.match?(DEBT_TERM_PATTERN) && !normalized_message.match?(INVESTMENT_PATTERN)
-        return incomplete_setup_answer unless SetupStatus.new(household).complete?
-        return unavailable_plan_answer unless plan_available?
-        return MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: purchase_item,
-          annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
-      end
 
-      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
+      avoidance_answer || savings_timeline_answer || mixed_movement_answer || savings_deposit_answer || repeated_pattern_answer || guardrail_answer || savings_goal_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || category_plan_question_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || purchase_plan_answer || purse_decision_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_month_answer
@@ -281,23 +275,21 @@ module HouseholdFinance
       status = setup_status
       return if status.complete?
       return unless setup_dependent_coaching_request?
+      return incomplete_debt_minimums_answer if status.missing_field_keys == [ "debt_payment" ]
 
       missing = status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
       "I still need #{missing.downcase} before helping you decide what to spend. Tell me what you know and I’ll prepare it for review, or choose Enter my numbers. Use 0 only when an amount does not apply. No financial decision was made and no numbers changed."
     end
 
     def incomplete_debt_minimums_answer
-      return unless setup_status.complete?
+      return unless setup_status.complete? || setup_status.missing_field_keys == [ "debt_payment" ]
       return unless setup_dependent_coaching_request?
       return if DebtPortfolio.new(household).minimum_payment_known?
 
-      # Name every remaining gap at once so finishing one step never reveals a
-      # surprise second gate.
       liquid_missing = !AssetPortfolio.new(household).liquid_balance_known?
-      gaps = liquid_missing ? "at least one required monthly debt minimum is not entered and the liquid account picture is incomplete" : "at least one required monthly debt minimum is not entered"
-      missing = liquid_missing ? "minimum or balance" : "minimum"
-      account_step = liquid_missing ? " Then add at least one checking, savings, or emergency-fund account with its current balance." : ""
-      "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because #{gaps}. I will not treat a missing #{missing} as $0. Next step: add every minimum under My Profile, or if no debt payments are due, tell me “we have no debt” and I will prepare a $0 debt summary for your review.#{account_step} No financial decision was made and no numbers changed."
+      missing = liquid_missing ? "debt minimums and checking, savings, and emergency-fund balances" : "debt minimums"
+      account_step = liquid_missing ? " Add your account balances in My Money, under Accounts." : ""
+      "Still to add: #{missing}. I cannot judge your emergency cushion or available cash from missing numbers.#{account_step} #{MiaSetupGuide.question_message('debt_payment')}"
     end
 
     def confirmed_debt_free_answer
@@ -663,7 +655,7 @@ module HouseholdFinance
       end
 
       if normalized_message.match?(/fridge|appliance|home repair/i)
-        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and pending drafts are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+        return "A likely fridge or home repair belongs in a surprise fund until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and purchases waiting for review are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
       end
 
       if normalized_message.match?(/insurance renewal|renewal/i)
@@ -848,7 +840,7 @@ module HouseholdFinance
         "Yellow runway is covered; keep building toward the green gap of #{money(green_gap)} without stealing from expected bills."
       end
 
-      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, review pending drafts, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
+      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, check purchases waiting for review, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
     end
 
     def green_readiness_plan(surplus_cents, transfer_cents, green_gap)
@@ -909,7 +901,7 @@ module HouseholdFinance
         "Use this as a tradeoff test before any cash leaves."
       end
 
-      "Cutting #{target_label} is the right kind of tradeoff to test for family support, but it is not an automatic yes. Based on your active annual plan for #{month_label(plan, month_index)}, #{target_label} has #{money(planned_cents)} planned and #{money(remaining_cents)} remaining; pending drafts are not counted as actuals. #{amount_line} #{coverage_line} Next CFO move: choose the exact one-time amount and write down what #{target_label} pauses this month before promising help."
+      "Cutting #{target_label} is the right kind of tradeoff to test for family support, but it is not an automatic yes. Based on your active annual plan for #{month_label(plan, month_index)}, #{target_label} has #{money(planned_cents)} planned and #{money(remaining_cents)} remaining; purchases waiting for review are not counted as actuals. #{amount_line} #{coverage_line} Next CFO move: choose the exact one-time amount and write down what #{target_label} pauses this month before promising help."
     end
 
     def lending_answer
@@ -1088,6 +1080,17 @@ module HouseholdFinance
         message.match(/\b#{item}(?:\s+(?:at|from)\s+[\p{L}][\p{L} &’'-]{0,60}?)?\s+(?:for|costs?|priced at|is)\s*#{amount}/i) ||
         message.match(/\b(?:buy|buying|purchase|purchasing)\s+(?:it|one)\s+for\s*#{amount}/i)
       Money.chat_cents(match[1]) if match
+    end
+
+    def purchase_plan_answer
+      return unless purchase_question? && amount_from_message_cents&.positive? && message.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one?
+      return if normalized_message.match?(/\b(?:checking|savings|balances?|accounts?|income|salary|paycheck|bonuses?)\b/i)
+      return incomplete_setup_answer unless SetupStatus.new(household).complete?
+      return unavailable_plan_answer unless plan_available?
+
+      item = normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) ? "purse" : purchase_item
+      MiaHypotheticalScenarioAnswerer.new(household, scenario_type: "purchase", amount: Money.dollars(amount_from_message_cents), label: item,
+        annual_budget_manager: annual_budget_manager || AnnualBudgetManager.new(household), reference_month: reference_month).call.body
     end
 
     def purse_decision_answer

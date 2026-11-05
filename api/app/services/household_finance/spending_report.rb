@@ -54,9 +54,10 @@ module HouseholdFinance
     attr_reader :household, :start_on, :end_on, :ensure_plans
 
     def ensure_plans!
-      return if end_on < PlanCoverage.new(household).starts_on
+      coverage_start = PlanCoverage.new(household).starts_on
+      return if end_on < coverage_start
 
-      missing_years = (start_on.year..end_on.year).reject { |year| report_plan_ready?(year) }
+      missing_years = ([ start_on.year, coverage_start.year ].max..end_on.year).reject { |year| report_plan_ready?(year) }
       return if missing_years.empty?
 
       household.with_lock do

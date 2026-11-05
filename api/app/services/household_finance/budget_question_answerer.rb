@@ -118,7 +118,7 @@ module HouseholdFinance
       largest = largest_planned_row
       largest_line = largest ? " Your largest planned category is #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
 
-      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(total_outflow)}: #{money(planned)} in planned categories plus #{money(debt_minimums)} in required debt minimums. That leaves a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before pending drafts. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any pending drafts before changing the plan."
+      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(total_outflow)}: #{money(planned)} in planned categories plus #{money(debt_minimums)} in required debt minimums. That leaves a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before purchases waiting for review. Purchases waiting for review total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any purchases waiting for review before changing the plan."
     end
 
     def category_breakdown_answer
@@ -133,7 +133,7 @@ module HouseholdFinance
       end
 
       pending = pending_total
-      "Here is the active #{month_label} budget by category, separating planned dollars from confirmed actuals: #{sections.join('. ')}. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. Next CFO move: compare the largest remaining category against what still needs to happen this month before approving new wants."
+      "Here is the active #{month_label} budget by category, separating planned dollars from confirmed actuals: #{sections.join('. ')}. Purchases waiting for review total #{money(pending)} and are not counted as actuals until you confirm them. Next CFO move: compare the largest remaining category against what still needs to happen this month before approving new wants."
     end
 
     def largest_category_answer
@@ -164,7 +164,7 @@ module HouseholdFinance
       end
       largest_line = largest ? " Largest planned line: #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
 
-      "For #{month_label}, confirmed actuals are #{money(actual)} against #{money(planned)} planned, so #{remaining_phrase(remaining)}. Pending transaction drafts total #{money(pending)} and are waiting for approval, not counted as actuals.#{over_line}#{largest_line} Next CFO move: review pending drafts first, then decide whether the largest planned line needs a one-month adjustment."
+      "For #{month_label}, confirmed actuals are #{money(actual)} against #{money(planned)} planned, so #{remaining_phrase(remaining)}. Purchases waiting for review total #{money(pending)} and are waiting for approval, not counted as actuals.#{over_line}#{largest_line} Next CFO move: check purchases waiting for review first, then decide whether the largest planned line needs a one-month adjustment."
     end
 
     def summary_line(discretionary_rows, selected_rows, focused: false)
@@ -192,7 +192,7 @@ module HouseholdFinance
       base = "Archived categories stay out of this active budget view unless you restore them."
       return base if pending.zero?
 
-      "#{money(pending)} is still pending review for these categories; I am not counting pending drafts as actuals until you confirm them. #{base}"
+      "#{money(pending)} is still pending review for these categories; I am not counting purchases waiting for review as actuals until you confirm them. #{base}"
     end
 
     def stack_totals_sentence

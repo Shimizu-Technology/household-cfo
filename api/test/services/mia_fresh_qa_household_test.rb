@@ -36,10 +36,18 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
     result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: "300", label: "Stroller", annual_budget_manager: @manager, reference_month: 11).call
     assert_match(/\A.*\$300.*\$1,405/, result.body)
     assert_includes result.body, "$1,105"
+    assert_includes result.body, "Stroller"
     assert_includes result.body, "plan"
     assert_match(/cash|account balance/, result.body)
     assert_equal 1, result.body.count("?")
     refute_match(/liquid account picture|unapproved|Plaid|safe-to-spend/, result.body)
+  end
+
+  test "M4 mixed year reports do not create a plan for years before the household joined" do
+    refute @household.budget_years.exists?(year: 2025)
+    report = HouseholdFinance::SpendingReport.new(@household, start_on: Date.new(2025, 12, 1), end_on: Date.new(2026, 11, 30)).as_json
+    refute report[:plan_available]
+    refute @household.budget_years.exists?(year: 2025)
   end
 
   test "M6 skipped meals get food support and a coach next step rather than a bill question" do

@@ -24,7 +24,7 @@ cases:
     expected_phrases:
       - Jul 1, 2026
       - confirmed spending
-      - Pending drafts waiting
+      - Purchases waiting for your review
     forbidden_phrases:
       - June 2026
       - McDonald's is pending
@@ -37,7 +37,7 @@ cases:
       - Netlify
       - $20
     forbidden_phrases:
-      - July 2026
+      - against $0 planned
       - pending McDonald's
 
   - id: manual_spend_creates_draft
@@ -58,8 +58,8 @@ cases:
       - I spent $25 at McDonald's.
       - Actually ignore that.
     expected_phrases:
-      - Pending drafts total
-      - not counted as actuals
+      - Purchases waiting for review total
+      - do not count in your spending
     forbidden_phrases:
       - ignored the draft
       - deleted the draft
@@ -72,7 +72,7 @@ cases:
       - Did that count as actuals?
     expected_phrases:
       - "No"
-      - not counted in actuals
+      - not counted as spending
       - until you confirm
     forbidden_phrases:
       - actuals changed
@@ -94,7 +94,7 @@ cases:
     prompt: Am I over budget?
     expected_phrases:
       - confirmed transactions
-      - pending
+      - Provisional outflows
       - actual
     forbidden_phrases:
       - pending drafts are actuals
@@ -125,9 +125,9 @@ cases:
     route: controller
     prompt: What's pending?
     expected_phrases:
-      - pending transaction draft
+      - purchase waiting for review
       - waiting for review
-      - not counted as actuals
+      - do not count in your spending
     forbidden_phrases:
       - confirmed spending
       - actuals changed
@@ -483,7 +483,7 @@ cases:
     route: controller
     prompt: Can I afford a $5k car?
     expected_phrases:
-      - the purchase is $5,000
+      - $5,000 purchase
     forbidden_phrases:
       - "/purchase is \\$5(?![,\\d])/"
 
@@ -526,17 +526,17 @@ cases:
     route: controller
     prompt: We ran out of food and payday is Friday
     expected_phrases:
-      - Food comes first
-      - It is okay to ask for help this week
-      - local food pantry
-      - Next CFO move
+      - food
+      - talk with your coach
+      - local food help
+      - today
     forbidden_phrases:
       - Start with the bill that protects the household baseline first
       - enough approved data to answer that as a fact
       - Please do not skip food
     live_expected:
       - [food, groceries, eat]
-      - [help, pantry, program team]
+      - [help, coach, trusted person]
     live_forbidden:
       - enough approved data to answer that as a fact
       - you should have
@@ -546,8 +546,8 @@ cases:
     route: controller
     prompt: My kids are skipping meals because we have no money
     expected_phrases:
-      - Food comes first
-      - local food pantry
+      - food
+      - local food help
     forbidden_phrases:
       - Please do not skip food
       - noticing a pattern

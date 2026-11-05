@@ -35,7 +35,7 @@ module HouseholdFinance
         additional_confirmed_fields
       ).select { |field| field.in?(SetupUpdater::INPUT_KEYS.map(&:to_s)) }
         .select { |field| confirmed_value_present?(field) }
-        .then { |fields| DebtPortfolio.new(household).minimum_payment_known? ? fields | [ "debt_payment" ] : fields - [ "debt_payment" ] }
+        .then { |fields| debt_minimum_known? ? fields | [ "debt_payment" ] : fields - [ "debt_payment" ] }
         .uniq
     end
 
@@ -64,6 +64,13 @@ module HouseholdFinance
     private
 
     attr_reader :household, :additional_confirmed_fields, :proposed_values
+
+    def debt_minimum_known?
+      return DebtPortfolio.new(household).minimum_payment_known? if household.household_profile
+
+      debts = household.association(:debts).loaded? ? household.debts.select(&:active?) : household.debts.active.to_a
+      debts.any? && debts.all?(&:minimum_payment_known?)
+    end
 
     def confirmed_value_present?(field)
       value = proposed_values.fetch(field) do

@@ -11,6 +11,14 @@ class HouseholdFinanceSetupStatusTest < ActiveSupport::TestCase
     @household = Household.create!(created_by_user: @user, name: "Setup status household")
   end
 
+  test "reading setup status does not create a missing household profile" do
+    @household.household_profile.destroy!
+    @household.reload
+    assert_no_difference "HouseholdProfile.count" do
+      assert_includes HouseholdFinance::SetupStatus.new(@household).missing_field_keys, "debt_payment"
+    end
+  end
+
   test "does not expose readiness when expense essentials were never confirmed" do
     @household.update!(
       primary_goal: "Build a six-month emergency fund",

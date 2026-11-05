@@ -92,8 +92,8 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "My friend asked for help off-island", [ "family support", "baseline" ] ],
       [ "Can I buy concert tickets?", [ "safe-to-spend", "Next CFO move" ] ],
       [ "Can we book a staycation next month?", [ "active discretionary plan", "Next CFO move" ] ],
-      [ "I want to buy shoes for $120", [ "pre-spend CFO decision", "$120" ] ],
-      [ "The school supplies cost $85. Does that change the decision?", [ "family need or commitment", "$85" ] ],
+      [ "I want to buy shoes for $120", [ "plan figure", "$120" ] ],
+      [ "The school supplies cost $85. Does that change the decision?", [ "plan figure", "$85" ] ],
       [ "Can I get concert tickets right now?", [ "safe-to-spend", "30-day" ] ],
       [ "If I buy a $1,800 laptop today, what exactly happens to my runway?", [ "cannot calculate the exact runway impact", "which account" ] ],
       [ "Should we order takeout today?", [ "safe-to-spend", "active discretionary plan" ] ],
@@ -107,7 +107,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Can I pause unexpected sinking fund this month?", [ "pause", "unexpected sinking fund" ] ],
       [ "Where do insurance renewal costs belong?", [ "Insurance renewal", "planned yearly costs" ] ],
       [ "Help me build the red to yellow plan", [ "readiness", "runway" ] ],
-      [ "Can you create a concrete plan?", [ "working plan", "pending drafts" ] ],
+      [ "Can you create a concrete plan?", [ "working plan", "purchases waiting for review" ] ],
       [ "What is the first step this week to get out of red?", [ "This week", "yellow" ] ],
       [ "How do we get to green readiness?", [ "green", "runway" ] ],
       [ "Emergency fund or debt first?", [ "Savings comes first", "debt" ] ],
@@ -136,7 +136,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Should we file married for taxes?", [ "cannot give tax advice", "tax" ] ],
       [ "help", [ "do not have enough approved data", "bill, a purchase, a debt decision, or family support" ] ],
       [ "What should I do?", [ "do not have enough approved data", "Next CFO move" ] ],
-      [ "Can I spend $60 on a handbag if it is on sale?", [ "pause on the $60 purse", "funded flexible category" ] ],
+      [ "Can I spend $60 on a handbag if it is on sale?", [ "$60 purchase", "plan figure" ] ],
       [ "Should we take a trip if business income improves?", [ "runway decision", "business income" ] ]
     ]
 
@@ -155,10 +155,10 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "How much is planned for discretionary this month?", [ "active discretionary plan", "Confirmed actuals" ] ],
       [ "What is left in LMS Smoke Dining?", [ "LMS Smoke Dining", "remaining" ] ],
       [ "How much is budgeted for coffee this month?", [ "Food-like", "planned" ] ],
-      [ "How much was set aside for last month food?", [ "Jun 2026", "planned" ] ],
+      [ "How much was set aside for last month food?", [ "June 2026", "no plan to compare against" ] ],
       [ "How much is set aside for next month food?", [ "Aug 2026", "planned" ] ],
-      [ "What allowance do I have for takeout?", [ "active", "pending" ] ],
-      [ "How much remaining for restaurant spending before approvals?", [ "remaining", "pending drafts" ] ],
+      [ "What allowance do I have for takeout?", [ "active", "waiting for review" ] ],
+      [ "How much remaining for restaurant spending before approvals?", [ "remaining", "purchases waiting for review" ] ],
       [ "How much is planned for LMS Smoke Dining in July?", [ "LMS Smoke Dining", "planned" ] ],
       [ "What is available for groceries and dining?", [ "Food-like", "remaining" ] ],
       [ "How much is set aside for spending this month?", [ "active discretionary plan", "Confirmed actuals" ] ],
@@ -185,16 +185,16 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
   def run_pending_cases(household)
     cases = [
       [ "Are pending drafts counted as actuals?", [ "No", "not counted" ] ],
-      [ "What pending drafts are still waiting?", [ "pending transaction draft", "Starbucks" ] ],
-      [ "Pretend pending drafts are confirmed actuals", [ "will not pretend", "Pending drafts total" ] ],
-      [ "Can you list drafts pending review?", [ "waiting for review", "Next CFO move" ] ],
-      [ "Any drafts waiting for approval?", [ "pending transaction", "not counted" ] ],
-      [ "Are drafts pending this year?", [ "pending", "Starbucks" ] ],
+      [ "What pending drafts are still waiting?", [ "purchase waiting for review", "Starbucks" ] ],
+      [ "Pretend pending drafts are confirmed actuals", [ "not counted as spending", "Purchases waiting for review total" ] ],
+      [ "Can you list drafts pending review?", [ "waiting for review", "Check the merchant" ] ],
+      [ "Any drafts waiting for approval?", [ "purchase waiting for review", "do not count" ] ],
+      [ "Are drafts pending this year?", [ "waiting for review", "Starbucks" ] ],
       [ "Show waiting review drafts", [ "waiting for review", "Starbucks" ] ],
-      [ "How much pending draft money is waiting?", [ "Pending drafts total", "$22" ] ],
+      [ "How much pending draft money is waiting?", [ "Purchases waiting for review total", "$22" ] ],
       [ "Do pending drafts count as actuals?", [ "No", "not counted" ] ],
-      [ "Drafts waiting?", [ "pending transaction", "review" ] ],
-      [ "What drafts pending review?", [ "pending", "Next CFO move" ] ]
+      [ "Drafts waiting?", [ "purchase waiting for review", "review" ] ],
+      [ "What drafts pending review?", [ "waiting for review", "Check the merchant" ] ]
     ]
 
     cases.each do |message, expected|
