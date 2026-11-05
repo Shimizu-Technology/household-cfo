@@ -40,7 +40,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
         "Ask whether you can afford it, because you can afford it.", "It looks as if it fits your plan." ].each do |reply|
         assert_equal "scenario_conclusion", responder.send(:generic_claim_rejection, reply, context: context.to_json), reply
       end
-      assert_equal(context[:preview_mode] ? "unverified_amount" : "scenario_conclusion", responder.send(:generic_claim_rejection,
+      assert_equal("unverified_amount", responder.send(:generic_claim_rejection,
         "Check whether it fits your plan. Your income is $999.", context: context.to_json))
       assert_equal(context[:preview_mode] ? "readiness_mismatch" : "scenario_conclusion", responder.send(:generic_claim_rejection,
         "Check whether it fits your plan. Your readiness is green.", context: context.to_json))
@@ -62,7 +62,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       test "rejects self answered or monetary approval #{index} in #{preview ? 'preview' : 'participant'} replies" do
         responder = Demo::MiaResponder.new(api_key: nil)
         context = preview ? Mia::PersonaPreviewer::PREVIEW_CONTEXT : { metrics: {} }
-        assert_equal "scenario_conclusion", responder.send(:generic_claim_rejection, reply,
+        expected = !preview && reply.include?("$100") ? "unverified_amount" : "scenario_conclusion"
+        assert_equal expected, responder.send(:generic_claim_rejection, reply,
           context: context.to_json, user_message: "I want to spend $100 this weekend. How can I decide?")
       end
     end
@@ -176,12 +177,16 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       @response_source = "live_model"
       "You can comfortably afford the purchase."
     end
-    responder.define_singleton_method(:ungrounded_generic_financial_claim?) { |*| true }
-
+    admission = HouseholdFinance::MiaProviderAdmission.singleton_class
+    original_admission = admission.instance_method(:with_slot)
+    admission.define_method(:with_slot) { |**_options, &provider| provider.call }
     response = responder.call("Can I afford this purchase?", context: { metrics: {} }.to_json)
 
-    assert_includes response, "household baseline"
+    assert_equal :reply_rejected, responder.fallback_reason
+    refute_includes response, "comfortably afford"
     assert_equal "deterministic_fallback", responder.response_source
+  ensure
+    admission&.define_method(:with_slot, original_admission) if original_admission
   end
 
   test "default chat model is the shared pinned Claude Sonnet model" do
@@ -1096,7 +1101,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
   def stubbed_model_responder(response)
     Demo::MiaResponder.new(api_key: "test-key").tap do |responder|
-      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false, conversation_resolution: nil|
+      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false, conversation_resolution: nil, **_options|
         raise "expected household context" if context.blank?
 
         response

@@ -67,6 +67,8 @@ module Mia
     end
 
     def log_counts(content, reason: :persona_response_shape)
+      return unless persona.respond_to?(:response_shape)
+
       counts = ResponseShapePolicy.new(content, persona: persona).counts
       Rails.logger.info("[Mia::ResponseShapeRewriter] reason=#{reason} #{counts.map { |key, value| "#{key}=#{value}" }.join(' ')}")
     end
