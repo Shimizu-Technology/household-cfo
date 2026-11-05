@@ -1,6 +1,67 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "approved spending is not relabeled a plan figure in a month answer" do
+    fallback = "Your plan leaves breathing room. Your cushion needs building. Review the purchases waiting for you."
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback }
+    reply = "Your plan leaves breathing room, and you've spent so far, which is a plan figure and not a bank balance. Your cushion needs building. Review the purchases waiting for you."
+    assert_equal fallback, narrate(reply, packet, "How am I doing this month?")
+  end
+
+  test "known monthly plan figures cannot be narrated as yearly or a different month" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?",
+      annual_plan_summary: { category_period: { unit: "month", year: 2026, month: 11, label: "November 2026" },
+        top_categories: [ { name: "Flexible spending", planned: 700, actual: 0, remaining: 700 } ] } }
+    [ "Your plan sets aside $700 for flexible spending this year.", "Your yearly flexible spending plan is $700.",
+      "Your flexible spending plan is $700 for October 2026.", "You have $700 yearly.",
+      "Your flexible spending plan is $700 for october 2026.", "Your flexible spending plan is $700 for may 2026." ].each do |claim|
+      assert_equal packet[:fallback_response], narrate("#{claim} Consider waiting on the purse. What would you pause to fund it?", packet, "Should I buy a $60 purse?"), claim
+    end
+    reply = "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?"
+    assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
+    reply = "Your annual plan sets aside $700 for flexible spending each month this year. Consider waiting on the purse. What would you pause to fund it?"
+    assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
+  end
+
+  test "period validation distinguishes ambiguous amounts and the modal may" do
+    packet = { annual_plan_summary: { category_period: { unit: "month", year: 2026, month: 11 },
+      top_categories: [ { name: "Groceries", planned: 700 }, { name: "Rent", planned: 700 } ] } }
+    validator = HouseholdFinance::MiaPlanPeriodValidator.new(packet)
+    refute validator.mismatch?("You have $700 yearly.")
+    assert validator.mismatch?("The groceries plan is $700 yearly.")
+    refute validator.mismatch?("The budget may exceed $700 on groceries.")
+    assert validator.mismatch?("The groceries plan is $700 in may.")
+  end
+
+  test "month review counts are checked across the entire reply when zero or unknown" do
+    packet = { annual_plan_summary: { month_answer: { pending_count: 0 } } }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?", answer_packet: packet)
+    assert narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. Review the 2 purchases waiting for you.")
+    refute narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. Choose your next step.")
+    packet[:annual_plan_summary][:month_answer][:pending_count] = nil
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "How am I doing this month?", answer_packet: packet)
+    assert narrator.send(:incorrect_month_review_step?, "You have 2 purchases waiting. Your cushion needs building. The review list is incomplete, so check the purchases waiting there.")
+    refute narrator.send(:incorrect_month_review_step?, "Your plan has room. Your cushion needs building. The review list is incomplete, so check the purchases waiting there.")
+  end
+
+  test "month narration retains pending reviews once with an honest count" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Your plan leaves breathing room. Your cushion needs building. Review the 18 purchases waiting for you.",
+      annual_plan_summary: { pending_draft_count: 18, month_answer: { pending_count: 18 } } }
+    missing = "Your plan leaves breathing room. Your cushion needs building. Add your account balances."
+    wrong = "Your plan leaves breathing room. Your cushion needs building. Review the 2 purchases waiting for you."
+    assert_equal packet[:fallback_response], narrate(missing, packet, "How am I doing this month?")
+    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    repeated = "Your plan leaves breathing room. You have 18 purchases waiting. Review the 18 purchases waiting for you."
+    assert_equal packet[:fallback_response], narrate(repeated, packet, "How am I doing this month?")
+    misplaced = "Your plan leaves breathing room. Review the 18 purchases waiting for you. Add your account balances."
+    assert_equal packet[:fallback_response], narrate(misplaced, packet, "How am I doing this month?")
+    assert_equal packet[:fallback_response], narrate(packet[:fallback_response], packet, "How am I doing this month?")
+    packet[:annual_plan_summary][:month_answer] = { pending_count: nil, pending_list_truncated: true }
+    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    honest = "Your plan leaves breathing room. Your cushion needs building. The review list is incomplete, so check the purchases waiting there."
+    assert_equal honest, narrate(honest, packet, "How am I doing this month?")
+  end
+
   test "before-start months keep the plain server answer without provider narration" do
     fallback = "Your plan starts in November 2026. October 2026 is before you started, so its income and planned costs are not known."
     packet = { kind: "coaching", write_state: "no_write", fallback_response: fallback,
@@ -1512,6 +1573,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   end
 
   def with_net_http_start_stub(response, requests = [], start_options = [])
+    previous_wait = ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"]
+    ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = "0"
     singleton = class << Net::HTTP; self; end
     original = singleton.instance_method(:start)
     singleton.define_method(:start) do |*_args, **kwargs, &block|
@@ -1525,6 +1588,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
     yield
   ensure
+    ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = previous_wait
     singleton.send(:remove_method, :start) if singleton.method_defined?(:start)
     singleton.define_method(:start, original)
   end

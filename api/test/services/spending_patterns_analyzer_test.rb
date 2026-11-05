@@ -9,6 +9,33 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "partial pattern coverage joins the merchant clause grammatically for one or several months" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      purchase(Date.new(2026, 10, 5), "Ross", 10_000)
+      answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?",
+        persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      assert_includes answer, "I only see purchases for Oct: Ross ($100) was"
+      purchase(Date.new(2026, 8, 5), "Ross", 10_000)
+      answer = SpendingPatterns::Answerer.new(household: @household, message: "What spending patterns do you see?",
+        persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      assert_includes answer, "I only see purchases for Aug and Oct: Ross ($200) was"
+    end
+  end
+
+  test "both pattern narrator contracts reject a comma splice in partial coverage" do
+    [ [ "Oct" ], [ "Aug", "Oct" ] ].each do |months|
+      reference = "I only see purchases for #{months.to_sentence}: Ross ($100) was your biggest flexible spend. Look at what you bought. Would you feel comfortable cutting back on Ross?"
+      packet = { fallback_response: reference, verified_facts: { months_with_purchases: months, missing_months: true,
+        merchants: [ { label: "Ross", total_cents: 10_000 } ], choices: [] } }
+      [ SpendingPatterns::Narrator, SavingsChallenge::PatternsNarrator ].each do |klass|
+        narrator = klass.new(user_message: "What spending patterns do you see?", answer_packet: packet, persona: Mia::Persona.neutral)
+        assert_nil narrator.send(:patterns_rejection, reference)
+        assert_equal :pattern_coverage_comma_splice, narrator.send(:patterns_rejection, reference.sub(": Ross", ", Ross"))
+        assert_includes narrator.send(:narrator_contract), "never a comma splice"
+      end
+    end
+  end
+
   test "coaching groups location parenthetical and store number variants with short names" do
     originals = [ "Island Table - Tamuning (includes tip)", "Island Table - Dededo", "Island Table (includes tip) #123" ]
     originals.each { |name| purchase(Date.new(2026, 10, 5), name, 2240) }

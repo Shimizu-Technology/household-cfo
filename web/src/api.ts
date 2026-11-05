@@ -1,3 +1,4 @@
+import type { StatementProgress } from './lib/statementReview'
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
 import type { SavingsChallenge, SavingsEnrollment, SavingsPlanVersion, SavingsPlanDraft, SavingsEntry, SavingsEntryDraft, SavingsEntryVersion, SavingsPage, SavingsMutation, SavingsPlanInput, SavingsPlanApproval, SavingsEntryInput, SavingsEntryApproval } from './lib/savingsChallenge'
 import type { SourceReviewAction, ReviewedRow } from './lib/participantSourceReview'
@@ -71,6 +72,7 @@ export type PublicBrandResponse = {
 }
 
 export type WorkspaceData = {
+  setup_revision?: string
   financial_generation?: number
   experience_mode?: 'household_cfo' | 'savings_challenge'
   // Savings programs only: false while the challenge is not open yet or is paused.
@@ -307,6 +309,7 @@ export type TransactionDraftMatch = {
 }
 
 export type FinancialDocumentImport = {
+  statement_review?: StatementProgress | null
   context_paused_by_restart?: boolean
   id: number
   household_id: number
@@ -3851,10 +3854,10 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
   }
 }
 
-export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>, idempotencyKey: string): Promise<AppData> {
+export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>, idempotencyKey: string, expectedRevision: string): Promise<AppData> {
   return fetchJson<AppData>('/api/v1/workspace/setup', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, 'X-Setup-Revision': expectedRevision },
     body: JSON.stringify({ workspace: values }),
   })
 }

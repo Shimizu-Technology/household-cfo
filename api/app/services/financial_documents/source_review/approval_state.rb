@@ -19,10 +19,7 @@ module FinancialDocuments
         deficiencies << "account_period_unknown" if identities.any? { |identity| identity.statement_facts.values_at("period_start_on", "period_end_on").any?(&:nil?) }
         deficiencies << "account_identity_changed" if row_versions.any? { |row| account_heads[row.financial_source_event.financial_source_account_id]&.approved_version_id != row.source_account_identity_version_id }
         source_report = revision.reconciliation
-        pages = source_report.fetch("page_coverage", {})
-        sheets = source_report.fetch("sheet_coverage", {})
-        document_covered = pages["all_processed"] == true || sheets["expected"].to_i.positive? && Array(sheets["processed"]).sort == (0...sheets["expected"].to_i).to_a
-        deficiencies << "document_page_or_sheet_coverage_unverified" unless document_covered
+        deficiencies << "document_page_or_sheet_coverage_unverified" unless CoverageQuestion.document_covered?(revision)
         deficiencies << "reported_row_census_mismatch" if source_report.dig("row_census", "matches_reported") == false
         deficiencies << "legacy_signed_history_unavailable" if revision.contract_version != AccountingContract::VERSION
         deficiencies << "source_unavailable" unless revision.financial_document_import&.source_available?

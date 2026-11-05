@@ -51,6 +51,25 @@ describe('statement review a participant can finish', () => {
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(1))
   })
 
+  it('shows the retained one-tap category after a failed save and retries that exact choice', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.categories = [{ id: 70, name: 'Fixed essentials' }, { id: 71, name: 'Flexible spending' }]
+    const item = data.participant_review!.plan.attention[0]
+    item.kind = 'no_category'; item.question = 'What was this for?'; item.answers = [{ id: 'edit', label: 'Choose one' }]
+    fetchReview.mockResolvedValue(data)
+    mutate.mockRejectedValueOnce(new ApiRequestError('Not available right now.', { status: 403, code: 'savings_challenge_unavailable' }))
+    mount()
+    const choice = await screen.findByRole('button', { name: 'Flexible spending: ' + item.merchant })
+    fireEvent.click(choice)
+    const retry = await screen.findByRole('button', { name: 'Try saving this answer again' })
+    expect(choice.getAttribute('aria-pressed')).toBe('true')
+    expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(false)
+    expect(screen.getByRole('button', { name: 'Fixed essentials: ' + item.merchant }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(retry)
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).toEqual(mutate.mock.calls[0][3])
+  })
+
   it('never renders an empty category dropdown', async () => {
     const data = participantReviewFixture()
     data.participant_review!.categories = []

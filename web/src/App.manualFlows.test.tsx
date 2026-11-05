@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, BudgetCategoryRow, MiaActionDraft, SpendingReport, TransactionDraft } from './api'
 import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, MiaActionDraftReviewStack, TransactionDraftReviewStack } from './App'
@@ -51,10 +51,55 @@ function stackProps(drafts: TransactionDraft[], overrides: Record<string, unknow
 }
 
 describe('transaction review cards', () => {
+  it.each([true, false])('uses the compact headline and plain decisions in both review stacks (compact=%s)', (compact) => {
+    const props = stackProps([draft({ amount: 25, amount_cents: 2500 })], { compact })
+    const { container } = render(<TransactionDraftReviewStack {...props} />)
+    expect(container.querySelector('.mia-change-headline .mia-change-figure')?.textContent).toBe('$25')
+    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
+    expect(screen.getByText("McDonald's", { exact: true })).toBeTruthy()
+    expect(container.textContent).not.toMatch(/Actuals do not change|Confirm only if|split, and category/)
+    fireEvent.click(screen.getByRole('button', { name: "Confirm McDonald's $25 on Oct 4" }))
+    expect(props.onConfirm).toHaveBeenCalledWith(expect.objectContaining({ id: 220 }))
+    fireEvent.click(screen.getByRole('button', { name: "Not now McDonald's $25 on Oct 4" }))
+    expect(props.onIgnore).toHaveBeenCalledWith(expect.objectContaining({ id: 220 }))
+    fireEvent.click(screen.getByRole('button', { name: "Change McDonald's $25 on Oct 4" }))
+    expect(screen.getByLabelText('Merchant')).toBeTruthy()
+  })
+
+  it.each([true, false])('counts distinct saved categories in either purchase summary (compact=%s)', (compact) => {
+    const splits = [1, 2].map(id => ({ id, budget_category_id: 7, category_name: 'Dining out', stack_key: 'discretionary' as const,
+      stack_label: 'Everyday spending', amount: 12.5, amount_cents: 1250, notes: null, confidence: null }))
+    const props = stackProps([draft({ splits })], { compact })
+    const { container, rerender } = render(<TransactionDraftReviewStack {...props} />)
+    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
+    expect(container.querySelector('.mia-change-lines')?.textContent).not.toContain('2 categories')
+    rerender(<TransactionDraftReviewStack {...props} drafts={[draft({ splits: [splits[0], { ...splits[1], budget_category_id: 8, category_name: 'Groceries' }] })]} />)
+    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('Category2 categories')
+  })
+
+  it('shows a newly drafted purchase even when an earlier queue page and filter were open', async () => {
+    const drafts = Array.from({ length: 7 }, (_, index) => draft({ id: index + 1, merchant: `Older shop ${index}` }))
+    const props = stackProps(drafts, { compact: true })
+    const { rerender } = render(<TransactionDraftReviewStack {...props} />)
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Older shop' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    rerender(<TransactionDraftReviewStack {...props} drafts={[draft({ merchant: 'Payless', amount: 18.47, amount_cents: 1847 }), ...drafts]} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm Payless $18.47 on Oct 4' })).toBeTruthy())
+  })
+
+  it('keeps the search when the first review is resolved', () => {
+    const drafts = [draft({ merchant: 'Payless', id: 1 }), draft({ merchant: 'Shell', id: 2 }), ...Array.from({ length: 5 }, (_, index) => draft({ id: index + 3 }))]
+    const props = stackProps(drafts, { compact: true })
+    const { rerender } = render(<TransactionDraftReviewStack {...props} />)
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Shell' } })
+    rerender(<TransactionDraftReviewStack {...props} drafts={drafts.slice(1)} />)
+    expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('Shell')
+  })
+
   it('names every repeated card button for its own transaction while keeping the visible text short', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft(), draft({ id: 221, merchant: 'Shell', amount: 40, amount_cents: 4000 })])} />)
 
-    for (const [name, text] of [["Edit McDonald's $25 on Oct 4", 'Edit'], ["Confirm McDonald's $25 on Oct 4", 'Confirm'], ["Ignore McDonald's $25 on Oct 4", 'Ignore'], ['Edit Shell $40 on Oct 4', 'Edit'], ['Confirm Shell $40 on Oct 4', 'Confirm']]) {
+    for (const [name, text] of [["Change McDonald's $25 on Oct 4", 'Change'], ["Confirm McDonald's $25 on Oct 4", 'Confirm'], ["Not now McDonald's $25 on Oct 4", 'Not now'], ['Change Shell $40 on Oct 4', 'Change'], ['Confirm Shell $40 on Oct 4', 'Confirm']]) {
       expect(screen.getByRole('button', { name }).textContent).toBe(text)
     }
     expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
@@ -70,13 +115,13 @@ describe('transaction review cards', () => {
 
   it('does not credit Mia for manual or bank drafts', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft(), draft({ id: 223, source_type: 'plaid', merchant: 'Bank row' })])} />)
-    expect(screen.getByRole('heading', { name: 'Transactions to review' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Purchases to review' })).toBeTruthy()
     expect(screen.queryByText(/Mia drafted/)).toBeNull()
   })
 
-  it('keeps Mia drafted copy when every draft came from Mia chat', () => {
+  it('keeps the review heading short when every draft came from chat', () => {
     render(<TransactionDraftReviewStack {...stackProps([draft({ source_type: 'manual_chat' })])} />)
-    expect(screen.getByRole('heading', { name: /^\S.* drafted transactions for your approval$/ })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Purchases to review' })).toBeTruthy()
   })
 
   it('uses a source-neutral category warning on manual and bank rows', () => {

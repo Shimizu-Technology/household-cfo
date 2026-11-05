@@ -16,7 +16,7 @@ module HouseholdFinance
       top_line = top_categories.select { |category| category.fetch(:actual).positive? }.map do |category|
         "#{category.fetch(:name)} #{money(category.fetch(:actual))}"
       end.to_sentence
-      top_line = "No confirmed category spending yet" if top_line.blank?
+      top_line = "No approved purchases yet" if top_line.blank?
 
       return category_status_answer(categories, totals) if category_status_question?
       return budget_status_answer(totals, top_line) if budget_status_question?

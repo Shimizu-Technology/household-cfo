@@ -158,7 +158,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
                 target_runway_months: 6
               }
             },
-            headers: auth_headers(user),
+            headers: auth_headers(user).merge(setup_revision_header(user)),
             as: :json
     end
 
@@ -194,7 +194,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     }
 
     assert_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count", 1) do
-      patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+      patch "/api/v1/workspace/setup", params: request, headers: headers.merge(setup_revision_header(user)), as: :json
     end
 
     assert_response :success
@@ -212,7 +212,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     execution_count = executions.count
     audit_count = household.household_audit_events.where(event_type: "workspace.setup_saved").count
-    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+    patch "/api/v1/workspace/setup", params: request, headers: headers.merge(setup_revision_header(user)), as: :json
 
     assert_response :success
     assert_equal execution_count, executions.reload.count
@@ -221,7 +221,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_no_changes -> { household.reload.name } do
       patch "/api/v1/workspace/setup",
         params: { workspace: request.fetch(:workspace).merge(household_name: "Conflicting Household") },
-        headers: headers,
+        headers: headers.merge(setup_revision_header(user)),
         as: :json
     end
     assert_response :conflict
@@ -241,7 +241,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { fixed_expenses: 1_000 } },
-      headers: auth_headers(user).merge("Idempotency-Key" => "repair-setup-allocation-drift"),
+      headers: auth_headers(user).merge(setup_revision_header(user)).merge("Idempotency-Key" => "repair-setup-allocation-drift"),
       as: :json
 
     assert_response :success
@@ -263,7 +263,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { household_name: "Override Household", primary_goal: "Pay down the card" } },
-      headers: auth_headers(user).merge("Idempotency-Key" => "profile-goal-with-override"),
+      headers: auth_headers(user).merge(setup_revision_header(user)).merge("Idempotency-Key" => "profile-goal-with-override"),
       as: :json
 
     assert_response :success
@@ -284,7 +284,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { primary_goal: "Pay down the card", flexible_spend: shown } },
-      headers: auth_headers(user).merge("Idempotency-Key" => "profile-full-submit"),
+      headers: auth_headers(user).merge(setup_revision_header(user)).merge("Idempotency-Key" => "profile-full-submit"),
       as: :json
 
     assert_response :success
@@ -301,7 +301,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 900 } },
-      headers: auth_headers(user).merge("Idempotency-Key" => "profile-multi-category-change"),
+      headers: auth_headers(user).merge(setup_revision_header(user)).merge("Idempotency-Key" => "profile-multi-category-change"),
       as: :json
 
     assert_response :unprocessable_entity
@@ -317,7 +317,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     headers = auth_headers(user).merge("Idempotency-Key" => key)
     request = { workspace: { household_name: "Long Key Household", primary_income: 5_800, fixed_expenses: 2_400 } }
 
-    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+    patch "/api/v1/workspace/setup", params: request, headers: headers.merge(setup_revision_header(user)), as: :json
 
     assert_response :success
     keys = household.household_operation_executions.pluck(:idempotency_key)
@@ -326,14 +326,14 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     first_count = keys.length
     household.update!(name: "Later manual name")
 
-    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+    patch "/api/v1/workspace/setup", params: request, headers: headers.merge(setup_revision_header(user)), as: :json
     assert_response :success
     assert_equal first_count, household.household_operation_executions.count
     assert_equal "Later manual name", household.reload.name
 
     patch "/api/v1/workspace/setup",
       params: { workspace: request.fetch(:workspace).merge(primary_income: 5_900) },
-      headers: headers,
+      headers: headers.merge(setup_revision_header(user)),
       as: :json
     assert_response :conflict
     assert_equal 580_000, household.income_sources.find_by!(source_type: "job").amount_cents
@@ -350,7 +350,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { primary_goal: "", emergency_fund: "" } },
-      headers: auth_headers(user).merge("Idempotency-Key" => "manual-clear-confirmations"),
+      headers: auth_headers(user).merge(setup_revision_header(user)).merge("Idempotency-Key" => "manual-clear-confirmations"),
       as: :json
 
     assert_response :success
@@ -374,7 +374,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           flexible_spend: 0
         }
       },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_response :success
@@ -401,7 +401,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_no_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count") do
       patch "/api/v1/workspace/setup",
             params: { workspace: { household_name: "Name that must roll back" } },
-            headers: auth_headers(user),
+            headers: auth_headers(user).merge(setup_revision_header(user)),
             as: :json
     end
 
@@ -425,7 +425,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               target_runway_months: 12
             }
           },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     household = user.households.first
     household.household_profile.update!(
@@ -435,7 +435,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     )
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "Renamed Household" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -450,7 +450,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { debt_payment: 900 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -476,7 +476,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
         assert_no_difference("Debt.count") do
           patch "/api/v1/workspace/setup",
             params: { workspace: setup_values },
-            headers: auth_headers(user),
+            headers: auth_headers(user).merge(setup_revision_header(user)),
             as: :json
         end
       end
@@ -504,7 +504,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       assert_no_difference("ExpenseItem.count") do
         patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: 6_000, fixed_expenses: 2_000 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
       end
     end
@@ -543,7 +543,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
       patch "/api/v1/workspace/setup",
             params: { workspace: { primary_income: 7_000 } },
-            headers: auth_headers(user),
+            headers: auth_headers(user).merge(setup_revision_header(user)),
             as: :json
 
       assert_response :success
@@ -573,7 +573,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
       patch "/api/v1/workspace/setup",
             params: { workspace: { primary_income: 0 } },
-            headers: auth_headers(user),
+            headers: auth_headers(user).merge(setup_revision_header(user)),
             as: :json
 
       assert_response :success
@@ -598,7 +598,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "Should roll back", primary_income: "five thousand" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :unprocessable_entity
@@ -614,7 +614,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { target_runway_months: "not a number" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :unprocessable_entity
@@ -629,7 +629,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { credit_card_debt: 3_400, debt_payment: 175 } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_response :success
@@ -647,7 +647,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_no_difference("Debt.count") do
       patch "/api/v1/workspace/setup",
         params: { workspace: { credit_card_debt: 4_000, debt_payment: 200 } },
-        headers: auth_headers(user),
+        headers: auth_headers(user).merge(setup_revision_header(user)),
         as: :json
     end
 
@@ -674,7 +674,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: setup_values },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -707,7 +707,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: setup_values },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -722,7 +722,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: -500 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :unprocessable_entity
@@ -738,7 +738,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :unprocessable_entity
@@ -751,11 +751,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_goal: "Leave my job safely" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_goal: "" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -770,11 +770,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_goal: "Leave my job safely" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_goal: "Buy a rental property" } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     assert_response :success
@@ -790,11 +790,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "First Household", primary_income: 5_000 } },
-          headers: auth_headers(first_user),
+          headers: auth_headers(first_user).merge(setup_revision_header(first_user)),
           as: :json
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "Second Household", primary_income: 9_000 } },
-          headers: auth_headers(second_user),
+          headers: auth_headers(second_user).merge(setup_revision_header(second_user)),
           as: :json
 
     get "/api/v1/workspace", headers: auth_headers(first_user)
@@ -864,7 +864,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     patch "/api/v1/workspace/setup",
       params: { workspace: { household_name: "Renamed household" } },
-      headers: auth_headers(user),
+      headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
     assert_response :success
@@ -877,7 +877,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia@example.com")
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     confirm_setup_for_test(user)
 
@@ -1173,7 +1173,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-narrator@example.com")
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     confirm_setup_for_test(user)
     packets = []
@@ -1200,7 +1200,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-compound-routing@example.com")
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     confirm_setup_for_test(user)
     intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
@@ -1565,16 +1565,35 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     )
     fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
 
+    transaction_depth = 0
+    observed_depth = nil
+    original_transaction = ApplicationRecord.method(:transaction)
+    transaction_probe = lambda do |**options, &block|
+      transaction_depth += 1
+      original_transaction.call(**options, &block)
+    ensure
+      transaction_depth -= 1
+    end
+    original_narrator = HouseholdFinance::MiaNarrator.method(:new)
+    fake_narrator = lambda do |**attributes|
+      observed_depth = transaction_depth
+      original_narrator.call(**attributes.merge(api_key: ""))
+    end
     assert_difference("MiaActionDraft.count", 1) do
-      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
-        post "/api/v1/mia/messages",
-             params: { message: message, document_import_ids: [ document_import.id ] },
-             headers: auth_headers(user),
-             as: :json
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, fake_narrator) do
+        with_singleton_stub(ApplicationRecord, :transaction, transaction_probe) do
+          with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+          end
+        end
       end
     end
 
     assert_response :created
+    assert_equal 0, observed_depth, "Provider narration must run outside the action transaction"
     body = JSON.parse(response.body)
     assistant_content = body.dig("assistant_message", "content")
     assert_includes assistant_content, "$87.45"
@@ -1586,6 +1605,51 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 8, change.fetch("month")
     assert_equal 90_000, change.fetch("after_cents")
     assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
+
+    # Another tab can dismiss a visible review while the optional provider is
+    # running. The returned card and persisted reply must reflect that outcome.
+    cancel_during_narration = lambda do |**attributes|
+      original_narrator.call(**attributes.merge(api_key: "")).tap do |narrator|
+        narrator.define_singleton_method(:call) do
+          pending = household.mia_action_drafts.pending.recent_first.first!
+          result = HouseholdFinance::MiaActionDraftCanceler.new(pending, user: user).call(idempotency_key: "during-narration")
+          raise result.errors.join(", ") unless result.success?
+          "The budget change is ready for you to review."
+        end
+      end
+    end
+    with_singleton_stub(HouseholdFinance::MiaNarrator, :new, cancel_during_narration) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+          params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+          headers: auth_headers(user), as: :json
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "canceled", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "set aside"
+    refute body.dig("budget", "annual_plan", "pending_mia_action_drafts").any? { |pending| pending.fetch("id") == body.dig("mia_action_draft", "id") }
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
+
+    # Optional narration setup can fail before MiaNarrator#call. The draft and
+    # factual reply have committed already and must still be returned together.
+    setup_failure = ->(**) { raise RuntimeError, "synthetic narrator setup failure" }
+    assert_difference("MiaActionDraft.count", 1) do
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, setup_failure) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+            params: { message: message, request_id: SecureRandom.uuid, document_import_ids: [ document_import.id ] },
+            headers: auth_headers(user), as: :json
+        end
+      end
+    end
+    assert_response :created
+    body = response.parsed_body
+    assert_equal "pending", body.dig("mia_action_draft", "status")
+    assert_includes body.dig("assistant_message", "content"), "$87.45"
+    assert_includes body.dig("assistant_message", "content"), "Separately,"
+    assert_equal body.dig("assistant_message", "content"), ChatMessage.find(body.dig("assistant_message", "id")).content
   end
 
   test "a failed attached action draft rolls back newly prepared plan records" do
@@ -2318,7 +2382,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               emergency_fund: 8_000
             }
           },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
 
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -2366,7 +2430,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               emergency_fund: 25_090
             }
           },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     assert_response :ok
     confirm_setup_for_test(user)
@@ -2432,7 +2496,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-resume-context@example.com")
     patch "/api/v1/workspace/setup",
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
-          headers: auth_headers(user),
+          headers: auth_headers(user).merge(setup_revision_header(user)),
           as: :json
     confirm_setup_for_test(user)
 
@@ -3264,5 +3328,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
   ensure
     singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
     singleton.define_method(method_name, original)
+  end
+  def setup_revision_header(user)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    { "X-Setup-Revision" => HouseholdFinance::SetupRevision.for(household.reload) }
   end
 end

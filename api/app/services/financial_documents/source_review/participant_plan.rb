@@ -6,7 +6,7 @@ module FinancialDocuments
     # Nothing here approves anything; unknown stays unknown and becomes a question.
     class ParticipantPlan
       # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, keyword_init: true) do
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -107,7 +107,7 @@ module FinancialDocuments
           kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
           kind = :suggested_category if kind.nil? && default && chosen.nil? && category_id == default
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
-            done: done?(heads[event.id]&.approved_version))
+            done: done?(heads[event.id]&.approved_version), without_category: without_category?(heads[event.id]&.approved_version))
         end
       end
 
@@ -115,6 +115,10 @@ module FinancialDocuments
       def done?(version)
         return false unless version
         version.source_account_identity_version.source_account_review_head.approved_version_id == version.source_account_identity_version_id
+      end
+
+      def without_category?(version)
+        done?(version) && version.disposition == "include" && version.expense? && version.budget_category_id.nil?
       end
 
       def classify(event, merchant, category_id, overlaps, account, disagrees: false)

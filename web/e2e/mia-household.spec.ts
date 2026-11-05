@@ -62,7 +62,7 @@ test('mobile Ask Mia household coaching and inline new category', async ({ page,
   const purchase = await ask('Spent $12 at Payless on cigarettes. Put it in a new Cigarettes category.', 'category-chat', /Payless|review/i)
   const id = purchase.transaction_draft.id
   const card = page.locator(`[data-review-item="${id}"]`)
-  await card.getByRole('button', { name: /^Edit Payless/ }).click()
+  await card.getByRole('button', { name: /^Change Payless/ }).click()
   await card.getByRole('combobox', { name: 'Category', exact: true }).selectOption('new')
   const runLabel = process.env.HCFO_W1_RUN_LABEL
   const attemptSuffix = `${runLabel ? ` ${runLabel}` : ''}${testInfo.retry ? ' Retry' : ''}`

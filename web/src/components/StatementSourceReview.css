@@ -61,3 +61,12 @@
   .statement-table :is(th, td):nth-child(4) { width: 30%; }
   .statement-pager { flex-wrap: wrap; justify-content: center; }
 }
+
+/* The history badge describes the same saved lines as the review summary. */
+.document-history-card .document-status {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+  border-radius: var(--radius-sm);
+}

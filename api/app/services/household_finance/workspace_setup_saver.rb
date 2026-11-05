@@ -15,12 +15,13 @@ module HouseholdFinance
     REQUIRED_MONEY_FIELDS = %i[primary_income fixed_expenses flexible_spend].freeze
     REQUIRED_LABELS = SetupUpdater::REQUIRED_LABELS.freeze
 
-    def initialize(household, user:, attributes:, idempotency_key:, year: Date.current.year)
+    def initialize(household, user:, attributes:, idempotency_key:, expected_revision: nil, year: Date.current.year)
       @household = household
       @user = user
       @attributes = attributes.to_h.symbolize_keys.slice(*SetupUpdater::INPUT_KEYS)
       @idempotency_key = idempotency_key.to_s.strip
       @year = year.to_i
+      @expected_revision = expected_revision
     end
 
     def call
@@ -36,6 +37,9 @@ module HouseholdFinance
         if household.household_operation_executions.exists?(idempotency_key: idempotency_key)
           results << run_confirmation(normalized)
         else
+          if !@expected_revision.nil? && @expected_revision != SetupRevision.for(household)
+            raise Operations::Base::ConcurrentEdit, "Your starting numbers changed in another tab or on another device. Please look at the latest numbers before saving. Nothing changed."
+          end
           manager.ensure_plan!
           operation_specs(normalized).each_with_index do |spec, index|
             results << runner.run(

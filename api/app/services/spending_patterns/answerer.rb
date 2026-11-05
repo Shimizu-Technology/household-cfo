@@ -42,12 +42,12 @@ module SpendingPatterns
       window = if period.present?
         label = period[:from].strftime("%B %Y")
         label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}" unless period[:from] == period[:from].beginning_of_month && period[:to] == period[:from].end_of_month
-        "For #{label}#{missing ? ", I only see purchases for #{present.to_sentence}" : ' in the recorded purchases'}"
+        "For #{label}#{missing ? ", I only see purchases for #{present.to_sentence}:" : ' in the recorded purchases,'}"
       else
-        missing ? "I only see purchases for #{present.to_sentence}" : "From #{present.first} to #{present.last} in the recorded purchases"
+        missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
-      observed = "#{window}, #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
+      observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
       cluster = @patterns[:small_purchase_clusters].first
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first

@@ -27,4 +27,17 @@ class SavingsReviewCategoriesTest < ActiveSupport::TestCase
       assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Island Power", event_type: event_type), event_type
     end
   end
+  test "one active household category in each stack gets hints regardless of its name" do
+    @categories[0].name = "Fixed essentials"
+    @categories[1].name = "Flexible spending"
+    assert_equal 1, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "GPA")
+    assert_equal 2, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Ross")
+    @categories << BudgetCategory.new(id: 3, name: "Dining out", stack_key: "discretionary")
+    assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Ross")
+    @categories.last.active = false
+    assert_equal 2, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Ross")
+    @categories[1].name = "Everyday spending"
+    @categories.last.active = true
+    assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, "Ross"), "default labels must not bypass a detailed budget"
+  end
 end

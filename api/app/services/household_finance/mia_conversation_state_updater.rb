@@ -22,6 +22,7 @@ module HouseholdFinance
       chat_session.with_financial_picture_lock do
         generation = Household.where(id: chat_session.household_id).pick(:financial_generation)
         return false unless user_message.financial_generation == generation && assistant_message.financial_generation == generation
+        @mia_action_draft = nil if mia_action_draft && !mia_action_draft.reload.reviewable?
         current = normalized_topic(chat_session.active_topic)
         topic = topic_for(current)
         topic = stamp_assistant_context(topic) if topic
