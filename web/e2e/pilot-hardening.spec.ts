@@ -5466,7 +5466,7 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
   const proposalReview = page.locator('.persona-setup-review')
   await expect(proposalReview.locator('.persona-proposal-choices')).not.toHaveAttribute('open','')
   await proposalReview.getByText('Review each suggestion',{exact:true}).click()
-  await expect(proposalReview.getByText('Human coach name', { exact: true })).toBeVisible()
+  await expect(proposalReview.getByText('Coach name', { exact: true })).toBeVisible()
   await expect(proposalReview.getByText('Coach said')).toBeVisible()
   await expect(proposalReview.getByText('Pilot Admin')).toBeVisible()
   await expect(proposalReview.getByText('Mrs. Mel', { exact: true }).first()).toBeVisible()
