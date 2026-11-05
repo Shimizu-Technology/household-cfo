@@ -40,7 +40,15 @@ module Api
           Mia::PersonaRelease::ReviewRules::Error => error
           Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
           render json: { error: error.message, rejected: true }, status: :conflict
-        rescue ActiveRecord::StatementInvalid, ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
+        rescue ActiveRecord::StatementInvalid, ActiveRecord::ConnectionNotEstablished => error
+          Rails.logger.info("[CoachLaunch] database outcome #{error.class.name}")
+          state = error.cause.respond_to?(:result) ? error.cause.result&.error_field(PG::Result::PG_DIAG_SQLSTATE) : nil
+          if state&.start_with?("23") || state == "P0001"
+            render json: { error: "This update was not saved. Reopen Go live to review the latest settings and people.", rejected: true }, status: :conflict
+          else
+            render json: { error: "We could not confirm this update. Choose Check this update before trying again." }, status: :service_unavailable
+          end
+        rescue ActiveRecord::RecordInvalid, KeyError, ArgumentError, TypeError, ActionController::ParameterMissing => error
           Rails.logger.info("[CoachLaunch] rejected #{error.class.name}")
           render json: { error: "This update was not saved. Reopen Go live to review the latest settings and people.", rejected: true }, status: :conflict
         end

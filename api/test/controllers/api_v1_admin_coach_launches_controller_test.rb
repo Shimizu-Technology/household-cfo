@@ -40,12 +40,13 @@ class ApiV1AdminCoachLaunchesControllerTest < ActionDispatch::IntegrationTest
     refute_includes response.body, "Nothing"
   end
 
-  test "database commit exceptions return a plain recovery response rather than an unhandled server error" do
+  test "unknown database commit outcomes retain uncertainty and return a plain recovery response" do
     original = CoachLaunches::Publisher.instance_method(:call!)
     CoachLaunches::Publisher.define_method(:call!) { raise ActiveRecord::StatementInvalid, "PG::private detail" }
     post launch_path, params: { review: @review }, headers:, as: :json
-    assert_response :conflict
-    assert_includes response.parsed_body.fetch("error"), "not saved"
+    assert_response :service_unavailable
+    assert_includes response.parsed_body.fetch("error"), "could not confirm"
+    refute response.parsed_body["rejected"]
     refute_includes response.body, "private detail"
   ensure
     CoachLaunches::Publisher.define_method(:call!, original) if original
@@ -59,6 +60,22 @@ class ApiV1AdminCoachLaunchesControllerTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.fetch("error"), "different workspace owner or reviewer"
     assert_equal true, response.parsed_body.fetch("rejected")
     assert_nil @persona.reload.current_published_version_id
+  end
+
+  test "a definite database constraint refusal is plain and does not claim an uncertain result" do
+    original = CoachLaunches::Publisher.instance_method(:call!)
+    CoachLaunches::Publisher.define_method(:call!) do
+      ActiveRecord::Base.transaction(requires_new: true) do
+        ActiveRecord::Base.connection.execute("DO $$ BEGIN RAISE EXCEPTION 'private constraint detail'; END $$")
+      end
+    end
+    post launch_path, params: { review: @review }, headers:, as: :json
+    assert_response :conflict
+    assert response.parsed_body.fetch("rejected")
+    assert_includes response.parsed_body.fetch("error"), "not saved"
+    refute_includes response.body, "private constraint detail"
+  ensure
+    CoachLaunches::Publisher.define_method(:call!, original) if original
   end
 
   private
