@@ -43,3 +43,10 @@ it('keeps exact cents when the proposed target has them', () => {
   render(<MiaChallengeGoal card={{ ...card, input: { target_cents: 50025, expected_plan_version_id: null } }} onDone={vi.fn()} onChangeAmount={vi.fn()} />)
   expect(screen.getByRole('heading', { name: '$500.25 over your 90 days?' })).toBeTruthy()
 })
+
+it('shows the weekly conversion and requires acceptance of the whole 90-day amount', () => {
+  render(<MiaChallengeGoal card={{ ...card, input: { target_cents: 25714, weekly_cents: 2000, expected_plan_version_id: null } }} onDone={vi.fn()} onChangeAmount={vi.fn()} />)
+  expect(screen.getByText(/\$20 a week × 90 days ÷ 7 = \$257.14/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Yes, set my goal to $257.14' })).toBeTruthy()
+  expect(updateChallengeChatCard).not.toHaveBeenCalled()
+})

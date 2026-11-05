@@ -8,6 +8,7 @@ import { LINE_KIND_OPTIONS, accountSentence, amountInputText, parseLineAmount, t
 import './StatementSheets.css'
 
 export type SheetLine = {
+  expectedHead?: import('../lib/statementReview').ExpectedLineHead
   eventId: number
   merchant: string
   postedOn: string

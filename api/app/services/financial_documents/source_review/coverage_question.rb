@@ -44,8 +44,12 @@ module FinancialDocuments
       end
 
       # What she last said about this statement. It is about the document's rows, so editing a saved line does not undo it.
+      def latest(revision)
+        SourceRevisionApproval.where(household_id: revision.household_id, financial_extraction_revision: revision).order(version_number: :desc).first
+      end
+
       def answer(revision)
-        approval = SourceRevisionApproval.where(household_id: revision.household_id, financial_extraction_revision: revision).order(version_number: :desc).first
+        approval = latest(revision)
         return unless approval
         approval.coverage_attestation["all_document_rows_accounted"] == true ? "nothing_missing" : "something_missing"
       end

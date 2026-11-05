@@ -27,15 +27,28 @@ module SavingsChallenge
         end
       end
 
-      # A single active choice in a stack is a broad household category.
+      # Only recognized broad names can skip the category question. A sole
+      # detailed choice can still be suggested, with the participant asked first.
+      def self.broad?(category)
+        return false unless category
+        name = category.name.to_s.downcase.squish.sub(/ \(default(?: \d+)?\)\z/, "")
+        names = category.stack_key == "discretionary" ? [ "everyday spending", "flexible spending" ] : [ "bills & essentials", "fixed essentials" ]
+        names.include?(name)
+      end
+
+      # A single active choice in a stack can be suggested for review.
       # Detailed budgets and previously approved choices keep their own meaning.
       def self.suggestion(categories, merchant, event_type: "purchase")
-        return unless event_type == "purchase"
+        return unless event_type.in?(%w[purchase fee])
         text = merchant.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
-        return if text.match?(/\b(?:transfers?|payments?|fees?|refunds?|reversals?)\b/)
-        stack = if text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta)\b/)
+        return if text.match?(/\b(?:transfers?|payments?|refunds?|reversals?)\b/)
+        bank_fee = text.match?(/\b(?:bank|overdraft|maintenance) fee\b/) ||
+          text.match?(/\Amonthly (?:service fee|maintenance fee|service charge)\z/) ||
+          text.match?(/\bbank\b/) && text.match?(/\bservice (?:fee|charge)\b/)
+        return if (event_type == "fee" || text.match?(/\bfees?\b/)) && !bank_fee
+        stack = if event_type == "fee" || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|groceries|supermarkets?|payless|cost u less|fuel|gasoline|shell|mobil|service fee)\b/)
           "non_discretionary"
-        elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
+        elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|includes tip|netflix|streaming|subscription|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
           "discretionary"
         end
         return unless stack

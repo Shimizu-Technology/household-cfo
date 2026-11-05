@@ -6,7 +6,7 @@ module FinancialDocuments
     # Nothing here approves anything; unknown stays unknown and becomes a question.
     class ParticipantPlan
       # as_before: the category is only what she chose for this merchant on an earlier statement; the reader guessed nothing.
-      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, keyword_init: true) do
+      Line = Struct.new(:event, :merchant, :category_id, :kind, :overlaps, :done, :as_before, :without_category, :expected_head, keyword_init: true) do
         def ready? = kind.nil?
       end
 
@@ -104,9 +104,9 @@ module FinancialDocuments
           # Only spending carries a category; nothing else is shown or saved with one.
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
-          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess)
-          kind = :suggested_category if kind.nil? && default && chosen.nil? && category_id == default
+          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
+            expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category?(heads[event.id]&.approved_version))
         end
       end
@@ -121,7 +121,7 @@ module FinancialDocuments
         done?(version) && version.disposition == "include" && version.expense? && version.budget_category_id.nil?
       end
 
-      def classify(event, merchant, category_id, overlaps, account, disagrees: false)
+      def classify(event, merchant, category_id, overlaps, account, disagrees: false, confirm_suggestion: false)
         return nil if event.row_kind == "informational"
         amount = event.signed_amount_cents
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
@@ -136,6 +136,7 @@ module FinancialDocuments
             HouseholdFinance::AnnualBudgetManager.supported_year?(event.posted_on.year)
           return :no_category unless category_id
           return :still_category if disagrees
+          return :suggested_category if confirm_suggestion
         end
         nil
       end
