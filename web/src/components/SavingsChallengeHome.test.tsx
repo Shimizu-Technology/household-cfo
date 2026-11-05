@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
 import * as api from '../api'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../test/savingsFixtures'
+import type { SavingsIntake } from '../lib/savingsChallenge'
 import { SavingsChallengeHome } from './SavingsChallengeHome'
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchSavingsPage: vi.fn(), stageSavingsPlan: vi.fn(), approveSavingsPlan: vi.fn(), stageSavingsEntry: vi.fn(), approveSavingsEntry: vi.fn(), enrollSavingsChallenge: vi.fn(), attestSavingsZero: vi.fn() }))
@@ -18,6 +19,69 @@ function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView); else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') })
 describe('participant savings Home', () => {
+  it('applies a new chat intake while mounted without discarding the open entry panel when it clears', async () => {
+    const props = { onAskMia: vi.fn(), onReviewStatements: vi.fn() }
+    const intake: SavingsIntake = { kind: 'withdrawal', amount_cents: 1500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input', chat_card_id: 90 }
+    const view = render(<SavingsChallengeHome {...props} />)
+    await screen.findByText('No amounts added yet')
+    view.rerender(<SavingsChallengeHome {...props} initialSavingsIntake={intake} />)
+    await formReady('Amount in US dollars')
+    expect(screen.getByLabelText('Amount in US dollars')).toHaveProperty('value', '15.00')
+    view.rerender(<SavingsChallengeHome {...props} initialSavingsIntake={null} />)
+    expect(screen.getByLabelText('Amount in US dollars')).toBeTruthy()
+  })
+
+  for (const remount of [false, true]) it(`keeps chat intake associated with its own draft across manual staging and remount=${remount}`, async () => {
+    const chatDraft = { ...savingsEntryDraft(2500), id: 71, savings_entry_id: 31 }
+    const manualDraft = { ...savingsEntryDraft(1000), id: 72, savings_entry_id: 32 }
+    let drafts: typeof chatDraft[] = []
+    const cleared = vi.fn()
+    fetchPage.mockImplementation(async (collection, _cursor, _signal, options) => ({ records: collection === 'entry_drafts' && options?.status === 'pending' ? drafts : [], next_cursor: null, actor_scope: { user_id: 901, household_id: 77 }, enrollment_id: 1, cohort_id: 42 }))
+    vi.mocked(api.stageSavingsEntry).mockImplementation(async input => {
+      const draft = input.chat_card_id ? chatDraft : manualDraft
+      drafts = [...drafts, draft]
+      return { record: draft, challenge: { ...savingsFixture(), pending_entry_count: drafts.length }, replayed: false }
+    })
+    vi.mocked(api.approveSavingsEntry).mockImplementation(async id => {
+      const draft = drafts.find(item => item.id === id)!
+      drafts = drafts.filter(item => item.id !== id)
+      return { record: { ...savingsEntryVersion(draft.signed_cents), savings_entry_id: draft.savings_entry_id }, challenge: { ...savingsFixture(), pending_entry_count: drafts.length }, replayed: false }
+    })
+    function Parent() {
+      const [away, setAway] = useState(false)
+      const [intake, setIntake] = useState<SavingsIntake | null>({ kind: 'contribution', amount_cents: 2500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input', chat_card_id: 90 })
+      return <><button onClick={() => setAway(!away)}>Switch page</button><output>{intake ? 'Intake pending' : 'Intake cleared'}</output>{!away && <SavingsChallengeHome participantScope={{ user_id: 901, household_id: 77 }} cohortId={42} onAskMia={vi.fn()} onReviewStatements={vi.fn()} initialSavingsIntake={intake} onIntakeStaged={(entryId, cardId) => setIntake(current => current?.chat_card_id === cardId ? { ...current, staged_entry_id: entryId } : current)} onIntakeCleared={() => { cleared(); setIntake(null) }} />}</>
+    }
+    render(<Parent />)
+    await formReady('Amount in US dollars')
+    fireEvent.click(screen.getByLabelText(/This was new money/))
+    fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
+    await screen.findByRole('button', { name: 'Confirm $25.00 set aside on Sun, Oct 4' })
+    await formReady('Amount in US dollars')
+    if (remount) {
+      fireEvent.click(screen.getByRole('button', { name: 'Switch page' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Switch page' }))
+      await formReady('Amount in US dollars')
+      expect(screen.getByLabelText('Amount in US dollars')).toHaveProperty('value', '')
+    }
+    fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
+    const manual = await screen.findByRole('button', { name: 'Confirm $10.00 set aside on Sun, Oct 4' })
+    await waitFor(() => expect(manual.matches(':disabled')).toBe(false))
+    fireEvent.click(manual)
+    await screen.findByText('Saved. Your total is up to date.')
+    expect(cleared).not.toHaveBeenCalled()
+    expect(screen.getByText('Intake pending')).toBeTruthy()
+    const chat = await screen.findByRole('button', { name: 'Confirm $25.00 set aside on Sun, Oct 4' })
+    await waitFor(() => expect(chat.matches(':disabled')).toBe(false))
+    fireEvent.click(chat)
+    await waitFor(() => expect(cleared).toHaveBeenCalledOnce())
+    expect(screen.getByText('Intake cleared')).toBeTruthy()
+    expect(screen.getByText('Saved. Your total is up to date.')).toBeTruthy()
+    expect(screen.getByLabelText('Amount in US dollars')).toBeTruthy()
+    expect(vi.mocked(api.stageSavingsEntry).mock.calls[1][0]).not.toHaveProperty('chat_card_id')
+  })
+
   it('canceling a chat correction lets her report new money without carrying the old entry or card', async () => {
     const cleared = vi.fn()
     const entry = { id: 41, current_approved_version_id: 51, lock_version: 2, current_approved_version: savingsEntryVersion() }

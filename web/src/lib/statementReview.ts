@@ -28,7 +28,7 @@ export type StatementPlan = {
   without_category?: number
   ready_event_ids: number[]
   ready: PlanReady[]
-  coverage: { question: string | null; answer: CoverageAnswer | null }
+  coverage: { question: string | null; answer: CoverageAnswer | null; version_id?: number | null }
   totals_check: 'matches' | 'mismatch' | 'count' | 'unchecked'
   first_on: string | null
   last_on: string | null
@@ -41,7 +41,7 @@ export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; am
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
 export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
-export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer }
+export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
 

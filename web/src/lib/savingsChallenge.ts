@@ -71,7 +71,7 @@ export function savingsDefaultDate(calendar: SavingsCalendar | undefined): strin
   return calendar.local_today < calendar.starts_on ? calendar.starts_on : calendar.local_today > calendar.ends_on ? calendar.ends_on : calendar.local_today
 }
 
-export type SavingsIntake = { kind: 'purchase' | 'contribution' | 'withdrawal'; amount_cents: number; effective_on: string; merchant?: string; signed_cents?: number; approval_state: 'unreviewed_input'; counted: false; new_money_confirmation_required?: boolean; chat_card_id?: number; correction?: SavingsEntry; reason?: string }
+export type SavingsIntake = { staged_entry_id?: number; kind: 'purchase' | 'contribution' | 'withdrawal'; amount_cents: number; effective_on: string; merchant?: string; signed_cents?: number; approval_state: 'unreviewed_input'; counted: false; new_money_confirmation_required?: boolean; chat_card_id?: number; correction?: SavingsEntry; reason?: string }
 export function checkedSavingsIntake(value: SavingsIntake | DailyReportIntake | null | undefined): SavingsIntake | null {
   if(!value || value.kind==='daily_report')return null
   if(!['purchase','contribution','withdrawal'].includes(value.kind) || value.approval_state!=='unreviewed_input' || value.counted!==false || !Number.isSafeInteger(value.amount_cents) || value.amount_cents<1 || value.amount_cents>2147483647 || !/^\d{4}-\d{2}-\d{2}$/.test(value.effective_on))return null

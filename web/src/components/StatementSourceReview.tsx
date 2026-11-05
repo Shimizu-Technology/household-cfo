@@ -28,6 +28,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const [savingLines, setSavingLines] = useState(0)
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
   const [coverageAnswer, setCoverageAnswer] = useState<CoverageAnswer | null>(null)
+  const coverageVersion = useRef<number | null>(null)
   // Her answer is kept on screen if saving it fails, with a plain way to try again; nothing moves on until it is recorded.
   const [coverageFailed, setCoverageFailed] = useState(false)
   const [unsavedAnswer, setUnsavedAnswer] = useState<{ input: ApproveLinesInput; index: number | null; eventId?: number; choice?: PlanAnswerId; categoryId?: number; accountId?: number; basis?: 'asset' | 'liability' } | null>(null)
@@ -41,6 +42,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const viewKey = `${importId}:${revisionId}:${page}`
   const requestKey = `${viewKey}:${attempt}:${refreshKey}`
   const mutation = useStatementReviewMutation({ importId, revisionId, scope: result?.data?.participant_review?.actor_scope, refresh: () => { setUnsavedAnswer(null); setAttempt((value) => value + 1) } })
+  const clearMutationError = mutation.clearError
   const scoped = result?.data?.participant_review
   const actorReady = !scoped || Boolean(scoped.actor_scope && isStatementReviewActor(scoped.actor_scope))
   // The summary and the questions belong to the whole statement, so they stay on screen while another page of lines loads
@@ -56,12 +58,12 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
       validateSourceReview(payload, importId, revisionId, page, 'all')
       const review = payload.participant_review
       if (!review?.plan || !review.actor_scope || !Number.isSafeInteger(review.actor_scope.user_id) || !Number.isSafeInteger(review.actor_scope.household_id)) throw new Error('This statement review isn’t available right now. Refresh to continue.')
-      if (live) setResult({ key: requestKey, data: payload })
+      if (live) { setResult({ key: requestKey, data: payload }); clearMutationError(); if ((review.plan.coverage.version_id ?? null) !== coverageVersion.current) { setCoverageAnswer(null); setCoverageFailed(false) } }
     }).catch((failure: unknown) => {
       if (live) setResult((previous) => ({ key: requestKey, data: previous?.data, error: participantErrorMessage(failure, 'Could not load this statement.') }))
     })
     return () => { live = false; controller.abort() }
-  }, [importId, revisionId, page, requestKey, viewKey])
+  }, [importId, revisionId, page, requestKey, viewKey, clearMutationError])
 
   // After an answer is saved the row disappears; keyboard focus moves to the next question, or back to the summary.
   useEffect(() => {
@@ -102,7 +104,8 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
 
   async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
     focusAfter.current = focusIndex
-    const saved = await mutation.mutate('approve_lines', coverageAnswer && !input.coverage_answer ? { ...input, coverage_answer: coverageAnswer } : input)
+    const answer = input.coverage_answer ?? coverageAnswer
+    const saved = await mutation.mutate('approve_lines', answer ? { ...input, coverage_answer: answer, expected_coverage_id: coverageVersion.current } : input)
     if (!saved) focusAfter.current = undefined
     return saved
   }
@@ -119,6 +122,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   }
   // The question is hers to answer. If every line is already saved the answer is saved now; otherwise it goes with the next save.
   function answerCoverage(value: CoverageAnswer) {
+    coverageVersion.current = plan?.coverage.version_id ?? null
     setCoverageAnswer(value)
     setCoverageFailed(false)
     if (counts && counts.open === 0 && counts.attention === 0 && plan && plan.total > 0) void save({ lines: [], coverage_answer: value }).then((saved) => setCoverageFailed(!saved))
@@ -184,7 +188,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
         </div>
         <details><summary>Details for support</summary><p>Reference: {mutation.pendingRequest.key}</p></details>
       </div>}
-      {mutation.error && !sheet && !mutation.pendingRequest && <div className="statement-notice" role="alert"><p>{mutation.error}</p><Button variant="secondary" disabled={busy} onClick={() => { setUnsavedAnswer(null); setAttempt(value => value + 1) }}>Refresh statement</Button></div>}
+      {mutation.error && !sheet && !mutation.pendingRequest && <div className="statement-notice" role="alert"><p>{mutation.error}</p><Button variant="secondary" disabled={busy} onClick={() => { setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null; setAttempt(value => value + 1) }}>Refresh statement</Button></div>}
       {error && <div className="statement-notice" role="alert"><p>{error}</p><div className="statement-answers">
         <Button variant="secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</Button>
         {page > 1 && <Button variant="secondary" onClick={() => setPage(1)}>Back to the first lines</Button>}

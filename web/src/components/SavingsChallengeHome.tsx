@@ -13,7 +13,7 @@ import { PlanRequestRecovery } from './PlanRequestRecovery'
 import { savingsPlanContextInput } from '../lib/savingsChallenge'
 import { useHomeSavingsMutation } from '../lib/useHomeSavingsMutation'
 import { HomeSavingsRequestRecovery } from './HomeSavingsRequestRecovery'
-import type { HomeSavingsAction } from '../lib/homeSavingsRecovery'
+import type { HomeSavingsAction, HomeSavingsIdentity } from '../lib/homeSavingsRecovery'
 import './SavingsChallengeHome.css'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import { formatDay, formatRange, timeZoneLabel } from '../lib/plainDates'
@@ -24,9 +24,9 @@ import { SavingsRowButton, SavingsRowContent } from './SavingsRow'
 
 type RecordRow = SavingsEntry | SavingsEntryVersion | SavingsEntryDraft | SavingsPlanDraft
 type Retry = { key: string; perform: (key: string, signal: AbortSignal) => Promise<SavingsMutation<unknown>>; done?: () => void }
-type HomeProps = { onIntakeCleared?: () => void; dailyRefreshToken?: number; onDay?: (date: string) => void; onCheckpoint?: () => void; onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; checkedInToday?: boolean; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
+type HomeProps = { onIntakeStaged?: (entryId: number, chatCardId: number) => void; onIntakeCleared?: () => void; dailyRefreshToken?: number; onDay?: (date: string) => void; onCheckpoint?: () => void; onOptionalDebt?: () => void; cohortId?: number; evidenceRefreshToken?: number; onReviewEvidence?: (entryVersionId:number)=>void; participantScope?: BaselineScope; onAskMia: () => void; onReviewStatements: () => void; onReviewBaseline?: () => void; onToday?: () => void; onCheckIn?: () => void; checkedInToday?: boolean; privacyAccess?: ReactNode; initialSavingsIntake?: SavingsIntake | null; onEnrollmentKnown?: (enrolled: boolean) => void }
 export function SavingsChallengeHome(props: HomeProps) { return <SavingsChallengeHomeBody key={`${props.participantScope?.user_id}:${props.participantScope?.household_id}:${props.cohortId}`} {...props}/> }
-function SavingsChallengeHomeBody({ onIntakeCleared, dailyRefreshToken, onDay, onCheckpoint, onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, checkedInToday = false, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
+function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefreshToken, onDay, onCheckpoint, onOptionalDebt, cohortId, evidenceRefreshToken, onAskMia, onReviewStatements, onReviewBaseline, onToday, onCheckIn, checkedInToday = false, privacyAccess, initialSavingsIntake, participantScope, onReviewEvidence, onEnrollmentKnown }: HomeProps) {
   const { assistantName } = useBrand()
   const [planOpen, setPlanOpen] = useState(false)
   const [changingPlan, setChangingPlan] = useState(false)
@@ -53,19 +53,32 @@ function SavingsChallengeHomeBody({ onIntakeCleared, dailyRefreshToken, onDay, o
   const [target, setTarget] = useState('500.00')
   const [postponed, setPostponed] = useState(false)
   const [planReason, setPlanReason] = useState('')
-  const [amount, setAmount] = useState(initialSavingsIntake ? savingsInputDollars(initialSavingsIntake.amount_cents) : '')
-  const [intakeActive,setIntakeActive] = useState(Boolean(initialSavingsIntake))
+  const [amount, setAmount] = useState(initialSavingsIntake && !initialSavingsIntake.staged_entry_id ? savingsInputDollars(initialSavingsIntake.amount_cents) : '')
+  const [intakeActive,setIntakeActive] = useState(Boolean(initialSavingsIntake && !initialSavingsIntake.staged_entry_id))
   const [newMoneyReviewed,setNewMoneyReviewed] = useState(false)
   const [effectiveOn, setEffectiveOn] = useState(initialSavingsIntake?.effective_on ?? '')
   const [funding, setFunding] = useState<SavingsFundingSource>(initialSavingsIntake?.correction?.current_approved_version?.funding_source ?? 'new_money_reserved')
   const [withdrawal, setWithdrawal] = useState(initialSavingsIntake?.kind==='withdrawal')
   const [entryReason, setEntryReason] = useState(initialSavingsIntake?.reason ?? '')
-  const [editingEntry, setEditingEntry] = useState<SavingsEntry | null>(initialSavingsIntake?.correction ?? null)
+  const [editingEntry, setEditingEntry] = useState<SavingsEntry | null>(initialSavingsIntake?.staged_entry_id ? null : initialSavingsIntake?.correction ?? null)
   const [knownZero, setKnownZero] = useState(false)
   const privateDenied = useRef(false)
   const mounted = useRef(false)
   const sequence = useRef(0)
-  const stagedIntakeEntry = useRef<number | null>(null)
+  const stagedIntakeEntry = useRef<number | null>(initialSavingsIntake?.staged_entry_id ?? null)
+  const appliedIntake = useRef(initialSavingsIntake)
+  useEffect(() => {
+    if (!initialSavingsIntake || appliedIntake.current === initialSavingsIntake) return
+    appliedIntake.current = initialSavingsIntake
+    if (initialSavingsIntake.staged_entry_id) { stagedIntakeEntry.current = initialSavingsIntake.staged_entry_id; return }
+    queueMicrotask(() => {
+      setAmount(savingsInputDollars(initialSavingsIntake.amount_cents)); setEffectiveOn(initialSavingsIntake.effective_on)
+      setFunding(initialSavingsIntake.correction?.current_approved_version?.funding_source ?? 'new_money_reserved')
+      setWithdrawal(initialSavingsIntake.kind === 'withdrawal'); setEntryReason(initialSavingsIntake.reason ?? '')
+      setEditingEntry(initialSavingsIntake.correction ?? null); setIntakeActive(true); setNewMoneyReviewed(false); setEntryOpen(true)
+      stagedIntakeEntry.current = null
+    })
+  }, [initialSavingsIntake])
   const working = useRef(false)
   const uncertainRequest = useRef(false)
   const lastOffer = useRef<string | null>(null)
@@ -118,7 +131,7 @@ function SavingsChallengeHomeBody({ onIntakeCleared, dailyRefreshToken, onDay, o
   const scopeCohort = cohortId ?? challenge?.enrollment?.cohort_id
   const homeScope = useMemo(() => scopeUser && scopeHousehold && scopeCohort ? {user_id:scopeUser,household_id:scopeHousehold,cohort_id:scopeCohort} : undefined, [scopeUser,scopeHousehold,scopeCohort])
   const historyScope = useMemo(() => homeScope && scopeEnrollment ? {...homeScope,enrollment_id:scopeEnrollment} : undefined, [homeScope,scopeEnrollment])
-  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&initialSavingsIntake?.chat_card_id)stagedIntakeEntry.current=draft.savings_entry_id??null;if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared])
+  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction,request:HomeSavingsIdentity) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&request.chatCardId===initialSavingsIntake?.chat_card_id&&request.chatCardId&&draft.savings_entry_id){stagedIntakeEntry.current=draft.savings_entry_id;onIntakeStaged?.(draft.savings_entry_id,request.chatCardId);}if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared, onIntakeStaged])
   const homeConflict = useCallback((message: string) => { setReadFailed(true); setParticipation(false); setLateAcceptance(false); setKnownZero(false); setError(message) }, [])
   const homeMutation = useHomeSavingsMutation(homeScope, receiveHome, clearPrivatePlan, () => Boolean(readPlanRequest(planScope)) || working.current, homeConflict)
   const homePendingRef = useRef(homeMutation.pending); useEffect(()=>{homePendingRef.current=homeMutation.pending},[homeMutation.pending])
@@ -217,10 +230,10 @@ function SavingsChallengeHomeBody({ onIntakeCleared, dailyRefreshToken, onDay, o
   const locked = busy || loading || readFailed || retry !== null || homeMutation.pending !== null || planMutation.busy || planMutation.needsRefresh
   const planFormLocked = busy || loading || readFailed || retry !== null || homeMutation.pending !== null || planMutation.needsRefresh || Boolean(planMutation.pending && planMutation.freshAction?.action !== 'plan_stage')
   function stage(perform: Retry['perform'], done?: () => void) { void mutate({ key: crypto.randomUUID(), perform, done }) }
-  function homeStage(action:HomeSavingsAction, perform:Retry['perform'], done?:()=>void, draftId?:number, entryId?:number) {
+  function homeStage(action:HomeSavingsAction, perform:Retry['perform'], done?:()=>void, draftId?:number, entryId?:number, chatCardId?:number) {
     if(actionLocked(action,draftId,entryId) || readPlanRequest(planScope) || working.current || homeMutation.pending?.working) return
     for(const controller of controllers.current)controller.abort();controllers.current.clear();sequence.current++;setLoading(false)
-    if(homeScope) void homeMutation.submit({action, enrollmentId:action==='enrollment'?null:challenge?.enrollment?.id??null,draftId,entryId,perform,done})
+    if(homeScope) void homeMutation.submit({action, enrollmentId:action==='enrollment'?null:challenge?.enrollment?.id??null,draftId,entryId,chatCardId,perform,done})
     else stage(perform,done)
   }
   const freshHome = homeMutation.pending?.fresh ? homeMutation.pending : null
@@ -257,7 +270,7 @@ function SavingsChallengeHomeBody({ onIntakeCleared, dailyRefreshToken, onDay, o
       if (!challenge.calendar || effectiveOn > challenge.calendar.local_today) throw new Error('Add money you’ve already set aside. A future date can’t be saved yet.')
       if (editingEntry && !entryReason.trim()) throw new Error('Add a short reason for the fix.')
       const input = { signed_cents: withdrawal ? -cents : cents, effective_on: effectiveOn, funding_source: withdrawal ? 'withdrawal' as const : funding, expected_version_id: editingEntry?.current_approved_version_id ?? null, ...(editingEntry ? { entry_id: editingEntry.id, expected_entry_lock_version: editingEntry.lock_version } : {}), ...(intakeActive && initialSavingsIntake?.chat_card_id ? { chat_card_id: initialSavingsIntake.chat_card_id } : {}), reason: entryReason }
-      homeStage('entry_stage',(key, signal) => stageSavingsEntry(input, key, signal), () => { setIntakeActive(false); setAmount(''); setEditingEntry(null); setEntryReason('') },undefined,editingEntry?.id)
+      homeStage('entry_stage',(key, signal) => stageSavingsEntry(input, key, signal), () => { setIntakeActive(false); setAmount(''); setEditingEntry(null); setEntryReason('') },undefined,editingEntry?.id,input.chat_card_id)
     })
   }
   function editEntry(entry: SavingsEntry) {

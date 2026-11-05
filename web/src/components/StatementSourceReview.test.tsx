@@ -20,6 +20,32 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it('refreshes a coverage conflict to the newer answer and clears the old mutation error', async () => {
+    const data = participantReviewFixture()
+    data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }
+    fetchReview.mockResolvedValue(data)
+    mutate.mockRejectedValueOnce(new ApiRequestError('Coverage changed in another window.', { status: 409 }))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: 'Nothing’s missing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    const refresh = await screen.findByRole('button', { name: 'Refresh statement' })
+    const newer = structuredClone(data)
+    newer.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: 'something_missing', version_id: 910 }
+    fetchReview.mockResolvedValue(newer)
+    fireEvent.click(refresh)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByRole('button', { name: 'Nothing’s missing' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByText('Coverage changed in another window.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Refresh statement' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1][3]).not.toHaveProperty('coverage_answer')
+    fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approve these 100' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(3))
+    expect(mutate.mock.calls[2][3]).toMatchObject({ coverage_answer: 'nothing_missing', expected_coverage_id: 910 })
+  })
+
   it('carries the observed account and line heads into an already reviewed line edit', async () => {
     const data = participantReviewFixture()
     const event = data.events[1]
@@ -363,7 +389,7 @@ describe('statement review a participant can finish', () => {
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
-    expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing' })
+    expect(mutate.mock.calls[0][3]).toEqual({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: null })
     // The server has not said it recorded the answer yet, so nothing moves on.
     expect(screen.queryByRole('button', { name: 'See what Mia notices' })).toBeNull()
   })
@@ -382,7 +408,7 @@ describe('statement review a participant can finish', () => {
     fetchReview.mockResolvedValue({ ...data, participant_review: { ...data.participant_review!, plan: { ...plan, coverage: { ...plan.coverage, answer: 'something_missing' } } } })
     fireEvent.click(within(screen.getByText('We couldn’t save your answer yet. Please try again.').closest('div')!).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
-    expect(mutate.mock.calls[1][3]).toEqual({ lines: [], coverage_answer: 'something_missing' })
+    expect(mutate.mock.calls[1][3]).toEqual({ lines: [], coverage_answer: 'something_missing', expected_coverage_id: null })
     expect(await screen.findByRole('button', { name: 'See what Mia notices' })).toBeTruthy()
     expect(screen.queryByText('We couldn’t save your answer yet. Please try again.')).toBeNull()
   })
