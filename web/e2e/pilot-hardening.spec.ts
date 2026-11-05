@@ -55,7 +55,7 @@ async function openCoachAdvanced(page: Page) {
   }
 }
 
-async function openSection(page: Page, name: string) {
+async function openSection(page: Page, name: string, simpleCoach = false) {
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
   await expect(page.locator('.tabs-shell, .staff-navigation')).toBeVisible()
@@ -68,7 +68,7 @@ async function openSection(page: Page, name: string) {
     await expect(section).toBeVisible()
   }
   await section.click()
-  if (name === 'Coach Studio') { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Assistant voice/ }).click() }
+  if (name === 'Coach Studio' && !simpleCoach) { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Assistant voice/ }).click() }
   if (await more.count()) await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
@@ -13698,4 +13698,28 @@ test('BOG UI W18 a new version waits for an unsent message and reloads only afte
   await message.fill('')
   await Promise.all([page.waitForEvent('load'), reload.click()])
   await expect(message).toHaveValue('')
+})
+
+test('Coach Studio review two restores history for staff who also have a participant seat', async ({ page }) => {
+  await mockStaffWithParticipantSeat(page, 'coach')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/admin/personas', route => route.fulfill({ json: { personas: [] } }))
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => route.fulfill({ json: { cohorts: [] } }))
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Budget')
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  const initialPosition = await page.evaluate(() => history.state?.appHistoryPosition ?? 0)
+  await openSection(page, 'Coach Studio', true)
+  await expect(page.getByRole('navigation', { name: 'Coach Studio areas' })).toBeVisible()
+  expect(await page.evaluate(() => history.state.appHistoryPosition)).toBe(initialPosition + 1)
+  await page.getByRole('button', { name: 'Your assistant', exact: true }).click()
+  await expect(page.getByLabel('Assistant name')).toBeVisible()
+  await openSection(page, 'Budget')
+  await expect(page.getByRole('heading', { name: 'Budget', exact: true })).toBeVisible()
+  await openSection(page, 'Coach Studio', true)
+  await page.getByLabel('Assistant name').fill('Keep this participant-seat edit')
+  const savedUrl = page.url()
+  await page.evaluate(() => history.go(-3))
+  await answerConfirm(page, 'dismiss', 'Your changes will be lost.')
+  await expect(page).toHaveURL(savedUrl)
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Keep this participant-seat edit')
 })
