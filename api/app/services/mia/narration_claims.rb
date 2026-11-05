@@ -8,10 +8,7 @@ module Mia
       return :participant_system_wording if text.match?(/readiness colou?r|Plaid-derived|liquid account picture|Scenario only/i)
       return :invented_phone if text.match?(/(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?!\d)|\b(?:call|phone|dial)\s+\+?\d[\d ()-]{2,}/i)
       return :purchase_verdict if text.match?(/\b(?:go ahead|you can buy|i recommend|plenty of room|no problem|i['’]ve decided|i have decided)\b/i)
-      text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).each do |sentence|
-        claim = sentence.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
-        return :unsupported_balance_claim if claim && !sentence.match?(/\b(?:not|unknown|unverified|cannot|can['’]?t|do not|don['’]?t)\b/i)
-      end
+      return :unsupported_balance_claim if text.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
       unless confirmed_write
         text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).each do |sentence|
           next unless sentence.match?(/\b(?:saved|recorded|updated|logged)\b/i)

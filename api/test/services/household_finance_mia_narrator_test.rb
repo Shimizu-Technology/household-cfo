@@ -10,6 +10,12 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "review one bank claims cannot hide behind unrelated caveats" do
+    [ "You have money in your account, but I cannot see upcoming payments.", "There is money in the bank, not just a plan figure.", "This is available to spend, but do not forget food." ].each do |claim|
+      assert_equal :unsupported_balance_claim, Mia::NarrationClaims.rejection_reason(claim), claim
+    end
+  end
+
   test "saved balance descriptions are historical data while save receipts still fail" do
     assert_nil Mia::NarrationClaims.rejection_reason("Your saved Everyday checking balance is unknown.")
     [ "I saved your checking balance.", "Your plan was saved with a checking balance." ].each do |receipt|

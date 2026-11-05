@@ -117,6 +117,25 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     assert_match(/debt.*minimum|minimum.*debt/i, reply)
   end
 
+  test "legacy purchase coaching keeps every figure deterministic" do
+    five_answers
+    HouseholdFinance::SetupUpdater.new(@household, debt_payment: "95").call
+    calls = []
+    original = HouseholdFinance::MiaNarrator.instance_method(:call)
+    HouseholdFinance::MiaNarrator.define_method(:call) do
+      calls << true
+      "Model-owned figures must never replace the purchase answer."
+    end
+    [ [ "Can I buy a $500 purse?", "$500 purse" ], [ "Should I spend $75 on a handbag?", "$75 purse" ], [ "Can I buy a $120 purse for school?", "baseline need" ] ].each do |message, expected|
+      ask(message)
+      refute_includes reply, "Model-owned figures", message
+      assert_includes reply, expected, message
+    end
+    assert_empty calls
+  ensure
+    HouseholdFinance::MiaNarrator.define_method(:call, original) if original
+  end
+
   private
   def headers = { "Authorization" => "Bearer test_token_#{@user.id}" }
   def ask(message)

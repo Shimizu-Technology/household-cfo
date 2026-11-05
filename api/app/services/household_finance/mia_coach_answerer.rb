@@ -1127,6 +1127,7 @@ module HouseholdFinance
     end
 
     def planned_purchase_detail_answer
+      return if purchase_question? && essential_purchase?
       return if non_purchase_amount_request?
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)

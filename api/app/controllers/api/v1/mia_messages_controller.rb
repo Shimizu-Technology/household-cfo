@@ -2381,6 +2381,11 @@ module Api
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
         priority = HouseholdFinance::MiaCoachAnswerer.routing_priority(content)
+        # Legacy purchase coaching has no purchase_scenario packet. Keep its
+        # figures in the server reply rather than general model narration.
+        if kind == "coaching" && priority == :purchase && HouseholdFinance::MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| content.match?(pattern) }
+          return fallback_response
+        end
         month_facts = safe_month_answer(content, annual_plan: annual_plan) if priority == :month
         if month_facts
           annual_plan = @mia_month_answer.plan_data
