@@ -33,6 +33,7 @@ class User < ApplicationRecord
 
   validates :clerk_id, presence: true, uniqueness: true
   validates :email, presence: true, uniqueness: { case_sensitive: false }
+  validates :email, format: { with: /\A[A-Za-z0-9!\#$%&'*+\/=?^_`{|}~-]+(?:\.[A-Za-z0-9!\#$%&'*+\/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\z/, message: "must be a complete address without spaces or extra punctuation" }, length: { maximum: 254 }, if: :will_save_change_to_email?
   validates :role, inclusion: { in: ROLES }
   validates :invitation_status, inclusion: { in: INVITATION_STATUSES }
   validates :invitation_email_status, inclusion: { in: INVITATION_EMAIL_STATUSES }, allow_nil: true

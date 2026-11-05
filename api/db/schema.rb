@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_05_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1046,6 +1046,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
 
   create_table "coach_persona_setup_proposals", force: :cascade do |t|
     t.jsonb "accepted_operation_indexes"
+    t.jsonb "accepted_list_item_indexes"
     t.jsonb "after_state", default: {}, null: false
     t.string "base_config_digest", null: false
     t.integer "base_draft_revision", null: false

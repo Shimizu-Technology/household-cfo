@@ -2,57 +2,68 @@
 
 module Mia
   module PersonaSetup
-    # Preserve a supplied phrase without borrowing an unsupported interpretation.
+    # Validate model proposals against coach-attributed source words. Never add
+    # operations: a quote in a message is not permission to adopt it as a phrase.
     class PhraseSuggestions
-      def initialize(message:)
+      def initialize(message:, coach_name: nil)
         @message = message
+        @coach_name = coach_name
       end
 
       def call(operations)
-        phrases = quoted_phrases
-        operations = operations.map do |operation|
+        operations.map do |operation|
           next operation unless operation.is_a?(Hash) && operation["op"] == "add_phrase" && operation["value"].is_a?(Hash)
 
           value = operation.fetch("value")
-          exact = phrases.find { |phrase| phrase.delete_suffix(".") == value["text"].to_s.delete_suffix(".") }
+          exact = exact_quote(value["text"].to_s)
           next operation unless exact
           next operation if Array(value["allowed_contexts"]).include?("crisis")
-          next literal_phrase(exact) if value["text"] != exact
-          next operation if TextEvidence.supports?(operation["evidence_quote"].to_s, value["meaning"].to_s)
+          next operation if value["text"] == exact && TextEvidence.supports?(operation["evidence_quote"].to_s, value["meaning"].to_s)
 
-          literal_phrase(exact)
+          operation.merge("evidence_quote" => exact, "value" => value.merge("text" => exact, "meaning" => exact))
         end
-        phrases.each do |text|
-          next if operations.any? { |operation| phrase_text(operation).to_s.delete_suffix(".") == text.delete_suffix(".") }
+      end
 
-          operations << literal_phrase(text)
+      def exact_quote(text)
+        return if text.blank?
+
+        @message.each_line do |line|
+          speaker, body = line.split(/:\s*/, 2)
+          if body && speaker.split.length <= 3 && speaker.match?(/\A[[:alpha:] .'-]{1,60}\z/) && !speaker.match?(/word for word|phrase|saying/i)
+            allowed = [ "coach", "me", "#{@coach_name}" ].reject(&:blank?)
+            next unless allowed.any? { |name| speaker.strip.casecmp?(name) }
+          else
+            body = line
+          end
+          # The source must identify the coach or explicitly request this phrase.
+          # A third party's quote, even inside a coach line, is not her voice.
+          body.to_enum(:scan, /["“]([^"”\n]{1,100})["”]/).each do
+            match = Regexp.last_match
+            next unless self.class.key(match[1]) == self.class.key(text)
+
+            suffix = body[match.end(0)..].to_s.split(/[.!?;\n]/).first.to_s
+            next if suffix.match?(/\b(?:should never|must not|is off limits|should not|is banned)\b/i)
+
+            prefix = body[0...match.begin(0)].split(/[.!?;]/).last.to_s
+            next if negative_introduction?(prefix) || prefix.match?(/\b(?:client|friend|mother|father|husband|wife|participant|maria)\b/i)
+            next unless prefix.match?(/\b(?:i|we|she|her|coach)\b.*\b(?:say|says|saying|phrase)\b|\b(?:add|use|keep)\b.*\b(?:phrase|saying|word for word)\b/i) || (body != line && prefix.strip.empty?)
+
+            return match[1]
+          end
+          # Exact unquoted authoring commands remain supported.
+          return text if body.include?(text) && body.match?(/\b(?:use|add|keep)\b.*\b(?:exact phrase|phrase)\b/i) && !negative_introduction?(body.split(text, 2).first)
         end
-        operations
+        nil
+      end
+
+      def self.key(text)
+        text.unicode_normalize(:nfkc).downcase.squish.sub(/[.!?]+\z/, "")
       end
 
       private
 
-      def quoted_phrases
-        @message.to_enum(:scan, /(?:\b(?:say|says|saying|phrase)\b[^"“\n]{0,80}|word for word:\s*)["“]([^"”\n]{1,100})["”]/i).filter_map do
-          match = Regexp.last_match
-          prefix = @message[0...match.begin(1)].split(/[.!?;\n]/).last.to_s
-          next if prefix.match?(/\b(?:not|never|[a-z]+n['’]t|no longer|remove|drop)\b/i)
-
-          match[1]
-        end.uniq
-      end
-
-      def phrase_text(operation)
-        return unless operation.is_a?(Hash) && operation["path"] == "phrases"
-
-        value = operation["value"]
-        value.is_a?(Hash) ? value["text"] : value
-      end
-
-      def literal_phrase(text)
-        { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => text,
-          "value" => { "text" => text, "meaning" => text, "allowed_contexts" => [ "general" ],
-            "prohibited_contexts" => [ "crisis" ], "frequency" => "rare", "caution" => "" } }
+      def negative_introduction?(text)
+        text.tr("‘’ʼ", "'").match?(/\b(?:not|never|no|(?:do|does|did|ca|wo|would|should|could|is|are|was|were|has|have|had|must)n'?t|stop|avoid|refus\w*|instead|rather|without|delete|take out|ban|remove|drop|hate|get rid|off limits)\b/i)
       end
     end
   end

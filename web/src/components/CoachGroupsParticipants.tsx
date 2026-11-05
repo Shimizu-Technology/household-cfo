@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, removeCoachGroupParticipant, resendAdminUserInvitation, updateAdminCohort } from '../api'
+import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, ApiRequestError, removeCoachGroupParticipant, resendAdminUserInvitation, updateAdminCohort } from '../api'
 import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminUser, AdminUserMutationResponse, CurrentUser } from '../api'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 import { Button } from './Button'
@@ -45,6 +45,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   const [inviteOpen, setInviteOpen] = useState(false)
   const [emailList, setEmailList] = useState('')
   const [reviewEmails, setReviewEmails] = useState<string[] | null>(null)
+  const [listProblems, setListProblems] = useState<string[]>([])
   const [sendEmail, setSendEmail] = useState(true)
   const [search, setSearch] = useState('')
   const [rosterPage, setRosterPage] = useState(0)
@@ -189,33 +190,48 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
   }
 
   function reviewList() {
-    const emails = [...new Set(emailList.split(/[\s,;]+/).map(value => value.trim().toLowerCase()).filter(Boolean))]
-    if (!emails.length || emails.length > 100 || emails.some(value => value.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))) {
-      setError('Paste up to 100 email addresses, separated by spaces, commas or new lines. Check each address includes @ and a domain.')
-      return
+    const entries = emailList.split(/[,;\n]+/).flatMap(line => line.includes('<') || line.includes('>') || (line.match(/@/g)?.length === 1) ? [line.trim()] : line.trim().split(/\s+/)).filter(Boolean)
+    const emails: string[] = []
+    const problems: string[] = []
+    const valid = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/
+    for (const entry of entries) {
+      const named = entry.match(/^[^<>]+<([^<>]+)>$/)
+      const address = (named?.[1] ?? entry).trim().toLowerCase()
+      if (address.length > 254 || !valid.test(address)) problems.push(`${entry}: Enter a complete email address without spaces or extra punctuation.`)
+      else if (!emails.includes(address)) emails.push(address)
     }
-    setError(null); setReviewEmails(emails)
+    if (emails.length > 100) { setError('Review up to 100 email addresses at a time.'); return }
+    setListProblems(problems); setError(null); setReviewEmails(emails.length ? emails : null)
   }
   async function inviteList() {
     if (!selected || !reviewEmails || disabled) return
-    const remaining = [...reviewEmails]
+    const remaining: string[] = []
+    const problems: string[] = []
     const inviteGeneration = generation.current
     let added = 0
+    let existing = 0
     let unsent = 0
     await mutate(async () => {
-      try {
-        for (const address of reviewEmails) {
-          if (inviteGeneration !== generation.current) break
+      for (const [index, address] of reviewEmails.entries()) {
+        if (inviteGeneration !== generation.current) break
+        if (groupParticipants.some(user => user.email.toLowerCase() === address)) { existing += 1; continue }
+        try {
           const result = await createAdminUser({ email: address, role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
-          remaining.shift(); added += 1
+          added += 1
           if (sendEmail && result.invitation_status === 'failed') unsent += 1
+        } catch (caught) {
+          if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500 && caught.status !== 429) {
+            problems.push(`${address}: ${messageFor(caught)}`)
+            continue
+          }
+          remaining.push(...reviewEmails.slice(index))
+          problems.push(`${address}: ${messageFor(caught)} Remaining addresses are ready to retry.`)
+          break
         }
-      } catch {
-        // Keep only unfinished addresses so retry cannot repeat completed adds.
       }
-      return { notice: `${added} ${added === 1 ? 'person added' : 'people added'}.${unsent ? ` ${unsent} invitation emails did not send. Open Participant access to resend.` : ''}${remaining.length ? ` ${remaining.length} still to add. Review the remaining list and try again.` : ''}` }
+      return { notice: `${added} ${added === 1 ? 'person added' : 'people added'}.${existing ? ` ${existing} already in this group.` : ''}${unsent ? ` ${unsent} invitation ${unsent === 1 ? 'email did' : 'emails did'} not send. Open Participant access to resend.` : ''}${remaining.length ? ` ${remaining.length} still to add. Review the remaining list and try again.` : ''}` }
     }, () => {
-      setEmailList(remaining.join('\n')); setReviewEmails(remaining.length ? remaining : null); setInviteOpen(true)
+      setListProblems(problems); setEmailList(remaining.join('\n')); setReviewEmails(remaining.length ? remaining : null); setInviteOpen(true)
       window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
     })
   }
@@ -231,6 +247,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
       setNewName(''); setCreateOpen((open) => !open)
     }}>{createOpen ? 'Close new group' : 'New group'}</Button></div></header>
     {error && <div className="coach-groups-error" role="alert">{error}</div>}
+    {listProblems.length > 0 && <div role="alert"><p>These addresses were not added:</p><ul>{listProblems.map(problem => <li key={problem}>{problem}</li>)}</ul></div>}
     {notice && <div className="coach-groups-notice" role="status">{notice}</div>}
     {loading && <p role="status">Loading groups and participants…</p>}
     {createOpen && <form className="coach-groups-card" onSubmit={createGroup}><h3>Create a group</h3><label>Group name<input required maxLength={120} value={newName} disabled={disabled} onChange={(event) => setNewName(event.target.value)} /></label><p>New groups start as Enrolling. Review the assistant, then go live when you are ready.</p><Button type="submit" disabled={disabled || !newName.trim() || groupDirty || !!email.trim()}>Create group</Button>{(groupDirty || email.trim()) && <p>Save or discard the current group or invitation changes first.</p>}</form>}
@@ -238,7 +255,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     {selectedCohortId === undefined && !!groups.length && <label className="coach-group-picker">Group<select disabled={disabled} value={selectedId ?? ''} onChange={(event) => chooseGroup(Number(event.target.value))}>{groups.map((group) => <option key={group.id} value={group.id}>{group.name} · {group.participant_count} participants</option>)}</select></label>}
     {selected && draft && <>
       <details className="coach-group-settings"><summary>Group details & dates</summary><form className="coach-groups-card" onSubmit={saveGroup}><h3>Group details</h3><div className="coach-groups-grid"><label>Group name<input required maxLength={120} value={draft.name} disabled={disabled} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label>Group status<select value={draft.status} disabled={disabled} onChange={(event) => setDraft({ ...draft, status: event.target.value as AdminCohortStatus })}><option value="draft">Draft</option><option value="enrolling">Enrolling</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option></select></label><label>Start date<input type="date" value={draft.starts_on} disabled={disabled} onChange={(event) => setDraft({ ...draft, starts_on: event.target.value })} /></label><label>End date (optional)<input type="date" value={draft.ends_on} min={draft.starts_on || undefined} disabled={disabled} onChange={(event) => setDraft({ ...draft, ends_on: event.target.value })} /></label></div><label>Group notes (optional)<textarea rows={3} maxLength={2000} value={draft.notes} disabled={disabled} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} /></label><p>A savings challenge needs a start date before it can open. Each participant gets 90 days; the group end date is optional. Status organizes the group. It does not publish or launch an assistant, tools, or branding. Completed and archived groups cannot have an open rollout.</p><div className="coach-groups-actions"><Button type="submit" disabled={disabled || !groupDirty || !draft.name.trim()}>Save group</Button><Button variant="secondary" disabled={disabled || !groupDirty} onClick={() => setDraft(draftFor(selected))}>Discard changes</Button></div></form></details>
-      <details ref={invitation} className="coach-group-settings" open={inviteOpen || groupParticipants.length === 0 || undefined} onToggle={event => setInviteOpen(event.currentTarget.open)}><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form><div className="coach-groups-card"><h3>Add several people</h3><label>Paste email addresses<textarea rows={5} maxLength={25500} value={emailList} disabled={disabled} onChange={event => { setEmailList(event.target.value); setReviewEmails(null) }} /></label><p>Separate addresses with commas, spaces or new lines. You’ll review the list before anyone is added.</p>{reviewEmails ? <><h4>Review {reviewEmails.length} {reviewEmails.length === 1 ? 'person' : 'people'} for {selected.name}</h4><ul className="coach-invitation-review" tabIndex={0} aria-label="Email addresses to add">{reviewEmails.map(address => <li key={address}>{address}</li>)}</ul><p>{sendEmail ? 'An invitation email will be requested for each eligible person.' : 'No invitation emails will be sent.'}</p><Button disabled={disabled || groupDirty || !!newName.trim() || !!email.trim()} onClick={() => void inviteList()}>Add these {reviewEmails.length} people</Button><Button variant="secondary" disabled={disabled} onClick={() => setReviewEmails(null)}>Change the list</Button></> : <Button variant="secondary" disabled={disabled || !emailList.trim() || groupDirty || !!newName.trim() || !!email.trim()} onClick={reviewList}>Review email list</Button>}</div></details>
+      <details ref={invitation} className="coach-group-settings" open={inviteOpen || groupParticipants.length === 0 || undefined} onToggle={event => setInviteOpen(event.currentTarget.open)}><summary>Add a participant</summary><form className="coach-groups-card" onSubmit={inviteParticipant}><h3>Add a participant</h3><label>Participant email<input type="email" required maxLength={254} autoComplete="email" value={email} disabled={disabled} onChange={(event) => setEmail(event.target.value)} /></label><label className="coach-groups-check"><input type="checkbox" checked={sendEmail} disabled={disabled} onChange={(event) => setSendEmail(event.target.checked)} />Send an invitation email when eligible</label><p>Existing participants can join another group if its assistant and participant tools are compatible. Their account and other groups stay unchanged. Shared or accepted accounts may be added without another email.</p><Button type="submit" disabled={disabled || !email.trim() || groupDirty || !!newName.trim()}>Add to {selected.name}</Button>{(groupDirty || newName.trim()) && <p>Save or discard group changes first.</p>}</form><div className="coach-groups-card"><h3>Add several people</h3><label>Paste email addresses<textarea rows={5} maxLength={25500} value={emailList} disabled={disabled} onChange={event => { setEmailList(event.target.value); setReviewEmails(null) }} /></label><p>Separate addresses with commas, spaces or new lines. You’ll review the list before anyone is added.</p>{reviewEmails ? <><h4>Review {reviewEmails.length} {reviewEmails.length === 1 ? 'person' : 'people'} for {selected.name}</h4><ul className="coach-invitation-review" tabIndex={0} aria-label="Email addresses to add">{reviewEmails.map(address => <li key={address}>{address}</li>)}</ul><p>{sendEmail ? 'An invitation email will be requested for each eligible person.' : 'No invitation emails will be sent.'}</p><Button disabled={disabled || groupDirty || !!newName.trim() || !!email.trim()} onClick={() => void inviteList()}>Add {reviewEmails.length === 1 ? 'this person' : `these ${reviewEmails.length} people`}</Button><Button variant="secondary" disabled={disabled} onClick={() => setReviewEmails(null)}>Change the list</Button></> : <Button variant="secondary" disabled={disabled || !emailList.trim() || groupDirty || !!newName.trim() || !!email.trim()} onClick={reviewList}>Review email list</Button>}</div></details>
       <section className="coach-groups-card"><h3>Participants in {selected.name}</h3><label>Find a participant<input type="search" value={search} disabled={disabled} onChange={(event) => { setSearch(event.target.value); setRosterPage(0); setRemovingId(null) }} /></label><p>Invitation pending describes account access, not email delivery. Historical email delivery details are private to platform administrators.</p>
         {!participants.length && <p>{search ? 'No participants match your search.' : 'No participants in this group yet.'}</p>}
         {!!participants.length && <p className="coach-roster-count">Showing {currentRosterPage * 10 + 1}–{Math.min((currentRosterPage + 1) * 10, participants.length)} of {participants.length} {search.trim() ? 'matching participants' : 'participants'}.</p>}

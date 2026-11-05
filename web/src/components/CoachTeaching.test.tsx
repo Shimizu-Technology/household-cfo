@@ -2,16 +2,16 @@
 import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import type { AdminPersonaDetail, CurrentUser } from '../api'
+import { ApiRequestError, type AdminPersonaDetail, type CurrentUser } from '../api'
 import { CoachTeaching, CoachTeachingWorkspace } from './CoachTeaching'
 import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
-const api=vi.hoisted(()=>({updateAdminPersona:vi.fn()}))
-vi.mock('../api',()=>api)
+const api=vi.hoisted(()=>({updateAdminPersona:vi.fn(),createAdminPersonaSetupSession:vi.fn()}))
+vi.mock('../api',async original=>({...await original<typeof import('../api')>(),...api}))
 vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:({onDirtyChange,onPersonaChange,selectedPersona}:{onDirtyChange:(dirty:boolean)=>void;onPersonaChange:(persona:AdminPersonaDetail)=>void;selectedPersona:AdminPersonaDetail})=><><label>Library draft<input onChange={event=>onDirtyChange(Boolean(event.target.value))}/></label><button onClick={()=>onPersonaChange({...selectedPersona,draft_revision:selectedPersona.draft_revision!+1})}>Attach library collection</button></>}))
 const persona={id:8,draft_revision:1,draft:{coaching:{method:'Ask one question.'}},permissions:{edit:true}} as unknown as AdminPersonaDetail
 const dirty=vi.fn(),preview=vi.fn()
 function Harness(){const [current,setCurrent]=useState(persona);const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachTeachingWorkspace persona={current} currentUser={{id:902} as CurrentUser} lifecycle={lifecycle} onDirtyChange={dirty} onPersonaChange={setCurrent} onPreview={preview}/>}
-beforeEach(()=>{vi.resetAllMocks();api.updateAdminPersona.mockResolvedValue({...persona,draft_revision:2,draft:{coaching:{method:'Ask a kind question.'}}})})
+beforeEach(()=>{vi.resetAllMocks();api.createAdminPersonaSetupSession.mockResolvedValue({proposal:null});api.updateAdminPersona.mockResolvedValue({...persona,draft_revision:2,draft:{coaching:{method:'Ask a kind question.'}}})})
 afterEach(()=>{cleanup();vi.restoreAllMocks()})
 it('keeps combined dirty state when the teaching method is reverted while the library is unsaved',async()=>{
  render(<Harness/>);fireEvent.change(screen.getByLabelText('Library draft'),{target:{value:'Keep this private draft'}})
@@ -82,4 +82,25 @@ it('offers an exact phrase form when chat is unavailable and saves it for previe
  const phrase=api.updateAdminPersona.mock.calls[0][1].draft_config.phrases[0]
  expect(phrase.text).toBe('Chelu, pump the brakes.');expect(phrase.meaning).toBe(phrase.text)
  expect(phrase.prohibited_contexts).toEqual(['crisis']);expect(preview).toHaveBeenCalledWith(saved)
+})
+
+it('R4 warns before a Teaching save destroys pending suggestions and preserves both when declined',async()=>{
+ api.createAdminPersonaSetupSession.mockResolvedValue({proposal:{id:71}})
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={preview}/>)
+ fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'A revised teaching method'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(confirm).toHaveBeenCalledWith(expect.stringContaining('pending voice suggestions')))
+ expect(api.updateAdminPersona).not.toHaveBeenCalled();expect(preview).not.toHaveBeenCalled()
+ expect(screen.getByLabelText('Teaching method')).toHaveProperty('value','A revised teaching method')
+ confirm.mockReturnValue(true)
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(1))
+})
+it('R13 shows the server safety reason for a refused Teaching save',async()=>{
+ api.updateAdminPersona.mockRejectedValue(new ApiRequestError('This suggestion could stereotype a group of people.',{status:422}))
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={vi.fn()}/>)
+ fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'Unsafe wording'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ expect((await screen.findByRole('alert')).textContent).toBe('This suggestion could stereotype a group of people.')
 })

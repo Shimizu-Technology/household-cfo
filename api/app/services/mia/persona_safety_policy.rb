@@ -2,7 +2,7 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 11
+    VERSION = 12
     NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
@@ -73,6 +73,14 @@ module Mia
       def violations(configuration)
         errors = []
         validate_identity_disclosure(configuration, errors)
+        Array(configuration.is_a?(Hash) && (configuration["phrases"] || configuration[:phrases])).each do |phrase|
+          next unless phrase.is_a?(Hash)
+
+          text = (phrase["text"] || phrase[:text]).to_s
+          if text.match?(/\b(?:kill yourself|you are (?:a failure|worthless)|you['’]re (?:a failure|worthless))\b/i)
+            errors << "Coaching phrases cannot encourage harm or shame participants."
+          end
+        end
         walk(
           configuration,
           "$",

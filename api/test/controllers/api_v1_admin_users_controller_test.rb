@@ -1,6 +1,29 @@
 require "test_helper"
 
 class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
+  test "R12 rejects malformed invitation addresses before creating an account" do
+    admin = create_user(email: "r12-admin@example.test", role: "admin")
+    cohort = Cohort.create!(name: "R12", status: "enrolling", created_by_user: admin)
+    [ "<jane@example.test>", "weird@exa mple.com", "jane@example..test" ].each do |email|
+      assert_no_difference -> { User.count } do
+        post "/api/v1/admin/users", params: { user: { email: email, role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+      end
+      assert_response :unprocessable_entity
+      assert_includes response.body, "complete address"
+    end
+  end
+
+  test "R15 coach create responses exclude provider diagnostics while platform admins retain them" do
+    admin = create_user(email: "r15-admin@example.test", role: "admin")
+    coach = create_user(email: "r15-coach@example.test", role: "coach")
+    cohort = Cohort.create!(name: "R15", status: "enrolling", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+    post "/api/v1/admin/users", params: { user: { email: "r15-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(coach), as: :json
+    assert_response :created
+    refute JSON.parse(response.body).key?("invitation_error")
+    refute_includes response.body, "WorkOS"
+  end
+
   test "admin users endpoint requires authentication" do
     get "/api/v1/admin/users"
 

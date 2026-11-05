@@ -61,7 +61,7 @@ test('Coach Studio fresh QA saves accumulated voice, reviews tools, invites a li
   await page.getByText('More settings', { exact: true }).click()
   await page.getByRole('button', { name: 'Voice', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Use all suggestions' })).toBeEnabled({ timeout: 60_000 })
-  await expect(page.getByText('Answers: 3 or 4 sentences', { exact: true })).toBeVisible()
+  await expect(page.getByText('Answers: 3 to 4 sentences', { exact: true })).toBeVisible()
   await shot('accumulated-voice')
   await page.getByLabel('Message Mia').fill('Tell me more about this voice.')
   await page.getByRole('button', { name: 'Send to Mia', exact: true }).click()

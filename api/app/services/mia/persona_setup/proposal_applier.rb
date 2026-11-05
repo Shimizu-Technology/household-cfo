@@ -21,16 +21,18 @@ module Mia
         @workspace_id = workspace.id
       end
 
-      def apply!(idempotency_key:, accepted_operation_indexes: nil)
+      def apply!(idempotency_key:, accepted_operation_indexes: nil, accepted_list_item_indexes: nil)
         key = normalize_key(idempotency_key)
         ApplicationRecord.transaction do
           authorization = authorize!
           session = locked_session!
           proposal = session.proposals.lock.find(proposal_id)
           indexes = selected_indexes(proposal, accepted_operation_indexes)
+          list_indexes = selected_list_indexes(proposal, indexes, accepted_list_item_indexes)
           if proposal.status == "applied"
             if secure_match?(proposal.resolution_idempotency_key, key) &&
-                (proposal.accepted_operation_indexes || proposal.operations.each_index.to_a) == indexes
+                (proposal.accepted_operation_indexes || proposal.operations.each_index.to_a) == indexes &&
+                (proposal.accepted_list_item_indexes || {}) == list_indexes
               return authorization.persona
             end
 
@@ -39,7 +41,7 @@ module Mia
           ensure_pending!(proposal, session)
           verify_seal!(proposal, authorization.persona)
 
-          state = selected_state(proposal, indexes)
+          state = selected_state(proposal, indexes, list_indexes)
           updater = PersonaDraftUpdater.new(
             persona: authorization.persona,
             actor: authorization.actor,
@@ -54,7 +56,7 @@ module Mia
             expected_state_digest: PersonaDraftUpdater.state_digest(state)
           )
           persona = authorization.persona.reload
-          proposal.update!(accepted_operation_indexes: indexes)
+          proposal.update!(accepted_operation_indexes: indexes, accepted_list_item_indexes: list_indexes)
           proposal.resolve!(status: "applied", actor: authorization.actor, idempotency_key: key)
           session.update!(
             base_draft_revision: persona.draft_revision,
@@ -103,8 +105,8 @@ module Mia
       # The whole proposal has already passed its contract and seal checks. Copy
       # selected values from that sealed result instead of capturing artifacts a
       # second time with new identities or the actor's current role.
-      def selected_state(proposal, indexes)
-        return proposal.after_state if indexes == proposal.operations.each_index.to_a
+      def selected_state(proposal, indexes, list_indexes)
+        return proposal.after_state if indexes == proposal.operations.each_index.to_a && list_indexes.empty?
 
         state = proposal.before_state.deep_dup
         before_phrases = proposal.before_state.fetch("draft_config").fetch("phrases")
@@ -117,17 +119,39 @@ module Mia
           when "set"
             keys = operation.fetch("path") == "description" ? [ "description" ] : [ "draft_config", *operation.fetch("path").split(".") ]
             target = keys[0...-1].reduce(state) { |value, key| value.fetch(key) }
-            target[keys.last] = proposal.after_state.dig(*keys).deep_dup
+            value = proposal.after_state.dig(*keys).deep_dup
+            choices = list_indexes[index.to_s]
+            value = value.each_with_index.filter_map { |item, item_index| item if choices.include?(item_index) } if choices
+            target[keys.last] = value
           when "add_phrase"
             text = operation.fetch("value").fetch("text")
             phrase = added.find { |item| item.fetch("text") == text }
-            state.fetch("draft_config").fetch("phrases") << phrase.deep_dup
+            state.fetch("draft_config").fetch("phrases") << phrase.deep_dup if phrase
           when "remove_phrase"
             phrase = removed.find { |item| item.fetch("text") == operation.fetch("value") }
-            state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") }
+            state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } if phrase
           end
         end
+        coaching = state.dig("draft_config", "coaching")
+        coaching["do"] = Array(coaching["do"]).reject do |item|
+          Array(coaching["do_not"]).any? { |ban| TextEvidence.supports?(ban.gsub(/\b(?:do not|don['’ʼ]?t|never|avoid|stop)\b/i, ""), item) }
+        end
         state
+      end
+
+      def selected_list_indexes(proposal, indexes, values)
+        return {} if values.nil?
+        values = values.to_unsafe_h if values.respond_to?(:to_unsafe_h)
+        unless values.is_a?(Hash) && values.all? do |key, choices|
+            index = Integer(key, exception: false)
+            operation = index && index >= 0 && proposal.operations[index]
+            value = operation && operation["op"] == "set" && proposal.after_state.dig("draft_config", *operation["path"].split("."))
+            indexes.include?(index) && operation["op"] == "set" && value.is_a?(Array) &&
+              choices.is_a?(Array) && choices.all? { |choice| choice.is_a?(Integer) && choice >= 0 && choice < value.length } && choices.uniq == choices
+          end
+          raise Error.new("Choose valid list items to save.", code: "persona_setup_invalid", status: :unprocessable_entity)
+        end
+        values.transform_keys(&:to_s).transform_values(&:sort)
       end
 
       def authorize!

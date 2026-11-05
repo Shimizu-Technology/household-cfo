@@ -99,22 +99,42 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     setName('Mia')
     action()
   }
-  function setArea(next: Area) { writeView(next, readUrlTask() ?? task); updateArea(next) }
-  function setTask(next: Task) { writeView(readUrlView() ?? area, next); updateTask(next) }
+  const historyIndex = useRef<number>(window.history.state?.coachStudioIndex ?? 0)
+  const restoringHistory = useRef(false)
+  function navigate(nextArea: Area, nextTask: Task = task) {
+    writeView(nextArea, nextTask)
+    historyIndex.current = window.history.state?.coachStudioIndex ?? 0
+    if (nextArea !== 'live') setPreviewOnOpen(false)
+    updateArea(nextArea); updateTask(nextTask)
+  }
+  function setArea(next: Area) { navigate(next) }
+  function setTask(next: Task) { navigate(area, next) }
   useEffect(() => {
     writeView(area, task, true)
     const follow = () => {
+      if (restoringHistory.current) { restoringHistory.current = false; return }
       if (window.location.hash !== '#Coach%20Studio') return
       const nextArea = readUrlView() ?? 'people'
       const nextTask = readUrlTask() ?? 'voice'
-      if (nextArea === area && nextTask === task) return
-      if (busy || groupsBusy || lifecycle.pending) { writeView(area, task, true); return }
+      const nextIndex = window.history.state?.coachStudioIndex ?? 0
+      const restore = () => {
+        const delta = historyIndex.current - nextIndex
+        if (delta) { restoringHistory.current = true; window.history.go(delta) }
+      }
+      if (nextArea === area && nextTask === task) { historyIndex.current = nextIndex; return }
+      if (busy || groupsBusy || lifecycle.pending) { restore(); return }
+      const accept = () => {
+        historyIndex.current = nextIndex
+        trackDirty(false); setName('Mia'); setPreviewOnOpen(false)
+        updateArea(nextArea); updateTask(nextTask)
+      }
       if (dirty) {
-        writeView(area, task, true)
         void confirmDiscard('Your changes will be lost.').then(discard => {
-          if (discard && mounted.current) { trackDirty(false); setName('Mia'); writeView(nextArea, nextTask); updateArea(nextArea); updateTask(nextTask) }
+          if (!mounted.current) return
+          if (discard) accept()
+          else restore()
         })
-      } else { updateArea(nextArea); updateTask(nextTask) }
+      } else accept()
     }
     window.addEventListener('popstate', follow)
     return () => window.removeEventListener('popstate', follow)
@@ -142,7 +162,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     {workspaceId === null ? <article className="panel"><h3>Start with a program</h3><p>Each program keeps its coaches, assistant and people together. Choose a program above, or create one to get started.</p><CoachProgramSettings simple workspaceId={null} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} /></article>
       : loading ? <p role="status">Opening your program…</p>
       : area === 'people' ? <>
-        {(!persona || cohorts.length === 0) && <article className="panel coach-setup-checklist"><h3>Get your program ready</h3><ol><li><button disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => { focusAssistant.current = true; setArea('assistant'); setTask('voice'); if (!persona) void create() })}>Describe your assistant</button><span>{persona?.published_version ? 'Live' : persona ? 'Started' : 'Ready to start'}</span></li><li><button onClick={() => leave(() => setArea('live'))}>Preview answers and go live</button></li><li>Invite people from Group invitations &amp; access below.</li></ol></article>}
+        {(!persona || cohorts.length === 0) && <article className="panel coach-setup-checklist"><h3>Get your program ready</h3><ol><li><button disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => { focusAssistant.current = true; navigate('assistant', 'voice'); if (!persona) void create() })}>Describe your assistant</button><span>{persona?.published_version ? 'Live' : persona ? 'Started' : 'Ready to start'}</span></li><li><button onClick={() => leave(() => setArea('live'))}>Preview answers and go live</button></li><li>Invite people from Group invitations &amp; access below.</li></ol></article>}
         <CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackDirty} initialSection="groups" embedded onPendingChange={setGroupsBusy} onGroupsChanged={() => { void fetchAdminPersonaAssignableCohorts().then((next) => { if (mounted.current) setCohorts(next) }).catch(() => { if (mounted.current) setError('Your group was saved, but the list could not refresh. Try again.') }) }} />
       </> : area === 'assistant' ? <>
         <h3 className="sr-only" ref={assistantHeading} tabIndex={-1}>Your assistant</h3>
@@ -153,7 +173,7 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input disabled={busy || groupsBusy || lifecycle.pending} value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button>{busy && <p role="status">Creating your assistant…</p>}</article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
-      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { setArea('assistant'); setTask('voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
+      </> : persona ? <CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => { navigate('assistant', 'voice') }} autoPreview={previewOnOpen} /> : <article className="panel"><h3>Save your assistant’s voice first</h3><p>Your saved tools will go live with your assistant.</p><Button onClick={() => setArea('assistant')}>Set up your assistant</Button></article>}
     <details className="coach-simple-advanced"><summary>Advanced / history</summary><p>All structured fields, approved sources, earlier versions, team access and controlled group updates.</p><Button variant="secondary" disabled={busy || groupsBusy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open advanced settings</Button></details>
   </section></>
 }
@@ -177,6 +197,6 @@ function writeView(area: Area, task: Task, replace = false) {
   const url = new URL(window.location.href)
   const unchanged = url.searchParams.get('coach_area') === area && url.searchParams.get('coach_task') === task
   url.searchParams.set('coach_area', area); url.searchParams.set('coach_task', task)
-  if (replace) window.history.replaceState(window.history.state, '', url)
-  else if (!unchanged) window.history.pushState(window.history.state, '', url)
+  if (replace) window.history.replaceState({...window.history.state, coachStudioIndex: window.history.state?.coachStudioIndex ?? 0}, '', url)
+  else if (!unchanged) window.history.pushState({...window.history.state, coachStudioIndex: (window.history.state?.coachStudioIndex ?? 0) + 1}, '', url)
 }

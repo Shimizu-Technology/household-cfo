@@ -93,7 +93,7 @@ module Mia
 
       def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil)
         @actor = actor
-        @user_message = normalize_text(user_message, max: 24_000)
+        @user_message = user_message.to_s.unicode_normalize(:nfkc)
         @persona = persona
         @previous_operations = previous_operations
         @evidence_state = evidence_state || persona.draft_config
@@ -154,6 +154,7 @@ module Mia
             raise ContractError.new("Mia proposed more than one change to the same field.", code: "persona_setup_duplicate") unless mutation_targets.add?(target)
           end
         end
+        reconcile_prohibitions!(after_state)
         unless participant_artifacts(before_state) == participant_artifacts(after_state)
           raise ContractError.new("Participant-supplied phrase artifacts cannot be changed by setup chat.", code: "persona_setup_participant_phrase")
         end
@@ -170,7 +171,7 @@ module Mia
             postgres_jsonb_text_upper_bound(after_state) > MAX_STATE_BYTES
           raise ContractError.new("Mia returned a setup proposal that is too large to review safely.", code: "persona_setup_too_large")
         end
-        if PersonaDraftUpdater.state_digest(before_state) == PersonaDraftUpdater.state_digest(after_state)
+        if @previous_operations.empty? && PersonaDraftUpdater.state_digest(before_state) == PersonaDraftUpdater.state_digest(after_state)
           raise ContractError.new("That would not change the current persona draft.", code: "persona_setup_no_change")
         end
 
@@ -219,12 +220,12 @@ module Mia
 
       def validate_evidence!(op:, path:, value:, source:, evidence:)
         if source == "coach_quote"
-          unless evidence.present? && user_message.include?(evidence)
+          unless evidence.present? && user_message.squish.include?(evidence)
             raise ContractError.new("Every coach-authored change must cite exact wording from this message.", code: "persona_setup_evidence_missing")
           end
         else
           if transcript_request? && op == "set" && path.in?(TRANSCRIPT_DRAFTABLE_PATHS)
-            unless evidence.present? && user_message.include?(evidence)
+            unless evidence.present? && user_message.squish.include?(evidence)
               raise ContractError.new("A transcript suggestion must cite exact source wording.", code: "persona_setup_evidence_missing")
             end
 
@@ -242,6 +243,9 @@ module Mia
             [ PersonaSchema.normalize(value).to_h["text"] ]
           else
             changed_exact_strings(path, value)
+          end
+          if op == "add_phrase" && !PhraseSuggestions.new(message: user_message, coach_name: persona.draft_config.dig("identity", "human_coach_name")).exact_quote(value["text"])
+            raise ContractError.new("Phrases require the coach's own words and permission to use them.", code: "persona_setup_exact_wording")
           end
           exact_values.each do |text|
             next if text.blank? || user_message.include?(text)
@@ -287,13 +291,28 @@ module Mia
       # claims still use this turn's evidence and replace only the same target.
       def preserve_pending_list(path, value)
         previous = @previous_operations.find { |operation| operation["op"] == "set" && operation["path"] == path }
-        return value unless value.is_a?(Array) && previous && previous["value"].is_a?(Array)
+        return value unless previous || path.in?(%w[coaching.do coaching.do_not])
+
+        current = previous ? previous["value"] : path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
+        return value unless value.is_a?(Array) && current.is_a?(Array)
         return value if path.start_with?("voice.") # Voice removals have their own evidence check.
 
-        kept = previous["value"].reject do |item|
-          item.is_a?(String) && user_message.match?(/\b(?:remove|drop|replace)\b/i) && user_message.include?(item)
-        end
+        kept = current.reject { |item| removal_requested?(item) }
+        # Ignore an unsupported omission, including "do not remove".
         (kept + value).uniq
+      end
+
+      def removal_requested?(item)
+        return false unless item.is_a?(String)
+
+        user_message.split(/[.!?;\n]/).any? do |clause|
+          next false if clause.match?(/\b(?:do not|don['’ʼ]?t|never|without)\s+(?:ever\s+)?(?:remove|drop|take out|delete|replace)\b/i)
+          next false unless clause.match?(/\b(?:remove|drop|take out|delete|replace)\b/i)
+
+          reference = clause.downcase.gsub(/\b(?:actually|remove|drop|take out|delete|replace|the|one|about|please)\b/, " ").scan(/[[:alnum:]]+/)
+          words = item.downcase.scan(/[[:alnum:]]+/)
+          reference.any? && (reference - words).empty?
+        end
       end
 
       def merge_previous(operations)
@@ -302,7 +321,8 @@ module Mia
 
           mutation_target(PersonaSchema.normalize(operation))
         end
-        @previous_operations.reject { |operation| targets.include?(mutation_target(operation)) } + operations
+        previous = @previous_operations.reject { |operation| targets.include?(mutation_target(operation)) }
+        previous + operations
       end
 
       def suggestion_label(operation)
@@ -345,7 +365,18 @@ module Mia
 
         value = PersonaSchema.normalize(operation.fetch("value"))
         phrase = value.is_a?(Hash) ? value.fetch("text").to_s : value.to_s
-        "phrase:#{phrase.unicode_normalize(:nfkc).downcase.squish}"
+        "phrase:#{PhraseSuggestions.key(phrase)}"
+      end
+
+      def reconcile_prohibitions!(state)
+        coaching = state.fetch("draft_config").fetch("coaching")
+        prohibitions = Array(coaching["do_not"])
+        coaching["do"] = Array(coaching["do"]).reject do |item|
+          prohibitions.any? do |ban|
+            positive = ban.gsub(/\b(?:do not|don['’ʼ]?t|never|avoid|stop)\b/i, "")
+            TextEvidence.supports?(positive, item)
+          end
+        end
       end
 
       def set_path!(state, path, value)
@@ -366,7 +397,10 @@ module Mia
         value = normalize_phrase_value(raw_value)
         permitted = %w[text meaning allowed_contexts prohibited_contexts frequency caution]
         phrase = value.slice(*permitted).merge("provenance" => "coach_authored")
-        state.fetch("draft_config").fetch("phrases") << phrase
+        phrases = state.fetch("draft_config").fetch("phrases")
+        return if phrases.any? { |item| PhraseSuggestions.key(item["text"]) == PhraseSuggestions.key(phrase["text"]) }
+
+        phrases << phrase
       end
 
       def normalize_phrase_value(raw_value)
@@ -393,7 +427,12 @@ module Mia
         end
         phrases = state.fetch("draft_config").fetch("phrases")
         index = phrases.index { |phrase| phrase.is_a?(Hash) && phrase["text"] == value }
-        raise ContractError, "The requested phrase is not in this persona." unless index
+        unless index
+          pending_add = @previous_operations.any? { |op| op["op"] == "add_phrase" && PhraseSuggestions.key(op.dig("value", "text")) == PhraseSuggestions.key(value) }
+          return if pending_add
+
+          raise ContractError, "The requested phrase is not in this persona."
+        end
 
         phrases.delete_at(index)
       end

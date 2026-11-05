@@ -717,7 +717,7 @@ function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUse
                     </div>
                     <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
                     {user.invite_email.last_attempted_at && (
-                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ' · Email did not send. Use Resend email to try again.' : ''}</p>
+                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
                     )}
                     <p className="admin-email-line">Last safe activity: {user.workspace.last_safe_activity_at ? shortDateTime(user.workspace.last_safe_activity_at) : 'No participant activity yet'}</p>
                   </div>

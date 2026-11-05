@@ -129,7 +129,7 @@ module Mia
 
           proposal = nil
           dropped = []
-          operations = PhraseSuggestions.new(message: turn.user_message).call(provider_result.operations)
+          operations = PhraseSuggestions.new(message: turn.user_message, coach_name: authorization.persona.draft_config.dig("identity", "human_coach_name")).call(provider_result.operations)
           if operations.any?
             built = ProposalBuilder.new(
               persona: authorization.persona,
@@ -142,19 +142,21 @@ module Mia
             session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
               proposal.resolve!(status: "superseded", actor: authorization.actor)
             end
-            proposal = CoachPersonaSetupProposal.create!(
-              session:,
-              turn:,
-              status: "pending",
-              base_draft_revision: built.fetch(:base_draft_revision),
-              base_config_digest: built.fetch(:base_config_digest),
-              operations: built.fetch(:operations),
-              before_state: built.fetch(:before_state),
-              after_state: built.fetch(:after_state),
-              proposal_digest: built.fetch(:proposal_digest),
-              prompt_version: built.fetch(:prompt_version),
-              schema_version: built.fetch(:schema_version)
-            )
+            unless PersonaDraftUpdater.state_digest(built.fetch(:before_state)) == PersonaDraftUpdater.state_digest(built.fetch(:after_state))
+              proposal = CoachPersonaSetupProposal.create!(
+                session:,
+                turn:,
+                status: "pending",
+                base_draft_revision: built.fetch(:base_draft_revision),
+                base_config_digest: built.fetch(:base_config_digest),
+                operations: built.fetch(:operations),
+                before_state: built.fetch(:before_state),
+                after_state: built.fetch(:after_state),
+                proposal_digest: built.fetch(:proposal_digest),
+                prompt_version: built.fetch(:prompt_version),
+                schema_version: built.fetch(:schema_version)
+              )
+            end
           end
           metadata = provider_result.metadata
           turn.update!(

@@ -106,6 +106,57 @@ describe('PersonaSetupChat', () => {
   })
   afterEach(cleanup)
 
+  it('R5 rejects a focused review back to a usable composer',async()=>{
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session()})
+    render(<Harness saveAndPreview />)
+    await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByRole('button',{name:'Review in form'}))
+    await userEvent.click(screen.getByRole('button',{name:'Reject proposal'}))
+    await waitFor(()=>expect(screen.getByLabelText('Message Mia').closest('section')?.hidden).toBe(false))
+    expect(screen.getByLabelText('Message Mia')).toHaveProperty('disabled',false)
+  })
+  it('R5 shows a focused review save failure where the coach can see it',async()=>{
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal.mockRejectedValue(new ApiRequestError('Your saved voice changed.',{status:409}))
+    render(<Harness saveAndPreview />)
+    await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByRole('button',{name:'Review in form'}))
+    await userEvent.click(screen.getByRole('button',{name:'Use all suggestions'}))
+    const alert=await screen.findByRole('alert');expect(alert.closest('[hidden]')).toBeNull()
+    expect(alert.textContent).toBe('Your saved voice changed.')
+  })
+  it('R9 preserves an unchecked suggestion through a follow-up',async()=>{
+    const first=proposalSession(),next=proposalSession();next.proposal!.id=72
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(first)
+    apiMocks.createAdminPersonaSetupTurn.mockResolvedValue(next)
+    render(<Harness />);await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    await userEvent.click(screen.getByRole('checkbox',{name:'Keep: Coach name'}))
+    await userEvent.type(screen.getByLabelText('Message Mia'),'Keep it brief')
+    await userEvent.click(screen.getByRole('button',{name:'Send to Mia'}))
+    await waitFor(()=>expect(apiMocks.createAdminPersonaSetupTurn).toHaveBeenCalled())
+    await waitFor(()=>expect(screen.getByRole('checkbox',{name:'Keep: Coach name'})).toHaveProperty('checked',false))
+  })
+  it('R3 offers a checkbox per list line and sends only the chosen line indexes',async()=>{
+    const next=proposalSession()
+    next.proposal!.operations=[{op:'set',path:'coaching.do',value:['Celebrate small wins','Ask one question'],source_basis:'coach_quote',evidence_quote:'Celebrate small wins and ask one question'}]
+    next.proposal!.grouped_changes=[{group:'Coaching',changes:[{group:'Coaching',path:'coaching.do',label:'Do',before:[],after:['Celebrate small wins','Ask one question'],source_basis:'coach_quote',evidence_quote:'Celebrate small wins and ask one question'}]}]
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(next)
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session()})
+    render(<Harness />);await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    await userEvent.click(screen.getByRole('checkbox',{name:'Keep: Celebrate small wins'}))
+    expect(screen.getByRole('checkbox',{name:'Keep: Ask one question'})).toHaveProperty('checked',true)
+    await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
+    expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[0],{'0':[1]})
+  })
+  it('R16 describes nonadjacent answer limits as a range',async()=>{
+    const next=proposalSession()
+    next.proposal!.operations=[];next.proposal!.grouped_changes=[{group:'Response',changes:[2,6].map((value,index)=>({group:'Response',path:`response_shape.${index?'max':'min'}_sentences`,label:'Limit',before:2,after:value,source_basis:'coach_quote',evidence_quote:'2 to 6 sentences'}))}]
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(next)
+    render(<Harness />);expect(await screen.findByText('Answers: 2 to 6 sentences')).toBeTruthy()
+  })
   it('describes answer length in plain words and keeps both sentence limits reviewable',async()=>{
     const proposed=proposalSession()
     for(const [path,value] of [['response_shape.min_sentences',3],['response_shape.max_sentences',4]] as const){
@@ -114,7 +165,7 @@ describe('PersonaSetupChat', () => {
     }
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposed)
     render(<Harness saveAndPreview />)
-    await screen.findByText('Answers: 3 or 4 sentences')
+    await screen.findByText('Answers: 3 to 4 sentences')
     await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
     expect(screen.getByRole('checkbox',{name:'Keep: Shortest answer'})).toBeTruthy()
     expect(screen.getByRole('checkbox',{name:'Keep: Longest answer'})).toBeTruthy()
@@ -412,7 +463,7 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('checkbox',{name:'Keep: Longest answer'}))
     await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
     await screen.findByText('Live preview for 81')
-    expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[1])
+    expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[1],undefined)
     expect(changed).toHaveBeenCalledWith(persona());expect(review).not.toHaveBeenCalled()
   })
   it('merges teaching guidance into Coaching and preserves each operation choice', async () => {
@@ -435,7 +486,7 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByText('Review each suggestion', { selector: 'summary' }))
     await userEvent.click(screen.getByRole('checkbox', { name: 'Keep: Guidance' }))
     await userEvent.click(screen.getByRole('button', { name: 'Use selected suggestions' }))
-    await waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81, 51, 71, 'apply', expect.any(String), [0, 1, 3]))
+    await waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81, 51, 71, 'apply', expect.any(String), [0, 1, 3], undefined))
   })
 
   it('uses all suggestions by default when saving directly to preview',async()=>{

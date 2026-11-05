@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { updateAdminPersona, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
+import { ApiRequestError, createAdminPersonaSetupSession, updateAdminPersona, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
 import { Button } from './Button'
 import { CoachContentLibrary } from './CoachContentLibrary'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -34,15 +34,18 @@ export function CoachTeaching({ persona, lifecycle, onDirtyChange, onSaved }: { 
   useEffect(() => { onDirtyChange(dirty); return () => onDirtyChange(false) }, [dirty, onDirtyChange])
   async function save() {
     if (!persona.draft || !persona.permissions.edit || !dirty || busy || lifecycle.pending || persona.draft_revision == null) return
-    const ticket = lifecycle.begin()
     setBusy(true); setError(null)
+    const ticket = lifecycle.begin()
     try {
+      const session = await createAdminPersonaSetupSession(persona.id)
+      if (!mounted.current || !lifecycle.isCurrent(ticket)) return
+      if (session.proposal && !(await confirmDiscard('Saving here will discard your pending voice suggestions. Return to Voice to review them first, or discard them and save this teaching.', { title: 'Discard pending voice suggestions?', confirmLabel: 'Discard suggestions and save', cancelLabel: 'Keep suggestions' }))) return
       const saved = await updateAdminPersona(persona.id, { draft_revision: persona.draft_revision, draft_config: { ...persona.draft, coaching: { ...persona.draft.coaching, method }, ...(phrase.trim() ? { phrases: [...(persona.draft.phrases ?? []), ...[{ text: phrase.trim(), meaning: meaning.trim() || phrase.trim(), allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '', provenance: 'coach_authored' } as PersonaConfiguration['phrases'][number]]] } : {}) } })
       if (mounted.current && lifecycle.isCurrent(ticket)) {
         setMethod(saved.draft?.coaching.method ?? ''); setPhrase(''); setMeaning('')
         onSaved(saved)
       }
-    } catch { if (mounted.current && lifecycle.isCurrent(ticket)) setError('Your teaching could not be saved. Keep your changes here and try again, or reload if another coach has updated it.') }
+    } catch (caught) { if (mounted.current && lifecycle.isCurrent(ticket)) setError(caught instanceof ApiRequestError && caught.status < 500 ? caught.message : 'Your teaching could not be saved. Keep your changes here and try again, or reload if another coach has updated it.') }
     finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
   return <article className="panel"><h3>How do you help someone decide?</h3><p>Describe your usual teaching method. Preview the answers before your people receive the change.</p>

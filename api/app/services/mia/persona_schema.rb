@@ -444,6 +444,10 @@ module Mia
         bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
         enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
         enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
+        if Array(phrase["allowed_contexts"]).include?("crisis")
+          errors << "Coaching phrases cannot be used during crisis support."
+        end
+
         errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
         optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
       end

@@ -781,7 +781,7 @@ module Api
             invitation_sent: result[:sent],
             invitation_status: result[:status],
             invitation_error: result[:error]
-          }
+          }.tap { |payload| payload.delete(:invitation_error) unless current_user.admin? }
         end
 
         def serialize_user(user, pilot_progress: nil)
