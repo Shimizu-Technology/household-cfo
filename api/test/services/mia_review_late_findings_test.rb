@@ -90,6 +90,13 @@ class MiaReviewLateFindingsTest < ActiveSupport::TestCase
     refute_includes answer, "$500 purse"
   end
 
+  test "unparsed later price statements clarify rather than silently use the earlier price" do
+    [ "The stroller costs $400", "The new price is four hundred dollars" ].each do |correction|
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: "Can I buy a $300 stroller? #{correction}", context: {}, api_key: "").deterministic_scenario_result
+      assert result.needs_clarification, correction
+    end
+  end
+
   private
 
   def household

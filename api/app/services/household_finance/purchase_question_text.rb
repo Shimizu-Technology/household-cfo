@@ -8,7 +8,8 @@ module HouseholdFinance
       segments = message.to_s.split(/(?<=[?!])\s+/)
       first = segments.first.to_s
       corrections = segments.drop(1).select { |segment| segment.match?(CORRECTION) }
-      return Result.new(first, false) if corrections.empty?
+      unparsed_price = segments.drop(1).any? { |segment| !segment.end_with?("?") && segment.match?(/\b(?:costs?|price|i meant)\b/i) }
+      return Result.new(first, unparsed_price) if corrections.empty?
 
       amounts = corrections.last.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
       return Result.new(first, true) unless amounts.one? && first.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one? && Money.chat_cents(amounts.first.first).positive?
