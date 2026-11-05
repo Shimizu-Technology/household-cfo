@@ -35,8 +35,8 @@ module Mia
       def quoted_phrases
         @message.to_enum(:scan, /(?:\b(?:say|says|saying|phrase)\b[^"“\n]{0,80}|word for word:\s*)["“]([^"”\n]{1,100})["”]/i).filter_map do
           match = Regexp.last_match
-          prefix = @message[0...match.begin(0)].split(/[.!?;\n]/).last.to_s
-          next if prefix.match?(/\b(?:not|never|don't|do not|remove|drop)\b/i)
+          prefix = @message[0...match.begin(1)].split(/[.!?;\n]/).last.to_s
+          next if prefix.match?(/\b(?:not|never|[a-z]+n['’]t|no longer|remove|drop)\b/i)
 
           match[1]
         end.uniq

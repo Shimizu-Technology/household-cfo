@@ -1265,9 +1265,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   end
 
   test "fresh QA literal phrase recovery respects negation and the crisis boundary" do
-    [ 'Do not say "Chelu".', 'She never says "Chelu".', 'Remove the phrase "Chelu".' ].each do |message|
+    [ 'Do not say "Chelu".', 'She never says "Chelu".', 'Remove the phrase "Chelu".',
+      'Her phrase is not "Chelu".', 'Her phrase isn’t "Chelu".', 'She no longer says "Chelu".' ].each do |message|
       assert_empty Mia::PersonaSetup::PhraseSuggestions.new(message:).call([])
     end
+    literal = Mia::PersonaSetup::PhraseSuggestions.new(message: 'She says "Never give up.".').call([])
+    assert_equal "Never give up.", literal.sole.fetch("value").fetch("text")
     operation = { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Chelu",
       "value" => { "text" => "Chelu", "meaning" => "Invented meaning", "allowed_contexts" => [ "crisis" ],
         "prohibited_contexts" => [], "frequency" => "rare", "caution" => "" } }
