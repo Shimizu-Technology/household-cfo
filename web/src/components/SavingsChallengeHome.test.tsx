@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../api'
 import * as api from '../api'
 import { savingsEntryDraft, savingsEntryVersion, savingsFixture, savingsPlanDraft, savingsPlanVersion } from '../test/savingsFixtures'
+import { saveHomeSavingsIdentity } from '../lib/homeSavingsRecovery'
 import type { SavingsIntake } from '../lib/savingsChallenge'
 import { SavingsChallengeHome } from './SavingsChallengeHome'
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
-vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchSavingsPage: vi.fn(), stageSavingsPlan: vi.fn(), approveSavingsPlan: vi.fn(), stageSavingsEntry: vi.fn(), approveSavingsEntry: vi.fn(), enrollSavingsChallenge: vi.fn(), attestSavingsZero: vi.fn() }))
+vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchSavingsPage: vi.fn(), stageSavingsPlan: vi.fn(), approveSavingsPlan: vi.fn(), stageSavingsEntry: vi.fn(), approveSavingsEntry: vi.fn(), enrollSavingsChallenge: vi.fn(), attestSavingsZero: vi.fn(), fetchHomeSavingsRequestStatus: vi.fn() }))
 const fetchChallenge = vi.mocked(api.fetchSavingsChallenge)
 const fetchPage = vi.mocked(api.fetchSavingsPage)
 const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
@@ -80,6 +81,30 @@ describe('participant savings Home', () => {
     expect(screen.getByText('Saved. Your total is up to date.')).toBeTruthy()
     expect(screen.getByLabelText('Amount in US dollars')).toBeTruthy()
     expect(vi.mocked(api.stageSavingsEntry).mock.calls[1][0]).not.toHaveProperty('chat_card_id')
+  })
+
+  it('clears the chat form when status recovery stages it after the original callback was lost', async () => {
+    const scope = { user_id: 901, household_id: 77, cohort_id: 42 }
+    const draft = { ...savingsEntryDraft(2500), id: 71, savings_entry_id: 31 }
+    expect(saveHomeSavingsIdentity({ scope, action: 'entry_stage', key: 'lost-chat-stage', enrollmentId: 1, chatCardId: 90 })).toBe(true)
+    vi.mocked(api.fetchHomeSavingsRequestStatus).mockResolvedValue({ state: 'committed', actor_scope: scope, cohort_id: 42, record: draft, challenge: { ...savingsFixture(), pending_entry_count: 1 }, replayed: true })
+    fetchPage.mockImplementation(async collection => ({ records: collection === 'entry_drafts' ? [draft] : [], next_cursor: null, actor_scope: scope, cohort_id: 42, enrollment_id: 1 }))
+    vi.mocked(api.stageSavingsEntry).mockResolvedValue({ record: { ...savingsEntryDraft(1000), id: 72, savings_entry_id: 32 }, challenge: { ...savingsFixture(), pending_entry_count: 2 }, replayed: false })
+    function Parent() {
+      const [intake, setIntake] = useState<SavingsIntake>({ kind: 'contribution', amount_cents: 2500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input', chat_card_id: 90 })
+      return <SavingsChallengeHome participantScope={scope} cohortId={42} onAskMia={vi.fn()} onReviewStatements={vi.fn()} initialSavingsIntake={intake} onIntakeStaged={(entryId, cardId) => setIntake(current => current.chat_card_id === cardId ? { ...current, staged_entry_id: entryId } : current)} />
+    }
+    render(<Parent />)
+    const check = await screen.findByRole('button', { name: 'Check earlier savings result' })
+    fireEvent.click(check)
+    await screen.findByText('Your earlier request was confirmed once.')
+    await formReady('Amount in US dollars')
+    await waitFor(() => expect(screen.getByLabelText('Amount in US dollars')).toHaveProperty('value', ''))
+    expect(screen.queryByText(/Mia filled this in from your chat/)).toBeNull()
+    fireEvent.change(screen.getByLabelText('Amount in US dollars'), { target: { value: '10' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Review savings record' }))
+    await waitFor(() => expect(api.stageSavingsEntry).toHaveBeenCalledOnce())
+    expect(vi.mocked(api.stageSavingsEntry).mock.calls[0][0]).not.toHaveProperty('chat_card_id')
   })
 
   it('canceling a chat correction lets her report new money without carrying the old entry or card', async () => {
