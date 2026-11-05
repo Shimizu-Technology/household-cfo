@@ -785,6 +785,24 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "-125.50", result.action.fetch(:amount)
   end
 
+  test "a date in the message cannot ground a provider-invented amount" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I paid Shell on 2026-07-06",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_report", continuation: false,
+          resolved_message: "Create a pending review for $7 at Shell",
+          topic: { type: "transaction_report", title: "Shell expense", subject: "Shell" },
+          action: default_action.merge(type: "create_transaction_draft", merchant: "Shell", amount: "7", occurred_on: "2026-07-06")
+        )
+      end
+    )
+
+    refute resolver.call.transaction_report_action?
+  end
+
   test "rejects a provider-invented negative account balance" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Add Everyday Checking with a -$125.50 balance",

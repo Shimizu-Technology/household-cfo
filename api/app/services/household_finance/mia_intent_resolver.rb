@@ -2452,12 +2452,12 @@ module HouseholdFinance
     end
 
     def money_cents_from_participant_text(text)
-      text = PurchaseReportText.normalize(text)
-      currency = text.to_s.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| chat_cents_or_nil(value) }
-      plain = text.to_s.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
+      text = PurchaseReportText.normalize(text).to_s.gsub(PurchaseReportParser::DATE_PATTERN) { |date| " " * date.length }
+      currency = text.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| chat_cents_or_nil(value) }
+      plain = text.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
         match = Regexp.last_match
         normalized = Money.chat_amount_text(match[1])
-        next if calendar_year_token?(text.to_s, match, normalized)
+        next if calendar_year_token?(text, match, normalized)
 
         cents_or_nil(normalized)
       rescue ArgumentError
