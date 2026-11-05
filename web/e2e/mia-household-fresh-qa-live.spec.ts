@@ -14,8 +14,11 @@ const headers = { Authorization: 'Bearer test_token:e2e_participant:participant@
 
 async function send(page: Page, message: string) {
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(composer).toBeEnabled({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Mia is thinking', exact: true })).toHaveCount(0, { timeout: 30_000 })
+  await expect(composer).toBeEditable({ timeout: 30_000 })
   await composer.fill(message)
+  await expect(composer).toHaveValue(message)
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeEnabled()
   const result = page.waitForResponse(response => response.url().includes('/api/v1/mia/messages') && response.request().method() === 'POST' && response.request().postDataJSON()?.message === message)
   await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
   const response = await result
@@ -94,7 +97,7 @@ test('BOG UI household fresh QA answers agree with Home and preserve reviewed mo
 })
 
 test('BOG UI household live model gives a plan comparison and hears skipped meals', async ({ page }, info) => {
-  test.skip(!modelUrl, 'Opt-in only: uses the worker’s two remaining live model requests.')
+  test.skip(!modelUrl, 'Opt-in only: uses three reserved live participant requests.')
   test.setTimeout(180_000)
   await page.goto(`${modelUrl}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
   const purchase = await send(page, 'Can I afford a $300 stroller?')
@@ -106,7 +109,7 @@ test('BOG UI household live model gives a plan comparison and hears skipped meal
     await page.setViewportSize({ width, height })
     await capture(page, info, `live-stroller-${width}`, purchase)
   }
-  const food = await send(page, 'I skipped meals this week so the kids could eat')
+  const food = await send(page, "I've been skipping meals so the kids could eat")
   expect(food.assistant_message.content).toMatch(/food|meals|eat/i)
   expect(food.assistant_message.content).toContain('coach')
   expect(food.assistant_message.content).toContain('today')
@@ -115,27 +118,38 @@ test('BOG UI household live model gives a plan comparison and hears skipped meal
     await page.setViewportSize({ width, height })
     await capture(page, info, `live-food-${width}`, food)
   }
+  const hardship = await send(page, 'Can I afford a $300 stroller? My landlord just evicted us')
+  expect(hardship.assistant_message.content).toMatch(/coach/i)
+  expect(hardship.assistant_message.content).not.toMatch(/The \$300 purchase|Scenario only|readiness color/i)
+  expect(hardship.transaction_draft).toBeNull()
+  expect(hardship.mia_action_draft).toBeNull()
+  for (const [width, height] of [[390, 844], [320, 568], [1366, 900]]) {
+    await page.setViewportSize({ width, height })
+    await capture(page, info, `live-hardship-${width}`, hardship)
+  }
 })
 
 test('BOG UI household fresh setup keeps missed answers in setup and reviews every saved number', async ({ page, request }, info) => {
   test.skip(!setupUrl, 'Requires a fresh isolated e2e_participant household.')
   test.setTimeout(600_000)
+  if (evidenceDir) await mkdir(evidenceDir, { recursive: true })
   const replies: unknown[] = []
   const setupHeaders = { Authorization: headers.Authorization }
   const ask = async (message: string) => {
     const reply = await send(page, message)
     replies.push(reply)
-    if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-progress.json`, JSON.stringify(replies, null, 2))
+    if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-progress-${info.project.name}.json`, JSON.stringify(replies, null, 2))
     return reply
   }
   const apply = async (draftId: number) => {
     const pending = page.getByRole('button', { name: /change.*to review/ })
     if (await pending.isVisible()) await pending.click()
     const done = page.waitForResponse(response => response.url().includes(`/mia_action_drafts/${draftId}/apply`) && response.request().method() === 'POST')
-    const applyButton = page.getByRole('button', { name: /^Apply (?:change|\d+ values?)$/ })
+    const applyButton = page.getByRole('button', { name: /^Apply (?:change|starting picture|\d+ values?)$/ })
     await expect(applyButton).toBeVisible({ timeout: 30_000 })
     await applyButton.click()
-    expect((await done).ok()).toBe(true)
+    const response = await done
+    expect(response.ok(), await response.text()).toBe(true)
     await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeEnabled({ timeout: 30_000 })
   }
@@ -154,13 +168,21 @@ test('BOG UI household fresh setup keeps missed answers in setup and reviews eve
   expect(miss.assistant_message.content).toContain('What would you like to call this household?')
   expect(miss.assistant_message.content).not.toMatch(/readiness/i)
   await shots('missed-name')
-  const name = 'The Santos Cruz Dela Rosa extended household in Dededo with Nana and the grandchildren'
+  const name = 'The Santos Cruz Dela Rosa extended family household of Dededo'
   const named = await ask(name)
   expect(named.mia_action_draft).toBeTruthy()
   await shots('long-name-review')
   await apply(named.mia_action_draft.id)
   const goal = await ask('Pay off Visa')
   await apply(goal.mia_action_draft.id)
+  const reported = await ask('I spent $12 at Target today')
+  expect(reported.transaction_draft).toBeTruthy()
+  expect(reported.transaction_draft.amount_cents).toBe(1200)
+  for (const message of ['What is a sinking fund?', 'My husband left me last night', 'I need to talk to someone', 'How do I contact my coach?', 'Can I afford a $300 stroller?']) {
+    const unrelated = await ask(message)
+    expect(unrelated.assistant_message.content).not.toMatch(/^Next setup question:/)
+    expect(unrelated.mia_action_draft).toBeNull()
+  }
   const unsure = await ask('I am not sure')
   expect(unsure.assistant_message.content).toContain('monthly take-home income')
   expect(unsure.assistant_message.content).not.toMatch(/readiness/i)
@@ -192,15 +214,16 @@ test('BOG UI household fresh setup keeps missed answers in setup and reviews eve
   expect(data.workspace.setup_values.primary_income).toBe(4800)
   expect(data.workspace.setup_values.debt_payment).toBe(0)
   expect(data.dashboard.month_answer.plan_left_cents).toBe(180000)
-  if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-and-saved-outcomes.json`, JSON.stringify({ replies, data }, null, 2))
+  if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-and-saved-outcomes-${info.project.name}.json`, JSON.stringify({ replies, data }, null, 2))
 })
 
 test('BOG UI missing debt minimums link opens the matching controls without confirming a value', async ({ page, request }, info) => {
   test.skip(!setupLinkUrl, 'Requires the isolated five-answer W20 household fixture.')
   test.setTimeout(120_000)
   await page.goto(`${setupLinkUrl}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Home`)
-  const debt = page.getByRole('button', { name: 'Add debt minimums', exact: true })
+  const debt = page.getByLabel('Your month in money', { exact: true }).getByRole('button', { name: 'Add debt minimums', exact: true })
   await expect(debt).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByRole('button', { name: 'Set up with Mia', exact: true })).toHaveCount(0)
   for (const [width, height] of [[390, 844], [320, 568], [1366, 900]]) {
     await page.setViewportSize({ width, height })
     expect((await debt.boundingBox())?.height).toBeGreaterThanOrEqual(44)
@@ -215,7 +238,7 @@ test('BOG UI missing debt minimums link opens the matching controls without conf
   const saved = await request.get(`${apiUrl}/api/v1/workspace`, { headers: { Authorization: headers.Authorization } })
   expect(saved.ok()).toBe(true)
   const data = await saved.json()
-  expect(data.workspace.setup_complete).toBe(false)
+  expect(data.workspace.setup_complete).toBe(true)
   expect(data.workspace.setup_status.missing_fields.map((field: { key: string }) => field.key)).toEqual(['debt_payment'])
   if (evidenceDir) await writeFile(`${evidenceDir}/setup-debt-link-saved-outcome.json`, JSON.stringify(data, null, 2))
 })
@@ -268,4 +291,62 @@ test('BOG UI Mia purchase keeps the household category and saves spending only a
   const saved = page.getByText(`Saved ${merchant} for $${(cents / 100).toFixed(2)} in Everyday spending. It now counts in your spending total.`, { exact: true })
   await expect(saved).toBeVisible({ timeout: 30_000 })
   await capture(page, info, 'purchase-category-saved', { before, reply, unreviewed, after, afterBudget })
+})
+
+test('BOG UI review one broad household answers and explicit category purchase preserve saved outcomes', async ({ page, request }, info) => {
+  const url = process.env.HCFO_MIA_REVIEW_URL
+  test.skip(!url, 'Opt-in isolated Rails fixture; model disabled.')
+  test.setTimeout(300_000)
+  const privateHeaders = { Authorization: headers.Authorization }
+  const getWorkspace = async () => {
+    const response = await request.get(`${apiUrl}/api/v1/workspace`, { headers: privateHeaders })
+    expect(response.ok()).toBe(true)
+    return response.json()
+  }
+  const before = await getWorkspace()
+  await page.goto(`${url}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Ask%20Mia`)
+  const replies = []
+  for (const [message, expected] of [
+    ['What is my budget for October?', /October 2026.*no plan|no plan.*October 2026/],
+    ['How much is left in my budget for August?', /August 2026.*no plan|no plan.*August 2026/],
+    ['Can I afford a $300 stroller in January?', /2027 plan is not set up/],
+    ['How am I doing in January 2027?', /2027 plan is not set up/],
+    ['Could I have bought a $300 stroller on October 1?', /October 2026.*no plan/],
+    ['Can I afford a $300 stroller? What is a sinking fund?', /sinking fund is money/],
+    ["Can I afford a $300 stroller? I haven't eaten in two days", /food.*today/],
+    ["I've been skipping meals so the kids could eat", /food.*today/],
+    ['Can I afford a $300 stroller? My landlord just evicted us', /coach/],
+    ['Should I buy a $300 stroller?', /\$300.*\$1,105.*\$1,405/],
+    ['I want to buy a $300 stroller', /\$300.*\$1,105.*\$1,405/],
+    ['Can I afford a stroller?', /What does the item cost|The \$300 purchase/],
+  ] as Array<[string, RegExp]>) {
+    const result = await send(page, message)
+    expect(result.assistant_message.content, message).toMatch(expected)
+    expect(result.assistant_message.content).not.toMatch(/readiness color|Plaid-derived|liquid account picture|Scenario only|plan figure for Stroller/)
+    expect(result.transaction_draft).toBeNull()
+    expect(result.mia_action_draft).toBeNull()
+    replies.push({ message, result })
+  }
+  const afterReads = await getWorkspace()
+  expect(afterReads.dashboard.month_answer).toEqual(before.dashboard.month_answer)
+  expect(afterReads.workspace.setup_complete).toBe(true)
+  const merchant = `Village Market ${info.project.name.replaceAll('-', ' ')}`
+  const purchase = await send(page, `I spent $12.50 at ${merchant} for Everyday spending today`)
+  expect(purchase.transaction_draft.merchant).toBe(merchant)
+  expect(purchase.transaction_draft.category_name).toBe('Everyday spending')
+  const pending = await getWorkspace()
+  expect(pending.dashboard.month_answer.spent_so_far_cents).toBe(before.dashboard.month_answer.spent_so_far_cents)
+  await page.getByRole('link', { name: 'Review', exact: true }).click()
+  const card = page.locator(`[data-review-item="${purchase.transaction_draft.id}"]`)
+  const confirmed = page.waitForResponse(response => response.url().endsWith(`/transaction_drafts/${purchase.transaction_draft.id}/confirm`) && response.request().method() === 'POST')
+  await card.getByRole('button', { name: /^Confirm(?: |$)/ }).click()
+  expect((await confirmed).ok()).toBe(true)
+  await expect(card).toHaveCount(0)
+  const saved = await getWorkspace()
+  expect(saved.dashboard.month_answer.spent_so_far_cents).toBe((before.dashboard.month_answer.spent_so_far_cents ?? 0) + 1250)
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  for (const [width, height] of [[1366, 900], [390, 844], [320, 568]]) {
+    await page.setViewportSize({ width, height })
+    await capture(page, info, `review-one-saved-${width}`, { before, replies, afterReads, purchase, pending, saved })
+  }
 })

@@ -2299,7 +2299,7 @@ test('mobile Ask Mia renders ordered read-only answers and isolates scenario val
   await expect(snowballSection.locator('p')).toHaveText(['<script>window.miaMarkupExecuted = true</script> remains text in this answer.'])
   await expect(snowballSection.getByRole('listitem')).toHaveText(['Compare total interest', 'Check the monthly margin'])
 
-  const scenario = structured.getByRole('note', { name: 'Scenario only · not saved' })
+  const scenario = structured.getByRole('note', { name: 'For comparison · nothing saved' })
   await expect(scenario).toContainText('Mia used these values for this answer. Your saved household records did not change.')
   await expect(scenario).toContainText('<img src=x onerror=alert(1)> personal loan balance')
   await expect(scenario).toContainText('$8,000')
@@ -13664,4 +13664,28 @@ test('BOG UI W18 a new version waits for an unsent message and reloads only afte
   await message.fill('')
   await Promise.all([page.waitForEvent('load'), reload.click()])
   await expect(message).toHaveValue('')
+})
+
+for (const [label, destination] of [['Add income', 'profile'], ['Add planned costs', 'budget']] as const) {
+  test(`BOG UI review one ${label} during setup opens editable starting details`, async ({ page }) => {
+    const state = realWorkspaceData(false)
+    const message = { ...chatMessages()[0], id: 19901, role: 'assistant', author: 'Mia', content: 'Still to add: your main income and planned household costs.', setup_help: { available: false, money_inputs: [destination] } }
+    state.mia.messages = [message]
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: state }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    await page.getByRole('button', { name: label, exact: true }).click()
+    await expect(page.getByRole('spinbutton', { name: /^Primary monthly income/ })).toBeVisible()
+    await expect(page.getByRole('spinbutton', { name: /^Fixed essentials/ })).toBeEditable()
+    await expect(page.getByRole('spinbutton', { name: /^Primary monthly income/ })).toBeFocused()
+  })
+}
+
+test('BOG UI review one completed household income link focuses the available add control', async ({ page }) => {
+  const state = realWorkspaceData(true)
+  const message = { ...chatMessages()[0], id: 19902, role: 'assistant', author: 'Mia', content: 'Add an income source.', setup_help: { available: false, money_inputs: ['profile'] } }
+  state.mia.messages = [message]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: state }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Add income', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add income source', exact: true })).toBeFocused()
 })
