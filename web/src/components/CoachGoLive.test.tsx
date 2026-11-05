@@ -176,3 +176,10 @@ it('explains the second-owner review rule before offering approval',async()=>{
  expect((await screen.findByRole('alert')).textContent).toContain('different workspace owner or reviewer')
  expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
 })
+
+it.each([401,403])('explains a first-attempt HTTP %s refusal without claiming uncertainty',async(status)=>{
+ api.postCoachLaunch.mockRejectedValueOnce(Object.assign(new Error('Ask a program owner to publish.'),{status}))
+ render(<Harness/>);await approve();await screen.findByRole('alert')
+ expect(screen.getByRole('alert').textContent).toContain('Sign in with access')
+ expect(screen.getByRole('alert').textContent).not.toContain('could not confirm')
+})

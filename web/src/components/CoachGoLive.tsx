@@ -136,7 +136,9 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
         } else if (code === 409 || code === 422) {
           setStatus(''); setError(`${caught instanceof Error ? caught.message : 'This update was refused.'} Choose Check this update before reviewing again.`)
         } else if (code === 401 || code === 403) {
-          setStatus(''); setError('We could not confirm whether your update went live. Sign in with access to this program, then choose Check this update.')
+          setStatus(''); setError(pendingLaunch
+            ? 'We could not confirm whether your update went live. Sign in with access to this program, then choose Check this update.'
+            : 'This update was refused. Sign in with access to this program, then choose Check this update before reviewing again.')
         } else {
           setStatus(''); setError('We could not confirm the update. Choose Finish going live to retry, or Check this update to find out what happened and start again safely.')
         }

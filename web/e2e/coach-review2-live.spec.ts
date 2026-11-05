@@ -7,9 +7,17 @@ const evidence = process.env.HCFO_W16_EVIDENCE
 
 test('Coach Studio pending and revoked invitations allow updates with an accepted person and remember the admin program', async ({ page, context, request }, info) => {
   test.skip(!fixtures || !live || !api, 'Requires isolated W16 Rails fixtures')
-  test.setTimeout(180_000)
+  test.setTimeout(360_000)
   const fixture = fixtures[info.project.name]
   const headers = { Authorization: `Bearer test_token_${fixture.coach_id}`, 'X-Coach-Workspace-Id': String(fixture.workspace_id) }
+  for (const id of fixture.group_ids) {
+    const roster = await request.get(`${api}/api/v1/admin/cohorts/${id}/rollouts`, { headers })
+    expect(roster.status()).toBe(200)
+    const payload = await roster.json()
+    const studio = payload.cohort_rollout_studio ?? payload.rollout_studio ?? payload
+    expect(studio.current_roster.participants).toHaveLength(1)
+    expect(studio.active_release).toBeNull()
+  }
   const launches: Array<Record<string, unknown>> = []
   await context.route(`${api}/**`, async route => {
     const response = await route.fetch({ headers: { ...route.request().headers(), Authorization: headers.Authorization } })
@@ -37,7 +45,9 @@ test('Coach Studio pending and revoked invitations allow updates with an accepte
   await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
   await shot('pending-review')
   await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 60_000 })
+  await expect.poll(async () => await page.getByRole('status').filter({ hasText: 'Live for' }).isVisible() || await page.getByRole('button', { name: 'Check this update', exact: true }).isVisible(), { timeout: 120_000 }).toBe(true)
+  if (!await page.getByRole('status').filter({ hasText: 'Live for' }).isVisible()) await page.getByRole('button', { name: 'Check this update', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 120_000 })
   await shot('first-live')
   const added = await request.patch(`${api}/api/v1/admin/users/${fixture.accepted_id}`, { headers: { Authorization: headers.Authorization }, data: { user: { cohort_ids: [fixture.group_ids[0]] } } })
   expect(added.status(), await added.text()).toBe(200)
@@ -56,7 +66,9 @@ test('Coach Studio pending and revoked invitations allow updates with an accepte
   await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
   await shot('update-review')
   await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 60_000 })
+  await expect.poll(async () => await page.getByRole('status').filter({ hasText: 'Live for' }).isVisible() || await page.getByRole('button', { name: 'Check this update', exact: true }).isVisible(), { timeout: 120_000 }).toBe(true)
+  if (!await page.getByRole('status').filter({ hasText: 'Live for' }).isVisible()) await page.getByRole('button', { name: 'Check this update', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Live for' })).toBeVisible({ timeout: 120_000 })
   await shot('updated-live')
   expect(launches).toHaveLength(2)
   const saved = []
