@@ -6,7 +6,7 @@ require "digest"
 module Mia
   class PersonaPreviewer
     UNAVAILABLE_NOTICE = "The preview didn't come through. Try again in a minute."
-    REJECTED_NOTICE = "The sample answer did not pass the safety and accuracy checks. In Teaching, keep your direct-answer-first method and ask the assistant to state what is known, name what is missing, and help the participant decide without promising a purchase is affordable. Then preview again."
+    REJECTED_NOTICE = "The sample answer did not pass the reply checks. Review the response length, format, and safety guidance in Teaching, then preview again."
     PREVIEW_CONTEXT = {
       preview_mode: true,
       data_basis: "No-write Persona Studio preview. Saved participant and household data is not loaded. The coach-authored sample prompt may contain fictional or user-supplied facts.",
@@ -57,7 +57,7 @@ module Mia
           status: "unavailable",
           source: source.presence || "model_unavailable",
           reply: nil,
-          notice: active_responder.respond_to?(:fallback_reason) && active_responder.fallback_reason == :reply_rejected ? REJECTED_NOTICE : UNAVAILABLE_NOTICE
+          notice: active_responder.respond_to?(:fallback_reason) && active_responder.fallback_reason == :reply_rejected ? rejection_notice(active_responder) : UNAVAILABLE_NOTICE
         )
       end
     rescue StandardError => error
@@ -73,6 +73,14 @@ module Mia
     private
 
     attr_reader :persona, :sample_prompt, :candidate, :responder
+
+    def rejection_notice(active_responder)
+      reason = active_responder.rejection_reason if active_responder.respond_to?(:rejection_reason)
+      return "The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again." if reason == :persona_response_shape
+      return "The sample answer did not use the response format you chose. Check the format in Teaching, then preview again." if reason == :persona_response_format
+
+      REJECTED_NOTICE
+    end
 
     def preview_persona
       RuntimePersona.for_preview(

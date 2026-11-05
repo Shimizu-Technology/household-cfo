@@ -191,3 +191,11 @@ it('warns about rejected audience phrases before offering overall approval',asyn
  expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
  expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })
+
+it('reports the actual length rejection without assuming a teaching method',async()=>{
+ const notice='The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again.'
+ api.previewAdminPersona.mockResolvedValueOnce({preview:{status:'unavailable',notice},behavioral_preview_evidence:null})
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ expect((await screen.findByRole('alert')).textContent).toBe(notice)
+ expect(api.postCoachLaunch).not.toHaveBeenCalled()
+})

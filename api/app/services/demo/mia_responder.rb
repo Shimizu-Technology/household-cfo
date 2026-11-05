@@ -86,6 +86,7 @@ module Demo
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
       @fallback_reason = nil
+      @rejection_reason = nil
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
@@ -125,6 +126,7 @@ module Demo
         return checked.content
       end
 
+      @rejection_reason = checked.rejection_reason
       Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=#{checked.rejection_reason}")
       fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
     rescue StandardError => e
@@ -134,6 +136,8 @@ module Demo
 
     # Why the last call returned a scripted reply: :provider_unavailable,
     # :reply_rejected, or :no_model. Nil when the reply was not a fallback.
+    attr_reader :rejection_reason
+
     def fallback_reason
       @fallback_reason if @response_source == "deterministic_fallback"
     end
@@ -353,6 +357,8 @@ module Demo
     # Which check a model reply failed, for the log; nil when it passed.
     def generic_claim_rejection(content, context:, user_message: nil)
       payload = parsed_context(context)
+      claim = ::Mia::NarrationClaims.rejection_reason(content)
+      return claim if claim
       return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
       return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
       return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)

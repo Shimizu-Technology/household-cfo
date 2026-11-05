@@ -69,14 +69,13 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     end
   end
 
-  test "participant purchase narration repairs an approval claim through the same guarded rewrite" do
+  test "participant purchase narration rejects figures and approval without a second attempt" do
     unsafe = "You can afford it. Protect your bills first. Which account would you use?"
-    safe = "The $300 purchase would leave $1,105 in the plan. Your plan leaves $1,405 before it, and your account balances are unknown. Which account and category would cover it?"
-    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe, safe ], message: "Can I afford a $300 stroller?")
-    narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?")
-    assert_equal safe, narrator.call
-    assert_equal 2, attempts.length
-    assert_includes attempts.last.fetch(:messages).last.fetch(:content), "scenario_conclusion"
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
+    fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
+    narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
+    assert_equal fallback, narrator.call
+    assert_equal 1, attempts.length
   end
 
   test "preview rewrite still outside range falls back after exactly two requests" do
@@ -182,7 +181,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ Mia::CrisisBoundary.response ], message: "I want to die")
     narrator.instance_variable_set(:@persona, persona)
     assert_equal Mia::CrisisBoundary.response, narrator.call
-    assert_equal 1, attempts.length
+    assert_equal 0, attempts.length
   end
 
   test "character miss is rewritten once without truncating the next step" do

@@ -104,3 +104,15 @@ it('keeps challenge check-ins and recovery visible when the household review car
   expect(screen.getByRole('alert').textContent).toBe('Retry loading your saved check-in')
   expect(screen.queryByText('Household review card')).toBeNull()
 })
+
+it('labels comparison values in participant words without Scenario only', () => {
+  render(<ChatHistory {...baseProps} totalMessageCount={1} messages={[{
+    role: 'assistant', author: 'Mia', content: 'Compare these possibilities.', presentation: {
+      version: 1, kind: 'read_only_answer', basis: 'scenario_only', lead: 'Here is the comparison.',
+      sections: [{ id: 'purchase', title: 'Purchase', body: 'Your plan would change.' }],
+      scenario: { values: [{ label: 'Stroller', display_value: '$300' }] },
+    },
+  }]} />)
+  expect(screen.getByRole('note', { name: 'For comparison · nothing saved' })).toBeTruthy()
+  expect(screen.queryByText('Scenario only · not saved')).toBeNull()
+})
