@@ -7,7 +7,7 @@ module Mia
       text = content.to_s
       return :participant_system_wording if text.match?(/readiness colou?r|Plaid-derived|liquid account picture|Scenario only/i)
       return :invented_phone if text.match?(/(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?!\d)|\b(?:call|phone|dial)\s+\+?\d[\d ()-]{2,}/i)
-      return :purchase_verdict if text.match?(/\b(?:go ahead|you can buy|i recommend|plenty of room|no problem|i['’]ve decided|i have decided)\b/i)
+      return :purchase_verdict if text.match?(/\b(?:go ahead|you can (?:buy|purchase|book|order)|i recommend|plenty of room|no problem|i['’]ve decided|i have decided)\b/i)
       return :purchase_verdict if text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).any? { |sentence| !(sentence.end_with?("?") && sentence.match?(/\A(?:what|which|how|would|could|should|do|does|is|are|can|will)\b/i)) && sentence.match?(/\b(?:you (?:should|ought to|must|need to)\s+(?:buy|purchase|book|order)|(?:^|[.!]\s*)(?:please\s+|go\s+)?(?:buy|purchase|book|order)\s+(?:it|the|a|an|this|that))\b/i) }
       return :unsupported_balance_claim if text.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
       unless confirmed_write

@@ -47,7 +47,7 @@ class MiaReviewLateFindingsTest < ActiveSupport::TestCase
   end
 
   test "direct spending instructions fail but participant decision questions remain valid" do
-    [ "You should buy the stroller. Which category would cover it?", "You should buy it, shouldn’t you?", "You ought to purchase it. What comes next?", "Book the trip. Which category would cover it?", "Please order it. What comes next?", "Buy it today. What comes next?" ].each do |message|
+    [ "You can purchase it. Which category would cover it?", "You can book the trip. What comes next?", "You can order it. What would fund it?", "You should buy the stroller. Which category would cover it?", "You should buy it, shouldn’t you?", "You ought to purchase it. What comes next?", "Book the trip. Which category would cover it?", "Please order it. What comes next?", "Buy it today. What comes next?" ].each do |message|
       assert_equal :purchase_verdict, Mia::NarrationClaims.rejection_reason(message), message
     end
     [ "Should you buy it before protecting food?", "Do you think you should buy it?", "You decide whether to buy it. Which category would cover it?" ].each do |message|
