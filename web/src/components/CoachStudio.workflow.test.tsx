@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AdminPersonaDetail, CurrentUser, PersonaConfiguration } from '../api'
+import { ApiRequestError, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
 import { CoachStudioAdvanced as CoachStudio } from './CoachStudioAdvanced'
-const mocks = vi.hoisted(() => ({ fetchAdminPersonas: vi.fn(), fetchAdminPersona: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn() }))
+const mocks = vi.hoisted(() => ({ fetchAdminPersonas: vi.fn(), fetchAdminPersona: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), updateAdminPersona: vi.fn() }))
 vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), ...mocks }))
 const supportMocks = vi.hoisted(() => ({ fetchSetupSupportRequests: vi.fn(), updateSetupSupportRequest: vi.fn() }))
 vi.mock('../setupHelpApi', () => supportMocks)
@@ -270,4 +270,16 @@ describe('reviewed suggestion handoff into the detailed form', () => {
     expect(screen.queryByDisplayValue(proposal.description)).toBeNull()
     expect(mocks.fetchAdminPersona).toHaveBeenCalledWith(81)
   })
+})
+
+it('CR18 advanced saves require confirmation before discarding other coach suggestions',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(true)
+ mocks.updateAdminPersona.mockRejectedValueOnce(new ApiRequestError('Pending suggestions need review.',{status:422,code:'persona_pending_suggestions'})).mockResolvedValueOnce({...persona,draft_revision:2})
+ render(<CoachStudio currentUser={actor} onDirtyChange={vi.fn()} initialSection="assistants"/>)
+ const name=await screen.findByLabelText('Assistant name');fireEvent.change(name,{target:{value:'A changed assistant'}})
+ const save=screen.getByRole('button',{name:/^Save draft$/});await waitFor(()=>expect(save).toHaveProperty('disabled',false));fireEvent.click(save)
+ await waitFor(()=>expect(mocks.updateAdminPersona).toHaveBeenCalledTimes(2))
+ expect(confirm).toHaveBeenCalledWith(expect.stringContaining('another coach'))
+ expect(mocks.updateAdminPersona.mock.calls[1][1].discard_pending_suggestions).toBe(true)
+ confirm.mockRestore()
 })

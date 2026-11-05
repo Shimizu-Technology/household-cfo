@@ -473,11 +473,14 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     setError(null)
     setConflict(null)
     try {
-      const persona = await updateAdminPersona(selectedPersona.id, {
-        draft_revision: selectedPersona.draft_revision ?? 0,
-        description,
-        draft_config: draft,
-      })
+      const values = {draft_revision: selectedPersona.draft_revision ?? 0, description, draft_config: draft}
+      let persona: AdminPersonaDetail
+      try { persona = await updateAdminPersona(selectedPersona.id, values) }
+      catch (caught) {
+        if (!(caught instanceof ApiRequestError) || caught.code !== 'persona_pending_suggestions') throw caught
+        if (!(await confirmDiscard('Saving here will discard pending voice suggestions, including suggestions in another coach’s chat.', {title:'Discard pending voice suggestions?',confirmLabel:'Discard suggestions and save',cancelLabel:'Keep suggestions'}))) return null
+        persona = await updateAdminPersona(selectedPersona.id, {...values, discard_pending_suggestions:true})
+      }
       if (!mutationIsCurrent(mutation)) return null
       setSelectedPersona(persona)
       setDraft(persona.draft ?? draft)

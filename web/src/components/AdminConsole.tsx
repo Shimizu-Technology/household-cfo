@@ -985,7 +985,8 @@ function inviteActionNotice(response: AdminUserMutationResponse) {
 
 function inviteDeliveryNotice(response: AdminUserMutationResponse) {
   if (response.invitation_sent) return 'Invite email sent.'
-  if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
+  if (response.invitation_status === 'failed' && response.user?.can_resend_invitation === false) return 'Person added. The invitation email did not send. Check their email address and invitation access before trying again.'
+  if (response.invitation_status === 'failed') return 'Person added. The invitation email did not send. Use Resend email beside their name to try again.'
   if (response.invitation_status === 'skipped') return 'Invitation saved. No email was sent.'
 
   return 'Invite saved.'

@@ -30,10 +30,10 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     ).call(user_message: message, idempotency_key: "recorded-first-voice")
 
     assert_equal "ready", result.turn.reload.status
-    assert_equal 5, result.proposal.operations.length
+    assert_equal 6, result.proposal.operations.length
     assert_equal before.dig("voice", "tone_traits"), result.proposal.after_state.dig("draft_config", "voice", "tone_traits")
     assert_equal before.dig("voice", "language_style"), result.proposal.after_state.dig("draft_config", "voice", "language_style")
-    assert_empty result.proposal.after_state.dig("draft_config", "phrases")
+    assert_equal "Chelu, pump the brakes", result.proposal.after_state.dig("draft_config", "phrases").sole.fetch("text")
     assert_equal before, @persona.reload.draft_config
     assert_includes result.turn.assistant_message, "Left out:"
   end
@@ -121,7 +121,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
 
   test "many dropped suggestions fit the saved reply limit even with a long provider reply" do
     operations = [ operation("identity.assistant_name", "Lina", evidence: "Lina") ] +
-      23.times.map { operation("identity.human_coach_name", "Invented", evidence: "Lina") }
+      23.times.map { |index| operation("identity.human_coach_name", "Invented #{index}", evidence: "Lina") }
     resolver = fake_resolver { resolver_result("Review this. " * 150, operations) }
     result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
       .call(user_message: "Lina", idempotency_key: "many-invalid-suggestions")
@@ -503,7 +503,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   test "operation contract rejects duplicate mutation targets before sealing" do
     contract = Mia::PersonaSetup::OperationContract.new(
       actor: @coach,
-      user_message: "Use a warm tone and call the phrase Håfa adai. Greeting.",
+      user_message: "Use a warm tone. Use the exact phrase Håfa adai. Greeting.",
       persona: @persona
     )
 
@@ -634,7 +634,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       )
     end
 
+    built = Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach, user_message: "Call the assistant Lina.")
+      .call([ operation("identity.assistant_name", "Lina", evidence: "Lina") ])
+    turn = @session.turns.create!(position: 36, idempotency_key: "pending-context", status: "ready", assistant_message: "Review this.", user_message: "Call the assistant Lina.")
+    CoachPersonaSetupProposal.create!(session: @session, turn:, status: "pending", **built)
     context = Mia::PersonaSetup::ContextBuilder.new(session: @session, persona: @persona).call
+    assert_equal 1, context.dig("pending_suggestions", "draft_config", "phrases").length
     phrase = context.dig("authoring_state", "draft_config", "phrases").sole
     assert_equal %w[allowed_contexts caution frequency meaning prohibited_contexts text], phrase.keys.sort
     assert_equal 32, context.fetch("recent_turns").length
@@ -1235,6 +1240,128 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       assert_equal turn.id, replay.turn.id
       assert_nil replay.proposal
     end
+  end
+
+  test "fresh QA continues a sealed prior prompt proposal without trusting a changed seal" do
+    previous = ready_proposal(name: "Lina")
+    legacy = CoachPersonaSetupProposal.new(previous.attributes.except("id", "created_at", "updated_at"))
+    legacy.prompt_version = "coach_persona_setup_v4"
+    legacy.proposal_digest = Mia::PersonaSetup::ProposalBuilder.digest_for(persona: @persona,
+      base_draft_revision: legacy.base_draft_revision, base_config_digest: legacy.base_config_digest,
+      operations: legacy.operations, before_state: legacy.before_state, after_state: legacy.after_state,
+      prompt_version: legacy.prompt_version)
+    error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach,
+        user_message: "Use 4 sentences.", previous: legacy).call([ operation("response_shape.max_sentences", 4, evidence: "4 sentences") ], partial: true)
+    end
+    assert_equal "persona_setup_stale_proposal", error.code
+    assert_includes error.public_message, "Reject this proposal"
+    legacy.operations = [ operation("identity.assistant_name", "Forged", evidence: "Forged") ]
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::ProposalBuilder.new(persona: @persona, actor: @coach,
+        user_message: "Use 4 sentences.", previous: legacy).call([
+          operation("response_shape.max_sentences", 4, evidence: "4 sentences")
+        ], partial: true)
+    end
+  end
+
+  test "fresh QA literal phrase recovery respects negation and the crisis boundary" do
+    [ 'Do not say "Chelu".', 'She never says "Chelu".', 'Remove the phrase "Chelu".',
+      'Her phrase is not "Chelu".', 'Her phrase isn’t "Chelu".', 'She no longer says "Chelu".' ].each do |message|
+      assert_empty Mia::PersonaSetup::PhraseSuggestions.new(message:).call([])
+    end
+    literal = Mia::PersonaSetup::PhraseSuggestions.new(message: 'She says "Never give up.".').call([])
+    assert_empty literal # A message alone must never create a phrase operation.
+    operation = { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Chelu",
+      "value" => { "text" => "Chelu", "meaning" => "Invented meaning", "allowed_contexts" => [ "crisis" ],
+        "prohibited_contexts" => [], "frequency" => "rare", "caution" => "" } }
+    assert_equal [ operation ], Mia::PersonaSetup::PhraseSuggestions.new(message: 'Say "Chelu".').call([ operation ])
+  end
+
+  test "fresh QA followups accumulate suggestions in the same list" do
+    runner = ->(message, operations, key) do
+      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+        resolver: fake_resolver { resolver_result("Review this.", operations) }).call(user_message: message, idempotency_key: key).proposal
+    end
+    runner.call("Celebrate small wins.", [ operation("coaching.do", [ "Celebrate small wins." ], evidence: "Celebrate small wins.") ], "fresh-qa-list-one")
+    proposal = runner.call("Ask one practical question.", [ operation("coaching.do", [ "Ask one practical question." ], evidence: "Ask one practical question.") ], "fresh-qa-list-two")
+    assert_equal [ "Celebrate small wins.", "Ask one practical question." ], proposal.after_state.dig("draft_config", "coaching", "do")
+    replacement = runner.call("Remove Celebrate small wins.", [ operation("coaching.do", [ "Ask one practical question." ], evidence: "Remove Celebrate small wins.") ], "fresh-qa-list-remove")
+    assert_equal [ "Ask one practical question." ], replacement.after_state.dig("draft_config", "coaching", "do")
+  end
+
+  test "fresh QA real provider response keeps celebration method traits and exact phrase" do
+    fixture = JSON.parse(file_fixture("persona_setup/fresh_qa_voice_response.json").read)
+    message = 'Her voice is like a Guam auntie: warm; direct; respectful; encouraging. Keep answers to 3 or 4 sentences. Never shame anyone. She celebrates small wins. She always gives the direct answer first, and then asks one practical question. She says "Chelu, pump the brakes."'
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result(fixture.fetch("assistant_message"), fixture.fetch("operations")) })
+      .call(user_message: message, idempotency_key: "fresh-qa-real-response")
+    config = result.proposal.after_state.fetch("draft_config")
+    assert_equal "Chelu, pump the brakes.", config.fetch("phrases").sole.fetch("text")
+    assert_includes config.dig("coaching", "do"), "Celebrate small wins."
+    assert_equal "Give the direct answer first, and then ask one practical question.", config.dig("coaching", "method")
+    assert_equal %w[warm direct respectful encouraging], config.dig("voice", "tone_traits")
+    refute_includes result.turn.assistant_message, "Left out:"
+  end
+
+  test "fresh QA quoted phrase remains reviewable without an invented interpretation" do
+    phrase = "Chelu, pump the brakes."
+    message = %(Please add her saying, word for word: "#{phrase}")
+    raw = { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => phrase,
+      "value" => { "text" => phrase, "meaning" => "A phrase the coach always says to stop overspending.",
+        "allowed_contexts" => [ "general" ], "prohibited_contexts" => [ "crisis" ], "frequency" => "as_needed", "caution" => "" } }
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this. Nothing has been saved.", [ raw ]) })
+      .call(user_message: message, idempotency_key: "fresh-qa-phrase")
+    suggestion = result.proposal.after_state.dig("draft_config", "phrases").sole
+    assert_equal phrase, suggestion.fetch("text")
+    assert_equal phrase, suggestion.fetch("meaning")
+    assert_equal [ "crisis" ], suggestion.fetch("prohibited_contexts")
+    assert_empty @persona.reload.draft_config.fetch("phrases")
+  end
+
+  test "fresh QA followups retain and save every earlier suggestion across reloads" do
+    first = ready_proposal(name: "Lina")
+    second = Mia::PersonaSetup::TurnRunner.new(session: @session.reload, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this.", [ operation("coaching.do_not", [ "Never shame anyone." ], evidence: "Never shame anyone.") ]) })
+      .call(user_message: "Never shame anyone.", idempotency_key: "fresh-qa-followup").proposal
+    assert_equal "superseded", first.reload.status
+    assert_equal %w[identity.assistant_name coaching.do_not], second.operations.map { |op| op.fetch("path") }
+    third = Mia::PersonaSetup::TurnRunner.new(session: @session.reload, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this.", [ operation("response_shape.max_sentences", 4, evidence: "4 sentences") ]) })
+      .call(user_message: "Use 4 sentences.", idempotency_key: "fresh-qa-followup2").proposal
+    applied = Mia::PersonaSetup::ProposalApplier.new(proposal: third, actor: @coach, workspace: @workspace).apply!(idempotency_key: "fresh-qa-save-all")
+    assert_equal "Lina", applied.draft_config.dig("identity", "assistant_name")
+    assert_equal [ "Never shame anyone." ], applied.draft_config.dig("coaching", "do_not")
+    assert_equal 4, applied.draft_config.dig("response_shape", "max_sentences")
+  end
+
+  test "fresh QA pending voice choices survive additions but never authorize new unsupported claims" do
+    first = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical], evidence: "practical") ]) })
+      .call(user_message: "Be practical.", idempotency_key: "fresh-qa-practical").proposal
+    second = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical concise], evidence: "brief") ]) })
+      .call(user_message: "Keep it brief.", idempotency_key: "fresh-qa-brief").proposal
+    assert_equal %w[warm direct respectful practical concise], second.after_state.dig("draft_config", "voice", "tone_traits")
+    assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
+      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+        resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical concise formal], evidence: "practical") ]) })
+        .call(user_message: "Keep it brief.", idempotency_key: "fresh-qa-no-laundering")
+    end
+    assert_equal "pending", second.reload.status
+    assert_equal "superseded", first.reload.status
+  end
+
+  test "fresh QA accepts celebrates small wins while retaining polarity restrictions" do
+    assert Mia::PersonaSetup::TextEvidence.supports?("She celebrates small wins", "Celebrate small wins")
+    refute Mia::PersonaSetup::TextEvidence.supports?("She never celebrates small wins", "Celebrate small wins")
+    refute Mia::PersonaSetup::TextEvidence.supports?("Celebrate small wins only when invited", "Celebrate small wins")
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
+      user_message: "warm; direct; respectful; encouraging").build([
+        operation("voice.tone_traits", %w[warm direct respectful encouraging], evidence: "warm; direct; respectful; encouraging")
+      ])
+    assert_equal %w[warm direct respectful encouraging], result.dig(:after_state, "draft_config", "voice", "tone_traits")
   end
 
   private

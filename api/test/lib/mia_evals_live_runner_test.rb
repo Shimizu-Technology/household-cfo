@@ -28,6 +28,15 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     assert_preflight false, /Unset DATABASE_URL/
   end
 
+  test "preflight still explains refusal when Ruby warnings are disabled" do
+    previous_verbose = $VERBOSE
+    $VERBOSE = nil
+    ENV["DATABASE_URL"] = "postgres://example.invalid/household_cfo_production"
+    assert_preflight false, /Unset DATABASE_URL/
+  ensure
+    $VERBOSE = previous_verbose
+  end
+
   test "preflight refuses a database that is not named as a test database" do
     stub_method(@runner, :test_database_name?, false) do
       assert_preflight false, /only run against a test database/

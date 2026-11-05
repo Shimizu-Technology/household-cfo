@@ -36,11 +36,13 @@ module Mia
       end
     end
 
-    def initialize(persona:, actor:, workspace:, origin_proposal_id: nil, allow_phrase_artifact_edits: true)
+    def initialize(persona:, actor:, workspace:, origin_proposal_id: nil, allow_phrase_artifact_edits: true, protect_pending_suggestions: false, discard_pending_suggestions: false)
       @persona = persona
       @actor = actor
       @workspace = workspace
       @origin_proposal_id = origin_proposal_id
+      @protect_pending_suggestions = protect_pending_suggestions
+      @discard_pending_suggestions = discard_pending_suggestions
       @allow_phrase_artifact_edits = allow_phrase_artifact_edits
     end
 
@@ -97,6 +99,9 @@ module Mia
         return persona
       end
 
+      if @protect_pending_suggestions && !@discard_pending_suggestions && CoachPersonaSetupProposal.joins(:session).where(coach_persona_setup_sessions: { coach_persona_id: persona.id }, status: "pending").lock.exists?
+        raise Error.new("Saving here will discard pending voice suggestions, including suggestions in another coach’s chat. Review them first, or confirm that you want to discard them.", code: "persona_pending_suggestions")
+      end
       persona.apply_authoring_state!(description: normalized_description, draft_config: normalized_config)
       stale_other_pending_proposals!
       persona

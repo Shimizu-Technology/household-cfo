@@ -212,6 +212,9 @@ module Mia
 
       def build_phrase_artifact(attributes, artifact_id: SecureRandom.uuid, provenance: "coach_authored", source_user_id:, source_role_at_capture: nil)
         normalized = normalize(attributes)
+        if Array(normalized["allowed_contexts"]).include?("crisis")
+          raise InvalidConfiguration, [ "Coaching phrases cannot be used during crisis support." ]
+        end
         captured_role = source_role_at_capture.presence || (provenance.to_s == "participant_supplied" ? "participant" : "coach")
         artifact = {
           "artifact_id" => artifact_id.to_s,
@@ -259,6 +262,7 @@ module Mia
         end
 
         exact_keys(normalized, PHRASE_AUTHORING_KEYS, "$.phrase", errors)
+        errors << "Coaching phrases cannot be used during crisis support." if Array(normalized["allowed_contexts"]).include?("crisis")
         validate_phrase_authoring_fields(normalized, "$.phrase", errors)
         config = default_configuration(assistant_name: "Source phrase validation", human_coach_name: "Human coach")
         config["phrases"] = [ normalized ]
@@ -444,6 +448,7 @@ module Mia
         bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
         enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
         enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
+
         errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
         optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
       end

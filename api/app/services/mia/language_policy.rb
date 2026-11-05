@@ -124,6 +124,8 @@ module Mia
     end
 
     def custom_phrase_allowed?(entry)
+      return false if crisis_moment?
+
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
 

@@ -1,3 +1,4 @@
+import type { CohortExperienceDraft } from '../api'
 import { fetchWorkspaceBrand, previewWorkspaceBrand, fetchCohortExperienceConfiguration, previewCohortExperienceConfiguration, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview, type CohortExperienceConfiguration, type CohortExperiencePreview } from '../api'
 
 export type CoachSettingsReview = {
@@ -23,4 +24,20 @@ export async function reviewCoachSettings(groupIds: number[], isCurrent: () => b
     tools.push({ configuration: result.experience_configuration, preview: result.preview })
   }
   return { brand: { configuration: brandPreview.brand_configuration, preview: brandPreview.preview }, tools }
+}
+
+export function toolChanges(item: CoachSettingsReview['tools'][number], activeConfiguration?: CohortExperienceDraft | null): string[] {
+  const previous = activeConfiguration ?? item.configuration.published_version?.config
+  if (!previous) return [`Tools included: ${item.preview.modules.filter(module => module.enabled).map(module => module.label).join(', ')}.`]
+  const changes = []
+  for (const module of item.preview.modules) {
+    if (module.core) continue
+    const enabled = module.id in previous.optional_modules
+      ? previous.optional_modules[module.id as keyof typeof previous.optional_modules]
+      : module.id !== 'cfo_filter' && module.id !== 'optionality'
+    if (module.enabled !== enabled) changes.push(`${module.enabled ? 'Adds' : 'Removes'} ${module.label}.`)
+  }
+  if (JSON.stringify(previous.module_order ?? []) !== JSON.stringify(item.preview.module_order ?? [])) changes.push('Changes the order of the tools shown below.')
+  if ((previous.experience_mode ?? 'household_cfo') !== item.configuration.draft.experience_mode) changes.push(`Changes the experience to ${item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}.`)
+  return changes
 }

@@ -164,6 +164,6 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     { "op" => "set", "path" => path, "value" => value, "source_basis" => "coach_quote", "evidence_quote" => evidence }
   end
   def contract
-    Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "I start with how they feel, then one clear next step. I protect the basics first: roof, food, utilities, required payments. Chelu, pump the brakes and suggest waiting 30 days.")
+    Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "I start with how they feel, then one clear next step. I protect the basics first: roof, food, utilities, required payments. Use the exact phrase Chelu, pump the brakes and suggest waiting 30 days.")
   end
 end

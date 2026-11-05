@@ -1,6 +1,70 @@
 require "test_helper"
 
 class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
+  test "R12 rejects malformed invitation addresses before creating an account" do
+    admin = create_user(email: "r12-admin@example.test", role: "admin")
+    cohort = Cohort.create!(name: "R12", status: "enrolling", created_by_user: admin)
+    [ "<jane@example.test>", "weird@exa mple.com", "jane@example..test" ].each do |email|
+      assert_no_difference -> { User.count } do
+        post "/api/v1/admin/users", params: { user: { email: email, role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+      end
+      assert_response :unprocessable_entity
+      assert_includes response.body, "complete address"
+    end
+  end
+
+  test "R15 coach create responses exclude provider diagnostics while platform admins retain them" do
+    admin = create_user(email: "r15-admin@example.test", role: "admin")
+    coach = create_user(email: "r15-coach@example.test", role: "coach")
+    cohort = Cohort.create!(name: "R15", status: "enrolling", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+    diagnostic = "R15 private provider diagnostic"
+    with_user_invite_email_stub(sent: false, status: "failed", provider_message_id: "r15-private-provider-id", error: diagnostic) do
+      post "/api/v1/admin/users", params: { user: { email: "r15-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(coach), as: :json
+      assert_response :created
+      assert_equal "failed", response.parsed_body.fetch("invitation_status")
+      refute response.parsed_body.key?("invitation_error")
+      refute_includes response.body, diagnostic
+      post "/api/v1/admin/users", params: { user: { email: "r15-admin-invite@example.test", role: "participant", cohort_id: cohort.id } }, headers: auth_headers(admin), as: :json
+      assert_response :created
+      assert_equal diagnostic, response.parsed_body.fetch("invitation_error")
+      assert_includes response.body, diagnostic
+    end
+  end
+
+  test "CR1 nonadmin legacy serializer never exposes nested delivery diagnostics" do
+    coach = create_user(email: "cr1-coach@example.test", role: "coach")
+    target = create_user(email: "cr1-invite@example.test", role: "participant")
+    target.update!(invitation_email_error: "Private provider reason", invitation_email_provider_id: "private-provider-id", invitation_email_status: "failed")
+    attempt = target.invitation_email_attempts.create!(status: "failed", provider: "resend",
+      provider_message_id: "private-attempt-id", error: "Private attempt reason", attempted_at: Time.current, sent_by_user: coach)
+    controller = Api::V1::Admin::UsersController.new
+    controller.define_singleton_method(:current_user) { coach }
+    controller.define_singleton_method(:workspace_scoped_mode?) { false }
+    details = controller.send(:serialize_invite_email, target)
+    assert_nil details[:error]; assert_nil details[:provider_message_id]; assert_empty details[:delivery_log]
+    admin = create_user(email: "cr1-admin@example.test", role: "admin")
+    controller.define_singleton_method(:current_user) { admin }
+    admin_details = controller.send(:serialize_invite_email, target)
+    assert_equal "Private provider reason", admin_details[:error]
+    assert_equal [ attempt.id ], admin_details[:delivery_log].pluck(:id)
+    assert_equal "Private attempt reason", admin_details[:delivery_log].sole[:error]
+    assert_equal "private-attempt-id", admin_details[:delivery_log].sole[:provider_message_id]
+  end
+
+  test "CR11 invitation email length boundary is 254 characters" do
+    admin = create_user(email: "cr11-admin@example.test", role: "admin")
+    cohort = Cohort.create!(name: "CR11", status: "enrolling", created_by_user: admin)
+    email = "#{'a' * 64}@#{'b' * 63}.#{'c' * 63}.#{'d' * 61}"
+    assert_equal 254, email.length
+    post "/api/v1/admin/users", params: { user: { email: email, role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+    assert_response :created
+    assert_no_difference -> { User.count } do
+      post "/api/v1/admin/users", params: { user: { email: "a#{email}", role: "participant", cohort_id: cohort.id, send_invitation_email: false } }, headers: auth_headers(admin), as: :json
+    end
+    assert_response :unprocessable_entity
+  end
+
   test "admin users endpoint requires authentication" do
     get "/api/v1/admin/users"
 

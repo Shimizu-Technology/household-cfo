@@ -83,16 +83,16 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
     op = { "op" => "add_phrase", "path" => "phrases", "value" => phrase,
       "source_basis" => "coach_quote", "evidence_quote" => "One small step means Choose a manageable next move." }
     result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
-      user_message: "One small step means Choose a manageable next move.").build([ op ])
+      user_message: "Use the exact phrase One small step means Choose a manageable next move.").build([ op ])
     assert_includes result.dig(:after_state, "draft_config", "phrases", 0, "prohibited_contexts"), "crisis"
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona,
-        user_message: "One small step means Choose a manageable next move.").build([ op.deep_merge("value" => { "allowed_contexts" => [ "crisis" ] }) ])
+        user_message: "Use the exact phrase One small step means Choose a manageable next move.").build([ op.deep_merge("value" => { "allowed_contexts" => [ "crisis" ] }) ])
     end
   end
 
   test "selecting a phrase preserves its sealed identity and original capture role" do
-    message = "Propose voice from transcripts: One small step means Choose a manageable next move. We take our time."
+    message = "Propose voice from transcripts:\nCoach: Use the exact phrase One small step means Choose a manageable next move. We take our time."
     phrase = { "text" => "One small step", "meaning" => "Choose a manageable next move.",
       "allowed_contexts" => [ "general" ], "prohibited_contexts" => [ "crisis" ], "frequency" => "rare", "caution" => "Use gently." }
     operations = [ { "op" => "add_phrase", "path" => "phrases", "value" => phrase,
@@ -139,7 +139,7 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
       @persona.update!(draft_config: config)
       value = action == "add" ? config.fetch("phrases").first.slice(*Mia::PersonaSchema::PHRASE_AUTHORING_KEYS) : "One small step"
       quote = action == "add" ? "One small step means #{value.fetch('meaning')}" : "One small step"
-      message = "Propose voice from transcripts: #{quote}. We take our time."
+      message = "Propose voice from transcripts:\nCoach: #{action == 'add' ? 'Use the exact phrase ' : 'Remove '}#{quote}. We take our time."
       operations = [ { "op" => "#{action}_phrase", "path" => "phrases", "value" => value,
         "source_basis" => "coach_quote", "evidence_quote" => quote }, operation("voice.tone_traits", %w[warm direct respectful patient], "We take our time") ]
       built = Mia::PersonaSetup::ProposalBuilder.new(actor: @coach, persona: @persona, user_message: message).call(operations)
@@ -149,10 +149,11 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
       proposal = CoachPersonaSetupProposal.create!(session: @session, turn: turn, status: "pending", **built)
       sealed_phrases = proposal.after_state.fetch("draft_config").fetch("phrases")
       Mia::PersonaSetup::ProposalApplier.new(proposal: proposal, actor: @coach, workspace: @workspace)
-        .apply!(idempotency_key: "selected-duplicate-phrase", accepted_operation_indexes: [ 0 ])
+        .apply!(idempotency_key: "selected-duplicate-phrase", accepted_operation_indexes: action == "add" ? [ 0, 1 ] : [ 0 ])
       assert_equal sealed_phrases, @persona.reload.draft_config.fetch("phrases")
-      assert_equal action == "add" ? 3 : 1, sealed_phrases.length
-      assert_equal config.fetch("voice"), @persona.draft_config.fetch("voice")
+      assert_equal action == "add" ? 2 : 1, sealed_phrases.length
+      expected_voice = action == "add" ? proposal.after_state.dig("draft_config", "voice") : config.fetch("voice")
+      assert_equal expected_voice, @persona.draft_config.fetch("voice")
     end
   end
 

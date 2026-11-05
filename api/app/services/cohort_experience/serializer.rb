@@ -24,7 +24,7 @@ module CohortExperience
           draft_revision: configuration.previewed_draft_revision,
           generated_at: configuration.previewed_at
         },
-        published_version: serialize_version(configuration.current_published_version),
+        published_version: serialize_version(configuration.current_published_version, include_config: true),
         versions: configuration.versions.order(version_number: :desc).map { |version| serialize_version(version, include_source: true) },
         permissions: {
           edit: mutable? && workspace.allows?(actor, :edit),

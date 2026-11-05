@@ -149,35 +149,35 @@ module MiaEvals
 
     def preflight
       if ENV["MIA_LIVE_EVALS"] != "1"
-        warn "Set MIA_LIVE_EVALS=1 to run live Mia evals. They call a paid model and are never part of CI."
+        $stderr.puts "Set MIA_LIVE_EVALS=1 to run live Mia evals. They call a paid model and are never part of CI."
         return false
       end
       if ENV["CI"].present?
-        warn "Live Mia evals do not run in CI."
+        $stderr.puts "Live Mia evals do not run in CI."
         return false
       end
       if ENV["OPENROUTER_API_KEY"].to_s.strip.blank?
-        warn "OPENROUTER_API_KEY is required for live Mia evals."
+        $stderr.puts "OPENROUTER_API_KEY is required for live Mia evals."
         return false
       end
       unless Rails.env.test?
-        warn "Run with RAILS_ENV=test so the synthetic participant can sign in with a test token and every case rolls back."
+        $stderr.puts "Run with RAILS_ENV=test so the synthetic participant can sign in with a test token and every case rolls back."
         return false
       end
       # Rails merges DATABASE_URL into the test config, so an exported production URL
       # would point this run (and its locks and sequences) at production.
       if ENV["DATABASE_URL"].present?
-        warn "Unset DATABASE_URL: live Mia evals only run against the local test database."
+        $stderr.puts "Unset DATABASE_URL: live Mia evals only run against the local test database."
         return false
       end
       current_database = ActiveRecord::Base.connection.current_database
       unless ActiveRecord::Base.connection_db_config.env_name == "test" && test_database_name?(current_database)
-        warn "Live Mia evals only run against a test database (connected to #{current_database.inspect})."
+        $stderr.puts "Live Mia evals only run against a test database (connected to #{current_database.inspect})."
         return false
       end
       # Test identities are accepted only when no sign-in provider is selected or configured.
       if ENV["AUTH_PROVIDER"].present? || WorkosAuth.configured?
-        warn "Unset AUTH_PROVIDER and the WorkOS keys for this run; the synthetic participant signs in with a test identity."
+        $stderr.puts "Unset AUTH_PROVIDER and the WorkOS keys for this run; the synthetic participant signs in with a test identity."
         return false
       end
 

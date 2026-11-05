@@ -6,6 +6,15 @@ require_relative "../support/persona_test_helper"
 class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::IntegrationTest
   include PersonaTestHelper
 
+  test "published tools include their approved configuration for a named change review" do
+    owner = create_user("coach")
+    cohort = Cohort.create!(name: "Tool change review", status: "active", created_by_user: owner)
+    version = publish_configuration(cohort.cohort_experience_configuration, owner, cfo_filter: false, optionality: true)
+    get endpoint(cohort), headers: workspace_headers(owner, cohort.coach_workspace)
+    assert_response :success
+    assert_equal version.config, response.parsed_body.dig("experience_configuration", "published_version", "config")
+  end
+
   test "participant tool permissions match workspace roles and cohort status" do
     owner = create_user("coach")
     cohort = Cohort.create!(name: "Role capabilities #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)

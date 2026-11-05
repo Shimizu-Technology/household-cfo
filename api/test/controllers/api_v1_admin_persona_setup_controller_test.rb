@@ -296,7 +296,7 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     proposal_id = response.parsed_body.dig("session", "proposal", "id")
     changed = @persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." })
     patch "/api/v1/admin/personas/#{@persona.id}", params: {
-      persona: { draft_revision: @persona.draft_revision, draft_config: changed }
+      persona: { draft_revision: @persona.draft_revision, draft_config: changed, discard_pending_suggestions: true }
     }, headers: @headers, as: :json
     assert_response :success
     assert_equal "stale", CoachPersonaSetupProposal.find(proposal_id).status
@@ -322,6 +322,24 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "persona_archived", response.parsed_body.fetch("code")
     assert_equal "pending", CoachPersonaSetupProposal.find(proposal_id).status
+  end
+
+  test "CR18 manual PATCH preserves another coach proposal until explicit discard" do
+    session_id = create_setup_session
+    with_controller_resolver(fixed_resolver("Review it.", [ operation("identity.assistant_name", "Lina", evidence: "Lina") ])) do
+      post turn_path(session_id), params: { turn: { message: "Call the assistant Lina." } }, headers: @headers.merge("Idempotency-Key" => "cr-other-pending"), as: :json
+    end
+    proposal_id = response.parsed_body.dig("session", "proposal", "id")
+    other = persona_user; @workspace.coach_workspace_memberships.create!(user: other, role: "editor")
+    changed = @persona.draft_config.deep_merge("coaching" => { "method" => "Ask one question." })
+    values = { draft_revision: @persona.draft_revision, draft_config: changed }
+    patch "/api/v1/admin/personas/#{@persona.id}", params: { persona: values }, headers: workspace_auth_headers(other, @workspace), as: :json
+    assert_response :unprocessable_entity
+    assert_equal "persona_pending_suggestions", response.parsed_body["code"]
+    assert_equal "pending", CoachPersonaSetupProposal.find(proposal_id).status
+    patch "/api/v1/admin/personas/#{@persona.id}", params: { persona: values.merge(discard_pending_suggestions: true) }, headers: workspace_auth_headers(other, @workspace), as: :json
+    assert_response :success
+    assert_equal "stale", CoachPersonaSetupProposal.find(proposal_id).status
   end
 
   private

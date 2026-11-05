@@ -14,6 +14,7 @@ module Mia
       def call
         {
           "authoring_state" => safe_authoring_state,
+          "pending_suggestions" => pending_authoring_state,
           "allowed_values" => {
             "tone_traits" => PersonaSchema::TONE_TRAITS,
             "energy" => PersonaSchema::ENERGY_STYLES,
@@ -30,8 +31,13 @@ module Mia
 
       attr_reader :session, :persona
 
-      def safe_authoring_state
-        state = PersonaDraftUpdater.state_for(persona).deep_dup
+      def pending_authoring_state
+        proposal = session.proposals.find_by(status: "pending")
+        safe_authoring_state(proposal.after_state) if proposal
+      end
+
+      def safe_authoring_state(state = nil)
+        state = (state || PersonaDraftUpdater.state_for(persona)).deep_dup
         state.fetch("draft_config")["phrases"] = Array(state.dig("draft_config", "phrases")).filter_map do |phrase|
           normalized = PersonaSchema.normalize(phrase)
           next if normalized["provenance"] == "participant_supplied"

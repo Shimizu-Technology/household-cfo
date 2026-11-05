@@ -781,7 +781,7 @@ module Api
             invitation_sent: result[:sent],
             invitation_status: result[:status],
             invitation_error: result[:error]
-          }
+          }.tap { |payload| payload.delete(:invitation_error) unless current_user.admin? }
         end
 
         def serialize_user(user, pilot_progress: nil)
@@ -867,7 +867,7 @@ module Api
         end
 
         def serialize_invite_email(user)
-          if workspace_scoped_mode?
+          if workspace_scoped_mode? || !current_user.admin?
             return {
               status: "hidden",
               provider_message_id: nil,
