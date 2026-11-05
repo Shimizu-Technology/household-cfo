@@ -401,6 +401,7 @@ export function PersonaSetupChat({
                       choicesRef.current.set(choiceKey(operation, item), event.target.checked)
                       const current = listChoices[String(operationIndex)] ?? (change.after as string[]).map((_, i) => i)
                       const next = event.target.checked ? [...current, itemIndex] : current.filter(i => i !== itemIndex)
+                      choicesRef.current.set(choiceKey(operation), next.length > 0)
                       setListChoices(values => ({...values, [String(operationIndex)]: next}))
                       setAcceptedIndexes(ids => next.length ? [...new Set([...ids, operationIndex])] : ids.filter(id => id !== operationIndex))
                     }} />Keep: {item}</label>)}<ProposalChange change={change} compact={saveAndPreview} /></div>

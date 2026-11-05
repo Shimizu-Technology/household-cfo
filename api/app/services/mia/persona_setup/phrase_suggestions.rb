@@ -29,7 +29,10 @@ module Mia
 
         @message.each_line do |line|
           speaker, body = line.split(/:\s*/, 2)
-          if body && speaker.split.length <= 3 && speaker.match?(/\A[[:alpha:] .'-]{1,60}\z/) && !speaker.match?(/word for word|phrase|saying/i)
+          # A speaker label is not limited to alphabetic names: transcripts
+          # also use numbered, annotated, or unfamiliar speakers. Only explicit
+          # prose/authoring introductions may keep the whole line as evidence.
+          if body && !speaker.match?(/\A\s*(?:(?:i|we|she|he|they)(?:\s|['’])|the coach\s|her (?:phrase|saying) is\b|(?:please\s+)?(?:add|use|keep)\b)/i)
             allowed = [ "coach", "me", "#{@coach_name}" ].reject(&:blank?)
             next unless allowed.any? { |name| speaker.strip.casecmp?(name) }
           else

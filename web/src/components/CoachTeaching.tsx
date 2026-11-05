@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiRequestError, createAdminPersonaSetupSession, updateAdminPersona, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
+import { ApiRequestError, updateAdminPersona, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
 import { Button } from './Button'
 import { CoachContentLibrary } from './CoachContentLibrary'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -37,14 +37,10 @@ export function CoachTeaching({ persona, lifecycle, onDirtyChange, onSaved }: { 
     setBusy(true); setError(null)
     const ticket = lifecycle.begin()
     try {
-      const session = await createAdminPersonaSetupSession(persona.id)
-      if (!mounted.current || !lifecycle.isCurrent(ticket)) return
-      let discardPending = false
       const confirmPending = () => confirmDiscard('Saving here will discard pending voice suggestions, including suggestions in another coach’s chat. Review them first, or discard them and save this teaching.', {title:'Discard pending voice suggestions?',confirmLabel:'Discard suggestions and save',cancelLabel:'Keep suggestions'})
-      if (session.proposal) { if (!(await confirmPending())) return; discardPending = true }
       const payload = { draft_revision: persona.draft_revision, draft_config: { ...persona.draft, coaching: { ...persona.draft.coaching, method }, ...(phrase.trim() ? { phrases: [...(persona.draft.phrases ?? []), ...[{ text: phrase.trim(), meaning: meaning.trim() || phrase.trim(), allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '', provenance: 'coach_authored' } as PersonaConfiguration['phrases'][number]]] } : {}) } }
       let saved: AdminPersonaDetail
-      try { saved = await updateAdminPersona(persona.id, {...payload, ...(discardPending ? {discard_pending_suggestions:true} : {})}) }
+      try { saved = await updateAdminPersona(persona.id, payload) }
       catch (caught) {
         if (!(caught instanceof ApiRequestError) || caught.code !== 'persona_pending_suggestions') throw caught
         if (!(await confirmPending())) return

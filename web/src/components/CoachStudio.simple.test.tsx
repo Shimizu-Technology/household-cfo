@@ -154,9 +154,9 @@ it('R14 cancellation restores the current history entry and discard accepts the 
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
  fireEvent.click(screen.getByRole('button',{name:'Your assistant'}))
  fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Private edit'}})
- const currentIndex=window.history.state.coachStudioIndex
+ const currentIndex=window.history.state.appHistoryPosition
  await act(async()=>{await new Promise<void>(resolve=>{
-  const restored=(event:PopStateEvent)=>{if(event.state?.coachStudioIndex===currentIndex){window.removeEventListener('popstate',restored);resolve()}}
+  const restored=(event:PopStateEvent)=>{if(event.state?.appHistoryPosition===currentIndex){window.removeEventListener('popstate',restored);resolve()}}
   window.addEventListener('popstate',restored);window.history.back()
  })})
  expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
@@ -173,4 +173,24 @@ it('R14 checklist creates exactly one history entry',async()=>{
  const push=vi.spyOn(window.history,'pushState')
  fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}))
  expect(push).toHaveBeenCalledTimes(1);push.mockRestore()
+})
+
+it('review two restores the saved entry after a multi-entry traversal across the staff shell',async()=>{
+ const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
+ const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
+ const earlierUrl=location.href
+ first.unmount()
+ // The staff shell creates its own entry before Studio mounts again.
+ const {pushHistoryEntry}=await import('../lib/browserHistory')
+ pushHistoryEntry({section:'Admin'},'/#Admin')
+ pushHistoryEntry({section:'Coach Studio'},'/?coach_area=assistant&coach_task=voice#Coach%20Studio')
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Keep this private edit'}})
+ const savedUrl=location.href
+ expect(savedUrl).not.toBe(earlierUrl)
+ await act(async()=>{window.history.go(-2);await new Promise(resolve=>setTimeout(resolve,60))})
+ await waitFor(()=>expect(confirm).toHaveBeenCalled())
+ await waitFor(()=>expect(location.href).toBe(savedUrl))
+ expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Keep this private edit')
+ confirm.mockRestore()
 })

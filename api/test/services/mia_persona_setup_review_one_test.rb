@@ -34,6 +34,14 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     end
   end
 
+  [ "Client 1", "Participant #2", "Speaker 3", "Unknown speaker with a long label", "A1", "Client (guest)", "Client [1]", "Guest / visitor", "Guest 🤷", "Client phrases" ].each do |speaker|
+    test "review two rejects noncoach transcript speaker #{speaker}" do
+      message = %(#{speaker}: I say "Chelu")
+      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message, coach_name: "Mrs. Mel").exact_quote("Chelu")
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+    end
+  end
+
   test "R2 thirty transcript quotes do not fail a valid name change" do
     message = "Call the assistant Lani.\n" + 30.times.map { |i| %(Client: my friend says "I can't pay #{i}") }.join("\n")
     result = run_turn(message, [ op("identity.assistant_name", "Lani", "Lani") ])

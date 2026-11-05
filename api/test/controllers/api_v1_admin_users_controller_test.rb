@@ -28,6 +28,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     coach = create_user(email: "cr1-coach@example.test", role: "coach")
     target = create_user(email: "cr1-invite@example.test", role: "participant")
     target.update!(invitation_email_error: "Private provider reason", invitation_email_provider_id: "private-provider-id", invitation_email_status: "failed")
+    attempt = target.invitation_email_attempts.create!(status: "failed", provider: "resend",
+      provider_message_id: "private-attempt-id", error: "Private attempt reason", attempted_at: Time.current, sent_by_user: coach)
     controller = Api::V1::Admin::UsersController.new
     controller.define_singleton_method(:current_user) { coach }
     controller.define_singleton_method(:workspace_scoped_mode?) { false }
@@ -35,7 +37,11 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_nil details[:error]; assert_nil details[:provider_message_id]; assert_empty details[:delivery_log]
     admin = create_user(email: "cr1-admin@example.test", role: "admin")
     controller.define_singleton_method(:current_user) { admin }
-    assert_equal "Private provider reason", controller.send(:serialize_invite_email, target)[:error]
+    admin_details = controller.send(:serialize_invite_email, target)
+    assert_equal "Private provider reason", admin_details[:error]
+    assert_equal [ attempt.id ], admin_details[:delivery_log].pluck(:id)
+    assert_equal "Private attempt reason", admin_details[:delivery_log].sole[:error]
+    assert_equal "private-attempt-id", admin_details[:delivery_log].sole[:provider_message_id]
   end
 
   test "CR11 invitation email length boundary is 254 characters" do

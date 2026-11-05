@@ -359,6 +359,9 @@ it.each(['coach','admin'])('CR14 failed %s invitations do not promise an unavail
  render(<AdminConsole currentUser={actor}/>);await screen.findAllByText('Participant 00')
  await waitFor(()=>expect(screen.getByRole('button',{name:'Refresh'})).toHaveProperty('disabled',false))
  const form=screen.getByRole('button',{name:'Create invite'}).closest('form')!
- fireEvent.change(within(form).getByLabelText(/Email/),{target:{value:pending.email}});fireEvent.submit(form)
+ fireEvent.change(within(form).getByLabelText(/Email/),{target:{value:pending.email}})
+ fireEvent.change(within(form).getByLabelText('Role'),{target:{value:role}})
+ fireEvent.submit(form)
+ await waitFor(()=>expect(mocks.createAdminUser).toHaveBeenCalledWith(expect.objectContaining({role})))
  expect((await screen.findByText(/Check their email address and invitation access/)).textContent).not.toContain('Resend email')
 })

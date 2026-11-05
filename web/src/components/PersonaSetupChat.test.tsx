@@ -151,6 +151,26 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
     expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,71,'apply',expect.any(String),[0],{'0':[1]})
   })
+  it('review two keeps a fully unchecked list rejected after a follow-up and omits it from save',async()=>{
+    const first=proposalSession()
+    const items=['Celebrate small wins','Ask one question']
+    first.proposal!.operations.push({op:'set',path:'coaching.do',value:items,source_basis:'coach_quote',evidence_quote:items.join(' and ')})
+    first.proposal!.grouped_changes.push({group:'Coaching',changes:[{group:'Coaching',path:'coaching.do',label:'Do',before:['Existing guidance'],after:items,source_basis:'coach_quote',evidence_quote:items.join(' and ')}]})
+    const next=structuredClone(first);next.proposal!.id=72
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(first)
+    apiMocks.createAdminPersonaSetupTurn.mockResolvedValue(next)
+    apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session()})
+    render(<Harness />);await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
+    for(const item of items) await userEvent.click(screen.getByRole('checkbox',{name:`Keep: ${item}`}))
+    await userEvent.type(screen.getByLabelText('Message Mia'),'Keep it brief')
+    await userEvent.click(screen.getByRole('button',{name:'Send to Mia'}))
+    await waitFor(()=>expect(apiMocks.createAdminPersonaSetupTurn).toHaveBeenCalled())
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Use selected suggestions'})).toHaveProperty('disabled',false))
+    for(const item of items) expect(screen.getByRole('checkbox',{name:`Keep: ${item}`})).toHaveProperty('checked',false)
+    await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
+    expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledWith(81,51,72,'apply',expect.any(String),[0],undefined)
+  })
   it('R16 describes nonadjacent answer limits as a range',async()=>{
     const next=proposalSession()
     next.proposal!.operations=[];next.proposal!.grouped_changes=[{group:'Response',changes:[2,6].map((value,index)=>({group:'Response',path:`response_shape.${index?'max':'min'}_sentences`,label:'Limit',before:2,after:value,source_basis:'coach_quote',evidence_quote:'2 to 6 sentences'}))}]

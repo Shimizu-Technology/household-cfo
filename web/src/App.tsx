@@ -1,3 +1,4 @@
+import { historyPosition, pushHistoryEntry } from './lib/browserHistory'
 import { DocumentReadingProgress } from './components/DocumentReadingProgress'
 import { IncomeForms } from './components/IncomeForms'
 import { IncomeSourceManager } from './components/IncomeSourceManager'
@@ -597,7 +598,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
       setUnavailableRoute(unavailable)
       setNotice(unavailable ? 'Your coaching workspace is ready. Choose People to manage your groups.' : `${target} screen loaded.`)
       if (browserNavigation || target === activeSection) window.history.replaceState({ ...window.history.state, section: target }, '', canonicalUrl(target))
-      else window.history.pushState({ section: target }, '', canonicalUrl(target))
+      else pushHistoryEntry({ section: target }, canonicalUrl(target))
       focusHeading()
     }
     if (target !== activeSection && dirty) {
@@ -610,6 +611,7 @@ export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser })
   }, [activeSection, canonicalUrl, defaultSection, dirty, focusHeading, sections])
   useLayoutEffect(() => {
     if (!ready) return
+    historyPosition()
     const follow = () => navigate(requestedSection(), true)
     if (window.location.hash !== sectionHash(activeSection) || !sections.includes(active) || hasPendingPlaidOAuthReturn()) follow()
     window.addEventListener('popstate', follow)

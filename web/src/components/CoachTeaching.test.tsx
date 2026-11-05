@@ -85,17 +85,17 @@ it('offers an exact phrase form when chat is unavailable and saves it for previe
 })
 
 it('R4 warns before a Teaching save destroys pending suggestions and preserves both when declined',async()=>{
- api.createAdminPersonaSetupSession.mockResolvedValue({proposal:{id:71}})
+ api.updateAdminPersona.mockRejectedValueOnce(new ApiRequestError('Pending suggestions need review.',{status:422,code:'persona_pending_suggestions'}))
  const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
  render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={preview}/>)
  fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'A revised teaching method'}})
  fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
  await waitFor(()=>expect(confirm).toHaveBeenCalledWith(expect.stringContaining('pending voice suggestions')))
- expect(api.updateAdminPersona).not.toHaveBeenCalled();expect(preview).not.toHaveBeenCalled()
+ expect(api.updateAdminPersona).toHaveBeenCalledTimes(1);expect(preview).not.toHaveBeenCalled()
  expect(screen.getByLabelText('Teaching method')).toHaveProperty('value','A revised teaching method')
  confirm.mockReturnValue(true)
  fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
- await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(1))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(2))
 })
 it('R13 shows the server safety reason for a refused Teaching save',async()=>{
  api.updateAdminPersona.mockRejectedValue(new ApiRequestError('$.coaching.method contains a regional or cultural stereotype',{status:422}))
@@ -113,4 +113,14 @@ it('CR18 asks before discarding another coaches pending suggestions after an ato
  await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalledTimes(2))
  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('another coach'))
  expect(api.updateAdminPersona.mock.calls[1][1].discard_pending_suggestions).toBe(true)
+})
+
+it('review two saves Teaching while the setup chat endpoint is unavailable',async()=>{
+ api.createAdminPersonaSetupSession.mockRejectedValue(new Error('Chat unavailable'))
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={vi.fn()} onSaved={preview}/>)
+ fireEvent.change(screen.getByLabelText('Teaching method'),{target:{value:'A saved teaching method'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(preview).toHaveBeenCalled())
+ expect(api.updateAdminPersona).toHaveBeenCalledWith(8,expect.objectContaining({draft_config:expect.objectContaining({coaching:expect.objectContaining({method:'A saved teaching method'})})}))
+ expect(api.createAdminPersonaSetupSession).not.toHaveBeenCalled()
 })

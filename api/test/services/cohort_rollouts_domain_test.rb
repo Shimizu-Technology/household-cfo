@@ -26,7 +26,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
   test "CR2 roster labels distinguish nameless people without changing private blocker labels" do
     @first.update!(first_name: "", last_name: ""); @second.update!(first_name: "", last_name: "")
     serializer = CohortRollouts::StudioSerializer.new(cohort: @cohort, actor: @owner)
-    labels = [ @first, @second ].map { |user| serializer.send(:participant_display_name, user) }
+    labels = serializer.call.dig(:current_roster, :participants).sort_by { |row| row[:user_id] }.pluck(:full_name)
     assert_equal [ @first.email, @second.email ], labels
     assert_equal 2, labels.uniq.length
     assert_equal [ "Someone in this group" ], [ @first, @second ].map { |user| CohortRollouts::Contract.participant_display_name(user) }.uniq
@@ -34,7 +34,7 @@ class CohortRolloutsDomainTest < ActiveSupport::TestCase
 
   test "CR20 staff release payload includes its sealed tool baseline" do
     serializer = CohortRollouts::StudioSerializer.new(cohort: @cohort, actor: @owner)
-    assert_equal @release.experience_snapshot.fetch("config"), serializer.send(:release_payload, @release)[:experience_config]
+    assert_equal @release.experience_snapshot.fetch("config"), serializer.call.dig(:latest_release, :experience_config)
   end
 
   test "readiness is privacy safe and applies removed revoked accepted awaiting precedence" do

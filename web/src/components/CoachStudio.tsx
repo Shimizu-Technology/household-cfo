@@ -1,3 +1,4 @@
+import { historyPosition, pushHistoryEntry } from '../lib/browserHistory'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createAdminPersona, fetchAdminPersonas, fetchAdminPersona, fetchAdminPersonaAssignableCohorts, type AdminPersonaDetail, type AdminPersonaAssignableCohort, type CurrentUser } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
@@ -99,11 +100,11 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
     setName('Mia')
     action()
   }
-  const historyIndex = useRef<number>(window.history.state?.coachStudioIndex ?? 0)
+  const historyIndex = useRef<number>(historyPosition())
   const restoringHistory = useRef<number | null>(null)
   function navigate(nextArea: Area, nextTask: Task = task) {
     writeView(nextArea, nextTask)
-    historyIndex.current = window.history.state?.coachStudioIndex ?? 0
+    historyIndex.current = historyPosition()
     if (nextArea !== 'live') setPreviewOnOpen(false)
     updateArea(nextArea); updateTask(nextTask)
   }
@@ -112,13 +113,13 @@ function StudioProgram({ currentUser, workspaceId, selectWorkspace, onDirtyChang
   useEffect(() => {
     writeView(area, task, true)
     const follow = () => {
-      const restoredIndex = window.history.state?.coachStudioIndex ?? 0
+      const restoredIndex = historyPosition()
       if (restoringHistory.current === restoredIndex) { restoringHistory.current = null; return }
       restoringHistory.current = null
       if (window.location.hash !== '#Coach%20Studio') return
       const nextArea = readUrlView() ?? 'people'
       const nextTask = readUrlTask() ?? 'voice'
-      const nextIndex = window.history.state?.coachStudioIndex ?? 0
+      const nextIndex = historyPosition()
       const restore = () => {
         const delta = historyIndex.current - nextIndex
         if (delta) { restoringHistory.current = historyIndex.current; window.history.go(delta) }
@@ -199,6 +200,6 @@ function writeView(area: Area, task: Task, replace = false) {
   const url = new URL(window.location.href)
   const unchanged = url.searchParams.get('coach_area') === area && url.searchParams.get('coach_task') === task
   url.searchParams.set('coach_area', area); url.searchParams.set('coach_task', task)
-  if (replace) window.history.replaceState({...window.history.state, coachStudioIndex: window.history.state?.coachStudioIndex ?? 0}, '', url)
-  else if (!unchanged) window.history.pushState({...window.history.state, coachStudioIndex: (window.history.state?.coachStudioIndex ?? 0) + 1}, '', url)
+  if (replace) window.history.replaceState({...window.history.state, appHistoryPosition: historyPosition()}, '', url)
+  else if (!unchanged) pushHistoryEntry({...window.history.state}, url)
 }

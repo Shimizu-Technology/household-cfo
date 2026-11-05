@@ -342,7 +342,9 @@ module CohortRollouts
     end
 
     def participant_display_name(user)
-      [ user.first_name, user.last_name ].compact_blank.join(" ").squish.presence || user.email
+      # Only platform admins may use an email to distinguish nameless accounts.
+      # Coaches keep the privacy-safe label used by rollout readiness.
+      [ user.first_name, user.last_name ].compact_blank.join(" ").squish.presence || (actor&.admin? ? user.email : Contract.participant_display_name(user))
     end
 
     def workspace_member_display_name(user)
