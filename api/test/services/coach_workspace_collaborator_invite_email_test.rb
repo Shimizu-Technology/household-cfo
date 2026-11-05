@@ -4,6 +4,8 @@ class CoachWorkspaceCollaboratorInviteEmailTest < ActiveSupport::TestCase
   test "access email names the exact workspace role and sign in link and needs provider acceptance" do
     owner = User.create!(email: "owner-#{SecureRandom.hex(4)}@example.test", clerk_id: "owner_#{SecureRandom.hex(4)}", role: "coach", invitation_status: "accepted")
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    extra = CoachWorkspace.create!(name: "Other program", slug: "other-invite-program", created_by_user: owner)
+    extra.coach_workspace_memberships.create!(user: owner, role: "owner")
     owner.update!(email: "shimizu+qa@example.test")
     workspace.update!(name: "Coaching team")
     workspace.coach_profile.update!(display_name: "Mrs. Mel")

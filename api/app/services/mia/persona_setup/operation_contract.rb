@@ -254,7 +254,7 @@ module Mia
             elsif path.start_with?("curriculum.")
               current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
               added = Array(value) - Array(current)
-              added.flat_map { |item| item.is_a?(Hash) ? item.except("title").values : item }
+              added.flat_map { |item| item.is_a?(Hash) ? item.values : item }
             else
               current = path.split(".").reduce(persona.draft_config) { |target, key| target.to_h[key] }
               exact_strings(value) - exact_strings(current)

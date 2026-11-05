@@ -102,6 +102,9 @@ class WorkosInvitationService
     end
     replacement
   rescue DeliveryError => error
+    if replacement && @invitation_id != old_id
+      raise DeliveryError, "A new invitation was created and emailed, but the earlier link could not be revoked and may still work. Check the invitation status before taking further action."
+    end
     link = if revoked
       "The old invitation link no longer works."
     elsif revoke_attempted

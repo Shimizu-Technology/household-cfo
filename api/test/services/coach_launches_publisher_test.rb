@@ -93,6 +93,28 @@ class CoachLaunchesPublisherTest < ActiveSupport::TestCase
     assert_nil @persona.reload.current_published_version_id
   end
 
+  test "rejected audience phrases cannot be approved by the overall launch" do
+    ready = Mia::PersonaRelease::Readiness.new(persona: @persona, actor: @owner).call
+    phrase = ready.fetch(:phrase_audience_reviews).sole
+    Mia::PersonaRelease::AudienceAttester.new(persona: @persona, actor: @owner).call!(candidate_digest: ready.dig(:candidate, :manifest_digest), artifact_id: phrase.fetch(:artifact_id), artifact_fingerprint: phrase.fetch(:artifact_fingerprint), decision: "rejected")
+    assert_no_difference [ "CoachPersonaVersion.count", "WorkspaceBrandVersion.count", "CoachPhraseAudienceAttestation.count" ] do
+      error = assert_raises(CoachLaunches::Publisher::Conflict) { publish }
+      assert_includes error.message, "rejected"
+    end
+  end
+
+  { missing_result: { result: nil }, long_key: { request_key: "k" * 65 }, invalid_digest: { request_digest: "not-a-digest" }, invalid_result: { result: [] } }.each do |label, invalid|
+    test "database rejects malformed launch receipts #{label}" do
+      input = { coach_workspace: @workspace, user: @owner, coach_persona: @persona, request_key: "shape-proof", request_digest: "a" * 64 }
+      input[:result] = { "status" => "not_committed" } unless label == :missing_result
+      input.merge!(invalid.except(:result))
+      input[:result] = invalid[:result] if label == :invalid_result
+      assert_raises(ActiveRecord::StatementInvalid) do
+        CoachLaunchReceipt.transaction(requires_new: true) { CoachLaunchReceipt.create!(input) }
+      end
+    end
+  end
+
   test "replay rechecks authority" do
     publish
     @workspace.coach_workspace_memberships.find_by!(user: @owner).update!(role: "editor")

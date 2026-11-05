@@ -188,6 +188,16 @@ class CoachLaunchesCommitTest < ActiveSupport::TestCase
     assert_equal previous, @groups.map { |c| c.reload.active_cohort_release_id }
   end
 
+  test "nameless sign-in blocker matches the participant roster identifier" do
+    publish
+    @participants.last.update!(clerk_id: "pending_nameless_#{@participants.last.id}", first_name: nil, last_name: nil)
+    brand = @workspace.workspace_brand_configuration.reload
+    brand.update!(draft_config: brand.draft_config.merge("product_name" => "Nameless blocked update"))
+    @review = build_review
+    error = assert_raises(CohortRollouts::StateMachine::Ineligible) { publish(request_key: "nameless-update") }
+    assert_includes error.message, "Participant #{@participants.last.id} needs to finish setting up their sign-in"
+  end
+
   private
 
   def cleanup_launch_records

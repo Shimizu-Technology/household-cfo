@@ -50,9 +50,13 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     assert creative.build([ operation("coaching.philosophy", "Build confidence one decision at a time.", "").merge("source_basis" => "mia_drafted") ])
   end
 
-  test "the exact production description accepts the recorded live follow-up with its phrase meaning" do
+  test "the recorded follow-up rejects its unsupported title and retains supported descriptions and phrase meaning" do
     recorded = JSON.parse(file_fixture("persona_setup/coach_followups_response.json").read)
-    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: recorded.fetch("message")).build(recorded.fetch("operations"))
+    checker = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: recorded.fetch("message"))
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { checker.build(recorded.fetch("operations")) }
+    corrected = recorded.fetch("operations").deep_dup
+    corrected.find { |op| op["path"] == "curriculum.guidance" }.fetch("value").first["title"] = "When someone is about to overspend"
+    result = checker.build(corrected)
     assert_equal 9, result.fetch(:operations).length
     phrase = result.dig(:after_state, "draft_config", "phrases").sole
     assert_equal "Chelu, pump the brakes", phrase.fetch("text")
@@ -134,6 +138,24 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
 
   test "round two preserves negation and whole numbers 12" do
     refute Mia::PersonaSetup::TextEvidence.supports?("Spend 2.5 hours.", "5 hours.")
+  end
+
+  [
+      [ "Only recommend waiting 30 days when bills are paid", "Recommend waiting 30 days" ],
+      [ "Protect food before rent", "Protect rent before food" ],
+      [ "Do not shame or blame clients", "Blame clients" ],
+      [ "Don't stop spending", "Stop spending" ]
+    ].each_with_index do |(quote, claim), index|
+    test "review preserves restrictions relationships and coordinated negatives #{index}" do
+      refute Mia::PersonaSetup::TextEvidence.supports?(quote, claim), "#{quote} must not support #{claim}"
+    end
+  end
+
+  test "review preserves curriculum titles" do
+    assert Mia::PersonaSetup::TextEvidence.supports?("Do not shame or blame clients", "Do not shame or blame clients")
+    op = operation("curriculum.guidance", [ { "title" => "Wait 60 days", "content" => "Wait 30 days" } ], "Wait 30 days")
+    checker = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Wait 30 days")
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { checker.build([ op ]) }
   end
 
   private

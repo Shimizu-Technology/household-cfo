@@ -757,18 +757,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_04_170000) do
   end
 
   create_table "coach_launch_receipts", force: :cascade do |t|
-    t.bigint "coach_persona_id", null: false
     t.bigint "coach_workspace_id", null: false
-    t.datetime "created_at", null: false
-    t.string "request_digest", null: false
-    t.string "request_key", null: false
-    t.jsonb "result", default: {}, null: false
-    t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.string "request_key", null: false
+    t.string "request_digest", null: false
+    t.jsonb "result", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
     t.index ["coach_persona_id"], name: "index_coach_launch_receipts_on_coach_persona_id"
     t.index ["coach_workspace_id", "user_id", "request_key"], name: "coach_launch_receipts_request", unique: true
     t.index ["coach_workspace_id"], name: "index_coach_launch_receipts_on_coach_workspace_id"
     t.index ["user_id"], name: "index_coach_launch_receipts_on_user_id"
+    t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 64", name: "coach_launch_receipts_request_key_bounded"
+    t.check_constraint "jsonb_typeof(result) = 'object'::text", name: "coach_launch_receipts_json_shape"
+    t.check_constraint "request_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_launch_receipts_digest_shape"
   end
 
   create_table "coach_operation_executions", force: :cascade do |t|

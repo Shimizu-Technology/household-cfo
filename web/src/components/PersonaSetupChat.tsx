@@ -455,6 +455,5 @@ function proposalSourceLabel(change: AdminPersonaSetupChange): string {
   const values = (value: unknown): string[] => typeof value === 'string' ? [value] : Array.isArray(value) ? value.flatMap(values) : value && typeof value === 'object' ? Object.values(value).flatMap(values) : []
   const wording = values(change.after)
   if (wording.length && wording.every(value => value && change.evidence_quote.includes(value))) return 'Coach said'
-  if (wording.length && wording.every(value => ["Use the participant's confirmed information.", 'Use only confirmed participant information.'].includes(value))) return 'Standard guidance'
   return 'Suggested from what you said'
 }

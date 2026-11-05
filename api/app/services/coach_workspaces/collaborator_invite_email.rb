@@ -7,7 +7,7 @@ module CoachWorkspaces
     def self.send_invite(user:, workspace:, role:, invited_by:, sign_in_url:, requested:)
       provider = AuthenticationProvider.public_provider if requested
       user = User.find(user.id) if provider == "workos"
-      inviter_name = InvitationCoachName.for(user: user, invited_by: invited_by) if requested
+      inviter_name = InvitationCoachName.for(user: user, invited_by: invited_by, workspace: workspace) if requested
       result = if !requested
         { sent: false, status: "skipped", provider_message_id: nil }
       elsif provider == "workos" && user.invitation_pending?

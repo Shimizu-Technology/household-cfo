@@ -183,3 +183,11 @@ it.each([401,403])('explains a first-attempt HTTP %s refusal without claiming un
  expect(screen.getByRole('alert').textContent).toContain('Sign in with access')
  expect(screen.getByRole('alert').textContent).not.toContain('could not confirm')
 })
+
+it('warns about rejected audience phrases before offering overall approval',async()=>{
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,phrase_audience_reviews:[{...ready.phrase_audience_reviews[0],review_state:'rejected'}]})
+ render(<Harness/>);fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ expect((await screen.findByRole('alert')).textContent).toContain('phrase was rejected')
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
+ expect(api.postCoachLaunch).not.toHaveBeenCalled()
+})

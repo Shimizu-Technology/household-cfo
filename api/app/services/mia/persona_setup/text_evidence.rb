@@ -6,7 +6,7 @@ module Mia
     # voice presets, new prose must keep its factual words, numbers and polarity.
     # Unsupported paraphrases are left out, never silently treated as coach words.
     class TextEvidence
-      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were do does did and then when someone people participant participants client clients coach coaching use using used give say said start starts make only followed by].freeze
+      FILLER = %w[a an the i me my we our you your they their them it its this that these those to of with as is are be being been am was were do does did and then someone people participant participants client clients coach coaching use using used give say said start starts make followed by].freeze
       SYNONYMS = {
         "feeling" => "feel", "feelings" => "feel", "feels" => "feel", "felt" => "feel",
         "shaming" => "shame", "shamed" => "shame", "shames" => "shame",
@@ -37,8 +37,20 @@ module Mia
           words = tokens(claim)
           words.any? && sources.any? do |source|
             evidence = tokens(source)
-            (words - evidence).empty?
+            restricted = evidence.any? { |word| %w[only when if unless until before after].include?(word) }
+            # Quoted example phrases are optional in a paraphrase of a condition;
+            # the condition and every other factual word must remain intact.
+            protected_words = tokens(source.gsub(/"[^"\n]*"/, ""))
+            ordered_subset?(words, evidence) && (!restricted || ordered_subset?(protected_words, words))
           end
+        end
+      end
+
+      def self.ordered_subset?(words, evidence)
+        remaining = evidence.dup
+        words.chunk_while { |left, right| left == right }.map(&:first).all? do |word|
+          index = remaining.index(word)
+          index && remaining.slice!(0..index)
         end
       end
 
@@ -46,6 +58,7 @@ module Mia
         # Normalize phone punctuation before contraction matching. Polarity is
         # local: a prohibition in one clause cannot authorize another clause.
         text.unicode_normalize(:nfkc).tr("‘’ʼ", "'").downcase
+          .gsub(/"[^"\n]*"/) { |phrase| phrase.tr(",.;:!?", " ") }
           .gsub(/\binstead of\b|\brefuse to\b/, "not ")
           .split(/(?<!\d)[,.]|[,.](?!\d)|[!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
       end
@@ -56,18 +69,24 @@ module Mia
           .map { |word| SYNONYMS.fetch(word, word.delete(",")) }
         # Bind each prohibition to its object; two negatives in a sentence must
         # not cancel or move from "shame" to "spend" during word alignment.
-        negative = false
+        negative = 0
+        previous_negative = 0
         words.filter_map do |word|
           if word == "not"
-            negative = true
+            negative += 1
             next
           end
-          token = negative ? "not:#{word}" : word
-          negative = false
+          if word == "or" && previous_negative.positive?
+            negative = previous_negative
+            next word
+          end
+          token = "#{'not:' * negative}#{word}"
+          previous_negative = negative
+          negative = 0
           token
-        end.uniq
+        end
       end
-      private_class_method :clauses, :tokens
+      private_class_method :clauses, :tokens, :ordered_subset?
     end
   end
 end

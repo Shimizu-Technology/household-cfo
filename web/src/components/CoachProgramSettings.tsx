@@ -3,7 +3,7 @@ import {
   createCoachWorkspace, fetchCoachWorkspaceSettings, fetchWorkspaceBrand,
   previewWorkspaceBrand, publishWorkspaceBrand, restoreWorkspaceBrandVersion,
   saveWorkspaceBrand, updateCoachWorkspaceSettings, uploadWorkspaceBrandLogo,
-  type BrandConfig, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
+  type BrandConfig, type CreatedCoachWorkspace, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
 } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
@@ -31,7 +31,7 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   disabled?: boolean
   onDirtyChange?: (dirty: boolean) => void
   onPendingChange?: (pending: boolean) => void
-  onCreated?: (workspace: CoachWorkspaceSettings) => void
+  onCreated?: (workspace: CreatedCoachWorkspace) => void
 }) {
   const { refreshCurrentUser, currentUser } = useAuthContext()
   const initialIdentity = { ...blankIdentity, coach_profile: { ...blankIdentity.coach_profile, display_name: defaultCoachName } }

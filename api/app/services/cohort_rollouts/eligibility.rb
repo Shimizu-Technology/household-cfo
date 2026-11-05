@@ -38,7 +38,7 @@ module CohortRollouts
         blocked.each do |entry|
           person = names.fetch(entry.fetch(:user_id))
           remedy = entry.fetch(:state) == "needs_account" ? "finish setting up their sign-in" : "have their group access reviewed in Participant access"
-          blockers << "#{person.full_name} needs to #{remedy} before this update can go live."
+          blockers << "#{Contract.participant_display_name(person)} needs to #{remedy} before this update can go live."
         end
       end
       blockers

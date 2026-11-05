@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, createAdminUser, fetchAdminCohorts, fetchAdminUsers, fetchAdminPlaidHealth, updateAdminCohort, updateAdminUser, resendAdminUserInvitation } from '../api'
-import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminPlaidHealth, AdminUser, AdminUserInput, AdminUserMutationResponse, CurrentUser, InvitationStatus, UserRole } from '../api'
+import type { AdminCohort, AdminCohortInput, AdminCohortStatus, AdminPlaidHealth, CreatedCoachWorkspace, AdminUser, AdminUserInput, AdminUserMutationResponse, CurrentUser, InvitationStatus, UserRole } from '../api'
 import { useAuthContext } from '../contexts/authContextValue'
 import { PilotFeedbackInbox } from './PilotFeedbackInbox'
 import { SetupSupportInbox } from './SetupSupportInbox'
@@ -40,7 +40,7 @@ export function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
 }
 
-function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: { id: number; name: string }) => void }) {
+function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null

@@ -133,6 +133,7 @@ module CoachLaunches
       ready = Mia::PersonaRelease::Readiness.new(persona:, actor:).call
       ready.fetch(:phrase_audience_reviews).each do |phrase|
         next if phrase[:review_state] == "approved"
+        raise Conflict, "A phrase was rejected for this audience. Review it before going live." if phrase[:review_state] == "rejected"
 
         Mia::PersonaRelease::AudienceAttester.new(persona:, actor:).call!(candidate_digest: ready.dig(:candidate, :manifest_digest), artifact_id: phrase.fetch(:artifact_id), artifact_fingerprint: phrase.fetch(:artifact_fingerprint), decision: "approved")
       end

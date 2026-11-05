@@ -6,7 +6,7 @@ const api = process.env.HCFO_W16_API
 const evidence = process.env.HCFO_W16_EVIDENCE
 
 test('Coach Studio pending and revoked invitations allow updates with an accepted person and remember the admin program', async ({ page, context, request }, info) => {
-  test.skip(!fixtures || !live || !api, 'Requires isolated W16 Rails fixtures')
+  test.skip(!fixtures || !live || !api || !fixtures[info.project.name], 'Requires isolated W16 Rails fixtures')
   test.setTimeout(360_000)
   const fixture = fixtures[info.project.name]
   const headers = { Authorization: `Bearer test_token_${fixture.coach_id}`, 'X-Coach-Workspace-Id': String(fixture.workspace_id) }

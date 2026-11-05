@@ -35,3 +35,12 @@ it('consumes a displayed confirmation so remounting the program does not replay 
  expect(screen.queryByRole('status')).toBeNull()
  expect(sessionStorage.length).toBe(0)
 })
+
+it('retains only the necessary creation and invitation outcome through selection',()=>{
+ const created = {id:7,name:'New program',owner_invitation:{email:'private@example.test',delivery:{sent:false,status:'skipped'}},secret:'not-needed'}
+ rememberCreatedProgram(4,created)
+ expect(sessionStorage.getItem('hcfo.programCreated:4')).not.toContain('private@example.test')
+ expect(sessionStorage.getItem('hcfo.programCreated:4')).not.toContain('not-needed')
+ render(<ProgramCreatedNotice userId={4} workspaceId={7}/>)
+ expect(screen.getByRole('status').textContent).toContain('No email was sent; share their sign-in link yourself')
+})

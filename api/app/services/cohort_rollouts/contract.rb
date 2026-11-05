@@ -12,6 +12,11 @@ module CohortRollouts
 
     module_function
 
+    def participant_display_name(user)
+      name = [ user.first_name, user.last_name ].compact_blank.join(" ").squish
+      name.presence || "Participant #{user.id}"
+    end
+
     def canonical_json(value)
       JSON.generate(canonicalize(value))
     end

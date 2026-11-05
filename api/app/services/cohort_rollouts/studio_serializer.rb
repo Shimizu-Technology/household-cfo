@@ -341,8 +341,7 @@ module CohortRollouts
     end
 
     def participant_display_name(user)
-      name = [ user.first_name, user.last_name ].compact_blank.join(" ").squish
-      name.presence || "Participant #{user.id}"
+      Contract.participant_display_name(user)
     end
 
     def workspace_member_display_name(user)
