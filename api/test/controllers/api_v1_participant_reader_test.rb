@@ -167,6 +167,21 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_empty @household.income_sources
   end
 
+  test "a reader purchase preserves its stated past date and rejects future or invalid dates" do
+    begin_setup
+    text = "I spent 12 at Shell on 2026-11-25"
+    json = household_say(text, reading(facts: [ fact("purchase", "12", merchant: "Shell", day: "2026-11-25") ]))
+    assert_equal "2026-11-25", json.fetch("transaction_draft").fetch("occurred_on")
+
+    %w[2026-12-02 2026-02-30].each do |day|
+      json = household_say("I spent 12 at Shell on #{day}", reading(facts: [ fact("purchase", "12", merchant: "Shell", day: day) ]))
+      assert_nil json["transaction_draft"]
+      assert_nil json["mia_action_draft"]
+      assert_match(/purchase date.*today or earlier/i, json.dig("assistant_message", "content"))
+    end
+    assert_empty @household.household_transactions
+  end
+
   test "junk setup and outages repeat the question without a name or goal card" do
     household_say("Help me set up my household", reading)
     %w[idk none hi rent groceries ya k].each do |message|

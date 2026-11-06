@@ -564,7 +564,44 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes unknown.response, "active budget category"
   end
 
+  test "independent income sources never cancel another pending source review" do
+    first = persist_income_review(type: "create_income_source", income_source_name: "Primary job", source_type: "job", amount: "4000", effective_on: "2026-08-01")
+    second = persist_income_review(type: "create_income_source", income_source_name: "Weekend work", source_type: "business", amount: "500", effective_on: "2026-08-01")
+    assert_equal "pending", first.reload.status
+    assert_equal "pending", second.reload.status
+    replacement = persist_income_review(type: "create_income_source", income_source_name: "primary job", source_type: "job", amount: "4200", effective_on: "2026-08-01")
+    assert_equal "canceled", first.reload.status
+    assert_equal "pending", second.reload.status
+    assert_equal "pending", replacement.reload.status
+    assert_empty @household.income_sources
+  end
+
+  test "separate one time income stays pending while recurring corrections replace only their matching review" do
+    source = @household.income_sources.create!(label: "Primary job", source_type: "job", amount_cents: 400000, cadence: "monthly", starts_on: "2026-01-01")
+    command = { type: "schedule_income_change", income_source_id: source.id, effective_on: "2026-08-01", amount: "500" }
+    first = persist_income_review(command.merge(entry_type: "one_time", schedule_label: "First bonus"))
+    second = persist_income_review(command.merge(entry_type: "one_time", schedule_label: "Second bonus"))
+    assert_equal "pending", first.reload.status
+    assert_equal "pending", second.reload.status
+    recurring = persist_income_review(command.merge(entry_type: "recurring_change", amount: "4500"))
+    replacement = persist_income_review(command.merge(entry_type: "recurring_change", amount: "4600"))
+    assert_equal "canceled", recurring.reload.status
+    assert_equal "pending", replacement.reload.status
+    assert_equal "pending", first.reload.status
+    assert_equal "pending", second.reload.status
+    assert_empty source.income_schedule_entries
+  end
+
   private
+
+  def persist_income_review(command)
+    result = build_command(command)
+    assert result.proposal, result.response
+    session = @household.chat_sessions.find_or_create_by!(user: @user)
+    source = session.chat_messages.create!(role: "user", content: command.to_json)
+    assistant = session.chat_messages.create!(role: "assistant", content: "Review the proposed income change.")
+    result.proposal.create_draft!(source_chat_message: source, assistant_chat_message: assistant)
+  end
 
   def build_command(command)
     HouseholdFinance::MiaActionDraftBuilder.new(

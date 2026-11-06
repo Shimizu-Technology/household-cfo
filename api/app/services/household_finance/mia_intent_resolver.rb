@@ -341,12 +341,17 @@ module HouseholdFinance
       return named_debt if named_debt
       purchase = reading.facts.find { |fact| fact["kind"] == "purchase" }
       if purchase
+        occurred_on = participant_purchase_date(purchase["day"])
+        unless occurred_on
+          return deterministic_setup_clarification(field || pending_field,
+            clarification: "I need a completed purchase date of today or earlier before I can prepare its review. Nothing has been saved.")
+        end
         merchant = purchase["merchant"]
         if merchant.present?
           return Result.new(intent: "transaction_report", confidence: 1.0, continuation: false, resolved_message: user_message,
             needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported spending" },
             action: { type: "create_transaction_draft", merchant: merchant, amount: ParticipantMessageReader.amount_text(purchase["amount"]),
-              occurred_on: purchase["day"].to_s.downcase == "yesterday" ? Date.current.yesterday.iso8601 : Date.current.iso8601, splits: [] }, read_only_plan: {}, source: "participant_reader")
+              occurred_on: occurred_on.iso8601, splits: [] }, read_only_plan: {}, source: "participant_reader")
         end
       end
       if purchase && merchant.blank?
@@ -357,6 +362,17 @@ module HouseholdFinance
         clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
       result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
       result
+    end
+
+    def participant_purchase_date(day)
+      date = case day.to_s.downcase
+      when "", "today" then Date.current
+      when "yesterday" then Date.current.yesterday
+      else Date.iso8601(day)
+      end
+      date unless date.future?
+    rescue Date::Error
+      nil
     end
 
     def deterministic_scenario_result

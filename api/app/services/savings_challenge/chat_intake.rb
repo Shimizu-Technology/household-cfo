@@ -6,11 +6,6 @@ module SavingsChallenge
   # Spending becomes a "daily_report" card: one or more purchases, or an
   # explicit no-spend day, that the participant checks and saves themselves.
   class ChatIntake
-    MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\d.,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
-    # Worth asking the extractor only when it could produce a card: a number, and
-    # a spending verb or a place.
-    PLACE = /\b(?:at|from)\s+[a-z]/i.freeze
-
     def initialize(enrollment, message:, extractor: nil, reading: nil)
       @enrollment, @message, @extractor = enrollment, message.to_s, extractor
       @reading = reading || HouseholdFinance::ParticipantMessageReader.call(message: @message)
@@ -27,8 +22,8 @@ module SavingsChallenge
         @intakes << report.report if report.found?
         @rejection = report.reason if report.status == :rejected
       end
-      if @intakes.empty? && @message.match?(/\b(?:spend|spending|spent|buy|purchases)\b/i)
-        parsed = DailyReportParser.new(@enrollment, message: @message).call
+      if @intakes.empty? && @message.match?(/\b(?:spend|spending|spent|buy|purchases)\b/i) && (source = no_spend_source)
+        parsed = DailyReportParser.new(@enrollment, message: source).call
         @intakes << parsed.report if parsed.found? && parsed.report[:no_spend]
         @rejection = parsed.reason if parsed.status == :rejected && parsed.reason&.dig(:kind).in?(%i[before_start after_end future])
       end
@@ -40,6 +35,15 @@ module SavingsChallenge
     end
 
     private
+
+    def no_spend_source
+      return @message unless @reading.question
+      # A question alone never asserts a check-in. Keep a separate, complete
+      # explicit no-spend sentence without asking the legacy parser to read it.
+      @message.split(/(?<=[.!])\s+/).find do |sentence|
+        sentence.match?(/\A(?:no[ -]spend(?:ing)?|(?:i|we) (?:did not|didn['’]t) spend (?:anything|money))(?: (?:today|yesterday))?[.!]?\z/i)
+      end
+    end
 
     def structured_inputs
       inputs = @reading.facts.filter_map do |fact|

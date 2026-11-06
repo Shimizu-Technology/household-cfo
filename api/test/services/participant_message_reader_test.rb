@@ -93,6 +93,22 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_empty parser.intakes
   end
 
+  test "a no spend question is not a report but a separate explicit report survives a question" do
+    calendar = HouseholdFinance::PurchaseReportParser::Calendar.new(Date.current - 30, Date.current + 30, Date.current)
+    text = "Was today a no-spend day"
+    result = read(text, object.merge(question: true))
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_empty parser.intakes
+
+    text = "No spending today. What can I do tomorrow?"
+    result = read(text, object.merge(question: true))
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_equal true, parser.intakes.sole[:no_spend]
+    assert_equal Date.current.iso8601, parser.intakes.sole[:local_on]
+  end
+
   test "quoted spoken cents are converted by the existing money normalizer" do
     text = "I spent eighteen dollars and forty-seven cents at Payless today"
     result = read(text, object(facts: [ fact("purchase", "eighteen dollars and forty-seven cents", merchant: "Payless") ]))

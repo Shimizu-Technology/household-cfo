@@ -118,14 +118,25 @@ module HouseholdFinance
           .where(chat_messages: { chat_session_id: source_message.chat_session_id }).each do |previous|
           next unless previous.mia_action_items.all? do |prior|
             prior.applied_at.nil? && items.any? do |item|
-              item.action_type == prior.action_type && item.target_record_id == prior.target_record_id &&
-                item.target_record_type == prior.target_record_type &&
-                item.payload.deep_stringify_keys.slice("income_source_id", "effective_on", "entry_type") == prior.payload.slice("income_source_id", "effective_on", "entry_type")
+              same_income_review?(item, prior)
             end
           end
           result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: membership).call(idempotency_key: "superseded:#{previous.id}:#{replacement.id}")
           raise ArgumentError, result.errors.join(", ") unless result.success?
         end
+      end
+
+      def same_income_review?(item, prior)
+        return false unless item.action_type == prior.action_type && item.target_record_id == prior.target_record_id && item.target_record_type == prior.target_record_type
+        current = item.payload.deep_stringify_keys
+        previous = prior.payload.deep_stringify_keys
+        if item.action_type == "create_income_source"
+          return current["label"].to_s.squish.downcase == previous["label"].to_s.squish.downcase &&
+            current.slice("source_type", "starts_on", "cadence") == previous.slice("source_type", "starts_on", "cadence")
+        end
+        return false unless item.action_type.in?(%w[upsert_income_schedule_entry update_income_schedule_entry]) &&
+          current["entry_type"] == "recurring_change" && previous["entry_type"] == "recurring_change"
+        current.slice("income_source_id", "effective_on") == previous.slice("income_source_id", "effective_on")
       end
 
       def supersede_setup_reviews!(replacement, source_message)
