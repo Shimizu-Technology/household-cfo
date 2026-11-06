@@ -2205,7 +2205,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     : undefined
 
   async function handleAskMia(prompt = question) {
-    setCheckInPromptScope(null)
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading || budgetActionRef.current) return
@@ -2231,6 +2230,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
     const spendingReportRequestAtSend = spendingReportRequestRef.current
+    setCheckInPromptScope(null)
     setMiaWaitLong(false)
     setFreshMiaReplyId(null)
     setMiaLoading(true)

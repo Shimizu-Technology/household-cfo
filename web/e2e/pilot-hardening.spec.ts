@@ -10565,6 +10565,8 @@ test('BOG UI explicit check-in reopens today after a chat question and on the ne
   await openSection(page, 'Savings')
   await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
   await expect(prompt).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).press('Enter')
+  await expect(prompt).toBeVisible()
   await openSection(page, 'Savings')
   await page.clock.setFixedTime(new Date('2026-09-29T02:00:00Z'))
   const tomorrow = structuredClone(dailyContext)
