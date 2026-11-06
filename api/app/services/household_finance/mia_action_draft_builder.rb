@@ -671,6 +671,15 @@ module HouseholdFinance
     end
 
     def proposal_result(title:, summary:, rationale:, items:, metadata: {}, draft_type: "budget_edit", year: annual_budget_manager.year)
+      calculation = command[:setup_calculation] if command.is_a?(Hash)
+      if calculation
+        verified = MiaSetupCalculation.new(message: raw_input, reading: ParticipantMessageReader::Current.reading, field: calculation[:field]).call if ParticipantMessageReader::Current.reading
+        if verified && verified == calculation
+          metadata = metadata.merge(setup_calculation: verified)
+          summary = verified[:description]
+          rationale = [ verified[:description], rationale ].join(" ")
+        end
+      end
       proposal = Proposal.new(
         household: household,
         user: user,

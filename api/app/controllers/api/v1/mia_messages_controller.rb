@@ -146,7 +146,12 @@ module Api
         ).call
 
         if attached_imports.empty?
-          field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
+          guide = HouseholdFinance::MiaSetupGuide.new(current_household)
+          field = guide.next_missing_field
+          if field
+            missing = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys
+            field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
+          end
           field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
           field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
           thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
@@ -345,6 +350,13 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
+        if @participant_reading&.question && !@participant_reading.care? && !HouseholdFinance::ParticipantCare.required?(content) && !@savings_household_request
+          guide = HouseholdFinance::MiaSetupGuide.new(current_household)
+          field = guide.next_missing_field
+          if field && !assistant_content.include?("Next setup question:")
+            assistant_content = "#{assistant_content} #{HouseholdFinance::MiaSetupGuide.question_message(field, resume: true)}"
+          end
+        end
         assistant_content = append_persona_capability_boundary(content, assistant_content)
         assistant_content = append_prompt_injection_boundary(content, assistant_content)
         if @savings_household_request
@@ -2306,6 +2318,7 @@ module Api
       end
 
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, transaction_draft_answer, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
+        return action_result.response if action_result&.proposal&.metadata&.dig(:setup_calculation)
         return direct_answer if direct_answer.present?
 
         if action_result
