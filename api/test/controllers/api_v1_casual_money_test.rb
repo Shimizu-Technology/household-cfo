@@ -116,6 +116,17 @@ class ApiV1CasualMoneyTest < ActionDispatch::IntegrationTest
     assert_equal [ [ "Ross", 2000 ], [ "Shell", 3000 ] ], drafts.map { |draft| [ draft.merchant, draft.total_amount_cents ] }
   end
 
+  test "overlapping purchase source quotes beside savings ask instead of reusing the first price" do
+    text = "spent 20 at ross today and spent 30 at shell today and put 50 in savings"
+    facts = [ fact("purchase", "20", "today", "ross").merge(source_text: text),
+      fact("purchase", "30", "today", "shell").merge(source_text: text) ]
+    assert_no_difference "TransactionDraft.count" do
+      body = send_message(text, reading(facts: facts), challenge: false)
+      assert_nil body["transaction_draft"]
+      assert_includes body.dig("assistant_message", "content"), "each purchase separately"
+    end
+  end
+
   test "savings rejected before enrollment is called savings and undated amounts all get questions" do
     body = send_message("saved 40 yesterday", reading(facts: [ fact("set_aside", "40", "yesterday") ]))
     assert_includes body.dig("assistant_message", "content"), "yesterday's savings"

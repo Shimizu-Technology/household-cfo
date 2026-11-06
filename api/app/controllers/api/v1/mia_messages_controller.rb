@@ -1754,7 +1754,7 @@ module Api
         end
         if direct_answer.blank? && intent_result.clarification?
           setup_question = intent_result.source == "deterministic" && intent_result.topic.to_h[:type] == "household_setup"
-          direct_answer = if setup_question
+          direct_answer = if setup_question || intent_result.source == "participant_reader"
             clarification_answer(intent_result)
           else
             coaching_guardrail_answer(resolved_content, annual_budget_manager: annual_budget_manager).presence || clarification_answer(intent_result)

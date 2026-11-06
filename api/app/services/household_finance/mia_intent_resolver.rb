@@ -352,8 +352,16 @@ module HouseholdFinance
           clarification: "#{question} Nothing has been saved.", action: { type: "none" })
       end
       return Result.new(**common, intent: "transaction_report", needs_clarification: false, clarification: "", action: actions.sole) if actions.one?
-      sources = purchases.map { |fact| fact["source_text"].presence || (raw_user_message unless TransactionDraftBuilder.non_expense_movement?(raw_user_message)) }
-      if sources.any?(&:blank?) || sources.each_with_index.any? { |source, index| source != raw_user_message && sources.first(index).any? { |prior| prior.include?(source) || source.include?(prior) } }
+      movement = TransactionDraftBuilder.non_expense_movement?(raw_user_message)
+      sources = purchases.map { |fact| fact["source_text"].presence || (raw_user_message unless movement) }
+      ranges = sources.filter_map do |source|
+        start = raw_user_message.index(source) if source.present?
+        start...(start + source.length) if start
+      end
+      overlap = ranges.each_with_index.any? do |range, index|
+        ranges.first(index).any? { |prior| prior.begin < range.end && range.begin < prior.end }
+      end
+      if ranges.length != sources.length || (overlap && (movement || sources.any? { |source| source != raw_user_message }))
         return Result.new(**common, intent: "clarification", needs_clarification: true,
           clarification: "Please send each purchase separately with its amount, place and day. Nothing has been saved.", action: { type: "none" })
       end
