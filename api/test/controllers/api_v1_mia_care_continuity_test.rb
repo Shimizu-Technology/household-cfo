@@ -61,7 +61,7 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
   end
 
   test "indirect crisis families reach 988 on household setup and challenge with models off" do
-    phrases = [ "nobody would notice if i was gone", "no one would care if i wasnt here", "everyone would be better off without me", "no reason to keep going", "im a burden" ]
+    phrases = [ "nobody would notice if i was gone", "no one would care if i wasnt here", "everyone would be better off without me", "no reason to keep going", "im a burden", "i want to kill myself and i cant pay my rent", "i give up, i cannot afford rent" ]
     phrases.each do |text|
       ask(text)
       assert_includes reply, "988"

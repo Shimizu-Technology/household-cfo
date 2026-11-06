@@ -67,10 +67,8 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       answers.each { |answer| refute_includes answer, "Start with one purchase" }
       hard = answers[3]
       assert_equal 1, hard.scan("988").length, hard
-      assert_includes hard, "That sounds really heavy"
-      assert_includes hard, "you can skip today"
+      assert_equal ::Mia::CrisisBoundary.response, hard
       refute_includes hard, "stop the money coaching"
-      assert_operator hard.index("you can skip today"), :<, hard.index("988")
       assert_equal 0, $model_calls_in_test
     ensure
       narrator_stub&.call
@@ -89,13 +87,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
-      if paused
-        assert_includes content, "Your savings challenge is paused right now. Your record is safe and nothing is lost; you can continue when it resumes.", content
-        assert_not_includes content, "isn't open yet"
-      else
-        assert_includes content, "isn't open yet", content
-        assert_not_includes content, "paused"
-      end
+      assert_equal ::Mia::CrisisBoundary.response, content
       assert_equal 1, content.scan("988").length, content
       post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
       assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
@@ -124,23 +116,27 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes response.parsed_body.dig("assistant_message", "content"), "988"
   end
 
-  test "hopeless language with food or essentials keeps food-first guidance and the 988 line without the model" do
-    ENV["OPENROUTER_API_KEY"] = "fictional-key"
+  test "ambiguous hopeless language with essentials fails safe during reader outage" do
+    ENV["OPENROUTER_API_KEY"] = ""
+    reader = HouseholdFinance::ParticipantMessageReader
+    original_reader = reader.method(:call)
+    reader.define_singleton_method(:call) { |**options| new(**options.merge(api_key: "", transport: nil)).call }
     narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { $model_calls_in_test2 = $model_calls_in_test2.to_i + 1; nil }
     $model_calls_in_test2 = 0
     begin
       post "/api/v1/mia/messages", params: { message: "We have no food this week and I give up", request_id: "food-hopeless" }, headers: auth, as: :json
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
-      assert_includes content, "Food comes first"
+      assert_equal ::Mia::CrisisBoundary.response, content
       assert_equal 1, content.scan("988").length, content
       post "/api/v1/mia/messages", params: { message: "i give up, i cannot afford rent", request_id: "rent-hopeless" }, headers: auth, as: :json
       content = response.parsed_body.dig("assistant_message", "content")
-      assert_includes content, "Protect food, housing"
+      assert_equal ::Mia::CrisisBoundary.response, content
       assert_equal 1, content.scan("988").length, content
       assert_equal 0, $model_calls_in_test2
     ensure
       narrator_stub&.call
+      reader.define_singleton_method(:call, original_reader)
     end
   end
 

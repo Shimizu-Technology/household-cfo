@@ -1481,10 +1481,14 @@ module Api
       end
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
-        assistant_content = HouseholdFinance::ParticipantCare.fallback(content, assistant_content) if ENV["OPENROUTER_API_KEY"].to_s.strip.blank?
-        if ENV["OPENROUTER_API_KEY"].to_s.strip.blank? && !HouseholdFinance::MoneyMovementText.food_insecurity?(content) && (care = HouseholdFinance::ParticipantCare.answer(content))
-          assistant_content = care unless assistant_content.to_s.start_with?(care)
-          assistant_presentation = {}
+        # A selected crisis response has priority over every care fallback,
+        # including a simultaneous rent or food disclosure.
+        if ENV["OPENROUTER_API_KEY"].to_s.strip.blank? && assistant_content != ::Mia::CrisisBoundary.response
+          assistant_content = HouseholdFinance::ParticipantCare.fallback(content, assistant_content)
+          if !HouseholdFinance::MoneyMovementText.food_insecurity?(content) && (care = HouseholdFinance::ParticipantCare.answer(content))
+            assistant_content = care unless assistant_content.to_s.start_with?(care)
+            assistant_presentation = {}
+          end
         end
         # Replies to hopeless language always carry the safety check, as plain text
         # so no structured card can hide it. Other save paths use the same helper.

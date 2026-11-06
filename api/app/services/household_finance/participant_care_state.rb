@@ -13,8 +13,15 @@ module HouseholdFinance
       topic = @session.active_topic.to_h.deep_stringify_keys
       return unless topic["type"] == "care"
       expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
+      legacy = expiry.nil?
       expiry ||= (@session.chat_messages.order(:id).last&.created_at || @session.updated_at) + TTL
-      return topic if expiry > Time.current
+      if expiry > Time.current
+        if legacy
+          topic = topic.merge("started_at" => (expiry - TTL).iso8601, "expires_at" => expiry.iso8601)
+          @session.update!(active_topic: topic)
+        end
+        return topic
+      end
 
       @session.update!(active_topic: {})
       nil

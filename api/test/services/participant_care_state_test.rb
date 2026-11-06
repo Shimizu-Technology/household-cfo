@@ -46,6 +46,20 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     assert_empty @session.active_topic
   end
 
+  test "legacy care gets one fixed deadline rather than sliding on every reply" do
+    @session.update!(active_topic: { "type" => "care", "title" => "Personal support", "care_kind" => "grief" })
+    topic = @state.active
+    assert topic["expires_at"].present?, "legacy care needs a persisted, fixed expiry"
+    deadline = topic.fetch("expires_at")
+    travel 1.day do
+      @session.chat_messages.create!(role: "user", content: "ok")
+      assert_equal deadline, @state.active.fetch("expires_at")
+    end
+    travel 3.days do
+      assert_nil @state.active
+    end
+  end
+
   test "care expires after forty eight hours and is not revived weeks later" do
     [ 10, 20, 30 ].each do |days|
       @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:grief))

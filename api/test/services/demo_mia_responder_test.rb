@@ -4,6 +4,8 @@ require_relative "../support/reply_guard_test_helper"
 
 class DemoMiaResponderTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
+  setup { HouseholdFinance::ParticipantMessageReader::Current.reset }
+  teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
   test "recorded coach preview asks whether the purchase fits without claiming it does" do
     reply = file_fixture("mia_preview_decision.txt").read.strip
     responder = stubbed_model_responder(reply)
@@ -1003,27 +1005,17 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
-  test "hopeless language gets kind money help under the safety check, not a canned echo" do
+  test "ambiguous hopeless language fails safe when the reader is unavailable" do
     message = "whats the point, we're never gonna get out of this debt. i feel hopeless"
-    [ :reply_rejected, :provider_unavailable ].each do |reason|
-      responder = Demo::MiaResponder.new(api_key: "test-key")
-      responder.define_singleton_method(:openrouter_response) do |*_args, **_options|
-        reason == :reply_rejected ? "You owe $9,999." : send(:provider_unavailable, "http_402")
-      end
-      reply = Mia::CrisisBoundary.with_wellbeing_check(responder.call(message, context: QA_CONTEXT))
-
-      assert reply.start_with?("That sounds really heavy, and you do not have to fix all of it tonight."), reply
-      assert_includes reply, "Your saved debt total is $3,200, with $95 a month in minimum payments."
-      assert_includes reply, "keep the minimum payments current"
-      assert_includes reply, "call or text 988"
-      refute_includes reply, Mia::CrisisBoundary::WELLBEING_OPENING
-      refute_includes reply, "hopeless"
-      refute_includes reply, "$9,999"
-      assert_equal 5, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).count(&:present?), reply
-    end
+    responder = Demo::MiaResponder.new(api_key: "test-key")
+    responder.define_singleton_method(:openrouter_response) { |*_args, **_options| flunk "outage safety must precede the writer" }
+    reply = responder.call(message, context: QA_CONTEXT)
+    assert_equal Mia::CrisisBoundary.response, reply
+    assert_equal 1, reply.scan("988").length
+    refute_includes reply, "$9,999"
   end
 
-  test "the hopeless reply never mentions minimum payments when no debt is owed" do
+  test "outage safety never adds debt instructions to a hopeless reply" do
     message = "whats the point, we're never gonna get out of this. i feel hopeless"
     [
       { metrics: { readiness: "Red — pause and stabilize basics", total_debt_entered: "$0" }, debts: { canonical_total_balance: "$0", canonical_monthly_minimum: "$0" } },
@@ -1031,10 +1023,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       { metrics: {} }
     ].each do |context|
       reply = stubbed_model_responder("You owe $9,999.").call(message, context: context.to_json)
-
-      assert reply.start_with?("That sounds really heavy"), reply
+      assert_equal Mia::CrisisBoundary.response, reply
       refute_match(/minimum|debt total/i, reply)
-      assert_includes reply, Mia::FallbackReply::HOPELESS_STEP
     end
   end
 
