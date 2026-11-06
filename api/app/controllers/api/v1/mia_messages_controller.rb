@@ -167,6 +167,8 @@ module Api
             missing = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys
             field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
           end
+          @mia_setup_question_field = field if field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: {}, recent_messages: history)
+          @setup_interruption_pending = @mia_setup_question_field && HouseholdFinance::MiaSetupGuide.other_question_pending?(conversation_context[:active_topic])
           field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
           field = "primary_goal" if HouseholdFinance::MiaSetupGuide.goal_change_request?(content)
           thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
@@ -370,9 +372,9 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
-        if @participant_reading&.question && !@participant_reading.care? && !HouseholdFinance::ParticipantCare.required?(content) && !@savings_household_request
+        if (@participant_reading&.question || @setup_interruption_pending) && @participant_reading && !@participant_reading.care? && !intent_result&.actionable? && !intent_result&.needs_clarification && !HouseholdFinance::ParticipantCare.required?(content) && !@savings_household_request
           guide = HouseholdFinance::MiaSetupGuide.new(current_household)
-          field = guide.next_missing_field
+          field = @mia_setup_question_field if guide.next_missing_field
           if field && !assistant_content.include?("Next setup question:")
             assistant_content = "#{assistant_content} #{HouseholdFinance::MiaSetupGuide.question_message(field, resume: true)}"
           end

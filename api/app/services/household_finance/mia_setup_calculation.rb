@@ -7,12 +7,20 @@ module HouseholdFinance
     end
 
     def call
-      details = @reading.setup_details.presence || bill_details
-      return if @reading.question || @reading.care? || @reading.unclear_amount
+      details = @reading.setup_details.presence || (@reading.question ? {} : bill_details)
+      return if @reading.care? || @reading.unclear_amount
       field = details["field"]
       return unless field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
       components = details["components"]
       return unless components.is_a?(Array) && components.length.between?(1, 12)
+      if @reading.question
+        facts = @reading.facts.select { |fact| fact["kind"] == (field == "primary_income" ? "income" : "bill") }.map { |fact| fact["amount"] }
+        components.each do |component|
+          index = facts.index(component["amount"])
+          return unless index
+          facts.delete_at(index)
+        end
+      end
       occupied = []
       amounts = components.map do |component|
         return unless component.is_a?(Hash)

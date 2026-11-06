@@ -1,14 +1,50 @@
 require "test_helper"
 
 class MiaSetupFlowTest < ActiveSupport::TestCase
-  def resolve(text, field: "debt_payment", data: {}, complete: false)
+  def resolve(text, field: "debt_payment", data: {}, complete: false, active_debts: [])
     payload = { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [] }.merge(data)
     parsed = HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: field).send(:validate, payload.deep_stringify_keys)
     HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
       participant_reading: parsed, setup_status: { complete: complete, missing_fields: HouseholdFinance::MiaSetupGuide::NEXT_QUESTIONS.keys.drop(HouseholdFinance::MiaSetupGuide::NEXT_QUESTIONS.keys.index(field)).map { |key| { key: key } } },
-      active_debts: [], debt_tracking: { mode: "individual" },
+      active_debts: active_debts, debt_tracking: { mode: "individual" },
       conversation: { recent_messages: [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message(field) } ], active_thread: {} }
     }).call
+  end
+
+  test "a known named debt uses the reader fact even with different minimum punctuation" do
+    result = resolve("visa min=60", active_debts: [ { id: 7, label: "Visa", debt_type: "other" } ],
+      data: { setup_answer: { field: "debt", value: "60" }, facts: [ { kind: "bill", amount: "60", item: "visa", merchant: "", day: "" } ] })
+    assert result.actionable?, result.to_h.inspect
+    assert_equal "update_debt", result.action[:type]
+    assert_equal 7, result.action[:debt_id]
+    refute result.action.key?(:debt_type)
+  end
+
+  test "an unread first setup message names the manual route even before the CTA" do
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "cruz house", api_key: "", context: {
+      setup_status: { complete: false, missing_fields: [ { key: "household_name" } ] }, conversation: { active_thread: {}, recent_messages: [] }
+    }).call
+    assert result&.clarification?
+    assert_includes result.clarification, "Enter my numbers"
+    refute result.actionable?
+  end
+
+  test "asking to total actual quoted paychecks produces review instead of another monthly question" do
+    text = "we get 2 paychecks of 1400, can you add that for our monthly income"
+    result = resolve(text, field: "primary_income", data: { question: true, facts: [ { kind: "income", amount: "1400", item: "paychecks", merchant: "", day: "" } ],
+      setup_details: { field: "primary_income", cadence: "monthly_count", count: "2", partial: false, components: [ { source: "2 paychecks of 1400", amount: "1400" } ] } })
+    assert result&.actionable?, result.to_h.inspect
+    assert_equal "2800.0", result.action.dig(:setup_updates, :primary_income)
+  end
+
+  test "a named minimum updates its existing individual debt instead of asking for a household total" do
+    result = resolve("just the visa, min is 60", active_debts: [ { id: 7, label: "Visa", minimum_payment_known: false } ],
+      data: { setup_answer: { field: "debt", value: "60" } })
+    assert result.actionable?, result.to_h.inspect
+    assert_equal "update_debt", result.action[:type]
+    assert_equal 7, result.action[:debt_id]
+    assert_equal "60", result.action[:minimum_payment]
+    refute result.action.key?(:amount)
   end
 
   test "calculated totals preserve explicit spending group choices" do

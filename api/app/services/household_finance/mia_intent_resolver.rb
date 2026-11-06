@@ -432,7 +432,6 @@ module HouseholdFinance
         next_field = keys.drop(keys.index(field).to_i + 1).find { |key| missing.include?(key) }
         return deterministic_setup_clarification(field, clarification: "We can leave that unknown for now. Enter my numbers lets you fill in what you know and come back to the rest. #{MiaSetupGuide.question_message(next_field)}")
       end
-      return if reading.question && !reading.answer_field
       if !reading.available && !reading.answer_field
         return deterministic_setup_clarification(field || pending_field, clarification: ParticipantMessageReader::HOUSEHOLD_OFF_REPLY)
       end
@@ -444,6 +443,9 @@ module HouseholdFinance
         result.action[:spending_preferences] = preferences if preferences.present? && result.action[:type] == "update_household_setup"
         return result
       end
+      return if reading.question && !reading.answer_field
+      named_debt = setup_named_minimum_from_reading(reading) || setup_named_minimum_result if field == "debt_payment" || reading.answer_field == "debt_payment"
+      return named_debt if named_debt
       if field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment]) && !reading.answer_field &&
           (reading.setup_answer["needs_total"] || reading.facts.any? { |fact| fact["kind"] == "bill" } || (field == "debt_payment" && reading.facts.count { |fact| fact["kind"] == "purchase" } > 1))
         result = deterministic_setup_clarification(field,
@@ -1055,6 +1057,21 @@ module HouseholdFinance
       setup_reply_result("primary_goal", match[1])
     end
 
+    def setup_named_minimum_from_reading(reading)
+      return unless reading.answer_field == "debt_payment" && context.dig(:debt_tracking, :mode).to_s != "summary"
+      bills = reading.facts.select { |fact| fact["kind"] == "bill" }
+      return unless bills.one?
+      bill = bills.sole
+      return if bill["item"].blank? || bill["amount"].blank?
+      return unless ParticipantMessageReader.amount_cents(bill["amount"]) == ParticipantMessageReader.amount_cents(reading.setup_answer["value"])
+      debts = Array(context[:active_debts]).select { |debt| debt[:label].to_s.casecmp?(bill["item"]) }
+      return unless debts.one?
+      Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
+        needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimum", subject: debts.sole[:label] },
+        action: { type: "update_debt", debt_id: debts.sole[:id], debt_name: debts.sole[:label], minimum_payment: ParticipantMessageReader.amount_text(bill["amount"]) },
+        read_only_plan: {}, source: "participant_reader")
+    end
+
     def setup_named_minimum_result
       text = user_message.sub(/[.!]\z/, "").sub(/\Ajust\s+/i, "").sub(/,\s*(?:the\s+)?min\b/i, " minimum").sub(/\bmin is\b/i, "minimum is")
       amount_source = "(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)"
@@ -1073,12 +1090,15 @@ module HouseholdFinance
       Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
         needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimum", subject: name },
         action: { type: debts.one? ? "update_debt" : "create_debt", debt_id: debts.first&.dig(:id), debt_name: name,
-          debt_type: name.match?(/visa|mastercard|amex|card/i) ? "credit_card" : "other", minimum_payment: amount },
+          minimum_payment: amount }.tap { |action| action[:debt_type] = name.match?(/visa|mastercard|amex|card/i) ? "credit_card" : "other" if debts.empty? },
         read_only_plan: {}, source: "deterministic")
     end
 
     def setup_unrecognized_reply_result
       field = next_missing_setup_field
+      if field && api_key.blank? && transport.nil? && !context[:participant_reading]&.available
+        return deterministic_setup_clarification(field, clarification: ParticipantMessageReader::HOUSEHOLD_OFF_REPLY)
+      end
       return unless field && guided_setup_question_asked?(field)
       return if context[:participant_reading]&.question || guided_setup_non_answer? || MiaCoachAnswerer.spend_report_text?(user_message)
       deterministic_setup_clarification(field, clarification: "I haven't added that to your setup. #{MiaSetupGuide.question_message(field)}")

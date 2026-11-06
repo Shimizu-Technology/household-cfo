@@ -6,6 +6,15 @@ class MiaSetupCompletionTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: details[:field]).send(:validate, payload.deep_stringify_keys)
   end
 
+  test "a hypothetical paycheck question never becomes a setup calculation" do
+    text = "if we get 2 paychecks of 1400, would that help"
+    parsed = HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: "primary_income").send(:validate,
+      { care: "none", question: true, facts: [ { kind: "income", amount: "1400", item: "paychecks", merchant: "", day: "" } ], correction: false,
+        setup_answer: { field: "none", value: "" }, spending_preferences: [], setup_details: { field: "primary_income", cadence: "monthly_count", count: "2", partial: false, components: [ { source: "2 paychecks of 1400", amount: "1400" } ] } }.deep_stringify_keys)
+    assert_empty parsed.facts
+    assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed).call
+  end
+
   test "bill facts still produce a review when the reader omits optional list details" do
     text = "rent 990 and water 65"
     parsed = HouseholdFinance::ParticipantMessageReader.call(message: text, setup_field: "fixed_expenses", transport: ->(_) {

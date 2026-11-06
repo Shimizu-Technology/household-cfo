@@ -42,7 +42,13 @@ module HouseholdFinance
         "Next setup question: #{question} #{REVIEW_BOUNDARY}"
       end
 
+      def other_question_pending?(active_thread)
+        thread = active_thread.to_h.deep_symbolize_keys
+        thread[:status] == "needs_clarification" && thread[:type] != "household_setup"
+      end
+
       def server_question_asked?(field, active_thread:, recent_messages:)
+        return false if other_question_pending?(active_thread)
         # Recover after a clarification or unrelated answer replaces the active
         # topic. Only a server-authored setup question establishes this context.
         questions = [ question_message(field), question_message(field, resume: true) ].compact
