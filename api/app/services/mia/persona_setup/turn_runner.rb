@@ -33,10 +33,11 @@ module Mia
         turn = reserved.turn
         context = reserved_context!(turn.id)
         provider_result = resolver.call(context:, user_message: message)
-        finalize_turn!(turn_id: turn.id, provider_result:)
+        prepared = prepare_proposal(turn: turn, provider_result: provider_result)
+        finalize_turn!(turn_id: turn.id, provider_result: provider_result, prepared: prepared)
       rescue ProposalResolver::Error => error
         failed_result = fail_turn!(turn&.id, error.code)
-        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.",
+        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again in a minute.",
           code: error.code, status: :service_unavailable, result: failed_result)
       rescue OperationContract::ContractError => error
         failed_result = fail_turn!(turn&.id, error.code, message: error.public_message)
@@ -114,7 +115,23 @@ module Mia
         end
       end
 
-      def finalize_turn!(turn_id:, provider_result:)
+      # Provider admission and semantic review must never hold workspace or
+      # session locks. Finalization checks both snapshots again before storing.
+      def prepare_proposal(turn:, provider_result:)
+        persona = CoachPersona.find(persona_id)
+        pending = CoachPersonaSetupProposal.find_by(coach_persona_setup_session_id: session_id, status: "pending")
+        phrases = pending&.after_state&.dig("draft_config", "phrases") || persona.draft_config["phrases"]
+        operations = PhraseSuggestions.new(message: turn.user_message,
+          coach_name: persona.draft_config.dig("identity", "human_coach_name"), phrases: phrases).call(provider_result.operations)
+        built = operations.any? ? ProposalBuilder.new(persona: persona, actor: User.find(actor_id),
+          user_message: turn.user_message, previous: pending).call(operations, partial: true) : nil
+        { built: built, pending_id: pending&.id, dropped: built&.fetch(:dropped, []) || [] }
+      rescue OperationContract::ContractError => error
+        { built: nil, pending_id: pending&.id,
+          dropped: [ { index: nil, label: "These suggestions", code: error.code, message: error.review_note } ] }
+      end
+
+      def finalize_turn!(turn_id:, provider_result:, prepared:)
         ApplicationRecord.transaction do
           authorization = authorize!
           session = locked_session!
@@ -128,21 +145,22 @@ module Mia
           end
 
           proposal = nil
-          dropped = []
-          operations = PhraseSuggestions.new(message: turn.user_message, coach_name: authorization.persona.draft_config.dig("identity", "human_coach_name")).call(provider_result.operations)
-          if operations.any?
-            built = ProposalBuilder.new(
-              persona: authorization.persona,
-              actor: authorization.actor,
-              user_message: turn.user_message,
-              previous: session.proposals.lock.find_by(status: "pending")
-            ).call(operations, partial: true)
-            dropped = built.fetch(:dropped, [])
+          pending_proposal = session.proposals.lock.find_by(status: "pending")
+          built = prepared.fetch(:built)
+          dropped = prepared.fetch(:dropped)
+          if pending_proposal&.id != prepared.fetch(:pending_id)
+            built = nil
+            dropped = [ { index: nil, label: "These suggestions", code: "persona_setup_stale_proposal",
+              message: "Your pending suggestions changed. Send your description again for a fresh review." } ]
+          end
+          if built || dropped.any?
             dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
-            session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
-              proposal.resolve!(status: "superseded", actor: authorization.actor)
+            if built && built.fetch(:operations).any?
+              session.proposals.where(status: "pending").order(:id).lock.each do |pending|
+                pending.resolve!(status: "superseded", actor: authorization.actor)
+              end
             end
-            unless PersonaDraftUpdater.state_digest(built.fetch(:before_state)) == PersonaDraftUpdater.state_digest(built.fetch(:after_state))
+            if built && built.fetch(:operations).any? && PersonaDraftUpdater.state_digest(built.fetch(:before_state)) != PersonaDraftUpdater.state_digest(built.fetch(:after_state))
               proposal = CoachPersonaSetupProposal.create!(
                 session:,
                 turn:,
@@ -161,7 +179,7 @@ module Mia
           metadata = provider_result.metadata
           turn.update!(
             status: "ready",
-            assistant_message: review_message(provider_result.assistant_message, dropped),
+            assistant_message: review_message(provider_result.assistant_message, dropped, proposal:),
             provider: metadata["provider"],
             model: metadata["model"],
             prompt_version: metadata["prompt_version"],
@@ -173,24 +191,34 @@ module Mia
         end
       end
 
-      def review_message(message, dropped)
+      def review_message(message, dropped, proposal:)
         return message if dropped.empty?
 
         notes = dropped.map { |item| "Left out: ‘#{item.fetch(:label)}’. #{item.fetch(:message)}" }.uniq
         # Preserve every item name; group reasons separately to fit 2,000 chars.
         labels = dropped.map { |item| "‘#{item.fetch(:label)}’" }.uniq.join(", ")
         reasons = dropped.map { |item| item.fetch(:message) }.uniq.join(" ")
-        full = [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
+        if dropped.all? { |item| item[:code] == "persona_setup_guard_unavailable" }
+          return "#{ProposalGuard::UNAVAILABLE_NOTE}\n\nLeft out: #{labels}."
+        end
+        invitation = if proposal
+          "Review the suggestions below. Nothing has been saved."
+        elsif dropped.any? { |item| item[:code] == "persona_setup_guard_unavailable" }
+          ProposalGuard::UNAVAILABLE_NOTE
+        else
+          "Nothing has been saved. Describe one part of your voice in your own words, or give an exact phrase you want to use."
+        end
+        full = [ invitation, *notes ].join("\n\n")
         return full if full.length <= 2_000
 
-        "Review the suggestions below. Nothing has been saved.\n\nLeft out: #{labels}. #{reasons.truncate(500, separator: " ")}"
+        "#{invitation}\n\nLeft out: #{labels}. #{reasons.truncate(500, separator: " ")}"
       end
 
       def log_contract_failure(code, turn_id, index = nil)
         Rails.logger.warn("Persona setup contract rejected turn_id=#{turn_id} operation_index=#{index} contract_code=#{code}")
       end
 
-      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Try again or use Guided setup.")
+      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Try again in a minute.")
         return unless turn_id
 
         ApplicationRecord.transaction do

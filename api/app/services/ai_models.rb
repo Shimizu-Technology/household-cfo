@@ -12,6 +12,7 @@ module AiModels
   DEFAULT_TEXT_MODEL = "anthropic/claude-sonnet-5.5"
   DEFAULT_TRANSCRIPTION_MODEL = "openai/whisper-large-v3"
   DEFAULT_REPLY_GUARD_MODEL = "google/gemini-2.5-flash"
+  DEFAULT_PROPOSAL_GUARD_MODEL = "google/gemini-2.5-flash"
   TEXT_ENV_KEYS = %w[AI_MODEL OPENROUTER_MODEL].freeze
   TRANSCRIPTION_ENV_KEYS = %w[AI_TRANSCRIPTION_MODEL OPENROUTER_TRANSCRIPTION_MODEL].freeze
   # Per-task overrides that no longer have any effect. Reported at boot so a
@@ -33,6 +34,10 @@ module AiModels
 
   def reply_guard(env = ENV)
     first_present(env, %w[AI_REPLY_GUARD_MODEL]) || DEFAULT_REPLY_GUARD_MODEL
+  end
+
+  def proposal_guard(env = ENV)
+    first_present(env, %w[AI_PROPOSAL_GUARD_MODEL]) || DEFAULT_PROPOSAL_GUARD_MODEL
   end
 
   # Reasoning tokens count against max_tokens. Without this allowance a model that
@@ -72,7 +77,7 @@ module AiModels
   end
 
   def log_configuration(logger: Rails.logger, env: ENV)
-    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)} reply_guard=#{reply_guard(env)}")
+    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)}")
     retired = RETIRED_ENV_KEYS.select { |key| env[key].to_s.strip.present? }
     return if retired.empty?
 

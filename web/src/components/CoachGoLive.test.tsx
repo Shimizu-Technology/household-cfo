@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState } from 'react'
+import { StrictMode, useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail } from '../api'
@@ -101,7 +101,7 @@ it('keeps success when parent props refresh and does not restart preview',async(
 it('CR21 shows actual Savings navigation and the unopened challenge before approval and after success',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:false,upgrade_notice:'This update adds Statements',modules:['home','review','ask_mia','budget','profile','wealth','statements'].map(id=>({id,enabled:true,label:id}))}}]})
  api.postCoachLaunch.mockResolvedValue({persona:published,launch:{groups:[{...group,challenge_closed:true}]}})
- render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy()
+ render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy();expect(screen.queryByText(/Tools included:/)).toBeNull()
  expect(screen.getByText('This update adds Statements')).toBeTruthy()
  expect(screen.getByText(/program team still needs to open/)).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('program team still needs to open')
@@ -216,12 +216,85 @@ it('CR21 shows the ordered secondary tools inside More',async()=>{
  expect(screen.getByText('Home · Mia · Budget · Statements · More: Optionality · CFO Filter')).toBeTruthy()
 })
 
+it('W23 returns to Go live without repeating paid answers and refreshes group settings',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review()
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
+ await screen.findByText('Review before going live')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(api.runAdminPersonaEvaluation).toHaveBeenCalledTimes(1)
+ expect(api.fetchAdminPersonaReleaseReadiness).toHaveBeenCalledTimes(2)
+ expect(screen.getByText(/Occasionally, during everyday coaching/)).toBeTruthy()
+})
+
+it('W23 refuses reused preview if the saved evidence changed while away',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review()
+ view.rerender(<Active active={false}/>);
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:{...ready.behavioral_preview_evidence,digest:'changed'}})
+ view.rerender(<Active active/>);await screen.findByRole('alert')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
+})
+
+it('W23 refuses a previously previewed phrase after audience review rejects it',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,phrase_audience_reviews:[{...ready.phrase_audience_reviews[0],review_state:'rejected'}]})
+ view.rerender(<Active active/>);expect((await screen.findByRole('alert')).textContent).toContain('rejected for this audience')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2);expect(api.postCoachLaunch).not.toHaveBeenCalled()
+})
+
+it('selects newly created groups while hidden without reselecting a deselected group', async () => {
+ function Dynamic({ extra = false }: { extra?: boolean }) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={extra ? [group, {...group, id:43, name:'New people'}] : [group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={false} /> }
+ const view = render(<Dynamic />)
+ fireEvent.click(screen.getByRole('checkbox', {name:'Practice people'}))
+ view.rerender(<Dynamic extra />)
+ await waitFor(() => expect(screen.getByRole('checkbox', {name:'New people'})).toHaveProperty('checked', true))
+ expect(screen.getByRole('checkbox', {name:'Practice people'})).toHaveProperty('checked', false)
+})
+it('leaving during a preview prevents the second paid answer and safety evaluation', async () => {
+ let finish!: (value: unknown) => void
+ api.previewAdminPersona.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+ function Active({active}: {active:boolean}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active} /> }
+ const view=render(<Active active />)
+ fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ await waitFor(()=>expect(api.previewAdminPersona).toHaveBeenCalledTimes(1))
+ view.rerender(<Active active={false} />)
+ finish({behavioral_preview_evidence:ready.behavioral_preview_evidence})
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false))
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(1)
+ expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled()
+})
+it('returning after publication clears success and reviews current settings', async () => {
+ function Active({active}: {active:boolean}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1); const [value,setValue]=useState(persona); return <CoachGoLive persona={value} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={setValue} active={active} /> }
+ const view=render(<Active active />);await approve();await screen.findByRole('heading',{name:'Your program is live'})
+ api.fetchAdminPersona.mockResolvedValue(published)
+ view.rerender(<Active active={false} />)
+ view.rerender(<Active active />)
+ await screen.findByText('Review before going live')
+ expect(screen.queryByRole('heading',{name:'Your program is live'})).toBeNull()
+ expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
+
+it('automatic preview completes in StrictMode after effect replay', async () => {
+ function Automatic() { const lifecycle=useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} autoPreview /> }
+ render(<StrictMode><Automatic /></StrictMode>)
+ await screen.findByText('Review before going live')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(api.runAdminPersonaEvaluation).toHaveBeenCalledTimes(1)
+})
+
 it('shows when a preview did not use a coach phrase', async () => {
   api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',phrase_notice:'No coach phrase was used in this sample. Phrases only appear when their context fits.'},behavioral_preview_evidence:ready.behavioral_preview_evidence})
   render(<Harness />)
   await review()
   expect(screen.getAllByText('No coach phrase was used in this sample. Phrases only appear when their context fits.')).toHaveLength(2)
-  expect(api.previewAdminPersona.mock.calls[0][2]).toContain('credit card')
+  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+  expect(api.previewAdminPersona.mock.calls.map(call=>call[2])).toEqual(['Should I buy a $100 treat on my credit card? I don’t have the money right now.', 'I had a hard week and spent more than I planned. What can I do next?'])
 })
 
 it.each(['deterministic_fallback','deterministic_safety'])('labels %s samples honestly and still reaches go-live review',async(source)=>{
@@ -234,5 +307,20 @@ it.each(['deterministic_fallback','deterministic_safety'])('labels %s samples ho
  expect(screen.getAllByText(notice)).toHaveLength(2)
  expect(screen.getAllByText('Pause and check the funding.')).toHaveLength(2)
  expect(screen.getByRole('button',{name:'Approve and go live'})).toHaveProperty('disabled',false)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
+
+it('keeps safe reply labels and phrase notices when returning to a cached preview',async()=>{
+ const phrase='No coach phrase was used in this sample.'
+ const notice='Participants would receive this safe reply.'
+ const evidence={...ready.behavioral_preview_evidence,source:'deterministic_fallback',output:'Check the funding.'}
+ api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',source:'deterministic_fallback',phrase_notice:phrase,notice},behavioral_preview_evidence:evidence})
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
+ expect(screen.getAllByText('Safe reply participants would receive')).toHaveLength(2)
+ expect(screen.getAllByText(phrase)).toHaveLength(2)
+ expect(screen.getAllByText(notice)).toHaveLength(2)
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
 })
