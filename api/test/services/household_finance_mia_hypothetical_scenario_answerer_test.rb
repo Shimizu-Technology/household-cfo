@@ -49,14 +49,14 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
   end
 
   test "purchase subjects use natural articles and plural items" do
-    { [ 1800, "sofa" ] => "a $1,800 sofa", [ 800, "laptop" ] => "an $800 laptop", [ 90, "boots" ] => "$90 boots", [ 300, "stroller" ] => "a $300 stroller" }.each do |(amount, label), expected|
+    { [ 1800, "sofa" ] => "$1,800 for sofa", [ 800, "laptop" ] => "$800 for laptop", [ 90, "boots" ] => "$90 for boots", [ 300, "stroller" ] => "$300 for stroller" }.each do |(amount, label), expected|
       assert_includes answer("purchase", amount, label).body, "so #{expected} would"
     end
   end
 
   test "current month comparison is concise while other months retain their year" do
     result = answer("purchase", 300, "stroller")
-    assert_includes result.body, "This month’s plan has $1,800 left, so a $300 stroller would leave $1,500 if it is extra spending,"
+    assert_includes result.body, "This month’s plan has $1,800 left, so $300 for stroller would leave $1,500 if it is extra spending,"
     assert_includes result.body, "if it is extra spending"
     result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: 300,
       label: "stroller", effective_on: Date.current.next_month.beginning_of_month.to_s,

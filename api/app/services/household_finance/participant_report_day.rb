@@ -5,20 +5,23 @@ module HouseholdFinance
     Result = Data.define(:state, :date, :phrase)
     AGO = /\b(?<count>\d+|#{PurchaseReportText::WORD_NUMBER})\s+days?\s+ago\b/i
     TOMORROW = /\b(?:tomorrow|next week|next month)\b/i
-    HOLIDAY = /\b(?:on\s+)?halloween\b/i
+    HOLIDAY = /\bon\s+halloween\b/i
     UNRESOLVED = /\b(?:(?:last|this) (?:week|weekend|month)|the other day|recently|a while ago)\b/i
 
     def self.call(day:, message:, today:)
+      if day.to_s.casecmp?("halloween")
+        day = message.match?(HOLIDAY) ? "on halloween" : ""
+      end
       phrases = day.present? ? [ day ] : []
       if day.blank?
-        message.scan(Regexp.union(PurchaseReportParser::DATE_PATTERN, AGO, UNRESOLVED, HOLIDAY, TOMORROW)) do
+        message.scan(Regexp.union(PurchaseReportParser::DAY_PATTERN, AGO, UNRESOLVED, HOLIDAY, TOMORROW)) do
           match = Regexp.last_match
           phrases << match[0] unless ordinary_weekday_word?(match)
         end
       end
       return Result.new(:missing, nil, "") if phrases.empty?
       return Result.new(:unresolved, nil, phrases.join(" / ")) unless phrases.uniq.one?
-      phrase = phrases.first
+      phrase = normalize(phrases.first)
       if phrase.match?(/\Atomorrow\z/i)
         date = today + 1
       elsif phrase.match?(/\A#{HOLIDAY.source}\z/i)
@@ -34,6 +37,23 @@ module HouseholdFinance
         date = tokens.sole[:date] if tokens.one? && tokens.sole[:range].begin.zero? && tokens.sole[:range].end == phrase.length
       end
       Result.new(date ? :resolved : :unresolved, date, phrase)
+    end
+
+    # A period of the day refines the stated day; it never changes its date.
+    # Unique weekday prefixes share the same expansion in both intake paths.
+    def self.normalize(value)
+      text = value.to_s.downcase.squish.sub(/[.!]\z/, "")
+      without_period = text.sub(/\s+(?:in the\s+)?(?:morning|afternoon|evening|night)\z/, "")
+      text = without_period unless without_period.in?(%w[last this])
+      text.gsub(/\b[a-z]+\b/) do |word|
+        if word.length >= 3 && (day = PurchaseReportParser::WEEKDAYS.find { |name| name.start_with?(word) })
+          day
+        elsif word.length >= 4 && "yesterday".start_with?(word)
+          "yesterday"
+        else
+          word
+        end
+      end
     end
 
     # The reader quotes a stated day. In this fallback scan a bare "sunday school"

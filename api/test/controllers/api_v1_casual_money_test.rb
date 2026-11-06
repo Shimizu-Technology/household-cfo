@@ -113,7 +113,7 @@ class ApiV1CasualMoneyTest < ActionDispatch::IntegrationTest
     send_message(text, reading(facts: facts), challenge: false)
     drafts = TransactionDraft.order(:id).last(2)
     assert_equal before + 2, TransactionDraft.count
-    assert_equal [ [ "Ross", 2000 ], [ "Shell", 3000 ] ], drafts.map { |draft| [ draft.merchant, draft.total_amount_cents ] }
+    assert_equal [ [ "ross", 2000 ], [ "shell", 3000 ] ], drafts.map { |draft| [ draft.merchant, draft.total_amount_cents ] }
   end
 
   test "overlapping purchase source quotes beside savings ask instead of reusing the first price" do

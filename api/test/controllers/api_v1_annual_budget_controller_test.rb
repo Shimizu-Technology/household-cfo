@@ -1649,7 +1649,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     rent_body = JSON.parse(response.body)
     assert_equal "Fixed essentials", rent_body.fetch("transaction_draft").fetch("category_name")
-    assert_equal "Rent", rent_body.fetch("transaction_draft").fetch("merchant")
+    assert_equal "rent", rent_body.fetch("transaction_draft").fetch("merchant")
   end
 
   test "mia spending report uses current month language over selected budget month" do

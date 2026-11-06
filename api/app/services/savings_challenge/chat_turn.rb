@@ -101,6 +101,7 @@ module SavingsChallenge
       if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
         return self if review_continuation || pattern_turn || goal_turn || progress_turn
       end
+      return self if purchase_date_continuation
       correction = SavingsCorrection.new(@enrollment, message: @message, reading: @reading).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
       if correction
         @intake, @answer = correction.values_at(:intake, :answer)
@@ -217,6 +218,26 @@ module SavingsChallenge
 
     private
 
+    def purchase_date_continuation
+      return false unless @enrollment && @attachments.empty? && !@reading.care? && !self.class.protected_message?(@message)
+      card = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: @session.id }, kind: "daily_report", status: "pending")
+        .for_picture(@household.financial_generation).order(:id).last
+      return false unless card&.input&.dig("date_required")
+      day = HouseholdFinance::ParticipantReportDay.call(day: @message, message: "", today: @enrollment.local_today)
+      return false unless day.state == :resolved
+      unless day.date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
+        @answer = "That day is outside the days you can add to this challenge. Which day within your challenge was the purchase? Nothing has been saved."
+        return true
+      end
+      input = card.input.deep_symbolize_keys.except(:date_required, :day_phrase).merge(local_on: day.date.iso8601)
+      input[:purchases].each { |row| row[:purchased_on] = day.date.iso8601 }
+      card.update!(input: input)
+      @continued_card = card
+      @intake, @intakes = input, []
+      @answer = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: input).call
+      true
+    end
+
     def pending_intake_card(kind, input)
       # A second real purchase can have exactly the same amount and place. Only
       # an immediate exact textual repeat can reuse a pending card.
@@ -306,6 +327,7 @@ module SavingsChallenge
     end
 
     def goal_turn
+      return false if HouseholdFinance::ParticipantMoneyIntent.blocked?(@message, kind: :goal)
       message = GoalAmount.normalize(@message)
       goal_amount = @reading.goal_change["amount"].presence
       message = message.sub(/\A\s*actually[, ]*/i, "").sub(/\blet['’]?s just\b/i, "lets")
@@ -341,7 +363,7 @@ module SavingsChallenge
         @answer = "What comfortable amount would you like as your goal for the whole 90 days? Nothing has changed."
         return true
       end
-      if weekly && amounts.one?
+      if weekly && (amounts.one? || goal_amount.present?)
         @weekly_cents = @goal_cents
         @goal_cents = (@weekly_cents * 90 + 3) / 7
         unless @goal_cents.between?(1, 2_147_483_647)

@@ -73,7 +73,7 @@ module SavingsChallenge
         end
         review_day = date&.iso8601 || ""
         if fact["kind"] == "purchase"
-          { kind: "daily_report", local_on: review_day, date_required: date.nil?, no_spend: false,
+          { kind: "daily_report", local_on: review_day, date_required: date.nil?, day_phrase: day.phrase, no_spend: false,
             purchases: [ { amount_cents: cents, merchant: HouseholdFinance::PurchaseQuestionText.merchant_label(fact["merchant"]), purchased_on: review_day } ],
             feelings: HouseholdFinance::PurchaseReportParser.feelings(@message), approval_state: "unreviewed_input", counted: false }
         else
@@ -84,7 +84,9 @@ module SavingsChallenge
         end
       end
       @rejection = @rejections.first
-      inputs.each { |input| input.delete(:date_required) unless input[:date_required] }
+      inputs.each do |input|
+        input.except!(:date_required, :day_phrase) unless input[:date_required]
+      end
       savings, reports = inputs.partition { |input| input[:kind] != "daily_report" }
       @ambiguous_movement = savings.uniq.length != savings.length
       grouped = reports.group_by { |input| input[:local_on] }.values.map do |rows|

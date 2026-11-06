@@ -7,11 +7,13 @@ module SavingsChallenge
     end
 
     def call
+      return if HouseholdFinance::ParticipantMoneyIntent.blocked?(@message, kind: :correction)
       correction = @reading&.savings_correction.to_h
       return unless correction.present? || @message.match?(/\b(?:actually|correct|fix|really|meant)\b/i) && @message.match?(/\b(?:set aside|saved|reserved|put aside)\b/i)
       values = correction.present? ? correction.values_at("old_amount", "new_amount") : @message.scan(ChatIntake::MONEY).flatten
       return { answer: "Which saved amount needs fixing, and what should it be instead? Nothing has changed." } unless values.length == 2
       old, replacement = values.map { |value| HouseholdFinance::ParticipantMessageReader.amount_cents(value) }
+      return { answer: "That saved amount is already #{money(old)}. Nothing needs changing." } if old == replacement
       entries = @enrollment.savings_entries.includes(:current_approved_version).select do |entry|
         version = entry.current_approved_version
         version && version.signed_cents == old && version.funding_source.in?(HouseholdFinance::SavingsProjection::ELIGIBLE_FUNDING_SOURCES)

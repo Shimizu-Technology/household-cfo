@@ -226,6 +226,8 @@ module HouseholdFinance
         pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
         context[:participant_reading] = ParticipantMessageReader.call(message: raw_user_message, setup_field: field, pending_field: pending)
       end
+      date_continuation = participant_purchase_day_continuation
+      return date_continuation if date_continuation
       reader_result = participant_setup_result unless ::Mia::FinancialReadOnlyRequest.matches?(user_message) || MiaMonthAnswer.question?(user_message)
       return reader_result if reader_result
       money_result = participant_purchase_result
@@ -303,7 +305,7 @@ module HouseholdFinance
       reading = context[:participant_reading]
       amount = reading&.goal_change.to_h["amount"]
       return unless amount.present? && !reading.care? && !ParticipantCare.required?(raw_user_message)
-      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.answer_field
+      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.answer_field || ParticipantMoneyIntent.blocked?(raw_user_message, kind: :goal)
       goals = Array(context[:active_goals])
       named = goals.select { |goal| user_message.downcase.include?(goal[:label].to_s.downcase) && goal[:label].present? }
       goal = named.sole if named.one?
@@ -312,6 +314,10 @@ module HouseholdFinance
       goal ||= goals.sole if goals.one? && user_message.match?(/\b(?:my|our|the)\s+(?:household\s+)?goal\b/i)
       common = { confidence: 1.0, continuation: false, resolved_message: user_message,
         topic: { type: "goal", title: "Tracked goal" }, read_only_plan: {}, source: "participant_reader" }
+      unless ParticipantMessageReader.amount_cents(amount).positive? && !raw_user_message.match?(SavingsChallenge::GoalAmount::WEEKLY)
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "What comfortable total amount would you like for this household goal? Nothing has changed.", action: { type: "none" })
+      end
       unless goal
         return Result.new(**common, intent: "clarification", needs_clarification: true,
           clarification: "Which household goal should use that target? Tell me its name; nothing has changed.", action: { type: "none" })
@@ -323,7 +329,7 @@ module HouseholdFinance
     def participant_purchase_result
       reading = context[:participant_reading]
       return unless reading&.available && !reading.care? && !ParticipantCare.required?(raw_user_message)
-      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.savings_correction.present?
+      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.savings_correction.present? || raw_user_message.match?(ParticipantMoneyIntent::NO_CARD)
       return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i) && Array(context[:pending_transaction_reviews]).any?
       purchases = reading.facts.select { |fact| fact["kind"] == "purchase" }
       return if purchases.empty?
@@ -332,7 +338,7 @@ module HouseholdFinance
       actions = purchases.filter_map do |fact|
         date = participant_purchase_date(fact["day"])
         next unless date && fact["amount"].present? && fact["merchant"].present?
-        { type: "create_transaction_draft", merchant: PurchaseQuestionText.merchant_label(fact["merchant"]),
+        { type: "create_transaction_draft", merchant: PurchaseQuestionText.merchant_label(fact["merchant"]), source_text: fact["source_text"],
           amount: ParticipantMessageReader.amount_text(fact["amount"]), occurred_on: date.iso8601, splits: [] }
       end
       if actions.length != purchases.length || purchases.length > MAX_TRANSACTION_REPORTS
@@ -343,13 +349,19 @@ module HouseholdFinance
           elsif fact["merchant"].blank?
             "Where did you make that purchase?"
           else
-            "I need a purchase date of today or earlier before I can prepare its review."
+            "I couldn’t read \"#{fact['day']}\" as a completed purchase day. Which day was the purchase?"
           end
         else
           "What were the amount, place and past day for each purchase?"
         end
+        pending = if purchases.one? && purchases.sole.values_at("amount", "merchant").all?(&:present?)
+          fact = purchases.sole
+          { type: "create_transaction_draft", amount: ParticipantMessageReader.amount_text(fact["amount"]), merchant: fact["merchant"], occurred_on: "" }
+        else
+          { type: "none" }
+        end
         return Result.new(**common, intent: "clarification", needs_clarification: true,
-          clarification: "#{question} Nothing has been saved.", action: { type: "none" })
+          clarification: "#{question} Nothing has been saved.", action: pending)
       end
       return Result.new(**common, intent: "transaction_report", needs_clarification: false, clarification: "", action: actions.sole) if actions.one?
       movement = TransactionDraftBuilder.non_expense_movement?(raw_user_message)
@@ -399,6 +411,8 @@ module HouseholdFinance
       source_values, = deterministic_setup_values
       explicit_setup = deterministic_setup_result if !reading.correction && source_values.length > 1
       return explicit_setup if explicit_setup
+      literal_purchase = deterministic_purchase_result unless reading.available
+      return literal_purchase if literal_purchase
       if !reading.available && !reading.answer_field
         return deterministic_setup_clarification(field || pending_field, clarification: ParticipantMessageReader::HOUSEHOLD_OFF_REPLY)
       end
@@ -451,6 +465,20 @@ module HouseholdFinance
         clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
       result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
       result
+    end
+
+    def participant_purchase_day_continuation
+      return if context[:participant_reading]&.care? || ParticipantCare.required?(raw_user_message) || MiaCoachAnswerer.prompt_injection?(raw_user_message)
+      thread = context.dig(:conversation, :active_thread).to_h
+      action = thread[:action].to_h
+      return unless thread[:status] == "needs_clarification" && action[:type] == "create_transaction_draft" && action[:occurred_on].blank?
+      return unless action.values_at(:amount, :merchant).all?(&:present?)
+      today = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
+      day = ParticipantReportDay.call(day: user_message, message: "", today: today)
+      return unless day.state == :resolved && day.date <= today
+      Result.new(intent: "transaction_report", confidence: 1.0, continuation: true, resolved_message: user_message,
+        needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported spending" },
+        action: action.merge(occurred_on: day.date.iso8601), read_only_plan: {}, source: "participant_reader")
     end
 
     def participant_purchase_date(day)

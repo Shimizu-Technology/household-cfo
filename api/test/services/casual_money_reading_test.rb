@@ -62,9 +62,9 @@ class CasualMoneyReadingTest < ActiveSupport::TestCase
     assert_empty read("make my goal 600", goal_change: { amount: "900" }).goal_change
   end
 
-  test "merchant formatting keeps source evidence and normalizes review labels" do
-    assert_equal "Payless", HouseholdFinance::PurchaseQuestionText.merchant_label("payless")
-    assert_equal "Goodyear", HouseholdFinance::PurchaseQuestionText.merchant_label("goodyear")
+  test "merchant labels preserve source wording" do
+    assert_equal "payless", HouseholdFinance::PurchaseQuestionText.merchant_label("payless")
+    assert_equal "goodyear", HouseholdFinance::PurchaseQuestionText.merchant_label("goodyear")
     assert_equal "KIN", HouseholdFinance::PurchaseQuestionText.merchant_label("KIN")
     assert_equal "Ross Dress for Less", HouseholdFinance::PurchaseQuestionText.merchant_label("Ross Dress for Less")
   end

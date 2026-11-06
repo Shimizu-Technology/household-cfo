@@ -7,7 +7,7 @@ module HouseholdFinance
     EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|\s+(?:and|then|&)\s+(?:(?:i|we)\s+)?(?:put|paid|transferred|moved|deposited|added|sent|saved|withdrew|invested)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
-      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*(?:k\b|\s*thousand\b)?\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
+      /\b(?:spent|paid|charged|bought)\s+(?:the\s+)?\$?\s*\d[\d,.]*(?:k\b|\s*thousand\b)?\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
     # Transfers, refunds, debt payments, savings deposits and investment buys move

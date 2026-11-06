@@ -1778,7 +1778,8 @@ module Api
           # Food hardship, savings deposits and investment buys are never expense
           # reports or lookups, whatever the intent model called them.
           if !intent_result.actionable? || intent_result.transaction_report_action?
-            coach_answer = support_coach_answer(content, annual_budget_manager: annual_budget_manager, annual_plan: annual_plan)
+            reader_purchase = intent_result.source == "participant_reader" && intent_result.transaction_report_action? && !HouseholdFinance::ParticipantCare.required?(content)
+            coach_answer = support_coach_answer(content, annual_budget_manager: annual_budget_manager, annual_plan: annual_plan) unless reader_purchase
             support_preempted = coach_answer.present?
           end
 
@@ -2310,8 +2311,18 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: target_year)
       end
 
+      def acknowledge_reported_savings(answer)
+        return answer if @participant_reading&.care? || !@participant_reading&.facts.to_a.any? { |fact| fact["kind"] == "purchase" }
+        @participant_reading.facts.each do |fact|
+          next unless fact["kind"].in?(%w[set_aside withdrawal]) && fact["amount"].present?
+          amount = money(HouseholdFinance::ParticipantMessageReader.amount_cents(fact["amount"]))
+          answer += " You also reported #{amount} #{fact['kind'] == 'withdrawal' ? 'taken out of savings' : 'set aside in savings'}. That is separate from this purchase review; no savings record has changed."
+        end
+        answer
+      end
+
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, transaction_draft_answer, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
-        return direct_answer if direct_answer.present?
+        return acknowledge_reported_savings(direct_answer) if direct_answer.present?
 
         if action_result
           write_state = action_result.proposal || action_result.existing_draft ? "pending_review" : "no_write"
@@ -2346,7 +2357,8 @@ module Api
           draft_answer = transaction_draft_answer.presence || drafted_transaction_message(transaction_draft, annual_plan)
           kind = transaction_draft_answer.present? ? "transaction_draft_update" : "transaction_draft"
           write_state = transaction_draft_answer.present? ? "draft_updated" : "pending_review"
-          return narrate_structured_answer(content, history, conversation_context, kind: kind, fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: write_state, selected_month: transaction_draft.occurred_on.month)
+          answer = narrate_structured_answer(content, history, conversation_context, kind: kind, fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: write_state, selected_month: transaction_draft.occurred_on.month)
+          return acknowledge_reported_savings(answer)
         end
 
         context = HouseholdFinance::MiaContextBuilder.new(
