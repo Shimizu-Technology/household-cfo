@@ -7,11 +7,6 @@ module Mia
     APOSTROPHE_GRAPHEMES = [ "'", "’", "‘", "ʼ", "＇" ].freeze
     DASH_GRAPHEMES = [ "-", "‐", "‑", "‒", "–", "—", "―" ].freeze
     GREETING_PATTERN = /\b(?:h[åa]fa\s+adai|good\s+(?:morning|afternoon|evening))\b/i.freeze
-    MILESTONE_PATTERN = /\b(?:
-      paid\s+off|debt[-\s]?free|milestone|promotion|raise|bonus|windfall|unexpected\s+(?:win|income|money)|surprise\s+(?:win|income|money)|celebrat\w*|
-      (?:reached|hit|met|achieved)\s+(?:my\s+|our\s+|the\s+)?(?:goal|target|milestone)|
-      (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
-    )\b/ix.freeze
     EMOTIONAL_SUPPORT_PATTERN = /\b(?:embarrassed|ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
     CRISIS_PATTERNS = [
       /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
@@ -219,6 +214,9 @@ module Mia
 
       prohibited = Array(entry["prohibited_contexts"])
       return false if prohibited.any? { |context| context_matches?(context) }
+      contexts = Array(entry["allowed_contexts"]).map { |context| normalized_context_id(context) }
+      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
+      return false if win_phrase && !earned_moment?
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
       allowed = Array(entry["allowed_contexts"])
@@ -229,7 +227,7 @@ module Mia
     def meaning_matches?(meaning)
       text = meaning.to_s
       return user_message.match?(REPEATED_PATTERN) || context_matches?("purchase_caution") if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab/i)
-      return earned_moment? if text.match?(/celebrat|milestone|achievement|win/i)
+      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i)
       return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
 
       false
@@ -356,7 +354,7 @@ module Mia
     end
 
     def earned_moment?
-      user_message.match?(MILESTONE_PATTERN) || HouseholdFinance::MessageReplyIntent.matches?(user_message, "win")
+      HouseholdFinance::MessageReplyIntent.matches?(user_message, "win")
     end
 
     def cultural_language_recently_used?

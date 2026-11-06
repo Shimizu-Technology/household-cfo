@@ -1,6 +1,26 @@
 require "test_helper"
 
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
+  teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+
+  def reader_win(message)
+    data = { care: "none", facts: [], question: false, reply_intent: "win", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
+    HouseholdFinance::ParticipantMessageReader::Current.message = message
+    HouseholdFinance::ParticipantMessageReader::Current.reading = reading
+  end
+
+  test "win phrases require a reader win even when milestone words or the phrase occur" do
+    phrase = { "text"=>"Small wins count, chelu.", "meaning"=>"Celebrate a win", "allowed_contexts"=>[ "milestone" ], "frequency"=>"as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    [ "they said no raise this year", "i never paid off my card", "i paid off my card finally", "they said no raise this year. Small wins count, chelu." ].each do |message|
+      HouseholdFinance::ParticipantMessageReader::Current.reset
+      assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona).server_phrase, message
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "R2 ordinary shared phrase words are not variants and broken stripped clauses disappear" do
     phrase = { "text" => "Small wins count, chelu.", "meaning" => "Win", "allowed_contexts" => [ "win" ], "prohibited_contexts" => [], "frequency" => "as_needed" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
@@ -38,6 +58,7 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
   end
 
   test "allows restrained cultural language for a participant milestone" do
+    reader_win("I finally paid off my credit card!")
     result = Mia::LanguagePolicy.new(user_message: "I finally paid off my credit card!").sanitize(
       "Lanya, that payoff is a real milestone, chelu. Protect the freed-up payment in your plan."
     )
@@ -112,6 +133,7 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
     end
   end
   test "as needed differs from sparing and wins can use their own phrase" do
+    reader_win("I paid off my card!")
     phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
     history = [ { role: "assistant", content: phrase["text"] } ]
