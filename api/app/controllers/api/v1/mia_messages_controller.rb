@@ -2320,7 +2320,6 @@ module Api
       end
 
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, transaction_draft_answer, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
-        return action_result.response if action_result&.proposal&.metadata&.dig(:setup_calculation)
         return direct_answer if direct_answer.present?
 
         if action_result
