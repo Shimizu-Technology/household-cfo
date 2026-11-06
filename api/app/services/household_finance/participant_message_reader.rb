@@ -120,7 +120,8 @@ module HouseholdFinance
       intent = value["reply_intent"].presence_in(%w[month_balance spending_patterns win progress purchase_caution purchase_question])
       intent = nil if care != "none" || (intent.in?(%w[month_balance progress]) && !@question)
       intent = nil if intent == "spending_patterns" && !@question && !@message.match?(/\A\s*(?:look|analy[sz]e|show|inspect|review|tell)\b/i)
-      Current.reply_intent = { message: @message, intent: intent }
+      provided = value.key?("reply_intent")
+      Current.reply_intent = { message: @message, intent: intent || ("none" if provided), provided: provided }
       Result.new(care, facts, value["question"] == true, answer, value["correction"] == true, preferences, true, @hypothetical_movement, @unclear_amount,
         validated_money_fields(value["purchase_question"], %w[amount item]),
         ParticipantMoneyIntent.blocked?(@message, kind: :goal) ? {} : validated_money_fields(value["goal_change"], %w[amount]),

@@ -10,9 +10,16 @@ module HouseholdFinance
     QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
 
     def self.question?(message)
-      return false if MessageReplyIntent.purchase_question?(message) || message.to_s.match?(/\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i)
+      return false if MessageReplyIntent.purchase_question?(message)
 
-      message.to_s.match?(QUESTION) || MessageReplyIntent.matches?(message, "month_balance")
+      excluded = /\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i
+      if (question = message.to_s.match(QUESTION))
+        # A category mentioned in an earlier completed event is not the object
+        # of the current month question. Keep its own trailing object scoped.
+        object = message.to_s[question.end(0)..].split(/[.!?;]/).first.to_s
+        return !object.match?(excluded)
+      end
+      MessageReplyIntent.matches?(message, "month_balance") && !message.to_s.match?(excluded)
     end
 
     def self.question_date(message, today: Date.current)

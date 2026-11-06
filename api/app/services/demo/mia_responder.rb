@@ -504,8 +504,7 @@ module Demo
       # Recalled amounts may be repeated as past participant reports, never
       # promoted to a current bill, balance or funding conclusion.
       past_report = sentence.match?(/\byou (?:said|reported|mentioned) (?:your|you)\b.*\b(?:was|were|used to be|previously)\b/i)
-      unsaved_raise = sentence.match?(/\byour raise to\s*\z/i) && content.to_s.match?(/\bis not saved in the plan\b/i)
-      (past_report || unsaved_raise) && !content.to_s.match?(/\b(?:covered|afford|enough|available|funded|room|spare|left to spend)\b/i)
+      past_report && !content.to_s.match?(/\b(?:covered|afford|enough|available|funded|room|spare|left to spend)\b/i)
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)

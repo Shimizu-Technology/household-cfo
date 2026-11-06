@@ -23,6 +23,8 @@ module SavingsChallenge
       current = HouseholdFinance::ParticipantMessageReader::Current
       return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
 
+      return HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns") if HouseholdFinance::MessageReplyIntent.known?(message)
+
       message.match?(PATTERNS) || SpendingPatterns::Answerer.matches?(message)
     end
 
@@ -71,6 +73,7 @@ module SavingsChallenge
 
     def self.pattern_continuation?(message, choices: [])
       return false if protected_message?(message) || HouseholdFinance::MessageReplyIntent.purchase_question?(message)
+      return false if HouseholdFinance::MessageReplyIntent.known?(message) && !HouseholdFinance::MessageReplyIntent.matches?(message, "none")
       normalized = message.downcase.squish.sub(/[.!]\z/, "")
       return true if Array(choices).any? do |choice|
         merchant = Regexp.escape(choice["merchant"].to_s.downcase)

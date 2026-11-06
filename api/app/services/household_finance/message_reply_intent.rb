@@ -10,6 +10,13 @@ module HouseholdFinance
         message.to_s.match?(/\b(?:enough|left|room)\b[^.!?]{0,45}\bfor\s+(?:a[n]?\s+)?\$[\d,]+\s+\w+/i)
     end
 
+    def self.known?(message)
+      return false unless defined?(ParticipantMessageReader::Current)
+
+      current = ParticipantMessageReader::Current.reply_intent
+      current && current[:provided] && current[:message].to_s.squish == message.to_s.squish
+    end
+
     def self.matches?(message, intent)
       return false unless defined?(ParticipantMessageReader::Current)
 

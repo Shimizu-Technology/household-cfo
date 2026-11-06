@@ -1,5 +1,21 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "a completed category mention does not swallow the following whole month question" do
+    assert HouseholdFinance::MiaMonthAnswer.question?("spent 20 on groceries, how much do i have left this month")
+  end
+
+  test "an explicit reader none is not replaced by record keyword matching" do
+    message = "i dont want to analyze my spending patterns"
+    data = { care: "none", facts: [], question: false, reply_intent: "none", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
+    HouseholdFinance::ParticipantMessageReader::Current.message = message
+    HouseholdFinance::ParticipantMessageReader::Current.reading = reading
+    refute SpendingPatterns::Answerer.matches?(message)
+    refute SavingsChallenge::ChatTurn.patterns_question?(message)
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "a goal amount is not a proposed purchase" do
     refute HouseholdFinance::MessageReplyIntent.purchase_question?("set my target for $400 please")
   end

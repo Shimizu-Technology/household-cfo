@@ -6,6 +6,12 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   setup { HouseholdFinance::ParticipantMessageReader::Current.reset }
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+  test "an unsaved label does not turn an old raise into current income" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month in 2020")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Your raise to $5,600 is your income now. It is not saved in the plan.", context: "{}", user_message: "what next")
+  end
+
   test "R2 fallback never infers wins from milestone words with model on or off" do
     messages = [ "they said no raise this year", "i saved $200 but my kids didnt eat today", "i got a bonus but my lights are getting shut off friday", "my landlord is gonna raise my rent and idk what to do", "i never paid off my card and collectors keep calling", "my bonus didnt come and i dont know how im gonna pay rent", "i paid off my card and honestly whats the point anymore" ]
     [ nil, "test-key" ].each do |key|
@@ -34,7 +40,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   test "a quoted raise from participant history is grounded without certifying saved income" do
     responder = Demo::MiaResponder.new(api_key: nil)
     responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month")
-    assert_nil responder.send(:generic_claim_rejection, "Your raise to $5,600 is not saved in the plan.", context: "{}", user_message: "how much is left")
+    assert_nil responder.send(:generic_claim_rejection, "You said your income after the raise was $5,600. That does not establish your saved income today.", context: "{}", user_message: "how much is left")
     assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Your income is $5,600.", context: "{}", user_message: "how much is left")
     assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "You reported $9,900.", context: "{}", user_message: "how much is left")
   end
