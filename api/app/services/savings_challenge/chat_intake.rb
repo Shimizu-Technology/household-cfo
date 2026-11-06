@@ -6,6 +6,9 @@ module SavingsChallenge
   # Spending becomes a "daily_report" card: one or more purchases, or an
   # explicit no-spend day, that the participant checks and saves themselves.
   class ChatIntake
+    # Shared literal-dollar syntax used by the explicit saved-entry correction.
+    MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\d.,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
+
     def initialize(enrollment, message:, extractor: nil, reading: nil)
       @enrollment, @message, @extractor = enrollment, message.to_s, extractor
       @reading = reading || HouseholdFinance::ParticipantMessageReader.call(message: @message)
