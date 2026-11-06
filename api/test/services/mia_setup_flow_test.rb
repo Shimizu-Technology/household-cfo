@@ -11,6 +11,15 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "calculated totals preserve explicit spending group choices" do
+    preferences = [ { family: "groceries", group: "fixed", evidence: "groceries go in fixed" } ]
+    result = resolve("rent 1200 and groceries 300; groceries go in fixed", field: "fixed_expenses", data: {
+      spending_preferences: preferences, setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true,
+        components: [ { source: "rent 1200", amount: "1200" }, { source: "groceries 300", amount: "300" } ] } })
+    assert result.actionable?, result.to_h.inspect
+    assert_equal preferences.map(&:stringify_keys), result.action[:spending_preferences]
+  end
+
   test "a plain saved goal correction remains reviewable" do
     result = resolve("change my goal to cover school fees", field: "primary_goal", complete: true,
       data: { correction: true, setup_answer: { field: "goal", value: "cover school fees" } })

@@ -342,6 +342,8 @@ module HouseholdFinance
       if calculation && (calculation[:field] == field || reading.correction)
         result = setup_reply_result(calculation[:field], calculation[:value])
         result.action[:setup_calculation] = calculation if result.actionable?
+        preferences = reading.spending_preferences.presence || thread[:spending_preferences]
+        result.action[:spending_preferences] = preferences if preferences.present? && result.action[:type] == "update_household_setup"
         return result
       end
       if field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment]) && !reading.answer_field &&
