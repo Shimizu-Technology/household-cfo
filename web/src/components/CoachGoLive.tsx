@@ -7,6 +7,7 @@ import { useAuthContext } from '../contexts/authContextValue'
 import { participantSectionsForModules, partitionParticipantSections, participantSectionLabel } from '../lib/participantNavigation'
 import { BrandWelcomePreview } from './CoachProgramSettings'
 import { Button } from './Button'
+import { PhraseUse } from './PhraseUse'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
@@ -24,12 +25,13 @@ function previewFailureNotice(error: unknown): string {
   if ((error instanceof Error && error.name === 'ApiDeadlineError') || status === 408 || status === 429 || (typeof status === 'number' && status >= 500)) return previewUnavailableNotice
   return 'The preview could not finish. Reopen your assistant and try again.'
 }
-export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean }) {
+export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false, active = true }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean; active?: boolean }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
-  const [groupIds, setGroupIds] = useState<number[]>(cohorts.filter((item) => item.assignable).map((item) => item.id))
+  const [unselectedGroupIds, setUnselectedGroupIds] = useState<number[]>([])
+  const groupIds = cohorts.filter(item => item.assignable && !unselectedGroupIds.includes(item.id)).map(item => item.id)
   const [groups, setGroups] = useState<GroupReview[]>([])
   const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
   const { currentUser } = useAuthContext()
@@ -39,15 +41,37 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const previewTicket = useRef<ReturnType<CoachWorkspaceMutationLifecycle['begin']> | null>(null)
+  const activity = useRef(active)
+  const previewGeneration = useRef(0)
+  const finishMutation = lifecycle.finish
+  useEffect(() => {
+    activity.current = active
+    if (!active) {
+      previewGeneration.current += 1
+      if (previewTicket.current) finishMutation(previewTicket.current)
+      previewTicket.current = null
+    }
+  }, [active, finishMutation])
+  const [previousActive, setPreviousActive] = useState(active)
+  if (previousActive !== active) {
+    setPreviousActive(active)
+    if (!active) { setBusy(false); setLive(false); setStatus(''); setGroups([]); setSettings(null); setReadiness(null) }
+  }
   const requestId = useRef(crypto.randomUUID())
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
+  const voiceReview = useRef<{ revision: number | null | undefined; version: number | undefined; readiness: AdminPersonaReleaseReadiness; checks: AdminPersonaEvaluationResult[]; answers: Array<{question: string; answer: string}> } | null>(null)
+
   async function preview() {
     if (busy || lifecycle.pending || pendingLaunch || persona.draft_revision == null) return
+    startedAutomatically.current = true
     const ticket = lifecycle.begin()
-    const current = () => mounted.current && lifecycle.isCurrent(ticket)
-    setBusy(true); setError(null); setReadiness(null); setChecks([]); setAnswers([]); setSettings(null); setGroups([]); setReviewedPersona(null); requestId.current = crypto.randomUUID()
+    previewTicket.current = ticket
+    const generation = ++previewGeneration.current
+    const current = () => mounted.current && activity.current && generation === previewGeneration.current && lifecycle.isCurrent(ticket)
+    setBusy(true); setLive(false); setError(null); setReadiness(null); setChecks([]); setAnswers([]); setSettings(null); setGroups([]); setReviewedPersona(null); requestId.current = crypto.randomUUID()
     try {
       const source = await fetchAdminPersona(persona.id)
       if (!current()) return
@@ -55,40 +79,51 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       const results = []
       let lastEvidence: AdminPersonaBehavioralPreviewEvidence | null = null
       if (source.has_unpublished_changes !== false) {
-        for (const question of samples) {
+        const cached = voiceReview.current
+        if (cached && cached.revision === source.draft_revision && cached.version === source.published_version?.id) {
+          const ready = await fetchAdminPersonaReleaseReadiness(source.id)
           if (!current()) return
-          setStatus('Preparing an example answer…')
-          const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch((error: unknown) => { throw new Error(previewFailureNotice(error)) })
+          if (ready.candidate?.manifest_digest !== cached.readiness.candidate?.manifest_digest || ready.evaluation_run?.run_digest !== cached.readiness.evaluation_run?.run_digest || ready.behavioral_preview_evidence?.digest !== cached.readiness.behavioral_preview_evidence?.digest) {
+            voiceReview.current = null
+            throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
+          }
+          ensureVoiceReviewable(ready)
+          setAnswers(cached.answers); setChecks(cached.checks); setReadiness(ready)
+        } else {
+          for (const question of samples) {
+            if (!current()) return
+            setStatus('Preparing an example answer…')
+            const result = await previewAdminPersona(source.id, source.draft_revision!, question).catch((error: unknown) => { throw new Error(previewFailureNotice(error)) })
+            if (!current()) return
+            if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice && previewRejectionNotices.has(result.preview.notice) ? result.preview.notice : previewUnavailableNotice)
+            if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
+            lastEvidence = result.behavioral_preview_evidence
+            results.push({ question, answer: result.behavioral_preview_evidence.output })
+            setAnswers([...results])
+          }
+          setStatus('Checking safety…')
+          let run = (await runAdminPersonaEvaluation(persona.id, `${requestId.current}:checks`)).evaluation_run
           if (!current()) return
-          if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice && previewRejectionNotices.has(result.preview.notice) ? result.preview.notice : previewUnavailableNotice)
-          if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
-          lastEvidence = result.behavioral_preview_evidence
-          results.push({ question, answer: result.behavioral_preview_evidence.output })
-          setAnswers([...results])
+          for (let attempt = 0; ['pending', 'running'].includes(run.status) && attempt < 60; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 1750))
+            if (!current()) return
+            run = await fetchAdminPersonaEvaluationRun(persona.id, run.id)
+          }
+          if (!current()) return
+          if (!run.passed) throw new Error('Safety checks need attention. Review the results in Advanced / history before publishing.')
+          const detail = run.results ? run : await fetchAdminPersonaEvaluationRun(persona.id, run.id)
+          if (!current()) return
+          setChecks(detail.results ?? [])
+          const ready = await fetchAdminPersonaReleaseReadiness(persona.id)
+          if (!current()) return
+          const saved = await fetchAdminPersona(source.id)
+          if (!current()) return
+          if (saved.draft_revision !== source.draft_revision || saved.published_version?.id !== source.published_version?.id || ready.candidate?.draft_revision !== source.draft_revision || ready.candidate?.manifest_digest !== run.candidate_digest || ready.evaluation_run?.id !== run.id || ready.evaluation_run?.run_digest !== run.run_digest || ready.behavioral_preview_evidence?.digest !== lastEvidence?.digest || ready.candidate?.manifest_digest !== lastEvidence?.candidate_digest) throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
+          ensureVoiceReviewable(ready)
+          setReviewedPersona(saved)
+          setReadiness(ready)
+          voiceReview.current = { revision: source.draft_revision, version: source.published_version?.id, readiness: ready, checks: detail.results ?? [], answers: results }
         }
-        setStatus('Checking safety…')
-        let run = (await runAdminPersonaEvaluation(persona.id, `${requestId.current}:checks`)).evaluation_run
-        if (!current()) return
-        for (let attempt = 0; ['pending', 'running'].includes(run.status) && attempt < 60; attempt += 1) {
-          await new Promise((resolve) => setTimeout(resolve, 1750))
-          if (!current()) return
-          run = await fetchAdminPersonaEvaluationRun(persona.id, run.id)
-        }
-        if (!current()) return
-        if (!run.passed) throw new Error('Safety checks need attention. Review the results in Advanced / history before publishing.')
-        const detail = run.results ? run : await fetchAdminPersonaEvaluationRun(persona.id, run.id)
-        if (!current()) return
-        setChecks(detail.results ?? [])
-        const ready = await fetchAdminPersonaReleaseReadiness(persona.id)
-        if (!current()) return
-        const saved = await fetchAdminPersona(source.id)
-        if (!current()) return
-        if (saved.draft_revision !== source.draft_revision || saved.published_version?.id !== source.published_version?.id || ready.candidate?.draft_revision !== source.draft_revision || ready.candidate?.manifest_digest !== run.candidate_digest || ready.evaluation_run?.id !== run.id || ready.evaluation_run?.run_digest !== run.run_digest || ready.behavioral_preview_evidence?.digest !== lastEvidence?.digest || ready.candidate?.manifest_digest !== lastEvidence?.candidate_digest) throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
-        if (ready.phrase_audience_reviews?.some(phrase => phrase.review_state === 'rejected')) throw new Error('A phrase was rejected for this audience. Review it before going live.')
-        const reviewRule = ready.blockers?.find(message => message.includes('different workspace owner or reviewer'))
-        if (reviewRule) throw new Error(reviewRule)
-        setReviewedPersona(saved)
-        setReadiness(ready)
       }
       setStatus('Preparing your group review…')
       const settingsReview = await reviewCoachSettings(groupIds, current)
@@ -103,16 +138,17 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       setGroups(reviews)
       setStatus(source.has_unpublished_changes === false ? 'Review the appearance, tools and groups below. Your participants still have their current settings.' : 'Review the answers, phrases and groups below. Your participants still have their current settings.')
     } catch (caught) { if (current()) { setStatus(''); setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') } }
-    finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
+    finally { if (mounted.current && generation === previewGeneration.current) setBusy(false); if (previewTicket.current === ticket) previewTicket.current = null; lifecycle.finish(ticket) }
   }
 
   const startedAutomatically = useRef(false)
   const startPreview = useEffectEvent(() => void preview())
   useEffect(() => {
-    if (pendingLaunch || live || (!autoPreview && persona.has_unpublished_changes !== false) || groupIds.length === 0 || lifecycle.pending || startedAutomatically.current) return
+    if (!active) { startedAutomatically.current = false; return }
+    if (pendingLaunch || live || (!autoPreview && !voiceReview.current && persona.has_unpublished_changes !== false) || groupIds.length === 0 || lifecycle.pending || startedAutomatically.current) return
     startedAutomatically.current = true
     startPreview()
-  }, [autoPreview, lifecycle.pending, persona.has_unpublished_changes, groupIds.length, pendingLaunch, live])
+  }, [active, autoPreview, lifecycle.pending, persona.has_unpublished_changes, groupIds.length, pendingLaunch, live])
 
   async function goLive() {
     if (busy || lifecycle.pending) return
@@ -193,7 +229,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>{live ? 'Your program is live' : voiceChanges ? 'Hear your assistant, then go live' : 'Review changes, then go live'}</h3><p>{live ? 'Your people have the published assistant, appearance and tools.' : voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
     {!live && !(reviewedPersona ?? persona).published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
-    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
+    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setUnselectedGroupIds((ids) => event.target.checked ? ids.filter((id) => id !== group.id) : [...ids, group.id]); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><div className="coach-lifecycle-actions"><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></div></>}
     {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
@@ -202,7 +238,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4>{item.configuration.draft.experience_mode === 'savings_challenge' && item.preview.challenge_open !== true && <p>The program team still needs to open the savings challenge for this group. Participants will see “Your savings challenge opens soon” until then.</p>}{item.preview.upgrade_notice && <p>{item.preview.upgrade_notice}</p>}{toolChanges(item, groups.find(group => group.group.id === item.configuration.cohort.id)?.activeExperienceConfig).map(change => <p key={change}>{change}</p>)}<p>{item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}</p><p>{toolNavigation(item, (reviewedPersona ?? persona).draft?.identity.assistant_name ?? 'Mia').join(' · ')}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>Who this is for: {readiness.candidate.audience_snapshot.audience === "People participating in the human coach's financial education program." ? 'People in your coaching program.' : readiness.candidate.audience_snapshot.audience}<br />Community and culture: {readiness.candidate.audience_snapshot.culture.context === 'Use only cultural and community context explicitly approved by the human coach.' ? 'Only the details you have approved.' : readiness.candidate.audience_snapshot.culture.context}</p>}
       {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
-      {readiness?.phrase_audience_reviews.map((item) => <div className="coach-phrase-approval" key={item.artifact_id}><strong>{item.phrase.text}</strong> — {item.phrase.meaning}<small>Use: {item.phrase.allowed_contexts.map((context) => context.replaceAll('_', ' ')).join(', ')} · {item.phrase.frequency}. {item.phrase.caution}</small></div>)}
+      {readiness?.phrase_audience_reviews.map((item) => <div className="coach-phrase-approval" key={item.artifact_id}><strong>{item.phrase.text}</strong><PhraseUse phrase={item.phrase} /></div>)}
       <p id="coach-go-live-consent">{voiceChanges ? 'By choosing Approve and go live, you approve the answers, phrases, safety checks and group changes shown above.' : 'By choosing Approve and go live, you approve the appearance, tools and group changes shown above.'}</p>
       <Button aria-describedby="coach-go-live-consent" disabled={busy || !canPublish} onClick={() => void goLive()}>Approve and go live</Button>
     </section>}
@@ -215,4 +251,10 @@ function toolNavigation(item: CoachSettingsReview['tools'][number], assistantNam
   const sections = participantSectionsForModules(item.preview.modules.filter(module => module.enabled).map(module => module.id), { moduleOrder: order, independentStatements: item.configuration.draft.schema_version >= 4 })
   const navigation = partitionParticipantSections(sections, savings, order.length > 0)
   return [...navigation.primary.map(section => participantSectionLabel(section, savings, assistantName, section === 'Ask Mia')), ...(navigation.secondary.length ? [`More: ${navigation.secondary.map(section => participantSectionLabel(section, savings, assistantName, section === 'Ask Mia')).join(' · ')}`] : [])]
+}
+
+function ensureVoiceReviewable(ready: AdminPersonaReleaseReadiness) {
+  if (ready.phrase_audience_reviews?.some(phrase => phrase.review_state === 'rejected')) throw new Error('A phrase was rejected for this audience. Review it before going live.')
+  const reviewRule = ready.blockers?.find(message => message.includes('different workspace owner or reviewer'))
+  if (reviewRule) throw new Error(reviewRule)
 }

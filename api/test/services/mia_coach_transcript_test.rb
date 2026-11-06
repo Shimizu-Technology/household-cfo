@@ -2,9 +2,11 @@
 
 require "test_helper"
 require_relative "../support/persona_test_helper"
+require_relative "../support/proposal_guard_test_helper"
 
 class MiaCoachTranscriptTest < ActiveSupport::TestCase
   include PersonaTestHelper
+  include ProposalGuardTestHelper
 
   setup do
     @coach = persona_user
@@ -34,10 +36,12 @@ class MiaCoachTranscriptTest < ActiveSupport::TestCase
   test "transcript coach quotes require supported additions and preserve current traits" do
     message = "Propose voice from transcripts: We take a breath."
     op = operation("voice.tone_traits", %w[warm direct respectful patient], "We take a breath").merge("source_basis" => "coach_quote")
-    error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
-      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ op ])
+    error = with_proposal_guard(allowed: false) do
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+        Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([ op ])
+      end
     end
-    assert_equal "persona_setup_voice_evidence", error.code
+    assert_equal "persona_setup_guard", error.code
     op["value"] = %w[warm direct respectful patient]
     exact = (@persona.draft_config.dig("voice", "tone_traits") + %w[warm direct respectful patient]).join(" ")
     op["evidence_quote"] = exact

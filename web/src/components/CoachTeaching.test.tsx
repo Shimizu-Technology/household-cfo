@@ -127,3 +127,14 @@ it('review two saves Teaching while the setup chat endpoint is unavailable',asyn
  expect(api.updateAdminPersona).toHaveBeenCalledWith(8,expect.objectContaining({draft_config:expect.objectContaining({coaching:expect.objectContaining({method:'A saved teaching method'})})}))
  expect(api.createAdminPersonaSetupSession).not.toHaveBeenCalled()
 })
+
+it('W23 saves the meaning and situation with an explicit often choice',async()=>{
+ render(<CoachTeaching persona={originalPersona} lifecycle={simpleLifecycle} onDirtyChange={dirty} onSaved={preview}/>)
+ fireEvent.click(screen.getByText('Add a phrase in your own words',{selector:'summary'}))
+ fireEvent.change(screen.getByLabelText('Phrase'),{target:{value:'Chelu, pump the brakes.'}})
+ fireEvent.change(screen.getByLabelText('What it means and when to use it (optional)'),{target:{value:'When someone is about to spend money they do not have'}})
+ fireEvent.change(screen.getByLabelText('How often'),{target:{value:'as_needed'}})
+ fireEvent.click(screen.getByRole('button',{name:'Save and preview answers'}))
+ await waitFor(()=>expect(api.updateAdminPersona).toHaveBeenCalled())
+ expect(api.updateAdminPersona.mock.calls[0][1].draft_config.phrases[0]).toEqual(expect.objectContaining({meaning:'When someone is about to spend money they do not have',frequency:'as_needed',prohibited_contexts:['crisis']}))
+})

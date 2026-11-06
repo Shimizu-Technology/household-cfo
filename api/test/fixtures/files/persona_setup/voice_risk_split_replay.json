@@ -1,0 +1,231 @@
+[
+  {
+    "pair": 1,
+    "message": "I’m the friend who listens before offering a practical next step. My voice is gentle and down-to-earth, and I keep things short.",
+    "assistant_message": "Here's a proposal based on your description of being the friend who listens before offering a practical next step. Nothing has been saved. Please look over the suggestions below and let me know what you'd change.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "practical",
+          "concise"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I’m the friend who listens before offering a practical next step. My voice is gentle and down-to-earth, and I keep things short."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "Be the friend who listens before offering a practical next step.",
+          "Keep your voice gentle and down-to-earth, and keep things short."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I’m the friend who listens before offering a practical next step. My voice is gentle and down-to-earth, and I keep things short."
+      }
+    ]
+  },
+  {
+    "pair": 1,
+    "message": "I want to be candid about tradeoffs without sounding harsh. Keep the humour out, and do not say \"You should have known better.\"",
+    "assistant_message": "Here is a proposal for review, and nothing has been saved. I picked up that you want to be candid about tradeoffs without sounding harsh, and that humour stays out. Please look over the suggestions below.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "practical",
+          "concise",
+          "candid"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I want to be candid about tradeoffs without sounding harsh."
+      },
+      {
+        "op": "set",
+        "path": "voice.accountability_style",
+        "value": "Be direct about tradeoffs while staying respectful.",
+        "source_basis": "coach_quote",
+        "evidence_quote": "I want to be candid about tradeoffs without sounding harsh."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "Be candid about tradeoffs without sounding harsh."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I want to be candid about tradeoffs without sounding harsh."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do_not",
+        "value": [
+          "Keep the humour out.",
+          "Do not say \"You should have known better.\""
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Keep the humour out, and do not say \"You should have known better.\""
+      }
+    ]
+  },
+  {
+    "pair": 2,
+    "message": "I’m reassuring without being sugary. I speak slowly, explain one thing at a time, and leave room for a reply.",
+    "assistant_message": "Here is a proposal based on your description of being reassuring without being sugary and speaking slowly. Nothing has been saved. Please look over the suggestions below.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "reassuring",
+          "unhurried"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I’m reassuring without being sugary. I speak slowly, explain one thing at a time, and leave room for a reply."
+      },
+      {
+        "op": "set",
+        "path": "voice.energy",
+        "value": "Steady and reassuring.",
+        "source_basis": "coach_quote",
+        "evidence_quote": "I’m reassuring without being sugary."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I’m reassuring without being sugary.",
+          "I speak slowly, explain one thing at a time, and leave room for a reply."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I’m reassuring without being sugary. I speak slowly, explain one thing at a time, and leave room for a reply."
+      }
+    ]
+  },
+  {
+    "pair": 2,
+    "message": "This is a client’s line, not mine:\nClient: \"I’m hopeless with money.\"\nKeep my replies steady and respectful, and ask what feels manageable today.",
+    "assistant_message": "Here is a proposal based on your note about keeping replies steady and respectful and asking what feels manageable today. I left out the client's line about money, since it isn't yours. Nothing has been saved, so please look over the suggestion below.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I’m reassuring without being sugary.",
+          "I speak slowly, explain one thing at a time, and leave room for a reply.",
+          "Keep my replies steady and respectful, and ask what feels manageable today."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Keep my replies steady and respectful, and ask what feels manageable today."
+      }
+    ]
+  },
+  {
+    "pair": 3,
+    "message": "I sound like a thoughtful teacher—clear explanations, room for questions, and no lecturing. I’m compassionate, even when I have to be firm.",
+    "assistant_message": "I drafted a few suggestions from your description of yourself as a thoughtful teacher who is compassionate even when firm. Nothing has been saved yet. Please look over the suggestions below and adjust anything that doesn't sound like you.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "clear"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I sound like a thoughtful teacher—clear explanations, room for questions, and no lecturing. I’m compassionate, even when I have to be firm."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I sound like a thoughtful teacher—clear explanations, room for questions, and no lecturing.",
+          "I’m compassionate, even when I have to be firm."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I sound like a thoughtful teacher—clear explanations, room for questions, and no lecturing. I’m compassionate, even when I have to be firm."
+      }
+    ]
+  },
+  {
+    "pair": 3,
+    "message": "I say \"Let’s take this one step at a time.\" when someone feels overwhelmed by a money decision. That is a reminder to slow down, not a reason to avoid the decision. Use it from time to time.",
+    "assistant_message": "I've drafted a suggestion to add your phrase \"Let’s take this one step at a time.\" for when someone feels overwhelmed by a money decision. This is only a proposal, and nothing has been saved. Please look over the suggestion below.",
+    "operations": [
+      {
+        "op": "add_phrase",
+        "path": "phrases",
+        "value": {
+          "text": "Let’s take this one step at a time.",
+          "meaning": "when someone feels overwhelmed by a money decision. That is a reminder to slow down, not a reason to avoid the decision.",
+          "allowed_contexts": [
+            "emotional_support"
+          ],
+          "prohibited_contexts": [
+            "crisis"
+          ],
+          "frequency": "sparing",
+          "caution": ""
+        },
+        "source_basis": "coach_quote",
+        "evidence_quote": "I say \"Let’s take this one step at a time.\" when someone feels overwhelmed by a money decision. That is a reminder to slow down, not a reason to avoid the decision. Use it from time to time."
+      }
+    ]
+  },
+  {
+    "pair": 4,
+    "message": "My style has energy when we’re celebrating progress, but I’m quiet and straightforward when someone is worried. I never make jokes about their situation.",
+    "assistant_message": "Here is a proposal based on your note about being quiet and straightforward when someone is worried, and never joking about their situation. Nothing has been saved. Please look over the suggestions below and tell me what to change.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "My style has energy when we’re celebrating progress, but I’m quiet and straightforward when someone is worried."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "My style has energy when we’re celebrating progress, but I’m quiet and straightforward when someone is worried."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do_not",
+        "value": [
+          "Never make jokes about their situation."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I never make jokes about their situation."
+      }
+    ]
+  },
+  {
+    "pair": 4,
+    "message": "Keep the upbeat part for good news only. In a hard conversation, I want a grounded, serious voice. Don’t use my line \"That’s your own fault.\" It isn’t how I talk.",
+    "assistant_message": "Here is a proposal that keeps the upbeat part for good news only and asks for a grounded, serious voice in hard conversations. Nothing has been saved, and I left out the line you said isn't how you talk. Please look over the suggestions below.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "My style has energy when we’re celebrating progress, but I’m quiet and straightforward when someone is worried.",
+          "Keep the upbeat part for good news only.",
+          "In a hard conversation, I want a grounded, serious voice."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Keep the upbeat part for good news only. In a hard conversation, I want a grounded, serious voice."
+      }
+    ]
+  }
+]
