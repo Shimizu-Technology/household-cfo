@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   NUMBERS = "We bring home $5,200 each month. Rent is $1,800, utilities $250, groceries $700, and the car loan minimum is $350.".freeze
 
   setup do
@@ -179,7 +181,217 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 1, @household.goals.tracked.count
   end
 
+  test "everyday interruptions never become a primary goal and hardship wins without a provider" do
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    original_goal = @household.reload.primary_goal
+    [ "I just spent $45 at Payless on groceries", "My rent is $1,500 a month", "We pay $1,600 rent each month", "Our power bill runs about $180 monthly", "I lost my job and cannot pay rent" ].each do |message|
+      post_message(message)
+      draft = response.parsed_body["mia_action_draft"]
+      refute draft && draft.fetch("items").any? { |item| item.dig("payload", "primary_goal") == message || item.dig("payload", "value") == message }, message
+      assert_nil draft, "A rent bill cannot establish a total for all fixed essentials" if message.match?(/(?:rent|power)/) && !message.include?("lost my job")
+      assert_match(/housing|rent|food|essentials/i, reply) if message.include?("lost my job")
+      refute_match(/approved data|readiness, safe-to-spend/i, reply)
+      assert_equal original_goal, @household.reload.primary_goal
+    end
+  end
+
+  test "natural setup start and minimum payment sentences prepare reviews with a structured reader fixture" do
+    post_message("Help me set up my household")
+    assert_includes reply, "What would you like to call this household?"
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("Save for a house")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("I take home $4,800 a month")
+    first = response.parsed_body.fetch("mia_action_draft")
+    post_message("Actually make that $4,500 a month")
+    second = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first.fetch("id")).status
+    apply(second)
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+    post_message("$2,000")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("We spend around $900 a month on groceries, gas and everything else")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("$350 minimum on the Visa")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    apply(draft)
+    assert @applied.dig("workspace", "setup_complete")
+    assert_includes reply, "Your household setup is complete."
+    assert_equal 35000, @household.debts.sole.minimum_payment_cents
+    refute @household.debts.sole.balance_known?
+    post_message("I got a raise to $5,200 a month")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+    apply(draft)
+    post_message("Change my main money goal to save for a house")
+    refute_match(/approved data/i, reply)
+    assert_match(/already|review/i, reply)
+  end
+
+  test "goal reviews do not display unknown monthly income as zero" do
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("Save for a house")
+    impact = response.parsed_body.fetch("mia_action_draft")["impact"]
+    assert_nil impact && impact["before_monthly_income"]
+    assert_nil impact && impact["after_monthly_income"]
+  end
+
+  test "yes to the setup confirmation uses participant words and stays a review" do
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    session.chat_messages.create!(role: "user", content: "Our household is called The Reyes Family. Our monthly income is $3,900.")
+    session.chat_messages.create!(role: "assistant", content: "Is your household name 'The Reyes Family', and is $3,900 your monthly take-home income?")
+    post_message("Yes")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 0, @household.income_sources.count
+    apply(draft)
+    assert_equal "The Reyes Family", @household.reload.name
+    assert_equal 390000, @household.income_sources.sole.amount_cents
+  end
+
+  test "yes confirms setup facts given in separate earlier turns before a setup restart" do
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    [ "$3,900", "The Reyes Family of Mangilao and Dededo Guam with Grandma Rosa and the Three Kids Too", "Help me set up my household" ].each do |content|
+      session.chat_messages.create!(role: "user", content: content)
+    end
+    session.chat_messages.create!(role: "assistant", content: 'Happy to help. Is your household name "The Reyes Family", and is $3,900 your monthly take-home income?')
+    post_message("Yes")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert draft, response.parsed_body.inspect
+    assert_equal 0, @household.income_sources.count
+    apply(draft)
+    assert_equal "The Reyes Family", @household.reload.name
+    assert_equal 390000, @household.income_sources.sole.amount_cents
+  end
+
+  test "an open monthly income review accepts a natural correction with a structured reader fixture" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for a house" }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("I take home $4,800 a month")
+    first = response.parsed_body.fetch("mia_action_draft")
+    post_message("Actually make that $4,500 a month")
+    corrected = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first["id"]).status
+    apply(corrected)
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+  end
+
+  test "a named minimum after the debt question keeps the balance unknown and finishes setup" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for a house", primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900 }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("$350 minimum on the Visa")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    assert_equal 35000, @household.debts.sole.minimum_payment_cents
+    refute @household.debts.sole.balance_known?
+    assert_includes reply, "Your household setup is complete."
+  end
+
+  test "a raise and a main money goal change work as separate reviews without a provider" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for emergencies", primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900 }).call
+    post_message("I got a raise to $5,200 a month")
+    income = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "income_schedule", income["draft_type"]
+    post_message("Change my main money goal to save for a house")
+    goal = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "household_setup", goal["draft_type"]
+    assert_equal 480000, @household.income_sources.sole.amount_cents
+    refute_equal "save for a house", @household.reload.primary_goal
+  end
+
+  [ "Actually $4,600", "Make that $4,600 instead", "Change that to $4,600", "It's actually $4,600", "No, $4,600" ].each_with_index do |sentence, index|
+    test "review model off correction wording #{index}" do
+      save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+      post_message("I got a raise to $5,300 a month")
+      older = response.parsed_body.fetch("mia_action_draft")
+      post_message(sentence)
+      corrected = response.parsed_body.fetch("mia_action_draft")
+      assert corrected, response.parsed_body.inspect
+      assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+      apply(corrected)
+      assert_equal 460000, @household.income_sources.sole.income_schedule_entries.order(:id).last.amount_cents
+    end
+  end
+
+  [ "Actually $4,600", "Make that $4,600 instead", "Change that to $4,600", "It's actually $4,600", "No, $4,600" ].each_with_index do |sentence, index|
+    test "review correction keeps the open setup field before reading a deferral #{index}" do
+      save_setup
+      post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+      post_message("I make $4,800 a month")
+      older = response.parsed_body.fetch("mia_action_draft")
+      post_message(sentence)
+      corrected = response.parsed_body.fetch("mia_action_draft")
+      assert corrected, response.parsed_body.inspect
+      assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+      apply(corrected)
+      assert_equal 460000, @household.income_sources.sole.amount_cents
+    end
+  end
+
+  test "review duplicate raises replace the older pending amount" do
+    save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+    post_message("I got a raise to $5,300 a month")
+    older = response.parsed_body.fetch("mia_action_draft")
+    post_message("I got a raise to $5,600 a month")
+    newer = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+    post "/api/v1/mia_action_drafts/#{older['id']}/apply", headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :unprocessable_entity
+    apply(newer)
+    assert_equal 560000, @household.income_sources.sole.income_schedule_entries.order(:id).last.amount_cents
+  end
+
+  [ "The Mastercard minimum is $325", "$325 a month on the Mastercard" ].each_with_index do |sentence, index|
+    test "review named debt minimum natural wording #{index}" do
+      save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+      post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+      post_message(sentence)
+      apply(response.parsed_body.fetch("mia_action_draft"))
+      assert_equal 32500, @household.debts.sole.minimum_payment_cents
+      refute @household.debts.sole.balance_known?
+    end
+  end
+
+  test "review setup interruptions keep participant language and no fabricated ledger" do
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    [ "skip", "what does fixed essentials mean", "How much should I save?" ].each do |sentence|
+      post_message(sentence)
+      refute_match(/approved data|posted.*transactions.*\$0/i, reply)
+      assert_nil response.parsed_body["mia_action_draft"]
+    end
+  end
+
+  test "review ok after applying setup does not replay the applied action" do
+    post_message("Our monthly income is $4,700")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("OK")
+    refute_match(/already match|lost the exact request/i, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
+  end
+
+  test "review a purchase before categories exist explains deferral and repeats setup" do
+    save_setup
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("I spent $37 at Kmart today")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.inspect
+    assert_includes reply, "after setup"
+    assert_includes reply, "primary monthly take-home income"
+    assert_equal 0, @household.budget_categories.count
+    assert_equal 0, @household.household_transactions.count
+  end
+
   private
+
+  def save_setup(**values)
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Review household", primary_goal: "A house" }.merge(values)).call
+  end
+
 
   def headers
     { "Authorization" => "Bearer test_token_#{@user.id}" }

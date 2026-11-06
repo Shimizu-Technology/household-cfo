@@ -93,3 +93,18 @@ describe('daily check-in helpers', () => {
   })
 
 })
+
+it('closes stale today context while an explicit refresh is still loading', async () => {
+  const api = await import('../api')
+  const {useTodayCheckIn} = await import('./dailyCheckIn')
+  const {renderHook,waitFor,cleanup} = await import('@testing-library/react')
+  const scope={user_id:901,household_id:77}
+  const current={...dailyContext,actor_scope:scope}
+  const read=vi.spyOn(api,'fetchDailyContext').mockResolvedValueOnce(current)
+  const hook=renderHook(({revision})=>useTodayCheckIn(scope,current.cohort_id ?? undefined,true,revision),{initialProps:{revision:0}})
+  await waitFor(()=>expect(hook.result.current.context).not.toBeNull())
+  read.mockReturnValueOnce(new Promise(()=>{}))
+  hook.rerender({revision:1})
+  expect(hook.result.current.context).toBeNull()
+  cleanup()
+})

@@ -40,6 +40,7 @@ module SavingsChallenge
         return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
         return deterministic(hopeless_answer)
       end
+      return deterministic(HouseholdFinance::ParticipantCare.answer(@message) || protected_baseline_answer) if HouseholdFinance::ParticipantCare.required?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
       return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
@@ -67,6 +68,9 @@ module SavingsChallenge
           return deterministic(debt_answer)
         end
         return deterministic(feeling_answer) if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
+        if SavingsReportText.nothing_set_aside?(@message)
+          return "You don't have to force a savings amount today. Food, housing, utilities, medicine and required payments come first; a smaller goal or a pause is okay. We can talk through what is making saving difficult without changing any records. What would help most right now?"
+        end
         return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
         return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
         return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
@@ -253,7 +257,8 @@ module SavingsChallenge
       purchases = report[:purchases]
       items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
       missing = purchases.count { |row| row[:merchant].blank? }
-      place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
+      date_note = report[:date_required] ? " Choose the date on the card." : (report[:local_on] != @enrollment.local_today.iso8601 ? " The card is for #{label_day(report[:local_on]).delete_prefix('on ')}." : "")
+      place = missing.zero? ? date_note : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card.#{date_note}"
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
       # Respond only to feelings the participant actually stated: "Busy Bee Cafe"
       # is a place, and guilt is never assumed.
@@ -309,6 +314,7 @@ module SavingsChallenge
     end
 
     def label_day(iso)
+      return "on a date you choose" if iso.blank?
       date = Date.iso8601(iso.to_s)
       today = @enrollment.local_today
       return "today" if date == today
@@ -322,6 +328,9 @@ module SavingsChallenge
     # The card below lists it; nothing is saved until the participant saves it.
     def savings_intake_answer
       amount = money(@savings_intake[:amount_cents])
+      if @savings_intake[:date_required]
+        return "I heard #{amount} #{@savings_intake[:kind] == 'withdrawal' ? 'taken out' : 'set aside'}. Choose the date on the card; nothing has been saved."
+      end
       day = label_day(@savings_intake[:effective_on])
       if @savings_intake[:kind] == "withdrawal"
         "Got it: #{amount} taken out of your challenge savings #{day}. It's below for you to check. Nothing changes until you save it."

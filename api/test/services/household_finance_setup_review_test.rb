@@ -191,7 +191,7 @@ class HouseholdFinanceSetupReviewTest < ActiveSupport::TestCase
     @household.update!(confirmed_setup_fields: [])
     proposal = setup_proposal("Rent $1,800 and utilities $250", fixed_expenses: 2050)
     confirmation = proposal.items.find { |item| item.action_type == "confirm_household_setup" }
-    assert_includes confirmation.description, "Record only these reviewed fields"
+    assert_includes confirmation.description, "Save these details as part of your household setup"
     assert_includes proposal.rationale, "rent $1,800 + utilities $250"
   end
 

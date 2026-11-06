@@ -20,6 +20,13 @@ function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView); else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') })
 describe('participant savings Home', () => {
+  it('keeps a chat date blank when Mia could not resolve the stated day', async () => {
+    render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} initialSavingsIntake={{kind:'contribution',amount_cents:2000,effective_on:'',date_required:true,counted:false,approval_state:'unreviewed_input'}} />)
+    await formReady('Amount in US dollars')
+    expect(screen.getByLabelText('Date you set it aside or took it out')).toHaveProperty('value','')
+    expect(api.stageSavingsEntry).not.toHaveBeenCalled()
+  })
+
   it('applies a new chat intake while mounted without discarding the open entry panel when it clears', async () => {
     const props = { onAskMia: vi.fn(), onReviewStatements: vi.fn() }
     const intake: SavingsIntake = { kind: 'withdrawal', amount_cents: 1500, effective_on: '2026-10-04', counted: false, approval_state: 'unreviewed_input', chat_card_id: 90 }

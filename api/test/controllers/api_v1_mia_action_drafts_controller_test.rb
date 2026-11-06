@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
-  test "exact setup CTA asks the first missing question without a model provider" do
+  include ParticipantReaderTestSupport
+  test "exact setup CTA asks the first missing question with a structured reader fixture" do
     user = create_user(email: "mia-setup-cta-no-provider@example.com")
 
     post "/api/v1/mia/messages",
@@ -188,7 +190,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3, setup_after.fetch(:target_runway_months)
   end
 
-  test "plain guided money answer updates the exact money field Mia asked for without a model provider" do
+  test "plain guided money answer updates the exact money field Mia asked for with a structured reader fixture" do
     user = create_user(email: "mia-setup-guided-income@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     HouseholdFinance::SetupUpdater.new(

@@ -25,6 +25,50 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal @category.id, line.category_id
   end
 
+  test "review one answer covers similar statement merchants after an explicit different split" do
+    @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    fresh = source([ movement(-3500).merge(merchant: "Payless"), movement(-4100, row: 2).merge(merchant: "Cost-U-Less") ])
+    identity = link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_equal 2, plan.attention.length
+    approve(stage(fresh[:events].first, identity: identity, amount: -3500, merchant: "Payless"))
+    after = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    other = after.line_for(fresh[:events].last.id)
+    assert other.ready?, other.kind.inspect
+    assert_equal @category.id, other.category_id
+    assert_equal 1, after.lines.count(&:done)
+  end
+
+  test "review grocery and fuel statement lines use the everyday default despite an extracted bills label" do
+    @category.update!(name: "Fixed essentials")
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    merchants = [ "Payless", "Cost-U-Less", "Shell", "Mobil" ]
+    fresh = source(merchants.map.with_index { |merchant, i| movement(-3500 - i * 100, row: i + 1).merge(merchant: merchant) })
+    payloads = fresh[:transaction_drafts].map do |payload|
+      payload.merge(splits: [ { amount: payload[:total_amount], category_name: "Fixed essentials", stack_key: "non_discretionary", confidence: "high" } ])
+    end
+    result = HouseholdFinance::DocumentTransactionDraftPersister.new(fresh[:import], payloads).call
+    assert_equal 4, result[:created_count]
+    identity = link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_equal fresh[:events].map(&:id), plan.ready_ids
+    assert_empty plan.attention
+    plan.lines.each do |line|
+      assert line.ready?
+      assert_equal everyday.id, line.category_id
+    end
+    assert_empty @household.household_transactions
+
+    # Her reviewed choice still takes priority on the next statement.
+    @category = everyday
+    approve(stage(fresh[:events].first, identity: identity, amount: -3500, merchant: "Payless"))
+    next_source = source([ movement(-4500).merge(merchant: "Payless") ])
+    line = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, next_source[:revision]).lines.sole
+    assert line.ready?
+    assert line.as_before
+    assert_equal everyday.id, line.category_id
+  end
+
   test "reviewed zero activity statement can be complete while a blank or hidden movement cannot" do
     @source = source([ movement(0, type: "unknown") ])
     account = account_input(@source)

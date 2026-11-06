@@ -131,7 +131,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const scopeCohort = cohortId ?? challenge?.enrollment?.cohort_id
   const homeScope = useMemo(() => scopeUser && scopeHousehold && scopeCohort ? {user_id:scopeUser,household_id:scopeHousehold,cohort_id:scopeCohort} : undefined, [scopeUser,scopeHousehold,scopeCohort])
   const historyScope = useMemo(() => homeScope && scopeEnrollment ? {...homeScope,enrollment_id:scopeEnrollment} : undefined, [homeScope,scopeEnrollment])
-  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction,request:HomeSavingsIdentity) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&request.chatCardId===initialSavingsIntake?.chat_card_id&&request.chatCardId&&draft.savings_entry_id){stagedIntakeEntry.current=draft.savings_entry_id;onIntakeStaged?.(draft.savings_entry_id,request.chatCardId);setIntakeActive(false);setAmount('');setEditingEntry(null);setEntryReason('');}if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||savingsDefaultDate(result.challenge.calendar));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared, onIntakeStaged])
+  const receiveHome = useCallback((result:SavingsMutation<unknown>,action:HomeSavingsAction,request:HomeSavingsIdentity) => { sequence.current++;for(const controller of controllers.current)controller.abort();controllers.current.clear();setLoading(false);setChallenge(result.challenge);setReadFailed(false);setError(null);setNotice(result.replayed?'Your earlier request was confirmed once.':action==='zero_attest'?zeroNotice(result):homeNotice[action]);setRevision(value=>value+1);const draft=result.record as {id?:number;status?:string;signed_cents?:number;savings_entry_id?:number};if(action==='entry_stage'&&request.chatCardId===initialSavingsIntake?.chat_card_id&&request.chatCardId&&draft.savings_entry_id){stagedIntakeEntry.current=draft.savings_entry_id;onIntakeStaged?.(draft.savings_entry_id,request.chatCardId);setIntakeActive(false);setAmount('');setEditingEntry(null);setEntryReason('');}if(action==='entry_approve'&&draft.savings_entry_id===stagedIntakeEntry.current)onIntakeCleared?.();if(draft.status==='pending'&&draft.id)setEntryOpen(true);if(action==='entry_approve'||result.challenge.pending_entry_count===0)setReviewAnchor(anchor=>anchor?.collection==='entry_drafts'?null:anchor);setEffectiveOn(current=>current||(initialSavingsIntake?.date_required ? '' : savingsDefaultDate(result.challenge.calendar)));if(action==='enrollment')focusJoined() }, [initialSavingsIntake, onIntakeCleared, onIntakeStaged])
   const homeConflict = useCallback((message: string) => { setReadFailed(true); setParticipation(false); setLateAcceptance(false); setKnownZero(false); setError(message) }, [])
   const homeMutation = useHomeSavingsMutation(homeScope, receiveHome, clearPrivatePlan, () => Boolean(readPlanRequest(planScope)) || working.current, homeConflict)
   const homePendingRef = useRef(homeMutation.pending); useEffect(()=>{homePendingRef.current=homeMutation.pending},[homeMutation.pending])
@@ -161,7 +161,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         if (next.accepted_plan) { setPostponed(next.accepted_plan.target_cents === null); if (next.accepted_plan.target_cents !== null) setTarget(savingsInputDollars(next.accepted_plan.target_cents)) }
       }
       setChallenge(next); setReadFailed(false); setError(null); setRevision((value) => value + 1)
-      setEffectiveOn((current) => current || savingsDefaultDate(next.calendar))
+      setEffectiveOn((current) => current || (initialSavingsIntake?.date_required ? '' : savingsDefaultDate(next.calendar)))
     } catch (failure) {
       if (!mounted.current || epoch !== sequence.current) return
       setError(message(failure)); setReadFailed(true)
@@ -174,7 +174,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
       controllers.current.delete(controller)
       if (mounted.current && epoch === sequence.current) setLoading(false)
     }
-  }, [])
+  }, [initialSavingsIntake?.date_required])
   useEffect(() => {
     mounted.current = true
     const ownedControllers = controllers.current

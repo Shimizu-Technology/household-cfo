@@ -14,6 +14,62 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     @suggester = HouseholdFinance::TransactionCategorySuggester.new(@household)
   end
 
+  test "a generic transport label or route number is not a fuel purchase" do
+    [ "Route 76 Hardware", "transportation", "commute" ].each do |text|
+      assert_empty HouseholdFinance::EverydaySpendingPolicy.families(text), text
+    end
+    [ "76 Station", "Shell", "Mobil", "gasoline" ].each do |text|
+      assert_includes HouseholdFinance::EverydaySpendingPolicy.families(text), :fuel
+    end
+  end
+
+  test "broad statement labels never silently put groceries and gas in fixed essentials" do
+    fixed = @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
+    [ "Payless", "Cost-U-Less", "Shell", "Mobil" ].each do |merchant|
+      suggestion = @suggester.suggest(merchant: merchant, category_name: fixed.name, confidence: 0.9)
+      refute suggestion.matched?, merchant
+      assert_equal "check_everyday_spending_category", suggestion.match_reason
+    end
+    @household.merchant_category_rules.create!(merchant_pattern: "Shell", budget_category: fixed, confidence: 0.9, source: "user_confirmed", active: true)
+    assert_equal fixed, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", category_name: fixed.name).category
+  end
+
+  test "review broad categories use a default and a single explicit answer covers similar shops" do
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    [ "Must-pay bills", "Bills & essentials", "Fixed essentials (default 2)" ].each do |label|
+      fixed = @household.budget_categories.create!(name: label, stack_key: "non_discretionary")
+      %w[Payless Shell Mobil].each do |merchant|
+        suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: label)
+        assert_equal everyday, suggestion.category, "#{label} #{merchant}"
+      end
+      gas = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Guam Gas Co", category_name: label)
+      assert_equal fixed, gas.category
+      station = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "76 Station", category_name: label)
+      assert_equal everyday, station.category
+    end
+    explicit = @household.budget_categories.create!(name: "Groceries for home", stack_key: "non_discretionary")
+    policy = HouseholdFinance::EverydaySpendingPolicy.new(@household)
+    assert_nil policy.suggestion(merchant: "Payless")[:category]
+    @household.merchant_category_rules.create!(merchant_pattern: "Payless", budget_category: explicit, confidence: 0.9, source: "user_confirmed", active: true)
+    assert_equal explicit, HouseholdFinance::EverydaySpendingPolicy.new(@household).suggestion(merchant: "Cost-U-Less")[:category]
+  end
+
+  test "review only applied participant setup words establish an exception for both groceries and fuel" do
+    fixed = @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    proposal = @household.mia_action_drafts.create!(requested_by_user: @household.created_by_user, draft_type: "household_setup", status: "pending", year: 2026,
+      title: "Household costs", summary: "Check my household costs", source_prompt: "Our fixed essentials include groceries and gas")
+    %w[Payless Mobil].each do |merchant|
+      assert_equal everyday, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name).category
+    end
+    proposal.update!(status: "applied", metadata: { spending_preferences: %w[groceries fuel].map { |family| { family: family, group: "fixed", evidence: "Our fixed essentials include groceries and gas" } } })
+    %w[Payless Mobil].each do |merchant|
+      suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name)
+      assert_equal fixed, suggestion.category
+      assert_equal "confirmed_setup_spending_purpose", suggestion.match_reason
+    end
+  end
+
   test "matches an exact active category even when extraction confidence is low" do
     suggestion = @suggester.suggest(
       merchant: "Tita's Demo Market",

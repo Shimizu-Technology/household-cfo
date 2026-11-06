@@ -10,6 +10,7 @@ import './MiaDailyCheckIn.css'
 
 // "Today", "Yesterday", or "Mon, Oct 20" for a local calendar date.
 function plainDay(iso: string, today: string): string {
+  if (!iso) return 'Choose date'
   if (iso === today) return 'Today'
   const yesterday = new Date(`${today}T00:00:00Z`)
   yesterday.setUTCDate(yesterday.getUTCDate() - 1)
@@ -79,7 +80,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   useEffect(() => {
     const controller = new AbortController()
     for (const date of dateKey.split(',')) {
-      fetchDailyContext(date, controller.signal).then((context) => {
+      fetchDailyContext(date || undefined, controller.signal).then((context) => {
         if (dailyContextMatches(context, scope, cohortId)) setContexts((current) => ({ ...current, [date]: context }))
       }).catch(() => undefined)
     }
@@ -299,6 +300,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       try { if (savingsInputCents(row.amount) > 2147483647) problems[row.id] = 'Enter a smaller amount.' } catch { problems[row.id] = 'Enter an amount like 8.25.' }
       if (!row.merchant.trim()) problems[row.id] = problems[row.id] ?? 'Add where you spent this.'
       else if (row.merchant.trim().length > 120) problems[row.id] = problems[row.id] ?? 'Use a shorter place name.'
+      if (!row.purchased_on) problems[row.id] = problems[row.id] ?? 'Choose a date.'
     }
     setInvalid(problems)
     if (Object.keys(problems).length) { update((current) => ({ ...current, message: 'Check the highlighted item before saving.' })); return }
@@ -355,6 +357,10 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const movable = state.rows.find((row) => open(row) && !locked(row))
   async function moveToToday() {
     if (!movable || saveInFlightRef.current || busy) return
+    if (!movable.purchased_on) {
+      setInvalid((current) => ({ ...current, [movable.id]: 'Choose a date.' }))
+      return
+    }
     let intake: SavingsIntake
     try { intake = { kind: 'purchase', amount_cents: savingsInputCents(movable.amount), effective_on: movable.purchased_on, merchant: movable.merchant.trim(), approval_state: 'unreviewed_input', counted: false } }
     catch { setInvalid((current) => ({ ...current, [movable.id]: 'Enter an amount like 8.25.' })); return }
@@ -400,6 +406,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
                   <label className="mia-daily-place"><input aria-label={`Place for ${name}`} aria-describedby={note ? noteId : undefined} maxLength={120} autoComplete="off" placeholder="Where?" value={row.merchant} disabled={fieldsLocked} aria-invalid={Boolean(invalid[row.id]) || undefined} onChange={(event) => edit(row.id, { merchant: event.target.value })} /></label>
                   <span className="mia-daily-day">{plainDay(row.purchased_on, today)}</span>
                   <button type="button" className="mia-daily-remove" disabled={fieldsLocked} aria-label={`Remove ${name}`} onClick={() => remove(row.id)}><span aria-hidden="true">×</span></button>
+                  {report.date_required && <label className="mia-daily-date">Date<input type="date" aria-label={`Date for ${name}`} value={row.purchased_on} min={anyContext?.calendar.starts_on} max={anyContext?.calendar.local_today} disabled={fieldsLocked} required onChange={event => edit(row.id, {purchased_on: event.target.value})} /></label>}
                   {note && <p id={noteId} className="mia-daily-row-note">{note}</p>}
                 </>}
               </li>

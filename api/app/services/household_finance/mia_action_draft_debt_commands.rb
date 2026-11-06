@@ -19,7 +19,7 @@ module HouseholdFinance
         target_record_type: "Debt", target_record_id: nil, payload: payload,
         before_snapshot: {}, after_snapshot: payload.merge(active: true)
       )
-      proposal_result(draft_type: "debt_plan", title: "Add debt", summary: "I prepared #{label} for your review.", rationale: individual_debt_change_rationale("be added", "This record affects planning only after you apply it. No payment is made."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+      proposal_result(draft_type: "debt_plan", title: "Add debt", summary: "I prepared #{label} for your review.", rationale: individual_debt_change_rationale("be added", "This record affects planning only after you apply it. No payment is made."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end
@@ -41,7 +41,7 @@ module HouseholdFinance
         target_record_type: "Debt", target_record_id: debt.id, payload: payload,
         before_snapshot: before, after_snapshot: after
       )
-      proposal_result(draft_type: "debt_plan", title: "Update debt", summary: "I prepared an update to #{debt.label} for your review.", rationale: individual_debt_change_rationale("be updated", "The approved record stays unchanged until you apply this card."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+      proposal_result(draft_type: "debt_plan", title: "Update debt", summary: "I prepared an update to #{debt.label} for your review.", rationale: individual_debt_change_rationale("be updated", "The approved record stays unchanged until you apply this card."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end

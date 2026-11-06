@@ -102,12 +102,42 @@ module HouseholdFinance
           )
 
           supersede_setup_reviews!(draft, source_chat_message)
+          supersede_income_reviews!(draft, source_chat_message)
 
           draft
         end
       end
 
       private
+
+      def supersede_income_reviews!(replacement, source_message)
+        return unless draft_type == "income_schedule"
+        membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+        household.mia_action_drafts.pending.where(draft_type: "income_schedule", requested_by_user: user)
+          .where.not(id: replacement.id).joins(:source_chat_message)
+          .where(chat_messages: { chat_session_id: source_message.chat_session_id }).each do |previous|
+          next unless previous.mia_action_items.all? do |prior|
+            prior.applied_at.nil? && items.any? do |item|
+              same_income_review?(item, prior)
+            end
+          end
+          result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: membership).call(idempotency_key: "superseded:#{previous.id}:#{replacement.id}")
+          raise ArgumentError, result.errors.join(", ") unless result.success?
+        end
+      end
+
+      def same_income_review?(item, prior)
+        return false unless item.action_type == prior.action_type && item.target_record_id == prior.target_record_id && item.target_record_type == prior.target_record_type
+        current = item.payload.deep_stringify_keys
+        previous = prior.payload.deep_stringify_keys
+        if item.action_type == "create_income_source"
+          return current["label"].to_s.squish.downcase == previous["label"].to_s.squish.downcase &&
+            current.slice("source_type", "starts_on", "cadence") == previous.slice("source_type", "starts_on", "cadence")
+        end
+        return false unless item.action_type.in?(%w[upsert_income_schedule_entry update_income_schedule_entry]) &&
+          current["entry_type"] == "recurring_change" && previous["entry_type"] == "recurring_change"
+        current.slice("income_source_id", "effective_on") == previous.slice("income_source_id", "effective_on")
+      end
 
       def supersede_setup_reviews!(replacement, source_message)
         return unless draft_type.in?(%w[household_setup action_plan goal_plan])

@@ -92,7 +92,7 @@ export function ReviewedTransactionsPanel({
       <div>
         <p className="group-label">Already reviewed · {report.period_label}</p>
         <h4 id="reviewed-transactions-heading">Change your mind?</h4>
-        <p className="reviewed-transaction-note">Reopening a confirmed transaction removes it from this month’s actuals and puts it back in review.</p>
+        <p className="reviewed-transaction-note">Reopening a confirmed transaction removes it from this month’s confirmed spending and puts it back in review.</p>
       </div>
       {confirmed.length > 0 && (
         <section className="reviewed-transaction-group" aria-label="Confirmed this month">

@@ -962,11 +962,14 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   test "challenge bill and everyday hints are defaults and preserve earlier approved choices" do
     with_budgetless_challenge do
-      bills = [ "Rent", "GPA power", "GWA water", "GTA internet", "Docomo phone", "Payless Supermarkets", "Cost-U-Less", "Shell", "Mobil", "Monthly service fee" ]
+      bills = [ "Rent", "GPA power", "GWA water", "GTA internet", "Docomo phone", "Monthly service fee" ]
       everyday = [ "Ross", "Kmart", "Jamba", "McDonald's", "Port of Mocha", "Amazon", "Netflix monthly subscription", "Restaurant (includes tip)" ]
-      @source = build_source(rows: (bills + everyday).each_with_index.map { |name, i| [ name, -1000 - i, "purchase", i + 1 ] })
-      rows = review_plan.fetch("ready")
-      assert_equal bills + everyday, rows.pluck("merchant")
+      defaults = [ "Payless Supermarkets", "Cost-U-Less", "Shell", "Mobil" ]
+      @source = build_source(rows: (bills + everyday + defaults).each_with_index.map { |name, i| [ name, -1000 - i, "purchase", i + 1 ] })
+      plan = review_plan
+      assert_empty plan.fetch("attention")
+      rows = plan.fetch("ready")
+      assert_equal bills + everyday + defaults, rows.pluck("merchant")
       rows.each do |row|
         assert_equal(bills.include?(row.fetch("merchant")) ? "Bills & essentials" : "Everyday spending", row.fetch("category_name"))
       end

@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/savings_daily_test_support"
 
 class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   include SavingsDailyTestSupport
   setup do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
@@ -13,6 +15,52 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   teardown do
     ENV["OPENROUTER_API_KEY"] = @old_key
     travel_back
+  end
+
+  test "no savings statements keep purchases separate and repeats reuse their pending review" do
+    [ "I spent $18 on lunch at Port of Mocha and I saved nothing today",
+      "I spent $18 on lunch at Port of Mocha today and I didn't set aside anything",
+      "I didn't save any money today but I spent $18 at Port of Mocha",
+      "I spent $18 at Port of Mocha today. I wanted to set aside $50 but I could not" ].each_with_index do |message, index|
+      ask message, "mixed-negative-#{index}"
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert_equal "daily_report", card["kind"], message
+      assert_equal [ 1800 ], card.dig("input", "purchases").map { |row| row["amount_cents"] }
+      refute_match(/\$18.00 set aside|Did you set aside new money/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_match(/Got it: \$18.00 at Port of Mocha/i, response.parsed_body.dig("assistant_message", "content"))
+    end
+    before = SavingsChatCard.where(status: "pending").count
+    2.times { |index| ask "I spent $18 on lunch at Port of Mocha and I saved nothing today", "repeat-negative-#{index}" }
+    assert_equal before + 1, SavingsChatCard.where(status: "pending").count
+    assert_equal 0, SavingsEntryVersion.count
+  end
+
+  test "a day without money set aside gets a brief acknowledgement without a savings card" do
+    [ "I saved nothing today", "I didn't set aside anything today", "I wanted to set aside $50 but I could not",
+      "No money saved today", "I could not save $20 today", "I put aside $0 today", "I saved zero dollars today", "Nothing saved today", "We did not save a cent today" ].each_with_index do |message, index|
+      assert_no_difference "SavingsChatCard.count" do
+        ask message, "no-savings-#{index}"
+      end
+      assert_match(/nothing set aside|force a savings amount|couldn.t read/i, response.parsed_body.dig("assistant_message", "content"))
+      refute_match(/Did you set aside new money|Only new money/i, response.parsed_body.dig("assistant_message", "content"))
+    end
+  end
+
+  test "a later completed reserve stays distinct from an earlier negative statement even for cents" do
+    ask "I saved nothing today but I set aside $0.25 later", "small-later-reserve"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    assert_equal "savings", card["kind"]
+    assert_equal 25, card.dig("input", "amount_cents")
+    refute_match(/Nothing set aside/i, response.parsed_body.dig("assistant_message", "content"))
+  end
+
+  test "the savings amount must belong to a completed savings verb" do
+    ask "I spent $18 at Port of Mocha and thought about saving today", "unbound-savings"
+    refute_equal "savings", response.parsed_body.dig("challenge_chat_card", "kind")
+    ask "I set aside $25 today", "repeat-positive-a"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    ask "I set aside $25 today", "repeat-positive-b"
+    assert_equal card["id"], response.parsed_body.dig("challenge_chat_card", "id")
   end
 
   test "weekly check in frequency does not multiply a whole challenge goal" do
@@ -407,7 +455,11 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
         end
         ask message, "safety-#{previous}-#{index}"
         answer = response.parsed_body.dig("assistant_message", "content")
-        assert_includes answer, expected, message
+        if expected == "Protect food, housing, medication"
+          assert_match(/food, housing, (?:medication|utilities and medicine)/, answer, message)
+        else
+          assert_includes answer, expected, message
+        end
         refute_includes answer, "Would you feel more comfortable cutting back"
         assert_nil response.parsed_body["challenge_chat_card"]
         refute_equal "challenge_patterns", ChatSession.find_by!(user: @savings_user, household: @savings_household).active_topic["type"]
@@ -461,6 +513,66 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
       assert_equal 40_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents"), message
     end
     assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+  end
+
+  # W24 review: clause-local actions and amounts, beyond the reported examples.
+  [ "Today I saved roughly $23", "Today $23 was set aside", "I put away an additional $23 today", "$23 saved today", "I put roughly $23 away today" ].each_with_index do |sentence, index|
+    test "review savings action owns amount with word order #{index}" do
+      ask sentence, "varied-saving"
+      assert_equal "savings", response.parsed_body.dig("challenge_chat_card", "kind"), response.parsed_body.inspect
+      assert_equal 2300, response.parsed_body.dig("challenge_chat_card", "input", "amount_cents")
+      assert_equal 0, SavingsEntryVersion.count
+    end
+  end
+
+  [ "I could not put aside money today, I spent $19 at Kmart", "I did not save today; I spent $19 at Kmart", "I saved nothing today. I spent $19 at Kmart" ].each_with_index do |sentence, index|
+    test "review punctuation preserves purchase #{index}" do
+      ask sentence, "separate-purchase"
+      assert_equal "daily_report", response.parsed_body.dig("challenge_chat_card", "kind"), response.parsed_body.inspect
+      assert_equal [ 1900 ], response.parsed_body.dig("challenge_chat_card", "input", "purchases").map { |row| row["amount_cents"] }
+    end
+  end
+
+  test "review mixed positive facts each have their own review and survive replay" do
+    ask "I spent $19 at Kmart and put aside roughly $7 today", "two-facts"
+    cards = response.parsed_body.fetch("challenge_chat_cards")
+    assert_equal %w[daily_report savings], cards.map { |card| card["kind"] }.sort
+    assert_equal 700, cards.find { |card| card["kind"] == "savings" }.dig("input", "amount_cents")
+    assert_equal [ 1900 ], cards.find { |card| card["kind"] == "daily_report" }.dig("input", "purchases").map { |row| row["amount_cents"] }
+    ids = cards.map { |card| card["id"] }
+    ask "I spent $19 at Kmart and put aside roughly $7 today", "two-facts"
+    assert_equal ids, response.parsed_body.fetch("challenge_chat_cards").map { |card| card["id"] }
+  end
+
+  [ "I didn't buy anything today but I saved an additional $7", "I hoped to save $60 today but only saved $7", "I couldn't save $60 but I saved $7 today" ].each_with_index do |sentence, index|
+    test "review earlier negation or intention does not govern later saving #{index}" do
+      ask sentence, "local-negation"
+      assert_equal 700, response.parsed_body.dig("challenge_chat_card", "input", "amount_cents"), response.parsed_body.inspect
+    end
+  end
+
+  test "review withdrawal survives negative savings clause" do
+    ask "I didn't save today, I took out $17 from savings today", "withdrawal-clause"
+    assert_equal "withdrawal", response.parsed_body.dig("challenge_chat_card", "input", "kind"), response.parsed_body.inspect
+    assert_equal 1700, response.parsed_body.dig("challenge_chat_card", "input", "amount_cents")
+  end
+
+  [ "I saved nothing today because my dad passed away", "I couldn't save because my employer let me go", "I can't put anything aside today, what can I do?", "Suppose I saved nothing today?", "I can't save above $17 this month" ].each_with_index do |sentence, index|
+    test "review no savings with context is not canned #{index}" do
+      ask sentence, "context-needs-care"
+      refute_match(/Nothing set aside; that’s okay|Start with one purchase|starting point/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_nil response.parsed_body["challenge_chat_card"]
+      assert_equal 0, SavingsEntryVersion.count
+    end
+  end
+
+  test "review two separately reported identical purchases do not merge" do
+    ask "I spent $19 at Kmart today", "first-real-purchase"
+    first = response.parsed_body.fetch("challenge_chat_card")
+    ask "I spent another $19 at Kmart today", "second-real-purchase"
+    second = response.parsed_body.fetch("challenge_chat_card")
+    refute_equal first["id"], second["id"]
+    assert_equal 2, SavingsChatCard.where(kind: "daily_report", status: "pending").count
   end
 
   private

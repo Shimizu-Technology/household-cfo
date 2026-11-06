@@ -1,6 +1,52 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  include ParticipantReaderTestSupport
+  test "yes confirms only setup facts the participant supplied before Mia asked" do
+    context = setup_zero_context("household_name")
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "Our household is called The Reyes Family. Our monthly income is $3,900." },
+      { role: "assistant", content: "Is your household name 'The Reyes Family', and is $3,900 your monthly take-home income?" }
+    ]
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Yes", context: context, api_key: nil).call
+    assert result.actionable?
+    assert_equal({ household_name: "The Reyes Family", primary_income: "3900" }, result.action[:setup_updates])
+    context[:conversation][:recent_messages][0][:content] = "I need help"
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Yes", context: context, api_key: nil).call
+    refute result&.actionable?
+  end
+
+  test "setup confirmation can use separate earlier facts but cannot borrow purchase or invented income" do
+    [ "$3,900", "Our monthly income is $3,900" ].each do |income|
+      context = setup_zero_context("household_name")
+      context[:conversation][:recent_messages] = [
+        { role: "user", content: income },
+        { role: "user", content: "The Reyes Family of Mangilao and Dededo Guam with Grandma Rosa and the Three Kids Too" },
+        { role: "user", content: "Help me set up my household" },
+        { role: "assistant", content: 'Is your household name "The Reyes Family", and is $3,900 your monthly take-home income?' }
+      ]
+      resolve = -> { HouseholdFinance::MiaIntentResolver.new(user_message: "Yes", context: context, api_key: "synthetic", transport: ->(_) { flunk "Confirmation needs no provider" }).call }
+      assert_equal({ household_name: "The Reyes Family", primary_income: "3900" }, resolve.call.action[:setup_updates])
+      [ "I spent $3,900 at Payless", "$3,900 a week", "$4,900", "Our monthly income is not $3,900" ].each do |unrelated|
+        context[:conversation][:recent_messages][0][:content] = unrelated
+        result = resolve.call
+        assert result.clarification?, unrelated
+        refute result.actionable?, unrelated
+      end
+    end
+  end
+
+  test "a provider cannot turn a bill or purchase at the goal question into a goal" do
+    [ "I just spent $45 at Payless on groceries", "My rent is $1,500 a month", "My paycheck is $1,200" ].each do |message|
+      action = default_action.merge(type: "update_household_setup", setup_updates: { primary_goal: message })
+      transport = ->(_) { resolution_json(intent: "household_action", continuation: true, resolved_message: message,
+        topic: { type: "household_setup", title: "Setup", subject: "Primary goal" }, action: action) }
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("primary_goal"), api_key: "synthetic", transport: transport).call
+      refute result&.action&.dig(:setup_updates, :primary_goal), message
+    end
+  end
+
   test "a merchant beginning with New is not a request to create a category" do
     result = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12 at New York today", context: intent_context, api_key: nil

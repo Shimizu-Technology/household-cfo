@@ -12,15 +12,16 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
   const changed = useRef(new Map<number, number>())
   const cleared = useRef(0)
   const accept = useCallback((card: ChallengeChatCard) => {
-    if (!actor || !cohortId) return
+    if (!actor || !cohortId) return false
     changed.current.set(card.id, ++revision.current)
     if (card.status === 'closed') {
       forgetDailyCard(`server-card-${card.id}`)
       setLoaded(current => current?.scope === scope ? { ...current, cards: current.cards.filter(row => row.id !== card.id), reports: current.reports.filter(row => row.nonce !== `server-card-${card.id}`) } : current)
-      return
+      return true
     }
     const report = registerServerDailyCard(card, scope)
     setLoaded(current => ({ scope, cards: [...(current?.scope === scope ? current.cards.filter(row => row.id !== card.id && !(card.kind === 'goal' && row.kind === 'goal')) : []), card], reports: [...(current?.scope === scope ? current.reports.filter(row => row.nonce !== report?.nonce) : []), ...(report ? [report] : [])] }))
+    return true
   }, [scope, actor, cohortId])
   useEffect(() => {
     if (!enabled || !actor || !cohortId) return
