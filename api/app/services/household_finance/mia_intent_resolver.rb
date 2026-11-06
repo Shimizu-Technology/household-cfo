@@ -959,7 +959,6 @@ module HouseholdFinance
     end
 
     def setup_named_minimum_result
-      return unless (next_missing_setup_field == "debt_payment" && guided_setup_question_asked?("debt_payment")) || user_message.match?(/\bmin(?:imum)?(?: payment)?\b/i)
       text = user_message.sub(/[.!]\z/, "").sub(/\Ajust\s+/i, "").sub(/,\s*(?:the\s+)?min\b/i, " minimum").sub(/\bmin is\b/i, "minimum is")
       amount_source = "(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)"
       amount_first = text.match(/\A\$?\s*#{amount_source}\s+(?:(?:(?:a|per)\s+month\s+)?minimum(?:\s+payment)?\s+)?(?:on|for)\s+(?:the\s+|my\s+|our\s+)?([\p{L}][\p{L} '-]{0,79})\z/i) ||
@@ -970,6 +969,9 @@ module HouseholdFinance
       return unless amount
       name = (amount_first ? amount_first[2] : name_first[1]).squish
       debts = Array(context[:active_debts]).select { |debt| debt[:label].to_s.casecmp?(name) }
+      open_minimum = next_missing_setup_field == "debt_payment" && guided_setup_question_asked?("debt_payment")
+      monthly_card = text.match?(/\b(?:a|per) month\b/i) && (name.match?(/\b(?:visa|mastercard|amex|card|loan|mortgage)\b/i) || debts.any?)
+      return unless open_minimum || text.match?(/\bminimum\b/i) || monthly_card
       return if debts.many? || context.dig(:debt_tracking, :mode).to_s == "summary"
       Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
         needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimum", subject: name },

@@ -11,6 +11,15 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "a monthly named card payment remains reviewable after optional debt stops gating setup" do
+    result = resolve("$325 a month on the Mastercard", complete: true)
+    assert result.actionable?, result.to_h.inspect
+    assert_equal "325", result.action[:minimum_payment]
+    refute result.action.key?(:amount)
+    grocery = resolve("$325 a month on groceries", complete: true)
+    refute_equal "create_debt", grocery&.action.to_h[:type]
+  end
+
   test "an old pending setup card does not restart questioning after the form completes" do
     parsed = HouseholdFinance::ParticipantMessageReader.new(message: "thanks").send(:validate,
       { "care" => "none", "facts" => [], "question" => false, "correction" => false, "setup_answer" => { "field" => "none", "value" => "" }, "spending_preferences" => [] })
