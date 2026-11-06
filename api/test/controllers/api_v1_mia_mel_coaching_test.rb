@@ -83,7 +83,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
     end
     assert_equal version.id, selected.version_id
     assert_nil packet[:annual_plan_summary]
-    assert_match(/\Achelu You noticed Ross/, reply)
+    assert_match(/\Achelu\. You noticed Ross/, reply)
     assert_equal version.id, ChatMessage.where(role: "assistant").order(:id).last.coach_persona_version_id
   end
 
