@@ -7,7 +7,7 @@ module Mia
     PHRASE_END = "(?=\\s*(?:[.!?,;…]|\\z|\\b(?:anyway|tbh|lol|honestly|fr|man)\\b))"
     # Stricter end: the sentence itself ends ("…wake up." not "…wake up, it's Monday").
     SENTENCE_END = "(?=\\s*(?:[.!?…]|\\z|\\b(?:tbh|honestly|fr)\\b))"
-    PATTERNS = [
+    LEGACY_SOFT_PATTERNS = [
       /\b(?:kill(?:ing)? myself|end(?:ing)? my life|tak(?:e|ing) my own life|end it all|want to die|suicidal|suicide|hurt(?:ing)? myself|harm(?:ing)? myself|self[-\s]?harm)\b/i,
       # Common texting slang for the same thing.
       /(?<!the )(?<!my )(?<!of )(?<!\d )(?<!\d)\bkmsl?\b/i,
@@ -89,12 +89,79 @@ module Mia
     GIVE_UP_PATTERN = /\bi(?:['’]m|m|\s+am)?\s+(?:just\s+|so\s+|really\s+)?(?:giving up|give up|gave up|want to give up|ready to give up)(?:\s+on\s+(?:everything|life|myself))?#{CLAUSE_END}/i
     # "Should I give up?" asks for advice, not help.
     ADVICE_QUESTION_PATTERN = /\A\s*(?:should|can|could|would|do|does|is it|when do)\b[^.!?]*\?\s*\z/i
+    # Only a current first-person intent with a named self-harm action is an
+    # immediate boundary. Wishes, social absence, idioms and other ambiguous
+    # wording belong to the reader-assisted tier below.
+    INTENT_SOURCE = "(?:want(?:\\s+to)?|wanna|wana|wna|will|gonna|gona|gunna|going\\s+(?:to|2)|about\\s+to|planning\\s+to|plan\\s+to|intend\\s+to|thinking\\s+(?:of|about))".freeze
+    SELF_ACTION_SOURCE = "(?:k(?:ill|il|ll)(?:ing)?|hurt(?:ing)?|harm(?:ing)?|hang(?:ing)?|shoot(?:ing)?|drown(?:ing)?|stab(?:bing)?|poison(?:ing)?|suffocat(?:e|ing)|unaliv(?:e|ing)|off(?:ing)?)\\s+myself|end(?:ing)?\\s+my\\s+life|tak(?:e|ing)\\s+my\\s+own\\s+life".freeze
+    EXPLICIT_PATTERNS = [
+      /\b(?:i(?:['’]m|\s+am)?|im|ima|i['’]ma)\s+(?:just\s+)?#{INTENT_SOURCE}\s+(?:just\s+)?(?:#{SELF_ACTION_SOURCE})\b/i,
+      /(?:\A|[.!?;]\s*)(?:gonna|gona|gunna|going to|wanna|wana|finna)\s+(?:just\s+)?(?:#{SELF_ACTION_SOURCE})\b/i,
+      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:(?:#{SELF_ACTION_SOURCE})\b|(?:die|suicide)#{TIME_WORDS}#{PHRASE_END})/i,
+      /\b(?:i(?:['’]m|\s+am)?|im)\s+#{INTENT_SOURCE}\s+(?:just\s+)?die#{TIME_WORDS}#{PHRASE_END}/i,
+      /\b(?:i(?:['’]m|\s+am)?|im)\s+#{INTENT_SOURCE}\s+(?:just\s+)?overdos(?:e|ing)(?:\s+on\s+(?:(?:all\s+)?my\s+)?pills?)?#{TIME_WORDS}#{PHRASE_END}/i,
+      /\b(?:i(?:['’]m|\s+am)?|im)\s+(?:wanna|want to|gonna|will|might)\s+kms\b/i
+    ].freeze
+    # Missing spaces are common in rushed disclosures. This matches the same
+    # intent/action structure, not a bag of self-harm words.
+    COMPACT_EXPLICIT = /(?:i(?:['’]?m|am)?|\A)(?:wantto|wanna|wana|will|gonna|gona|gunna|goingto|going2|aboutto|planto|intendto)(?:just)?(?:k(?:ill|il|ll)myself|hurtmyself|harmmyself|hangmyself|shootmyself|endmylife|takemyownlife|overdose|die)(?:(?:to|2)?night|tonite|today|tomorrow|now|rn)?\b/i
+    SOFT_FAMILIES = [
+      /\b(?:stop|stopping)\s+existing\b/i,
+      /\b(?:wish|hope)\b[^.!?]{0,55}\b(?:never|not)\s+(?:been\s+)?born\b/i,
+      /\b(?:dont|don['’]?t|do not)\s+(?:wanna|wana|want to)\s+wake up\b/i,
+      /\b(?:want|wanna|wish)\s+(?:it all|everything|life)\s+to\s+(?:end|stop|be over)\b/i,
+      /\b(?:kill|killing|end|ending|hurt|hurting|harm|harming|hang|hanging|shoot|shooting|off|unalive)\s+(?:my\s*self|my own life|my life)\b/i,
+      /\b(?:suicid[ae]?|s[ui]{0,3}c[ui]{0,3}d[aie]{0,3}l(?:ity|ly)?)\b/i,
+      /\b(?:overdos\w*|pills?|self[- ]?harm)\b/i,
+      /\b(?:wish|hope|hoping)\b[^.!?]{0,65}\b(?:dead|die|dying|never born|not born|wake up)\b/i,
+      /\b(?:wish|hope|hoping)\b[^.!?]{0,65}\b(?:wasn['’]?t|wasnt|weren['’]?t|were not|was not)\s+(?:here|alive|born)\b/i,
+      /\b(?:end(?:ing)?|over)\s+(?:it|it all|everything|things)#{TIME_WORDS}#{PHRASE_END}/i,
+      /\bbetter\s+(?:off\s+)?(?:dead|gone|without me|w\/o me)\b|\bbetter\s+off\s+if\s+i\s+(?:was|were)\s+(?:dead|gone)\b/i,
+      /\b(?:world|everyone|everybody|evryone|family|kids|children)\b[^.!?]{0,55}\bbetter\b[^.!?]{0,35}\b(?:without me|w\/o me)\b/i,
+      /\b(?:disappear\w*|vanish\w*)\b/i,
+      /\b(?:nobody|no one|noone)\b[^.!?]{0,55}\b(?:care|notice|miss)\b[^.!?]{0,45}\b(?:died|dead|gone|disappear\w*|wasn['’]?t|wasnt|weren['’]?t|around)\b/i,
+      /\b(?:nobody|no one|noone)\s+(?:even\s+)?needs?\s+me\b/i,
+      /\b(?:dont|don['’]?t|dnt|do not)\s+(?:(?:wanna|wana|want to|want ta)\s+)?(?:b|be)\s+(?:here|alive)\s+(?:any\s?more|no more|tomorrow|tonight|much longer)\b/i,
+      /\bidw\s+(?:b|be)\s+here\b/i,
+      /\b(?:dont|don['’]?t|dnt|do not)\s+(?:wanna|wana|want to)\s+(?:live|exist)(?:\s+(?:no more|any\s?more))?#{PHRASE_END}/i,
+      /\b(?:can['’]?t|cant|cannot|can not)\s+keep\s+(?:going|living)\b/i,
+      /\b(?:dont|don['’]?t|do not)\s+see\s+(?:a|any)\s+way\s+out\b|\b(?:there['’]?s|theres|there is)\s+no\s+way\s+out\b/i,
+      /\b(?:wont|won['’]?t|will not|not gonna|not going to)\s+(?:b|be)\s+(?:here|around)\s+(?:much longer|any longer|next week|tomorrow|soon)\b/i,
+      /\b(?:soon|tomorrow)\b[^.!?]{0,35}\b(?:wont|won['’]?t|will not)\s+be\s+(?:a\s+)?problem\b/i,
+      /\btired\s+of\s+being\s+alive\b|\b(?:no reason|nothing)\s+(?:to|left to)\s+(?:live|keep going|keep living)\b|\bnothing\s+to\s+live\s+for\b/i,
+      /\b(?:point\s+(?:of|in)\s+(?:going on|living)|deserve\s+to\s+live|life\b[^.!?]{0,20}\bworth\s+living)\b/i,
+      /\bburden\b/i,
+      /\b(?:might|could)\s+(?:just\s+)?do\s+something\s+to\s+myself\b/i,
+      /\bjump\s+(?:off|from)\b/i,
+      /\b(?:ready|want|wanna)\b[^.!?]{0,25}\b(?:go|be)\b[^.!?]{0,20}\bwith\s+(?:my|our)\s+(?:mom|dad|mother|father|parents?|husband|wife|child|baby)\b/i
+    ].freeze
+
     WELLBEING_CHECK = "If you ever feel like you might hurt yourself, please call or text 988 right now, or 911 in an emergency. You deserve support, and the money plan can wait until you have it."
     WELLBEING_OPENING = "I’m really glad you told me, and feeling this way does not make you a failure."
 
+    def self.normalized(message)
+      message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").tr("’", "'").gsub(/\bmy\s+self\b/i, "myself").gsub(/\s+/, " ").strip
+    end
+
+    def self.explicit?(message)
+      text = normalized(message)
+      EXPLICIT_PATTERNS.any? { |pattern| text.match?(pattern) } || text.delete(" ").match?(COMPACT_EXPLICIT)
+    end
+
+    def self.soft?(message)
+      text = normalized(message)
+      return false if explicit?(text)
+
+      (LEGACY_SOFT_PATTERNS + SOFT_FAMILIES + HOPELESS_PATTERNS).any? { |pattern| text.match?(pattern) } ||
+        (text.match?(GIVE_UP_PATTERN) && !text.match?(ADVICE_QUESTION_PATTERN))
+    end
+
     def self.matches?(message)
-      normalized = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
-      PATTERNS.any? { |pattern| normalized.match?(pattern) }
+      return true if explicit?(message)
+      return false unless soft?(message)
+
+      reading = HouseholdFinance::ParticipantMessageReader.read_once(message: message)
+      !reading.available || reading.care == "crisis"
     end
 
     # "I have a plan" alone is ambiguous ("I have a plan for my budget"), so it
@@ -107,15 +174,11 @@ module Mia
       matches?(previous_user_message) || hopeless?(previous_user_message)
     end
 
-    def self.hopeless?(message)
-      normalized = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
-      return false if matches?(normalized)
-
-      sentences = normalized.split(/(?<=[.!?])\s+/)
-      sentences.any? do |sentence|
-        HOPELESS_PATTERNS.any? { |pattern| sentence.match?(pattern) } ||
-          (sentence.match?(GIVE_UP_PATTERN) && !sentence.match?(ADVICE_QUESTION_PATTERN))
-      end
+    # Compatibility for callers that used to add an independent wellbeing line.
+    # Ambiguous language now has exactly one reader-assisted crisis decision;
+    # a reader "none" must never acquire 988 through this second route.
+    def self.hopeless?(_message)
+      false
     end
 
     # Adds an acknowledgement (when the reply has none) and the safety check to

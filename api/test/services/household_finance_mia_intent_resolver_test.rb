@@ -3949,6 +3949,15 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "Bonus", retained.read_only_plan.dig(:items, 0, :scenario_label)
   end
 
+  test "care scenario amounts and items cannot come from history or model expansion" do
+    context = intent_context.deep_merge(conversation: { active_thread: { type: "care", care_kind: "hardship" }, recent_messages: [ { role: "user", content: "baby in the hospital, copay is 650 and idk" } ] })
+    [ "how", "how?", "what?", "why", "?", "could you explain" ].each do |message|
+      resolver = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: context, api_key: "")
+      refute resolver.send(:prior_scenario_amount_allowed?, {}, "650", continuation: true), message
+      assert_equal "", resolver.send(:grounded_scenario_label, { kind: "scenario", scenario_label: "copay" }, source_text: "copay 650", continuation: true), message
+    end
+  end
+
   private
 
   def assert_server_bound_setup_zero(field)

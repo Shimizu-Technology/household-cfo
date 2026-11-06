@@ -2,47 +2,74 @@ module HouseholdFinance
   module ParticipantCare
     module_function
 
-    # A care topic contains no amount or financial scenario. Explicit questions
-    # leave it; brief uncertainty and acknowledgements remain with the person.
-    def followup?(message)
-      return true if ConversationFollowupResolver.acknowledgment?(message)
-
-      message.to_s.strip.match?(/\A(?:(?:ok(?:ay)?|yeah|yes|yep|thanks|thank you|ok thanks)[.! ,]*|i(?: just)? (?:don['’]?t|dont|dunno|do not)(?: know)?|idk|i (?:can['’]?t|cant) think straight|(?:ok thanks[.! ]*)?what (?:do i do|should i do|now)(?: first| next)?)[.!? ]*\z/i)
-    end
-
-    def reader_context(message, care)
-      # New money questions/reports stand on their own. Passing the old label
-      # here made even a direct month question look like another disclosure.
-      return if message.to_s.match?(/\?|\A\s*(?:how|what|when|where|which|who|why|do|does|can|could|should|would|is|are)\b/i)
-      return if message.to_s.match?(/\b(?:how much|how many|afford|buy|purchase|spend|spent|balance|total|income|saved|savings)\b/i)
-
-      care
-    end
-
     def topic(care, persona_context_id: nil)
-      { type: "care", title: "Personal support", care_kind: (care.to_sym == :essentials ? "hardship" : care.to_s),
-        persona_context_id: persona_context_id }
+      { "type" => "care", "title" => "Personal support", "care_kind" => (care.to_sym == :essentials ? "hardship" : care.to_s),
+        "started_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
+        "persona_context_id" => persona_context_id }
+    end
+
+    def scenario_current_only?(history: [], context: {})
+      return true if ParticipantMessageReader::Current.scenario_current_only
+      conversation = context.to_h.deep_symbolize_keys[:conversation].to_h
+      topics = [ conversation[:active_thread], *Array(conversation[:open_threads]) ]
+      return true if topics.any? { |row| row.to_h[:type].to_s == "care" }
+
+      rows = [ *Array(history), *Array(conversation[:recent_messages]) ]
+      rows.last(32).any? do |row|
+        data = row.to_h.symbolize_keys
+        data[:role].to_s == "user" && data[:content].to_s.match?(Regexp.union(::Mia::SensitiveMoment::GRIEF, ::Mia::SensitiveMoment::STRAIN))
+      end
+    end
+
+    def current_amounts(message)
+      text = PurchaseReportText.normalize(message.to_s).gsub(PurchaseReportParser::DATE_PATTERN, " ")
+      text.scan(/(?<![\w.,])\$?\s*(#{Money::CHAT_NUMBER_SOURCE})(?![\w.,])/).flatten.filter_map { |amount| Money.chat_cents(amount) rescue nil }
+    end
+
+    def purchase_reference_current?(message, reference)
+      amounts = current_amounts(message)
+      return false if amounts.empty?
+      price = reference.to_s.match(/(?:\bso\s+(?:an?\s+)?|\AThe\s+)\$([\d,.]+)\s+(.+?)(?:\s+would|\s+price)/i)
+      return PurchaseQuestionText.item_label(message).present? if reference.to_s.start_with?("There is no household plan")
+      return false unless price && amounts.include?(Money.chat_cents(price[1]))
+      item = price[2].downcase.strip
+      item.in?(%w[purchase price]) || message.to_s.downcase.include?(item)
+    rescue ArgumentError
+      false
     end
 
     def kind(message)
       current = ParticipantMessageReader::Current
       if current.message.to_s.squish == message.to_s.squish && current.reading&.available
         return current.reading.care.to_sym if current.reading.care?
+        if current.reading.care_status == "ongoing" && current.recent_care.present?
+          return current.recent_care == "crisis" ? :hardship : current.recent_care.to_sym
+        end
+        return certain_kind(message)
       end
       if current.message.to_s.squish == message.to_s.squish && current.guard_care.present?
         return current.guard_care.to_sym unless current.guard_care == "none"
       end
+      certain_kind(message)
+    end
+
+    def certain_kind(message)
       # Exact subject/action forms remain a deterministic floor. Idioms such
       # as dead set/dead tired and fired up never satisfy these forms.
       text = message.to_s.tr("’", "'").strip
-      return :grief if text.match?(/\A(?:my|our) (?:mom|dad|mother|father|husband|wife|sister|brother|grandfather|grandmother|nana) (?:just )?(?:died|passed away|passed)(?: (?:today|yesterday|this week|this weekend))?[.!]?\z/i)
+      return nil if text.match?(/\b(?:so we moved|so i moved|used to|years? ago|all good now|doing better|figured it out)\b/i)
+      return :grief if text.match?(/\A(?:(?:my|our) )?(?:mom|dad|mother|father|husband|wife|sister|brother|grandfather|grandmother|nana|tita|auntie|aunt|uncle) (?:just )?(?:died|passed(?: away)?)(?: (?:today|yesterday|this week|this weekend|last week|on \w+|\w+day))?(?=\s*(?:[.!?,;]|\z|\b(?:and|but|services|funeral|burial)\b))/i)
       return :grief if text.match?(/\A(?:i|we) (?:just )?buried (?:my|our) (?:husband|wife|mom|dad|mother|father|child|son|daughter)\b/i)
       return :job_loss if text.match?(/\A(?:i lost my job|my employer (?:fired me|let me go))(?: (?:today|yesterday|last week))?[.!]?\z/i)
       return :housing if text.match?(/\Awe are about to be evicted[.!]?\z/i)
+      return nil if text.match?(/\b(?:so we moved|so i moved|used to|years? ago|all good now|doing better|figured it out)\b/i)
       return :housing if text.match?(/\b(?:can['’]?t|cant|cannot|won['’]?t|wont|unable to) (?:make|pay|cover|afford) (?:my |our |the )?rent\b/i)
-      return :food if text.match?(/\b(?:help (?:with|w) food|food (?:help|support))\b/i)
-      return :food if !text.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN) && text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?\b/i)
+      return :food if !text.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN) && text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?(?=\s*(?:[,.!?;]|\z|(?:until|til|till|today|tonight|left)\b))/i)
       return :food if MoneyMovementText.food_insecurity?(text)
+      return nil if reading_available?(message)
+      return :hardship if text.match?(/\b(?:my|our|the)?\s*(?:baby|child|husband|wife|mom|dad)\b.{0,30}\b(?:in (?:the )?hospital|hospitalized)\b/i)
+      return :hardship if text.match?(/\b(?:cut|took away|lost)\b.{0,25}\b(?:my|our) (?:hours|shifts)\b/i)
+      return :hardship if text.match?(/\b(?:truck|car) broke down\b/i) && text.match?(/\b(?:cant|can['’]?t|cannot) (?:get|go) to work\b/i)
       :essentials if MiaCoachAnswerer.essential_hardship?(text)
     end
 
@@ -77,6 +104,7 @@ module HouseholdFinance
     end
 
     def fallback(message, reference)
+      return reference if ParticipantCareState.report?(message, ParticipantMessageReader::Current.reading) if ParticipantMessageReader::Current.reading
       care = ParticipantMessageReader::Current.recent_care
       return reference unless care.present?
       return reference unless reference.to_s.match?(/not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
@@ -94,7 +122,7 @@ module HouseholdFinance
           return "Going without food is hard, and you deserve to eat. Food comes first for you and your family; saving and setup can wait. Please talk with your coach or someone you trust about getting food today and finding support nearby. I don't have verified local contacts to give you.#{spend_note} Do you have enough food for everyone, including you, today?"
         end
         if message.to_s.match?(/\b(?:what|how|can|cant|cannot|can't)\b/i) && message.to_s.match?(/\brent\b/i)
-          return "Protect food, housing, utilities and medicine. If rent may be short, contact your landlord before it is due and ask about a payment arrangement; they may or may not agree. Ask your coach or someone you trust to help you work through the options. What is the rent due date?"
+          return "Protect food, housing, utilities and medicine. If rent may be short, contact your landlord as soon as you can and ask about a payment arrangement; they may or may not agree. Ask your coach or someone you trust to help you work through the options. What is the rent due date?"
         end
       end
       case selected

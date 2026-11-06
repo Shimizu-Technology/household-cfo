@@ -6,7 +6,7 @@ module HouseholdFinance
   # span; callers convert it to typed, unreviewed input for the existing cards.
   class ParticipantMessageReader
     class Current < ActiveSupport::CurrentAttributes
-      attribute :message, :reading, :guard_care, :recent_care
+      attribute :message, :reading, :guard_care, :recent_care, :care_topic, :scenario_current_only
     end
 
     ProviderFailure = Class.new(StandardError)
@@ -52,6 +52,13 @@ module HouseholdFinance
 
     def self.call(**options) = new(**options).call
 
+    def self.read_once(message:, **options)
+      return Current.reading if Current.message == message.to_s && Current.reading
+
+      Current.message = message.to_s
+      Current.reading = call(message: message, **options)
+    end
+
     # Only a quoted amount span reaches this conversion. The existing money
     # normalizer understands explicit dollar/cents words, never bare quantities.
     def self.amount_text(value)
@@ -87,14 +94,14 @@ module HouseholdFinance
       keys = %w[care facts question setup_answer correction spending_preferences]
       raise ArgumentError unless value.is_a?(Hash) && (value.keys & keys).any?
       care = value["care"].presence_in(%w[none hardship grief shame crisis]) || "none"
-      care = "none" if care == "shame" && !@message.match?(SELF_JUDGEMENT)
+      care = "none" if care == "shame" && @message.match?(THING_JUDGEMENT) && !@message.match?(/\b(?:myself|stupid me|dumb me|of me)\b/i)
       @question = value["question"] == true
       @hypothetical_movement = false
       @unclear_amount = value["unclear_amount"] == true
       facts = Array(value["facts"]).first(20).filter_map { |fact| validated_fact(fact) }
       # Naming a funeral cost is context for care, not a purchase report. Keep
       # explicit completed spending available for review without evaluating it.
-      if care == "grief" && !@message.match?(/\b(?:spent|paid|bought|purchased)\b/i)
+      if care != "none" && !@message.match?(/\b(?:spent|paid|bought|purchased)\b/i)
         facts.reject! { |fact| fact["kind"] == "purchase" }
       end
       answer = validated_answer(value["setup_answer"], correction: value["correction"] == true)

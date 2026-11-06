@@ -66,4 +66,21 @@ class ParticipantMessageReaderValidationTest < ActiveSupport::TestCase
     assert result.available
     assert_equal "last friday", result.facts.sole["day"]
   end
+  test "all care costs are context while completed reports remain facts" do
+    %w[grief hardship shame].each do |care|
+      result = read("baby in the hospital, copay is 650 and idk", data(care: care, facts: [ fact("purchase", "650", item: "copay") ]))
+      assert_empty result.facts, care
+    end
+    result = read("spent 12 at kin today", data(facts: [ fact("purchase", "12", merchant: "kin", day: "today") ]))
+    assert_equal "12", result.facts.sole["amount"]
+  end
+
+  test "reader shame stands unless the insult clearly targets a thing" do
+    [ "so stupid of me", "i was so stupid to buy that truck", "im honestly so dumb w money", "we so dumb with money", "i been so dumb", "im literally so stupid", "stupid me", "feel like a failure", "i was an idiot" ].each do |message|
+      assert_equal "shame", read(message, data(care: "shame")).care, message
+    end
+    [ "this stupid budget", "dumb app" ].each do |message|
+      assert_equal "none", read(message, data(care: "shame")).care, message
+    end
+  end
 end

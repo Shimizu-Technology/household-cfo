@@ -24,7 +24,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
       assert_nil food_narrator.send(:narration_rejection_reason, content), content
       subject = food_narrator
       subject.define_singleton_method(:openrouter_response) { content }
-      assert_equal Mia::SensitiveMoment.response("I've been skipping meals so the kids could eat"), subject.call
+      assert_equal content, subject.call
     end
   end
 

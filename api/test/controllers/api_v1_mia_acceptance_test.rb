@@ -68,7 +68,7 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 0, household.budget_years.count
   end
 
-  test "hopeless language keeps the money help and always adds a gentle safety check" do
+  test "hopeless language fails safe when the reader is unavailable" do
     user, _household = participant
     [
       "I can't do this anymore. Every month I fall behind on bills and I feel like a failure.",
@@ -80,10 +80,10 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
       assert_includes content, "call or text 988", message
-      assert_includes content, "the money plan can wait", message
+      assert_equal Mia::CrisisBoundary.response, content, message
       assert_equal 1, content.scan("988").length, message
       answer = content.sub(Mia::CrisisBoundary::WELLBEING_CHECK, "").sub(Mia::CrisisBoundary::WELLBEING_OPENING, "").strip
-      assert_operator answer.length, :>, 60, "the money answer must remain: #{message}"
+      assert_operator answer.length, :>, 60, "the support answer must remain: #{message}"
     end
   end
 
@@ -101,7 +101,7 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "lethal method references without first person self harm intent stay outside crisis preflight" do
+  test "lethal method references without first person self harm intent stay outside explicit preflight" do
     [
       "My friend is planning to overdose.",
       "Someone is going to shoot themselves.",
@@ -115,7 +115,7 @@ class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
       "I cannot go on a trip this month",
       "I am planning to shoot a video about household budgets."
     ].each do |message|
-      refute Mia::CrisisBoundary.matches?(message), message
+      refute Mia::CrisisBoundary.explicit?(message), message
     end
   end
 

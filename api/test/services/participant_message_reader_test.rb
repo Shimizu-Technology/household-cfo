@@ -68,8 +68,8 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     end
   end
 
-  test "reader shame needs the participant's own words about herself" do
-    [ "i spent too much at ross again", "I keep ordering shoes online at night even though I can't really pay for them.", "so frustrated, i keep messing up this budget" ].each do |text|
+  test "reader shame is trusted except insults clearly aimed at things" do
+    [ "this stupid budget", "dumb app", "my useless phone" ].each do |text|
       assert_equal "none", read(text, object(care: "shame")).care, text
     end
     [ "im so stupid with money", "i am really stupid", "im such a complete failure", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|

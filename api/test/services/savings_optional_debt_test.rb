@@ -256,18 +256,12 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
     end
   end
 
-  test "hopeless language gets a deterministic gentle step with no coaching stop" do
+  test "ambiguous hopeless language fails safe when the reader is unavailable" do
     with_savings_runtime do
       savings_enroll
       coach = coach("i dont see the point anymore")
-      answer = coach.call
+      assert_equal ::Mia::CrisisBoundary.response, coach.call
       assert coach.deterministic?
-      assert_includes answer, "That sounds really heavy"
-      assert_includes answer, "you can skip today"
-      assert_includes answer, "just stays unknown"
-      assert_includes answer, "smaller target"
-      refute_includes answer, "stop the money coaching"
-      assert_includes ::Mia::CrisisBoundary.with_wellbeing_check(answer), "988"
     end
   end
   test "payment reports, request phrasing and loan requests do not trigger the card or loan answers" do

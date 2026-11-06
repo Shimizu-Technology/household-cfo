@@ -49,6 +49,12 @@ module HouseholdFinance
       @model = model.to_s.strip.presence || AiModels.text
       @persona = persona
       @approved_content = Array(approved_content)
+      @scenario_current_only = ParticipantCare.scenario_current_only?(history: @history)
+      if @scenario_current_only && @answer_packet[:kind] == "purchase_scenario" &&
+          !ParticipantCare.purchase_reference_current?(@user_message, @answer_packet[:purchase_prefix].presence || @answer_packet[:fallback_response])
+        @answer_packet = { kind: "coaching", write_state: "no_write", care_context: ParticipantMessageReader::Current.care_topic,
+          fallback_response: "What purchase and price are you considering now?" }
+      end
       @supplied_content_context = []
     end
 
@@ -65,21 +71,31 @@ module HouseholdFinance
         @response_source = "deterministic_safety"
         return ::Mia::CrisisBoundary.response
       end
-      if (care = ParticipantCare.answer(user_message))
+      care = ParticipantCare.kind(user_message)
+      if care == :crisis
         @response_source = "deterministic_safety"
-        return care
+        return ::Mia::CrisisBoundary.response
       end
-      if ::Mia::SensitiveMoment.matches?(user_message)
+      if care || answer_packet[:care_context]
+        @answer_packet[:fallback_response] = ParticipantCare.answer(user_message, care: care) if care && !answer_packet[:care_context]
+        @answer_packet[:kind] = "coaching"
+        @answer_packet[:care_context] ||= ParticipantMessageReader::Current.care_topic || { care_kind: care, disclosure: user_message }
+        @answer_packet[:fallback_response] = ParticipantCare.answer(user_message, care: care) if @answer_packet[:fallback_response].blank?
+        if api_key.blank?
+          @response_source = "deterministic_safety"
+          return fallback_response
+        end
+      elsif ::Mia::SensitiveMoment.matches?(user_message)
         @response_source = "deterministic_safety"
         return ::Mia::SensitiveMoment.response(user_message)
       end
       care_guard = HouseholdFinance::ParticipantCare.guard_when_unread(user_message, history: history, reply: "I couldn't read that safely just now. Please try again. Nothing changed.", api_key: api_key)
       @guard_care_kind = care_guard&.care
-      if care_guard&.sensitive?
+      if care_guard&.sensitive? && !answer_packet[:care_context]
         @response_source = "deterministic_safety"
         return HouseholdFinance::ParticipantCare.answer(user_message, care: care_guard.care || "hardship")
       end
-      return fallback_response if care_guard && !care_guard.allowed?
+      return fallback_response if care_guard && !(care_guard.reasons - (answer_packet[:care_context] ? [ "sensitive_moment" ] : [])).empty?
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
       return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
@@ -167,9 +183,11 @@ module HouseholdFinance
     end
 
     def narrator_contract
+      care_instruction = answer_packet[:care_context] ? "This is ongoing personal support. Use care_context and the participant's current reply to answer what she actually needs, including practical, guarded next steps. Continue a rent due-date answer or a no-food answer in that context. Never restart setup or ask her to add financial numbers. Disclosed costs are context, never purchase scenarios. Their amounts are deliberately withheld from the writer; never say the amount is missing or ask her to repeat it. Give practical support without needing more financial data. Do not repeat a canned sympathy line or repeat an already answered question. No coach phrase, teasing, financial figures, invented contacts/programs or claims of saved outcomes. Never assume rent is not due yet; advise contacting the landlord as soon as possible, even if overdue. For recent crisis, check whether a trusted person can be with her; current explicit crisis is handled separately. " : ""
       return purchase_contract if purchase_coaching?
 
       <<~PROMPT.squish
+        #{care_instruction}
         You are the response layer for #{persona.name}, the assigned coaching assistant. ANSWER_PACKET_JSON distinguishes verified financial facts, participant-reported experiences, general approved coaching guidance, and allowed actions. Only financial facts are app-verified; coaching_provenance states what a reflection does and does not establish.
         Answer the participant's actual question naturally in the assigned coach assistant's approved voice and Household CFO frame. The verified_reference_answer is a factual and safety reference, not a script; do not merely paraphrase it when the recent conversation calls for a clearer direct answer.
         For an explicit month question with stress, acknowledge the feeling in one short clause and put the requested plan answer in that same first sentence. Do not infer that finances are steadier or worse than the participant feels. For a financial question start with the direct answer; for a feeling or reported habit, validate what happened before coaching. Preserve the assigned voice’s warmth, rhythm, and directness even when no cultural phrase fits. The server may insert an exact accountability phrase for a clearly repeated discretionary pattern; never write one yourself, but never use teasing or cultural phrases in hardship, embarrassment, shame, or crisis. Follow the assigned persona's cultural phrase contexts, cautions, and frequency. Never imitate an accent, invent regional slang, or infer culture from a location label.
@@ -243,13 +261,24 @@ module HouseholdFinance
         answer_packet[:kind].to_s.in?(%w[transaction_draft transaction_draft_update budget_action])
     end
 
+    # Support does not need the disclosed price. Keep it out of the writer's
+    # inputs as well as the financial resolver; current ordinal dates can stay.
+    def care_model_text(text)
+      return text unless answer_packet[:care_context]
+
+      text.to_s.gsub(/\$?\d[\d,.]*(?![\w])/i) do |span|
+        ordinal = text.to_s.match?(/#{Regexp.escape(span)}(?:st|nd|rd|th)\b/i)
+        ordinal ? span : "[cost already disclosed]"
+      end
+    end
+
     def narration_request
       <<~PROMPT.squish
         USER_MESSAGE:
-        #{user_message}
+        #{care_model_text(user_message)}
 
         ANSWER_PACKET_JSON:
-        #{packet_json}
+        #{care_model_text(packet_json)}
 
         Write #{persona.name}'s final response now. Use only the participant's stated payment method. Do not assume a card, trip or borrowing terms. Ask a practical question specific to this item or habit; vary it from recent replies.
       PROMPT
@@ -287,6 +316,7 @@ module HouseholdFinance
         content = message[:content] || message["content"]
         next unless role.to_s.in?(%w[user assistant]) && content.to_s.squish.present?
 
+        content = care_model_text(content)
         content = ::Mia::LanguagePolicy.redact_unauthorized_phrase_artifacts(content, persona: persona)
         next if content.blank?
 
@@ -329,6 +359,7 @@ module HouseholdFinance
 
     def purchase_prefix
       reference = answer_packet[:purchase_prefix].presence || answer_packet[:fallback_response].to_s
+      return if @scenario_current_only && !ParticipantCare.purchase_reference_current?(user_message, reference)
       return unless answer_packet[:purchase_prefix].present? || reference.start_with?("The $") || reference.match?(/\A(?:Your(?: .+?)?|This month’s) plan (?:has .+? left|is .+? short), so /)
 
       # Older packets may still carry the two-sentence form.
@@ -338,6 +369,7 @@ module HouseholdFinance
     end
 
     def delivery_prefix
+      return "" if answer_packet[:care_context]
       figures = purchase_coaching? ? purchase_prefix : nil
       phrase = language_policy.server_phrase_prefix
       prefix = [ figures, phrase ].compact_blank.join(" ")
@@ -359,7 +391,8 @@ module HouseholdFinance
     end
 
     def fallback_response
-      reference = ParticipantCare.fallback(user_message, answer_packet[:fallback_response].to_s)
+      reference = answer_packet[:fallback_response].to_s
+      reference = ParticipantCare.fallback(user_message, reference) if api_key.blank?
       return reference unless purchase_coaching? && purchase_prefix.present?
 
       range = purchase_sentence_range(include_phrase: false)
@@ -384,8 +417,15 @@ module HouseholdFinance
       reply = [ delivery_prefix, content ].compact_blank.join(" ")
       facts = answer_packet.merge(coach_persona: persona.guard_facts)
       bounded = ::Mia::ReplyGuard.bounded_facts(facts)
-      ::Mia::ReplyGuard.call(user_message: user_message, history: history,
+      checked = ::Mia::ReplyGuard.call(user_message: user_message, history: history,
         facts: bounded || facts, reply: reply, api_key: api_key)
+      # sensitive_moment is a routing signal, already handled by this care-only
+      # packet. Every claim, phone, shame, phrase and decision flag still rejects.
+      if answer_packet[:care_context]
+        ::Mia::ReplyGuard::Result.new(checked.reasons - [ "sensitive_moment" ], care: checked.care, history_sensitive: true)
+      else
+        checked
+      end
     end
 
     def sanitize_narration(content)
@@ -407,6 +447,12 @@ module HouseholdFinance
 
     def narration_rejection_reason(content, guard_covered: false)
       return :blank_response if content.blank?
+      if answer_packet[:care_context]
+        return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|debt minimums)|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
+        without_dates = content.gsub(/\b\d{1,2}(?:st|nd|rd|th)\b/i) { |date| user_message.include?(date) ? "" : date }
+        return :unverified_amount if without_dates.match?(/[\p{N}\p{Sc}]/)
+        return :ineligible_coach_phrase if language_policy.phrase_rejection_reason(content)
+      end
       return :unexpected_crisis_guidance if ParticipantCare.unexpected_crisis_guidance?(user_message, content, care: @guard_care_kind)
       claim_rejection = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered, confirmed_write: answer_packet[:write_state] == "confirmed_write" || (answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)))
       return claim_rejection if claim_rejection

@@ -11,19 +11,18 @@ class ParticipantCareTest < ActiveSupport::TestCase
     refute HouseholdFinance::ParticipantCare.kind("what if payday is late, we out of food money")
   end
 
-  test "explicit financial questions do not carry the reader's prior care label" do
-    [ "how much is left", "can i buy shoes", "what is my balance", "how much have i saved", "hows my plan looking?", "which bill comes next" ].each do |text|
-      assert_nil HouseholdFinance::ParticipantCare.reader_context(text, "grief"), text
+  test "care history restricts scenario sources without classifying followup words" do
+    history = [ { role: "user", content: "my mom died and the funeral was 2500" } ]
+    assert HouseholdFinance::ParticipantCare.scenario_current_only?(history: history)
+    [ "how", "how?", "what?", "why", "?", "something wholly different" ].each do |text|
+      refute HouseholdFinance::ParticipantCare.purchase_reference_current?(text, "So a $2,500 funeral would leave $20"), text
     end
-    assert_equal "grief", HouseholdFinance::ParticipantCare.reader_context("i feel completely lost", "grief")
+    assert HouseholdFinance::ParticipantCare.purchase_reference_current?("can i buy $40 shoes", "So a $40 shoes would leave $20")
   end
 
-  test "care continuity keeps uncertainty but releases explicit money questions" do
-    %w[idk yeah ok].push("thanks mia", "sounds good", "i just dunno", "ok thanks. what do i do first", "i cant think straight").each do |text|
-      assert HouseholdFinance::ParticipantCare.followup?(text), text
-    end
-    [ "how much is left", "can i buy 40 shoes", "what did i spend" ].each do |text|
-      refute HouseholdFinance::ParticipantCare.followup?(text), text
+  test "food floor does not mistake budget questions or zero expenses for hunger" do
+    [ "We have no food expenses this week. Can I buy a $300 TV?", "can you help with food budget", "help with food budget for xmas", "i cant afford rent in tumon so we moved" ].each do |text|
+      assert_nil HouseholdFinance::ParticipantCare.kind(text), text
     end
   end
 

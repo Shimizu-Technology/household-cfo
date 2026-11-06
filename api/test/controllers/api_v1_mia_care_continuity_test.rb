@@ -50,6 +50,12 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     ask("im so done w this stupid budget lol")
     refute_match(/You are not stupid|988|readiness|approved data/i, reply)
     assert_match(/frustrat|hardest/, reply)
+    ask("this budget is stupid")
+    assert_match(/frustrat|hardest/, reply)
+    ask("done w my budget! whats next")
+    refute_match(/budget feels frustrating/i, reply)
+    ask("done with the challenge! we did it")
+    refute_match(/budget feels frustrating/i, reply)
     ask("i am really stupid with this budget")
     assert_match(/not stupid|worth/i, reply)
   end
@@ -73,6 +79,50 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
       ask(text)
       assert_includes reply, "988"
     end
+  end
+
+  test "arbitrary short replies cannot turn a disclosure into a purchase or setup" do
+    [ false, true ].each do |challenge|
+      if challenge
+        setup_savings_context
+        with_savings_runtime { savings_enroll; savings_plan }
+        @user, @household = @savings_user, @savings_household
+      end
+      ask("we buried my husband and the funeral costs 2500")
+      [ "how", "how?", "what?", "why", "?", "please stay" ].each do |message|
+        ask(message)
+        refute_match(/purchase|category|setup|debt minimum|2,500|Glad to help/i, reply.gsub("money or setup", "money"), message)
+        assert_equal "care", @household.chat_sessions.order(:id).last.active_topic.fetch("type")
+      end
+    end
+  end
+
+  test "crisis saves care and new crisis wording always reaches safety again" do
+    ask("i want to kill myself")
+    assert_includes reply, "988"
+    assert_equal "crisis", @household.chat_sessions.order(:id).last.active_topic.fetch("care_kind")
+    [ "thanks", "idk" ].each do |text|
+      ask(text)
+      refute_match(/Glad to help|setup|purchase|debt minimum/i, reply)
+      assert_match(/trust/, reply)
+    end
+    ask("wish i was dead")
+    assert_includes reply, "988"
+  end
+
+  test "expired grief cannot control a brief reply weeks later" do
+    ask("my brother passed on monday")
+    travel 20.days do
+      ask("ok")
+      refute_match(/sorry for your loss/i, reply)
+    end
+  end
+
+  test "completed savings after grief keeps its honest no write reply" do
+    ask("my brother passed on monday")
+    ask("put away 20 today")
+    refute_match(/sorry for your loss/i, reply)
+    refute_match(/I saved|I recorded|I logged/i, reply)
   end
 
   private

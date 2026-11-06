@@ -261,6 +261,7 @@ module Mia
     end
 
     def sensitive_moment?
+      return true if HouseholdFinance::ParticipantMessageReader::Current.care_topic.present?
       prior = history.filter_map { |turn| (turn[:content] || turn["content"]).to_s if (turn[:role] || turn["role"]).to_s == "user" }.last(4)
       recovery = prior.rindex { |text| text.match?(/\bi (?:started|have|got) a new job\b.*\b(?:steady|stable|doing fine|doing well)\b/i) }
       if recovery
@@ -269,10 +270,16 @@ module Mia
         end
       end
       texts = [ user_message ] + prior
-      texts.any? do |text|
-        ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text) ||
-          HouseholdFinance::ParticipantCare.required?(text) || ::Mia::SensitiveMoment.matches?(text) ||
-          text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
+      texts.each_with_index.any? do |text, index|
+        # Prior turns suppress phrases; they must never trigger a new reader
+        # call or replace the current turn's shared semantic reading.
+        sensitive = if index.zero?
+          ::Mia::CrisisBoundary.matches?(text) || HouseholdFinance::ParticipantCare.required?(text) || ::Mia::SensitiveMoment.matches?(text)
+        else
+          ::Mia::CrisisBoundary.explicit?(text) || ::Mia::CrisisBoundary.soft?(text) ||
+            text.match?(::Mia::SensitiveMoment::GRIEF) || text.match?(::Mia::SensitiveMoment::STRAIN)
+        end
+        sensitive || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end
     end
 
