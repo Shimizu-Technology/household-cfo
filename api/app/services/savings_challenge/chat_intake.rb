@@ -20,7 +20,7 @@ module SavingsChallenge
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       @intakes = structured_inputs
-      if @intakes.empty? && !@reading.available && @message.match?(/\A(?:(?:i|we) spent \$\d+(?:\.\d{1,2})? at [\p{L} '-]+ (?:today|yesterday)|no[ -]spend (?:today|yesterday))[.!]?\z/i)
+      if @intakes.empty? && !@reading.available && @message.match?(/\A(?:(?:(?:i|we) )?spent \$\d+(?:\.\d{1,2})? at [\p{L} '-]+ (?:today|yesterday)|no[ -]spend (?:today|yesterday))[.!]?\z/i)
         report = DailyReportParser.new(@enrollment, message: @message).call
         @intakes << report.report if report.found?
         @rejection = report.reason if report.status == :rejected
@@ -40,10 +40,11 @@ module SavingsChallenge
     private
 
     def no_spend_source
-      return @message unless @reading.question
-      # A question alone never asserts a check-in. Keep a separate, complete
-      # explicit no-spend sentence without asking the legacy parser to read it.
-      @message.split(/(?<=[.!])\s+/).find do |sentence|
+      return @message if @reading.available && !@reading.question
+      # A question alone never asserts a check-in. Keep a separate explicit
+      # no-spend sentence; during an outage require the whole message to be one.
+      sentences = @reading.question ? @message.split(/(?<=[.!])\s+/) : [ @message ]
+      sentences.find do |sentence|
         sentence.match?(/\A(?:no[ -]spend(?:ing)?|(?:i|we) (?:did not|didn['’]t) spend (?:anything|money))(?: (?:today|yesterday))?[.!]?\z/i)
       end
     end

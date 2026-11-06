@@ -2776,5 +2776,27 @@
     },
     "correction": false,
     "spending_preferences": []
+  },
+  "Day 30: No spending today": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I spent nothing today but I feel stressed": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
   }
 }

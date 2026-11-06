@@ -109,6 +109,15 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_equal Date.current.iso8601, parser.intakes.sole[:local_on]
   end
 
+  test "an outage never guesses that a no spend question reports a day" do
+    text = "Was today a no-spend day"
+    result = HouseholdFinance::ParticipantMessageReader.call(message: text, api_key: "")
+    calendar = HouseholdFinance::PurchaseReportParser::Calendar.new(Date.current - 30, Date.current + 30, Date.current)
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_empty parser.intakes
+  end
+
   test "quoted spoken cents are converted by the existing money normalizer" do
     text = "I spent eighteen dollars and forty-seven cents at Payless today"
     result = read(text, object(facts: [ fact("purchase", "eighteen dollars and forty-seven cents", merchant: "Payless") ]))
