@@ -9,7 +9,7 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
   GOOD = { "supported" => true, "speaker" => "hers", "identity" => false, "harmful" => false }.freeze
 
   test "every uncertain verdict malformed response timeout or unavailable provider fails closed" do
-    invalid = [ nil, "{}", "[]", "null", "```json\n#{GOOD.to_json}\n```", GOOD.merge("supported" => "true").to_json,
+    invalid = [ nil, "{}", "[]", "null", GOOD.merge("supported" => "true").to_json,
       GOOD.except("harmful").to_json, GOOD.merge("extra" => false).to_json,
       GOOD.merge("speaker" => "coach").to_json ]
     invalid += [ GOOD.merge("supported" => false), GOOD.merge("speaker" => "other"), GOOD.merge("speaker" => "unclear"),

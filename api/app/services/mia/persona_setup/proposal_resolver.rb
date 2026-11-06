@@ -68,6 +68,14 @@ module Mia
       end
 
       def call(context:, user_message:)
+        ProviderReply.with_retry { resolve(context: context, user_message: user_message) }
+      rescue ProviderReply::Malformed, JSON::ParserError, KeyError, TypeError, ArgumentError
+        raise Error.new("Mia returned an invalid setup proposal.", code: "persona_setup_invalid")
+      rescue *ProviderReply::TRANSPORT_ERRORS
+        raise Error.new("Persona setup timed out. Try again.", code: "persona_setup_unavailable")
+      end
+
+      def resolve(context:, user_message:)
         raise Error.new("Persona setup is temporarily unavailable.", code: "persona_setup_unavailable") if api_key.blank?
 
         response = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "persona_setup") do
@@ -84,19 +92,19 @@ module Mia
         unless returned_model == model
           raise Error.new("The configured persona setup model was not used.", code: "persona_setup_invalid")
         end
-        raise Error.new("Mia returned an incomplete setup proposal.", code: "persona_setup_invalid") if content.blank? || finish_reason != "stop"
+        raise Error.new("Mia returned an incomplete setup proposal.", code: "persona_setup_invalid") if finish_reason != "stop"
 
-        parsed = JSON.parse(content.to_s.strip)
+        parsed = ProviderReply.object(content)
         unless parsed.is_a?(Hash) && parsed.keys.sort == %w[assistant_message operations] && parsed["operations"].is_a?(Array)
-          raise Error.new("Mia returned an invalid setup proposal.", code: "persona_setup_invalid")
+          raise ProviderReply::Malformed, "Invalid setup proposal"
         end
         raw_assistant_message = parsed.fetch("assistant_message")
         unless raw_assistant_message.is_a?(String)
-          raise Error.new("Mia returned an invalid setup message.", code: "persona_setup_invalid")
+          raise ProviderReply::Malformed, "Invalid setup message"
         end
         assistant_message = raw_assistant_message.squish
         unless assistant_message.present? && assistant_message.length <= 2_000
-          raise Error.new("Mia returned an invalid setup message.", code: "persona_setup_invalid")
+          raise ProviderReply::Malformed, "Invalid setup message"
         end
         if assistant_message_claims_completion?(assistant_message) ||
             assistant_message.match?(/allowed options|approximations|\bapplied\b|draft revision|\bmodel\b|release candidate/i) ||
@@ -123,12 +131,6 @@ module Mia
             "usage" => sanitize_usage(json["usage"])
           }
         )
-      rescue Error
-        raise
-      rescue JSON::ParserError, KeyError, TypeError, ArgumentError
-        raise Error.new("Mia returned an invalid setup proposal.", code: "persona_setup_invalid")
-      rescue Timeout::Error, Net::OpenTimeout, Net::ReadTimeout, SocketError, SystemCallError
-        raise Error.new("Persona setup timed out. Try again.", code: "persona_setup_unavailable")
       end
 
       def payload_for(context:, user_message:)
@@ -149,6 +151,13 @@ module Mia
                 do/do_not guidance, and curriculum.examples with mia_drafted. Cite exact evidence from the transcript
                 for every such suggestion. For typed voice descriptions and transcripts, use the allowed enum values for voice fields, even if the source uses other
                 words. Cite the coach’s actual description of how they speak; preset voice values need not be verbatim quotes.
+                Each new coaching list item must contain one adopted idea in her words, with its complete conditions.
+                Never copy a client line or the whole message into a coaching item. Keep client quotes, speaker labels,
+                retired habits and explanations out of guidance to follow. Split prohibitions into coaching.do_not and
+                current instructions into coaching.do; keep unchanged saved items. For example, Do not say "Give up." Ask what would help.
+                becomes do_not ["Say \"Give up.\""], do ["Ask what would help."] with the complete original evidence.
+                I no longer lecture; I ask questions instead. becomes do_not ["Lecture"], do ["I ask questions instead."]
+                Never put the words "Do not" into do_not if that would create a double negative.
                 For coaching fields, curriculum content and phrase meanings, every detail must be supported by the cited quote, including numbers, instructions and negation. Use a complete quote for the whole suggestion; prefer the coach’s wording over elaborate paraphrases. Never cite just a phrase to invent its meaning. If only the phrase is supplied, repeat its exact text in meaning; use general context, rare frequency and an empty caution rather than inventing an interpretation. Use pending_suggestions as the proposed state, preserving earlier suggestions unless the coach changes them. Do not repeat unchanged operations from earlier turns.
                 Finite voice presets may map the meaning of her own voice description without matching menu words. Do not propose a preset that contradicts or discards a limit in her description; preserve contextual limits in coaching.do using her exact wording. Free text still requires every content word and condition to be supported by its quote.
                 Respect negation: no humor cannot support lighthearted. Preserve existing array choices unless the coach explicitly asks to remove them.

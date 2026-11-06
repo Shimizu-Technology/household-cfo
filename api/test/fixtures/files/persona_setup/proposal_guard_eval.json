@@ -2021,7 +2021,8 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "I want to be candid about tradeoffs without sounding harsh. Keep the humour out, and do not say \"You should have known better.\""
+        "I want to be candid about tradeoffs without sounding harsh.",
+        "Keep the humour out."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "I want to be candid about tradeoffs without sounding harsh. Keep the humour out, and do not say \"You should have known better.\""
@@ -2051,7 +2052,7 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "This is a client’s line, not mine:\nClient: \"I’m hopeless with money.\"\nKeep my replies steady and respectful, and ask what feels manageable today."
+        "Keep my replies steady and respectful, and ask what feels manageable today."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "This is a client’s line, not mine:\nClient: \"I’m hopeless with money.\"\nKeep my replies steady and respectful, and ask what feels manageable today."
@@ -2111,7 +2112,8 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "Keep the upbeat part for good news only. In a hard conversation, I want a grounded, serious voice. Don’t use my line \"That’s your own fault.\" It isn’t how I talk."
+        "Keep the upbeat part for good news only.",
+        "In a hard conversation, I want a grounded, serious voice."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Keep the upbeat part for good news only. In a hard conversation, I want a grounded, serious voice. Don’t use my line \"That’s your own fault.\" It isn’t how I talk."
@@ -2201,7 +2203,7 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "A client once told me \"I ruin everything I touch.\" Those are her words. My reply should acknowledge the worry and ask which part she wants to tackle first."
+        "My reply should acknowledge the worry and ask which part she wants to tackle first."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "A client once told me \"I ruin everything I touch.\" Those are her words. My reply should acknowledge the worry and ask which part she wants to tackle first."
@@ -2231,7 +2233,8 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "Please keep the serious side for setbacks. Don’t adopt the saying \"You did this to yourself.\" I would rather ask what support would make the next step easier."
+        "Please keep the serious side for setbacks.",
+        "I would rather ask what support would make the next step easier."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Please keep the serious side for setbacks. Don’t adopt the saying \"You did this to yourself.\" I would rather ask what support would make the next step easier."
@@ -2426,7 +2429,7 @@
       "op": "set",
       "path": "coaching.do_not",
       "value": [
-        "Never say \"Pay up.\""
+        "Say \"Pay up.\""
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Never say \"Pay up.\""
@@ -2441,7 +2444,7 @@
       "op": "set",
       "path": "coaching.do_not",
       "value": [
-        "Don’t say \"Pay up.\""
+        "Say \"Pay up.\""
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Don’t say \"Pay up.\""
@@ -2456,7 +2459,7 @@
       "op": "set",
       "path": "coaching.do_not",
       "value": [
-        "Never tell people to stop spending."
+        "Tell people to stop spending."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Never tell people to stop spending."
@@ -2501,7 +2504,7 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "Do not say \"Give up.\" Ask what would help."
+        "Ask what would help."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Do not say \"Give up.\" Ask what would help."
@@ -2516,7 +2519,7 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "Ask what would help. Do not say \"Give up.\""
+        "Ask what would help."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "Ask what would help. Do not say \"Give up.\""
@@ -2576,7 +2579,7 @@
       "op": "set",
       "path": "coaching.do",
       "value": [
-        "I no longer lecture; I ask questions instead."
+        "I ask questions instead."
       ],
       "source_basis": "coach_quote",
       "evidence_quote": "I no longer lecture; I ask questions instead."
