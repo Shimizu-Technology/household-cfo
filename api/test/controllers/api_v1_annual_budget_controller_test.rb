@@ -602,15 +602,17 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    assert_includes JSON.parse(response.body).fetch("errors").join, "already reviewed"
 
     post "/api/v1/transaction_drafts/#{draft.fetch("id")}/ignore",
       headers: auth_headers(user),
       as: :json
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    assert_includes JSON.parse(response.body).fetch("errors").join, "already reviewed"
     assert_equal "confirmed", TransactionDraft.find(draft.fetch("id")).status
   end
 

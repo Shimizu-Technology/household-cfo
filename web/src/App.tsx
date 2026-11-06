@@ -3041,6 +3041,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
     } catch (caught) {
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
       setBudgetError(message)
       setDocumentsError(message)
@@ -3074,6 +3075,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }))
   }
 
+  async function refreshStaleTransactionReview(caught: unknown) {
+    if (caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere'].includes(caught.code ?? '')) {
+      const isCurrent = captureWorkspaceReloadGuard()
+      try {
+        const latest = await fetchAppData(true)
+        if (isCurrent()) {
+          setData(latest)
+          replaceMiaHistory(latest.mia)
+          await restoreSelectedBudgetPlan(latest.budget)
+          void refreshDocumentImports({ quiet: true })
+        }
+      } catch { /* Keep the conflict message visible if the refresh is offline. */ }
+    }
+  }
+
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
@@ -3100,18 +3116,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', 'confirm')
-      if (caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere'].includes(caught.code ?? '')) {
-        const isCurrent = captureWorkspaceReloadGuard()
-        try {
-          const latest = await fetchAppData(true)
-          if (isCurrent()) {
-            setData(latest)
-            replaceMiaHistory(latest.mia)
-            await restoreSelectedBudgetPlan(latest.budget)
-            void refreshDocumentImports({ quiet: true })
-          }
-        } catch { /* Keep the conflict message visible if the refresh is offline. */ }
-      }
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setBudgetError(message)
       setDocumentsError(message)
@@ -3145,6 +3150,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'ignored' })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', 'ignore')
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
       setBudgetError(message)
       setDocumentsError(message)
@@ -3192,6 +3198,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
       setBudgetError(message)
       setDocumentsError(message)
@@ -3223,6 +3230,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         source_type: draft.source_type ?? 'statement',
       })
     } catch (caught) {
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
       setBudgetError(message)
       setDocumentsError(message)
@@ -3259,6 +3267,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
+      await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be reopened.')
       setBudgetError(message)
       setDocumentsError(message)
