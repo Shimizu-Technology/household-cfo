@@ -78,6 +78,19 @@ class MiaSetupReviewRoundTwoTest < ActiveSupport::TestCase
     assert_equal "60", result.action[:minimum_payment]
   end
 
+  test "named balance and minimum work after setup is complete without a question slot" do
+    text = "visa balance is 3000 min 60"
+    reading = HouseholdFinance::ParticipantMessageReader.new(message: text).send(:validate,
+      { "care" => "none", "facts" => [], "question" => false, "correction" => false, "setup_answer" => { "field" => "none", "value" => "" }, "spending_preferences" => [] })
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
+      participant_reading: reading, setup_status: { complete: true, missing_fields: [] }, debt_tracking: { mode: "individual" },
+      active_debts: [ { id: 7, label: "BOQ Visa" } ], conversation: { active_thread: {}, recent_messages: [] }
+    }).call
+    assert_equal "update_debt", result&.action&.dig(:type)
+    assert_equal "3000", result.action[:amount]
+    assert_equal "60", result.action[:minimum_payment]
+  end
+
   test "a casual stated no debt creates a true zero minimum" do
     text = "we dont owe anybody thank god"
     reading = parsed(text, field: "debt_payment", components: [])
