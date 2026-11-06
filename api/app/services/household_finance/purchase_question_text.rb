@@ -40,7 +40,7 @@ module HouseholdFinance
         .sub(/\A(?:a|an|the|this)\s+/i, "").sub(/\Apair of\s+/i, "").strip
       return "" if label.blank? || label.match?(/\A(?:on|for|it|this|that|help|smaller goal|my streak|help|less|credit card|loan)\b/i)
 
-      label.casecmp?("tv") ? "TV" : label
+      label.casecmp?("tv") ? "TV" : label.downcase
     end
 
     def self.clean_item(value)
@@ -55,13 +55,15 @@ module HouseholdFinance
     def self.priced_item(label, amount_cents)
       item = clean_item(label).strip.sub(/\A(?:a|an|the|this|pair of)\s+/i, "")
       item = "purchase" if item.blank?
+      item = item.downcase unless item == item.upcase
+      # Inflect the head noun, not a trailing purpose/payment clause.
+      head = item.split.last.to_s
+      plural = head.singularize != head
+      digits = amount_cents.div(100).to_s
+      leading = digits[0, ((digits.length - 1) % 3) + 1].to_i
+      article = ([ 8, 11, 18 ].include?(leading) || (80..89).cover?(leading) || (800..899).cover?(leading)) ? "an" : "a"
       price = ActionController::Base.helpers.number_to_currency(Money.dollars(amount_cents), precision: amount_cents % 100 == 0 ? 0 : 2)
-      if item == "purchase"
-        article = price.match?(/\A\$(?:8|11\b|18\b)/) ? "an" : "a"
-        "#{article} #{price} purchase"
-      else
-        "#{price} for #{item}"
-      end
+      plural ? "#{price} #{item}" : "#{article} #{price} #{item}"
     end
 
     def self.purchase_question?(message)
