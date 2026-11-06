@@ -58,7 +58,7 @@ module HouseholdFinance
         working = "#{count} × #{money(cents_for(operands.sole))} = #{money(total)}"
       else
         return ask unless details[:cadence] == "monthly"
-        if @prior.present?
+        if @prior.present? && !explicit_total_replacement?(field)
           return ask unless @prior[:field] == field && @prior[:components].is_a?(Array) && @prior[:components].any?
           combined = @prior[:components].deep_dup
           operands.each do |operand|
@@ -97,7 +97,8 @@ module HouseholdFinance
     end
 
     def unsafe_expression?(field)
-      return true if @message.match?(/\d[\d,.]*\s*[-–]\s*\$?\d|\b(?:half|quarter|percent|percentage)\b|%|\d\s*\/\s*\d|\b(?:since|due)\s+(?:[a-z]+\s+)?\d|\bnot\b[^.!?;]*\d|\b(?:was|were|used to|last month)\b/i)
+      return true if @message.match?(/\d[\d,.]*\s*(?:[-–]|\bto\b|\bthrough\b)\s*\$?\d|\b(?:half|quarter|percent|percentage)\b|%|\d\s*\/\s*\d|\b(?:since|due)\s+(?:(?:on|by)\s+)?(?:[a-z]+\s+)?\d|\bnot\b[^.!?;]*\d|\b(?:was|were|used to|last month)\b/i)
+      return true if @message.match?(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}\b/i)
       return true if @message.match?(/\b(?:weekly|bi-?weekly|a week|per week|each week|every (?:other |two |2 )?weeks?)\b/i)
       field != "primary_income" && @message.match?(/\btotal\b/i) && @message.scan(/\d[\d,.]*/).length > 1
     end

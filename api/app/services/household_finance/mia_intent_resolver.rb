@@ -1087,8 +1087,12 @@ module HouseholdFinance
       return unless balance && minimum
       debts = matching_setup_debts(match[1])
       return ambiguous_setup_debt_result(debts) if debts.many?
-      return if context.dig(:debt_tracking, :mode).to_s == "summary"
       name = debts.one? ? debts.sole[:label] : match[1].sub(/\A./) { |letter| letter.upcase }
+      if context.dig(:debt_tracking, :mode).to_s == "summary"
+        quoted_balance = ActiveSupport::NumberHelper.number_to_currency(balance, precision: ParticipantMessageReader.amount_cents(balance) % 100 == 0 ? 0 : 2)
+        quoted_minimum = ActiveSupport::NumberHelper.number_to_currency(minimum, precision: ParticipantMessageReader.amount_cents(minimum) % 100 == 0 ? 0 : 2)
+        return deterministic_setup_clarification("debt_payment", clarification: "You gave #{name} a #{quoted_balance} balance and a #{quoted_minimum} monthly minimum. Your plan currently uses one combined debt total. To keep #{name} as its own debt, review individual tracking in My Money, Debt, then review these amounts. Your combined total has not changed.")
+      end
       action = { type: debts.one? ? "update_debt" : "create_debt", debt_id: debts.first&.dig(:id), debt_name: name, amount: balance, minimum_payment: minimum }
       action[:debt_type] = name.match?(/visa|mastercard|amex|card/i) ? "credit_card" : "other" if debts.empty?
       Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
