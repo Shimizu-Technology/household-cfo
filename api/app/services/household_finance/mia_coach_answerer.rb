@@ -97,7 +97,7 @@ module HouseholdFinance
     # hardship > skipped essentials > month > write > reflection > purchase
     def self.routing_priority(value)
       text = value.to_s
-      return :hardship if MoneyMovementText.food_insecurity?(text) || essential_hardship?(text)
+      return :hardship if ParticipantCare.required?(text)
       return :essential_skip if essential_skipped?(text)
       return :month if MiaMonthAnswer.question?(text)
       return :write if explicit_write_request?(text)
@@ -238,7 +238,7 @@ module HouseholdFinance
 
     def priority_answer
       case self.class.routing_priority(message)
-      when :hardship then food_insecurity_answer || essential_hardship_answer
+      when :hardship then ParticipantCare.answer(message) || food_insecurity_answer || essential_hardship_answer
       when :essential_skip then essential_skip_answer
       when :month
         month_overview_answer unless self.class.explicit_write_request?(message)

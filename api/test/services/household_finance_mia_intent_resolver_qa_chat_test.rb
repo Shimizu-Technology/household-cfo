@@ -419,6 +419,62 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     end
   end
 
+  [ "A reliable used truck", "Pay down the store card", "Tuition for my daughter", "Have a cushion before December", "Take the children to visit grandma", "Saving for a washing machine" ].each_with_index do |sentence, index|
+    test "review goal answer is accepted by exclusion #{index}" do
+      result = resolve(sentence, context: setup_zero_context("primary_goal"))
+      assert result&.actionable?, result.to_h.inspect
+      assert_equal sentence, result.action.dig(:setup_updates, :primary_goal)
+    end
+  end
+
+  [ "Buy food at Kmart for $37", "Buy fuel $37", "Save $37 at Kmart" ].each_with_index do |sentence, index|
+    test "review purchases cannot become setup goals #{index}" do
+      result = resolve(sentence, context: setup_zero_context("primary_goal"), transport: provider(intent: "household_action", action: action(type: "update_household_setup", setup_updates: setup(primary_goal: sentence))))
+      refute result&.action.to_h.dig(:setup_updates, :primary_goal).present?, result.to_h.inspect
+    end
+  end
+
+  [ "I was laid off yesterday", "My dad passed away on Monday", "We are facing eviction", "Our landlord is evicting us" ].each_with_index do |sentence, index|
+    test "review shared care priority across setup stages and broken providers #{index}" do
+      %w[household_name primary_goal primary_income fixed_expenses flexible_spend debt_payment].each do |field|
+        [ nil, ->(_) { nil }, ->(_) { "not json" }, provider(intent: "household_action", action: action(type: "update_household_setup", setup_updates: setup(household_name: "Evicted"))) ].each do |transport|
+          result = resolve(sentence, context: setup_zero_context(field), transport: transport)
+          assert_equal "coaching", result&.intent, "#{field}: #{result.to_h.inspect}"
+          refute result.actionable?
+        end
+      end
+    end
+  end
+
+  [ "Yep", "72", "0", "Spent 72 at Kmart" ].each_with_index do |sentence, index|
+    test "review non names cannot become household names #{index}" do
+      result = resolve(sentence, context: setup_zero_context("household_name"))
+      refute result&.action.to_h.dig(:setup_updates, :household_name).present?, result.to_h.inspect
+    end
+  end
+
+  { "I earn $4,700 a month" => [ "primary_income", "4700" ], "no income" => [ "primary_income", "0" ], "We pay around $1,900 in bills" => [ "fixed_expenses", "1900" ] }.each_with_index do |(sentence, (field, amount)), index|
+    test "review natural monthly setup fact #{index}" do
+      result = resolve(sentence, context: setup_zero_context(field))
+      assert_equal amount, result&.action.to_h.dig(:setup_updates, field.to_sym), result.to_h.inspect
+    end
+  end
+
+  test "review yes after an unrelated question never replays an old fact" do
+    [ false, true ].each do |complete|
+      context = setup_zero_context("primary_income").deep_merge(setup_status: { complete: complete }, conversation: { recent_messages: [
+        { role: "user", content: "Our monthly income is $9,200." }, { role: "assistant", content: "Would you like to discuss your emergency fund?" }
+      ] })
+      result = resolve("Yes", context: context)
+      refute result&.actionable?, result.to_h.inspect
+    end
+  end
+
+  test "review a simple primary goal edit needs no extra money adjective" do
+    result = resolve("Change my goal to a place of our own")
+    assert_equal "a place of our own", result&.action.to_h.dig(:setup_updates, :primary_goal), result.to_h.inspect
+  end
+
   private
 
   def resolve(message, context: intent_context, transport: nil, api_key: :default)

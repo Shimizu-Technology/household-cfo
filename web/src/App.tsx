@@ -2295,13 +2295,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         miaRequestId,
       )
       assertOriginalWorkspace()
-      if (response.challenge_chat_card) challengeCards.accept(response.challenge_chat_card)
+      const receivedChallengeCards = response.challenge_chat_cards?.length ? response.challenge_chat_cards : (response.challenge_chat_card ? [response.challenge_chat_card] : [])
+      receivedChallengeCards.forEach(challengeCards.accept)
       challengeCards.retry()
       const reviewedIntake = checkedSavingsIntake(response.savings_intake)
       const dailyReport = checkedDailyReport(response.savings_intake)
       if (challengeIntakeScopeRef.current === challengeIntakeScope) {
-        setMiaSavingsNote(reviewedIntake && response.challenge_chat_card?.kind !== 'savings' ? { scope: challengeIntakeScope, intake: reviewedIntake } : null)
-        const entry = dailyReport && !response.challenge_chat_card ? { scope: challengeIntakeScope, report: dailyReport, nonce: crypto.randomUUID() } : null
+        setMiaSavingsNote(reviewedIntake && !receivedChallengeCards.some(card => card.kind === 'savings') ? { scope: challengeIntakeScope, intake: reviewedIntake } : null)
+        const entry = dailyReport && receivedChallengeCards.length === 0 ? { scope: challengeIntakeScope, report: dailyReport, nonce: crypto.randomUUID() } : null
         if (entry) registerDailyCard(entry)
         const staleNonces = new Set(miaDailyReports.filter((card) => !card.nonce.startsWith('server-card-') && !dailyCardNeedsAttention(card.nonce)).map((card) => card.nonce))
         staleNonces.forEach(forgetDailyCard)

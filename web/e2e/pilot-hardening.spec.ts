@@ -13773,3 +13773,21 @@ test('Coach Studio review two restores history for staff who also have a partici
   await expect(page).toHaveURL(savedUrl)
   await expect(page.getByLabel('Assistant name')).toHaveValue('Keep this participant-seat edit')
 })
+
+test('BOG UI one message immediately shows separate purchase and savings reviews while restoration is unavailable', async ({ page }) => {
+  let sent = false
+  await openDaily(page, { active: true })
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => sent ? route.abort() : route.fulfill({ json: { records: [], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  const savings = { id: 9001, kind: 'savings', status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 8002, state: {}, input: { kind: 'contribution', amount_cents: 700, signed_cents: 700, effective_on: '2026-09-28', counted: false, approval_state: 'unreviewed_input', new_money_confirmation_required: true } }
+  const spending = { ...savings, id: 9002, kind: 'daily_report', input: miaDailyReport }
+  await page.route('http://api.test/api/v1/mia/messages', route => {
+    sent = true
+    return route.fulfill({ json: { user_message: { id: 8001, role: 'user', author: 'You', content: 'I saved $7 and spent $8 today' }, assistant_message: { id: 8002, role: 'assistant', author: 'Mia', content: 'Both are below for your review.' }, savings_intake: savings.input, challenge_chat_card: savings, challenge_chat_cards: [savings, spending] } })
+  })
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('I saved $7 and spent $8 today')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Savings to check', exact: true })).toHaveCount(1)
+  const purchases = page.getByRole('region', { name: 'Your check-in', exact: true })
+  await expect(purchases).toHaveCount(1)
+  await expect(purchases.getByLabel('Amount for Fictional fuel', { exact: true })).toHaveValue('8.00')
+})

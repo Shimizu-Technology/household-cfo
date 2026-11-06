@@ -563,7 +563,7 @@ module Api
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
-            savings_intake: turn.intake, challenge_chat_card: card, spending_patterns: turn.patterns }
+            savings_intake: turn.intake, challenge_chat_card: card, challenge_chat_cards: Array(turn.cards).map(&:as_api_json), spending_patterns: turn.patterns }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
           render json: payload, status: :created
@@ -2150,7 +2150,8 @@ module Api
         command = topic[:action].to_h.deep_symbolize_keys
         if topic[:status] == "pending_review" && topic[:mia_action_draft_id].to_i.positive?
           command = command.merge(type: "review_pending_action", draft_id: topic[:mia_action_draft_id])
-        elsif command[:type].blank?
+        else
+          command = {}
           pending_reviews = annual_budget_manager.plan_data.fetch(:pending_mia_action_drafts)
           if pending_reviews.one? && topic[:type].to_s.in?(%w[budget_edit budget_report])
             command = { type: "review_pending_action", draft_id: pending_reviews.first.fetch(:id), year: annual_budget_manager.year }
@@ -2168,7 +2169,7 @@ module Api
           ).call
         end
         direct_answer = if action_result.nil?
-          "I lost the exact request, and I do not want to guess. Please restate the category, amount, and month you want changed. Nothing changed."
+          "Okay. What would you like to work on next?"
         end
 
         {
@@ -2472,6 +2473,10 @@ module Api
       def drafted_transaction_message(draft, annual_plan)
         category = drafted_transaction_category_label(draft)
         impact = drafted_transaction_impact_line(draft, annual_plan)
+        if current_household.budget_categories.active.none?
+          question = HouseholdFinance::MiaSetupGuide.new(current_household).after_apply_message
+          return "I kept #{draft.merchant} for #{money(draft.total_amount_cents)} on a review card. You can choose its spending group and save it after setup. Nothing is saved yet. #{question}"
+        end
         "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."
       end
 

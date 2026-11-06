@@ -40,6 +40,7 @@ module SavingsChallenge
         return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
         return deterministic(hopeless_answer)
       end
+      return deterministic(HouseholdFinance::ParticipantCare.answer(@message) || protected_baseline_answer) if HouseholdFinance::ParticipantCare.required?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
       return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)

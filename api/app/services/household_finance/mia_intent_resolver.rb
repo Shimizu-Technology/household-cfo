@@ -235,7 +235,7 @@ module HouseholdFinance
         return purchase if purchase
       end
 
-      setup_result = setup_goal_interruption_result || setup_confirmation_result || setup_correction_result || setup_primary_goal_change_result || setup_named_minimum_result || setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
+      setup_result = setup_interruption_result || setup_goal_interruption_result || setup_confirmation_result || setup_correction_result || setup_primary_goal_change_result || setup_named_minimum_result || setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
@@ -675,7 +675,9 @@ module HouseholdFinance
     end
 
     def household_name_shape?(name, check_length: true)
-      (!check_length || normalized_bounded_text(name).length <= setup_text_limit(:household_name)) && name.split.length <= 12 &&
+      name.match?(/[\p{L}]/) && !name.match?(DEBT_FREE_AFFIRMATION_PATTERN) &&
+        !name.match?(/\b(?:spent|bought|paid|purchased)\s+\$?\d/i) &&
+        (!check_length || normalized_bounded_text(name).length <= setup_text_limit(:household_name)) && name.split.length <= 12 &&
         !name.match?(HOUSEHOLD_NAME_SENTENCE_PATTERN) &&
         !name.match?(/\A(?:i|we|my|our|they|he|she)\b|\b(?:is|are|was|were|have|has|had|need|needs|left|broke|lost|wants?|eaten|hospital|yesterday|tonight|because|since|not)\b/i)
     end
@@ -713,6 +715,25 @@ module HouseholdFinance
       )
     end
 
+    def setup_interruption_result
+      field = next_missing_setup_field
+      return unless field && guided_setup_question_asked?(field)
+      if user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN)
+        return if MiaSetupReply.confirmation_updates(Array(context.dig(:conversation, :recent_messages)))
+        return deterministic_setup_clarification(field, clarification: "Take your time. #{MiaSetupGuide.question_message(field)}")
+      end
+      if guided_setup_non_answer?
+        explanation = if MiaSetupReply.question?(user_message)
+          if user_message.match?(/\bfixed essentials\b/i)
+            "Fixed essentials are regular must-pay household costs, such as rent, power and water."
+          elsif user_message.match?(/\bsav(?:e|ing|ings)\b/i)
+            "Start with what feels manageable after food, housing, utilities, medicine and required payments. We can choose an amount once you know what is left."
+          end
+        end
+        deterministic_setup_clarification(field, clarification: "#{explanation || "You can leave this for later; an unknown amount stays blank."} #{MiaSetupGuide.question_message(field)}")
+      end
+    end
+
     def setup_goal_interruption_result
       return unless next_missing_setup_field == "primary_goal" && guided_setup_question_asked?("primary_goal")
       return if MiaSetupReply.goal?(user_message)
@@ -725,6 +746,7 @@ module HouseholdFinance
 
     def setup_confirmation_result
       return unless user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN)
+      return unless next_missing_setup_field && context.dig(:setup_status, :complete) != true
       return if Array(context[:pending_budget_reviews]).any?
       messages = Array(context.dig(:conversation, :recent_messages))
       assistant = messages.reverse.find { |turn| turn[:role] == "assistant" }
@@ -733,53 +755,53 @@ module HouseholdFinance
         field = next_missing_setup_field || "primary_income"
         return deterministic_setup_clarification(field, clarification: "Please tell me that detail again so I can prepare the right review. #{MiaSetupGuide.question_message(field)}") if updates.empty?
 
-        return Result.new(intent: "household_action", confidence: 1.0, continuation: true,
+        Result.new(intent: "household_action", confidence: 1.0, continuation: true,
           resolved_message: "Our household is called #{updates[:household_name]}. Our monthly income is $#{updates[:primary_income]}.",
           needs_clarification: false, clarification: "", topic: { type: "household_setup", title: "Household setup" },
           action: { type: "update_household_setup", setup_updates: updates }, read_only_plan: {}, source: "deterministic")
       end
-      prior = messages.reverse.find { |turn| turn[:role] == "user" }
-      return unless prior && prior[:content].present?
-
-      prior_context = context.deep_dup
-      prior_context[:conversation] = {}
-      result = self.class.new(user_message: prior[:content], context: prior_context, api_key: "").call
-      return unless result&.actionable? && result.action[:type] == "update_household_setup"
-
-      result.continuation = true
-      result
     end
 
     def setup_correction_result
-      return unless user_message.match?(/\A(?:actually[, ]+)?(?:make (?:that|it)|i mean|use)\s+/i)
+      # Resolve the field from the pending structured action, never from whatever
+      # setup question happens to be next. All correction words share this path.
+      match = user_message.match(/\A(?:(?:it['’]?s\s+)?actually[, ]*|no[, ]+|(?:make (?:that|it)|change (?:that|it) to|i mean|use)\s+)(?:(?:make (?:that|it)|change (?:that|it) to)\s+)?(.*?)(?:\s+instead)?[.!]?\z/i)
+      return unless match
+      amount = match[1].match(GUIDED_MONEY_REPLY_PATTERN)
+      return unless amount && (value = normalized_setup_money(amount[1]))
       thread = context.dig(:conversation, :active_thread).to_h
       action = thread[:action].to_h
-      return unless thread[:schema_version].to_i >= 2 && action[:type] == "update_household_setup"
-      fields = action[:setup_updates].to_h.select { |key, value| MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key.to_sym) && value.present? }.keys
+      return unless thread[:schema_version].to_i >= 2 && thread[:status] == "pending_review"
+      if action[:type] == "schedule_income_change"
+        corrected = action.merge(amount: value)
+        return Result.new(intent: "income_action", confidence: 1.0, continuation: true,
+          resolved_message: user_message, needs_clarification: false, clarification: "",
+          topic: { type: "income", title: "Current salary", subject: action[:income_source_name] },
+          action: corrected, read_only_plan: {}, source: "deterministic")
+      end
+      return unless action[:type] == "update_household_setup"
+      fields = action[:setup_updates].to_h.select { |key, val| MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key.to_sym) && val.present? }.keys
       return unless fields.one?
-      field = fields.sole.to_s
-      amount_text = user_message.sub(/\A(?:actually[, ]+)?(?:make (?:that|it)|i mean|use)\s+/i, "")
-      match = amount_text.match(GUIDED_MONEY_REPLY_PATTERN)
-      return unless match
-      value = normalized_setup_money(match[1])
-      return unless value
-
-      setup_reply_result(field, value)
+      setup_reply_result(fields.sole.to_s, value)
     end
 
     def setup_primary_goal_change_result
-      match = user_message.match(/\A(?:please\s+)?(?:change|update|set)\s+(?:my|our)\s+(?:(?:main|primary)\s+(?:money\s+)?|money\s+)goal\s+to\s+(.+?)[.!]?\z/i)
-      return unless match && MiaSetupReply.goal?(user_message)
+      match = user_message.match(/\A(?:please\s+)?(?:change|update|set)\s+(?:my|our)\s+(?:(?:main|primary)\s+(?:money\s+)?|money\s+)?goal\s+to\s+(.+?)[.!]?\z/i)
+      return unless match && MiaSetupReply.goal?(match[1])
       setup_reply_result("primary_goal", match[1])
     end
 
     def setup_named_minimum_result
       return unless next_missing_setup_field == "debt_payment" && guided_setup_question_asked?("debt_payment")
-      match = user_message.match(/\A\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:(?:a|per)\s+month\s+)?minimum(?:\s+payment)?\s+(?:on|for)\s+(?:the|my|our)?\s*([\p{L}][\p{L} '-]{0,79})[.!]?\z/i)
-      return unless match
-      amount = normalized_setup_money(match[1])
+      text = user_message.sub(/[.!]\z/, "")
+      amount_source = "(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)"
+      amount_first = text.match(/\A\$?\s*#{amount_source}\s+(?:(?:(?:a|per)\s+month\s+)?minimum(?:\s+payment)?\s+)?(?:on|for)\s+(?:the\s+|my\s+|our\s+)?([\p{L}][\p{L} '-]{0,79})\z/i) ||
+        text.match(/\A\$?\s*#{amount_source}\s+(?:a|per)\s+month\s+(?:on|for)\s+(?:the\s+|my\s+|our\s+)?([\p{L}][\p{L} '-]{0,79})\z/i)
+      name_first = text.match(/\A(?:the\s+|my\s+|our\s+)?([\p{L}][\p{L} '-]{0,79}?)\s+minimum(?:\s+payment)?\s+(?:is\s+)?\$?\s*#{amount_source}\z/i)
+      return unless amount_first || name_first
+      amount = normalized_setup_money(amount_first ? amount_first[1] : name_first[2])
       return unless amount
-      name = match[2].squish
+      name = (amount_first ? amount_first[2] : name_first[1]).squish
       debts = Array(context[:active_debts]).select { |debt| debt[:label].to_s.casecmp?(name) }
       return if debts.many? || context.dig(:debt_tracking, :mode).to_s == "summary"
       Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
@@ -859,6 +881,7 @@ module HouseholdFinance
 
     def guided_text_setup_value(field)
       return if normalized_bounded_text(user_message).length > setup_text_limit(field) || guided_setup_non_answer?
+      return user_message if field == "primary_goal" && MiaSetupReply.goal?(user_message)
       return if normalized_user_message.match?(HYPOTHETICAL_PATTERN) ||
         normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN) ||
         normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN)

@@ -56,7 +56,7 @@ module SavingsChallenge
 
     def self.protected_message?(message)
       message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
-        HouseholdFinance::MoneyMovementText.food_insecurity?(message) ||
+        HouseholdFinance::MiaCoachAnswerer.routing_priority(message).in?(%i[hardship essential_skip]) ||
         ::Mia::CrisisBoundary.matches?(message) || ::Mia::CrisisBoundary.hopeless?(message)
     end
 
@@ -72,10 +72,13 @@ module SavingsChallenge
     end
 
     def self.replay_payload(payload, session:)
-      id = payload.dig("challenge_chat_card", "id")
-      return payload unless id
-      card = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }).find_by(id: id)
-      payload.merge("challenge_chat_card" => card&.as_api_json)
+      ids = Array(payload["challenge_chat_cards"]).map { |card| card["id"] }
+      ids << payload.dig("challenge_chat_card", "id")
+      return payload if ids.compact.empty?
+      cards = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: session.id }, id: ids.compact)
+        .index_by(&:id)
+      payload.merge("challenge_chat_card" => cards[payload.dig("challenge_chat_card", "id")]&.as_api_json,
+        "challenge_chat_cards" => Array(payload["challenge_chat_cards"]).filter_map { |card| cards[card["id"]]&.as_api_json })
     end
 
     def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil)
@@ -85,7 +88,7 @@ module SavingsChallenge
       @topic = {}
     end
 
-    attr_reader :answer, :intake, :supplied_content_context, :patterns
+    attr_reader :answer, :intake, :intakes, :cards, :supplied_content_context, :patterns
 
     def call
       @supplied_content_context = []
@@ -95,17 +98,26 @@ module SavingsChallenge
       correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
       if correction
         @intake, @answer = correction.values_at(:intake, :answer)
+        @intakes = [ @intake ].compact
         return self
       end
-      parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty?
+      parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty? && !self.class.protected_message?(@message)
       @intake = parser&.call
-      if SavingsReportText.nothing_set_aside?(@message) && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      @intakes = parser&.intakes || []
+      if SavingsReportText.plain_nothing_set_aside?(@message) && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
         if @intake&.dig(:kind) == "daily_report"
           coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: @intake)
           @answer = "Nothing set aside; that’s okay. #{coach.call}"
         else
           @answer = "Nothing set aside; that’s okay. Nothing has been added to your savings."
         end
+        return self
+      end
+      if @intakes.many?
+        @answer = @intakes.map do |input|
+          CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
+            message: @message, daily_report: input, savings_intake: input).call
+        end.join(" ")
         return self
       end
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
@@ -139,19 +151,27 @@ module SavingsChallenge
             reason: plan ? "Changed my challenge goal in chat" : "",
             financial_baseline_version_id: plan&.financial_baseline_version_id, baseline_digest: plan&.baseline_digest,
             spending_changes: plan&.spending_changes || [] })
-      elsif @intake&.dig(:kind) == "daily_report"
-        @card = pending_intake_card("daily_report") || SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "daily_report", input: @intake)
-      elsif @intake&.dig(:kind).in?(%w[contribution withdrawal])
-        @card = pending_intake_card("savings") || SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "savings", input: @intake)
       end
+      @cards = Array(@intakes).map do |input|
+        kind = input[:kind] == "daily_report" ? "daily_report" : "savings"
+        pending_intake_card(kind, input) || SavingsChatCard.create!(savings_enrollment: @enrollment,
+          chat_message: assistant_message, kind: kind, input: input)
+      end
+      @cards.unshift(@card) if @card
+      @cards << @continued_card.reload if @cards.empty? && @continued_card
       @session.update!(active_topic: @topic)
-      (@card || @continued_card&.reload)&.as_api_json
+      (@cards.first || @continued_card&.reload)&.as_api_json
     end
 
     private
 
-    def pending_intake_card(kind)
-      SavingsChatCard.where(savings_enrollment: @enrollment, kind: kind, status: "pending", input: @intake)
+    def pending_intake_card(kind, input)
+      # A second real purchase can have exactly the same amount and place. Only
+      # an immediate exact textual repeat can reuse a pending card.
+      prior = @session.chat_messages.where(role: "user").order(:id).last(2)
+      return unless prior.length == 2 && prior.first.content == @message &&
+        prior.last.content == @message && prior.last.created_at - prior.first.created_at <= 2.minutes
+      SavingsChatCard.where(savings_enrollment: @enrollment, kind: kind, status: "pending", input: input)
         .for_picture(@household.financial_generation).order(:id).last
     end
 

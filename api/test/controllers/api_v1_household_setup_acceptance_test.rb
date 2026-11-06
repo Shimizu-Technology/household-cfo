@@ -301,7 +301,80 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     refute_equal "save for a house", @household.reload.primary_goal
   end
 
+  [ "Actually $4,600", "Make that $4,600 instead", "Change that to $4,600", "It's actually $4,600", "No, $4,600" ].each_with_index do |sentence, index|
+    test "review model off correction wording #{index}" do
+      save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+      post_message("I got a raise to $5,300 a month")
+      older = response.parsed_body.fetch("mia_action_draft")
+      post_message(sentence)
+      corrected = response.parsed_body.fetch("mia_action_draft")
+      assert corrected, response.parsed_body.inspect
+      assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+      apply(corrected)
+      assert_equal 460000, @household.income_sources.sole.income_schedule_entries.order(:id).last.amount_cents
+    end
+  end
+
+  test "review duplicate raises replace the older pending amount" do
+    save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+    post_message("I got a raise to $5,300 a month")
+    older = response.parsed_body.fetch("mia_action_draft")
+    post_message("I got a raise to $5,600 a month")
+    newer = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+    post "/api/v1/mia_action_drafts/#{older['id']}/apply", headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :unprocessable_entity
+    apply(newer)
+    assert_equal 560000, @household.income_sources.sole.income_schedule_entries.order(:id).last.amount_cents
+  end
+
+  [ "The Mastercard minimum is $325", "$325 a month on the Mastercard" ].each_with_index do |sentence, index|
+    test "review named debt minimum natural wording #{index}" do
+      save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+      post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+      post_message(sentence)
+      apply(response.parsed_body.fetch("mia_action_draft"))
+      assert_equal 32500, @household.debts.sole.minimum_payment_cents
+      refute @household.debts.sole.balance_known?
+    end
+  end
+
+  test "review setup interruptions keep participant language and no fabricated ledger" do
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    [ "skip", "what does fixed essentials mean", "How much should I save?" ].each do |sentence|
+      post_message(sentence)
+      refute_match(/approved data|posted.*transactions.*\$0/i, reply)
+      assert_nil response.parsed_body["mia_action_draft"]
+    end
+  end
+
+  test "review ok after applying setup does not replay the applied action" do
+    post_message("Our monthly income is $4,700")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("OK")
+    refute_match(/already match|lost the exact request/i, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
+  end
+
+  test "review a purchase before categories exist explains deferral and repeats setup" do
+    save_setup
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("I spent $37 at Kmart today")
+    draft = response.parsed_body.fetch("transaction_draft")
+    assert draft, response.parsed_body.inspect
+    assert_includes reply, "after setup"
+    assert_includes reply, "primary monthly take-home income"
+    assert_equal 0, @household.budget_categories.count
+    assert_equal 0, @household.household_transactions.count
+  end
+
   private
+
+  def save_setup(**values)
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Review household", primary_goal: "A house" }.merge(values)).call
+  end
+
 
   def headers
     { "Authorization" => "Bearer test_token_#{@user.id}" }

@@ -34,14 +34,26 @@ module HouseholdFinance
 
     def goal?(message)
       text = message.to_s.squish
-      explicit = text.match(/\b(?:(?:main|primary|money|financial|household)\s+)*goal\s+(?:is|:|to)\s+(.+)/i)
-      text = explicit[1] if explicit
-      text = text.sub(/\A(?:(?:i|we)\s+(?:want|hope|need|would like)\s+to|i['’]d like to)\s+/i, "")
-      return false if text.match?(/\b(?:spent|bought|paid|saved|lost|cannot|can['’]?t|couldn['’]?t|didn['’]?t)\b/i)
+      return false if text.blank? || question?(text) || ParticipantCare.required?(text)
+      return false if ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text)
+      return false if purchase_statement?(text) || bill_statement?(text) || income_statement?(text)
+      return false if text.match?(MiaIntentResolver::DEBT_FREE_AFFIRMATION_PATTERN) || text.match?(/\A[\d$,. ]+\z/)
+      true
+    end
 
-      return true if explicit
+    def question?(message)
+      message.match?(/\?|\A(?:what|why|how|when|where|which|can|could|should|would|do|does|did|is|are)\b/i)
+    end
 
-      text.match?(/\A(?:to\s+)?(?:save\b|build\b|pay\s+off\b|pay\s+(?:my|our|the)\s+\w+\s+on time\b|reduce\b|grow\b|start\b|buy\b|own\b|retire\b|become\b|get\s+(?:out of|rid of)\b|help\s+(?:my|our)\b|stop\s+\w+|no\s+debt\b|debt[- ]free\b|financial\s+(?:freedom|security|stability)\b|(?:an?\s+)?emergency\s+(?:fund|cushion)\b)/i)
+    def purchase_statement?(message)
+      return false unless PurchaseReportText.stated_amount?(message)
+      message.match?(/\b(?:spent|bought|paid|purchased|buy)\b/i) ||
+        message.match?(/\bat\s+[\p{L}]/i)
+    end
+
+    def income_statement?(message)
+      PurchaseReportText.stated_amount?(message) &&
+        message.match?(/\b(?:income|salary|paycheck|wages?)\b\s+(?:is|are|was|comes? to)\b/i)
     end
 
     def bill_statement?(message)
@@ -53,20 +65,30 @@ module HouseholdFinance
     end
 
     def monthly_amount(message, field:)
+      text = message.to_s.squish
+      if field.to_s == "primary_income" && text.match?(/\A(?:(?:i|we)\s+(?:have|earn|make)\s+)?no\s+income[.!]?\z/i)
+        return "0"
+      end
+      normalized = PurchaseReportText.normalize(text)
       prefix = case field.to_s
-      when "primary_income" then /\A(?:i|we)\s+(?:take|bring)\s+home\s+/i
+      when "primary_income" then /\A(?:i|we)\s+(?:(?:take|bring)\s+home|make|earn|receive)\s+/i
       when "fixed_expenses" then /\A(?:i|we)\s+(?:pay|spend)\s+/i
       when "flexible_spend" then /\A(?:i|we)\s+spend\s+/i
       end
-      return unless prefix
-      text = message.to_s.squish
-      return unless text.match?(prefix)
-      rest = text.sub(prefix, "")
-      tail = field.to_s == "flexible_spend" ? '(?:\\s+on\\s+(?:groceries|gas|food|everyday spending)(?:[\\p{L} ,&-]*))?' : ""
-      match = rest.match(/\A(?:about|around|roughly)?\s*\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:a|per|each)\s+month#{tail}[.!]?\z/i)
+      return unless prefix && normalized.match?(prefix)
+      rest = normalized.sub(prefix, "")
+      match = rest.match(/\A(?:about|around|roughly|approximately)?\s*\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s*(.*?)[.!]?\z/i)
       return unless match
+      tail = match[2].squish
+      cadence = /(?:(?:a|per|each|every)\s+month|monthly)/i
+      valid_tail = case field.to_s
+      when "primary_income" then tail.match?(/\A#{cadence}\z/i)
+      when "fixed_expenses" then tail.match?(/\A(?:#{cadence}(?:\s+(?:in|on|for)\s+(?:bills|fixed essentials))?|(?:in|on|for)\s+(?:bills|fixed essentials)(?:\s+#{cadence})?)\z/i)
+      when "flexible_spend" then tail.match?(/\A#{cadence}(?:\s+on\s+(?:groceries|gas|food|everyday spending)(?:[\p{L} ,&-]*))?\z/i)
+      end
+      return unless valid_tail
       cents = Money.chat_cents(match[1])
-      Money.dollars(cents).to_s if cents.between?(0, Money::MAX_AMOUNT_CENTS)
+      Money.dollars(cents).to_s.sub(/\.0+\z/, "") if cents.between?(0, Money::MAX_AMOUNT_CENTS)
     rescue ArgumentError
       nil
     end

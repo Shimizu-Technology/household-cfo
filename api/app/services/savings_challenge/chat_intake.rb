@@ -23,50 +23,40 @@ module SavingsChallenge
 
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
-      # Savings wording is read first ("picked up a shift and saved $50 today").
-      if savings_report?
-        intake = savings_input
-        return intake if intake
-      end
-      return if @message.match?(INTO_SAVINGS)
+      @intakes = savings_inputs
+      report = daily_report
+      @intakes << report if report
+      @intakes.first
+    end
 
-      daily_report
+    def intakes
+      @intakes || []
     end
 
     private
 
-    def savings_report?
-      HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message) || @message.match?(SAVINGS_MOVE)
-    end
-
-    def savings_input
-      return if SavingsReportText.nothing_set_aside?(@message)
-      return if @message.match?(/\?|\b(?:if|would|could|might|plan|planning|want to|will|should|haven.t|didn.t|did not|not yet|refund|borrowed|cash advance|credit card payment)\b/i)
-      # A completed savings verb must own the amount. Purchase dollars elsewhere
-      # in the sentence cannot supply it.
-      statement = @message[/\b(?:set aside|reserved|saved|put aside|withdrew|took)\s+\$\s*[\d,.]+(?:\s*(?:k|thousand))?/i]
-      return unless statement || HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
-      amounts = @message.scan(MONEY).flatten
-      return unless amounts.length == 1
-      cents = HouseholdFinance::Money.chat_cents(amounts.sole)
-      return unless cents.between?(1, 2_147_483_647)
-      date = requested_date
-      return unless date && date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
-      common = { amount_cents: cents, effective_on: date.iso8601, approval_state: "unreviewed_input", counted: false }
-      # Crypto or stock buys are neither a challenge purchase nor saved money.
-      return if HouseholdFinance::MoneyMovementText.investment_purchase?(@message)
-      if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
-        common.merge(kind: "contribution", signed_cents: cents, new_money_confirmation_required: true)
-      elsif @message.match?(/\b(?:withdrew|withdrawn|took)\b.{0,60}\b(?:savings|reserved|set aside)\b/i)
-        common.merge(kind: "withdrawal", signed_cents: -cents)
-      elsif @message.match?(/\b(?:set aside|reserved|saved|put aside)\b/i)
-        common.merge(kind: "contribution", signed_cents: cents, new_money_confirmation_required: true)
+    def savings_inputs
+      SavingsReportText.movements(@message).filter_map do |movement|
+        next if HouseholdFinance::MoneyMovementText.investment_purchase?(movement[:clause])
+        date = requested_date(movement[:clause]) || requested_date(@message)
+        next unless date && date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
+        cents = movement[:amount_cents]
+        common = { kind: movement[:kind], amount_cents: cents, effective_on: date.iso8601,
+          approval_state: "unreviewed_input", counted: false }
+        if movement[:kind] == "withdrawal"
+          common.merge(signed_cents: -cents)
+        else
+          common.merge(signed_cents: cents, new_money_confirmation_required: true)
+        end
       end
     end
 
     def daily_report
       purchase_message = SavingsReportText.purchase_text(@message)
       return if purchase_message.blank?
+      if !purchase_message.match?(/\b(?:today|yesterday|\d{4}-\d{2}-\d{2})\b/i) && (date = requested_date(@message))
+        purchase_message = "#{purchase_message} on #{date.iso8601}"
+      end
       parsed = DailyReportParser.new(@enrollment, message: purchase_message).call
       return parsed.report if parsed.found?
       # Without an amount or a store this is conversation, not an incomplete report.
@@ -76,9 +66,9 @@ module SavingsChallenge
       (@extractor || DailyReportExtractor.new(@enrollment, message: purchase_message)).call
     end
 
-    def requested_date
-      exact = @message.scan(/\b\d{4}-\d{2}-\d{2}\b/)
-      relative = @message.scan(/\b(?:today|yesterday)\b/i)
+    def requested_date(message)
+      exact = message.scan(/\b\d{4}-\d{2}-\d{2}\b/)
+      relative = message.scan(/\b(?:today|yesterday)\b/i).map(&:downcase).uniq
       return unless exact.length + relative.length == 1
       return Date.iso8601(exact.sole) if exact.any?
       @enrollment.local_today - (relative.sole.downcase == "yesterday" ? 1 : 0)
