@@ -105,7 +105,7 @@ module SavingsChallenge
       parser = ChatIntake.new(@enrollment, message: @message, reading: @reading) if @attachments.empty?
       @intake = parser&.call
       @intakes = parser&.intakes || []
-      if parser&.ambiguous_movement
+      if parser&.ambiguous_movement && !@reading.care?
         @answer = "Did you mean one savings movement or two separate ones? I kept one card for you to check; nothing has been saved."
         return self
       end

@@ -75,6 +75,34 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "care comes before an ambiguous repeated movement while one card remains pending" do
+    text = "they cut my hours but i moved $15 to savings and saved $15 today"
+    with_reading(reading(care: "hardship", facts: [ fact("set_aside", "$15"), fact("set_aside", "$15") ])) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: text }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_match(/sounds hard/i, json.dig("assistant_message", "content"))
+        assert_equal 1, json.fetch("challenge_chat_cards").length
+        assert_equal 1500, json.dig("challenge_chat_card", "input", "amount_cents")
+        assert_equal 0, SavingsEntryVersion.count
+      end
+    end
+  end
+
+  test "repeated equal movement facts ask once and never offer a double count" do
+    with_reading(reading(facts: [ fact("set_aside", "$15"), fact("set_aside", "$15") ])) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "moved $15 to savings and saved $15 today" }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_equal 1, json.fetch("challenge_chat_cards").length
+        assert_includes json.dig("assistant_message", "content"), "one savings movement or two"
+        assert_equal 0, SavingsEntryVersion.count
+      end
+    end
+  end
+
   test "reader quotes determine savings bank movement withdrawal and deposit purchase cards" do
     [ [ "saved $20 at the credit union today", "set_aside", "$20", "contribution", 2000 ],
       [ "moved $50 from savings to checking today", "withdrawal", "$50", "withdrawal", -5000 ],
