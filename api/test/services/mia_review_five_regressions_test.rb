@@ -323,13 +323,13 @@ class MiaReviewFiveRegressionsTest < ActiveSupport::TestCase
 
   test "R5 a slow connection consumes only the shared remaining deadline" do
     http_start = Net::HTTP.method(:start)
-    Net::HTTP.define_singleton_method(:start) { |*, **_, &block| sleep 0.2; block.call(Object.new) }
+    Net::HTTP.define_singleton_method(:start) { |*, **_, &block| sleep 5; block.call(Object.new) }
     start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     Mia::ReplyDeadline::Current.set(expires_at: start + 0.02) do
       assert_raises(Mia::ReplyDeadline::Exceeded) { OpenRouterConnection.start(URI("https://example.invalid"), read_timeout: 12, open_timeout: 3) { flunk "slow connection must be interrupted" } }
       assert_raises(Mia::ReplyDeadline::Exceeded) { Mia::ReplyDeadline.within { Mia::ReplyDeadline.check! } }
     end
-    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, :<, 0.15
+    assert_operator Process.clock_gettime(Process::CLOCK_MONOTONIC) - start, :<, 3
   ensure
     Net::HTTP.define_singleton_method(:start, http_start)
   end

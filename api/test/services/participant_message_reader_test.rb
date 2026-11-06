@@ -55,6 +55,8 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_empty result.facts
     assert_not result.hypothetical_movement
     assert_equal [ "20" ], read("can i count the 20 i saved today", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
+    assert_empty read("could i maybe just buy a $75 lunch bag", object(facts: [ fact("set_aside", "$75", day: "") ]).merge(question: true)).facts
+    assert_equal [ "20" ], read("can i put down the 20 i deposited today", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
     assert_equal [ "20" ], read("saved 20 today, can i buy lunch", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
   end
 

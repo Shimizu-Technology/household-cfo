@@ -16,8 +16,8 @@ module HouseholdFinance
       "fixed" => "fixed_expenses", "flexible" => "flexible_spend", "debt" => "debt_payment" }.freeze
     HOUSEHOLD_OFF_REPLY = "I couldn't read that just now. You can try again or use Enter my numbers; nothing has been saved. You can pause and come back when you're ready.".freeze
     # "1,20" and "2,5000" are not thousands; never read them as $120 or $25,000.
-    ASKED_MOVE = /\b(?:can|could|should|may|might)\s+(?:i|we)\s+(?:\w+\s+)?(?:buy|get|order|spend|pay|afford|book|put|save|set|take|move|withdraw|use)\b/i
-    COMPLETED_REPORT = /\b(?:i|we)\s+(?:already\s+|just\s+)?(?:saved|set aside|put (?:away|aside)|spent|paid|bought|moved|took)\b/i
+    ASKED_MOVE = /\b(?:can|could|should|may|might)\s+(?:i|we)\s+(?:\w+\s+){0,2}(?:buy|get|order|spend|pay|afford|book|put|save|set|take|move|withdraw|use)\b/i
+    COMPLETED_REPORT = /\b(?:i|we)\s+(?:already\s+|just\s+)?(?:saved|set aside|put (?:away|aside)|deposited|spent|paid|bought|moved|took)\b/i
     # The reader's shame has to rest on her own words about herself. A repeated
     # habit or a rough spending day stays coaching, with the guard still judging it.
     SELF_JUDGEMENT = /\b(?:asham\w*|shame\w*|embarrass\w*|guilt\w*|stupid|dumb|idiot\w*|fool\w*|failure|failing|loser|worthless|useless|pathetic|hate myself|hate who|disgust\w*|disappoint\w*|bad (?:person|mom|mother|dad|father|wife|husband|parent)|terrible (?:person|mom|mother|dad|father|wife|husband|parent)|my fault|blame myself|whats? wrong with me|what['’]s wrong with me|cant do anything right|can['’]t do anything right)\b/i
