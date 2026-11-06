@@ -510,7 +510,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   end
 
   # W24 review: clause-local actions and amounts, beyond the reported examples.
-  [ "Today I saved roughly $23", "Today $23 was set aside", "I put away an additional $23 today", "$23 saved today" ].each_with_index do |sentence, index|
+  [ "Today I saved roughly $23", "Today $23 was set aside", "I put away an additional $23 today", "$23 saved today", "I put roughly $23 away today" ].each_with_index do |sentence, index|
     test "review savings action owns amount with word order #{index}" do
       ask sentence, "varied-saving"
       assert_equal "savings", response.parsed_body.dig("challenge_chat_card", "kind"), response.parsed_body.inspect
@@ -554,7 +554,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   [ "I saved nothing today because my dad passed away", "I couldn't save because my employer let me go", "I can't put anything aside today, what can I do?", "Suppose I saved nothing today?", "I can't save above $17 this month" ].each_with_index do |sentence, index|
     test "review no savings with context is not canned #{index}" do
       ask sentence, "context-needs-care"
-      refute_match(/Nothing set aside; that’s okay/, response.parsed_body.dig("assistant_message", "content"))
+      refute_match(/Nothing set aside; that’s okay|Start with one purchase|starting point/i, response.parsed_body.dig("assistant_message", "content"))
       assert_nil response.parsed_body["challenge_chat_card"]
       assert_equal 0, SavingsEntryVersion.count
     end

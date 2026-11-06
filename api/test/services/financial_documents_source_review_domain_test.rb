@@ -27,7 +27,7 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
 
   test "review one answer covers similar statement merchants after an explicit different split" do
     @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
-    fresh = source([movement(-3500).merge(merchant: "Payless"), movement(-4100, row: 2).merge(merchant: "Cost-U-Less")])
+    fresh = source([ movement(-3500).merge(merchant: "Payless"), movement(-4100, row: 2).merge(merchant: "Cost-U-Less") ])
     identity = link(fresh)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
     assert_equal 2, plan.attention.length

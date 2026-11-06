@@ -2,14 +2,11 @@ module SavingsChallenge
   # Conservative convenience input, never an approval or a financial record.
   # Ambiguous amounts/dates and conditional plans remain ordinary conversation.
   #
-  # Savings contributions and withdrawals keep their single-amount review.
+  # Each savings movement keeps its own single-amount review.
   # Spending becomes a "daily_report" card: one or more purchases, or an
   # explicit no-spend day, that the participant checks and saves themselves.
   class ChatIntake
     MONEY = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?(?![\d.,])#{HouseholdFinance::Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
-    SAVINGS_MOVE = /\b(?:withdrew|withdrawn|took)\b.{0,60}\b(?:savings|reserved|set aside)\b|\b(?:set aside|reserved|saved|put aside)\b/i.freeze
-    # Money moved into savings is never a purchase, even when it is not a reviewable contribution.
-    INTO_SAVINGS = DailyReportParser::INTO_SAVINGS
     # Worth asking the extractor only when it could produce a card: a number, and
     # a spending verb or a place.
     PLACE = /\b(?:at|from)\s+[a-z]/i.freeze

@@ -2,7 +2,7 @@ module SavingsChallenge
   # Classify each clause before extracting money. Negation and intention govern
   # their own action; an amount in a neighbouring clause is never borrowed.
   module SavingsReportText
-    SAVE = /\b(?:save[ds]?|saving|set aside|put aside|put away|reserve[ds]?)\b/i.freeze
+    SAVE = /\b(?:save[ds]?|saving|reserve[ds]?|(?:set|put)(?=[^.!?;]*\b(?:aside|away)\b))\b/i.freeze
     WITHDRAW = /\b(?:withdr(?:ew|awn)|took|pulled)\b/i.freeze
     NEGATIVE = /\b(?:not|never|nothing|no|zero|didn['’]?t|haven['’]?t|couldn['’]?t|can['’]?t|cannot|could not|can not|wasn['’]?t|was not)\b/i.freeze
     ZERO = /\b(?:nothing|zero|no(?: new)? money|not a (?:cent|penny))\b|\$0(?:\.0{1,2})?(?![\d.])/i.freeze

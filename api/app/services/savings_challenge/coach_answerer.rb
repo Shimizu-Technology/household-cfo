@@ -66,6 +66,9 @@ module SavingsChallenge
           return deterministic(debt_answer)
         end
         return deterministic(feeling_answer) if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
+        if SavingsReportText.nothing_set_aside?(@message)
+          return "You don't have to force a savings amount today. Food, housing, utilities, medicine and required payments come first; a smaller goal or a pause is okay. We can talk through what is making saving difficult without changing any records. What would help most right now?"
+        end
         return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
         return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
         return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)

@@ -44,7 +44,7 @@ module HouseholdFinance
       when :grief
         "I'm sorry for your loss. You don't have to work through money or setup right now. If it helps, reach out to your coach or someone you trust. We can pick this up when you're ready. What would feel most helpful today?"
       when :job_loss
-        "Losing work is a lot to take in. Food, housing, utilities and medicine come first; savings and setup can wait. Your coach or someone you trust can help you think through the next step. We can pick this up when you're ready. What feels most urgent today?"
+        "Losing work is a lot to take in. Food, housing, utilities and medicine come first; savings and setup can wait. If you'd like, reach out to your coach or someone you trust to talk through the next step. We can pick this up when you're ready. What feels most urgent today?"
       when :housing
         "Facing the loss of your home is frightening. Housing and your other essentials come first; savings and setup can wait. Reach out to your coach or someone you trust, and ask your landlord about the notice and your options. We can pick this up when you're ready. What needs attention today?"
       end

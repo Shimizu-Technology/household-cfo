@@ -45,6 +45,22 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     assert_equal explicit, HouseholdFinance::EverydaySpendingPolicy.new(@household).suggestion(merchant: "Cost-U-Less")[:category]
   end
 
+  test "review only applied participant setup words establish an exception for both groceries and fuel" do
+    fixed = @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    proposal = @household.mia_action_drafts.create!(requested_by_user: @household.created_by_user, draft_type: "household_setup", status: "pending", year: 2026,
+      title: "Household costs", summary: "Check my household costs", source_prompt: "Our fixed essentials include groceries and gas")
+    %w[Payless Mobil].each do |merchant|
+      assert_equal everyday, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name).category
+    end
+    proposal.update!(status: "applied")
+    %w[Payless Mobil].each do |merchant|
+      suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name)
+      assert_nil suggestion.category
+      assert_equal "check_participant_split", suggestion.match_reason
+    end
+  end
+
   test "matches an exact active category even when extraction confidence is low" do
     suggestion = @suggester.suggest(
       merchant: "Tita's Demo Market",

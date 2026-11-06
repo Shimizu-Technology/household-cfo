@@ -2169,7 +2169,11 @@ module Api
           ).call
         end
         direct_answer = if action_result.nil?
-          "Okay. What would you like to work on next?"
+          if content.to_s.squish.match?(/\A(?:yes|yeah|yep|yup|ok(?:ay)?)[.!]?\z/i)
+            "Okay. What would you like to work on next?"
+          else
+            "I lost the exact request, and I do not want to guess. Please restate the category, amount, and month you want changed. Nothing changed."
+          end
         end
 
         {
@@ -2473,8 +2477,8 @@ module Api
       def drafted_transaction_message(draft, annual_plan)
         category = drafted_transaction_category_label(draft)
         impact = drafted_transaction_impact_line(draft, annual_plan)
-        if current_household.budget_categories.active.none?
-          question = HouseholdFinance::MiaSetupGuide.new(current_household).after_apply_message
+        if draft.household.budget_categories.active.none?
+          question = HouseholdFinance::MiaSetupGuide.new(draft.household).after_apply_message
           return "I kept #{draft.merchant} for #{money(draft.total_amount_cents)} on a review card. You can choose its spending group and save it after setup. Nothing is saved yet. #{question}"
         end
         "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."

@@ -315,6 +315,21 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     end
   end
 
+  [ "Actually $4,600", "Make that $4,600 instead", "Change that to $4,600", "It's actually $4,600", "No, $4,600" ].each_with_index do |sentence, index|
+    test "review correction keeps the open setup field before reading a deferral #{index}" do
+      save_setup
+      post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+      post_message("I make $4,800 a month")
+      older = response.parsed_body.fetch("mia_action_draft")
+      post_message(sentence)
+      corrected = response.parsed_body.fetch("mia_action_draft")
+      assert corrected, response.parsed_body.inspect
+      assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+      apply(corrected)
+      assert_equal 460000, @household.income_sources.sole.amount_cents
+    end
+  end
+
   test "review duplicate raises replace the older pending amount" do
     save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
     post_message("I got a raise to $5,300 a month")
