@@ -1308,10 +1308,11 @@ module HouseholdFinance
     end
 
     def purchase_item
-      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
+      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:(?:these|this|the|a|an|some)\s+)?([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
       return unless match
 
-      match[1].to_s.squish.presence
+      item = match[1].to_s.squish
+      item.presence unless item.match?(/\A(?:it|them|that|this|one|these|those)\z/i)
     end
 
     def active_plan

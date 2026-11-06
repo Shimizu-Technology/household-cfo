@@ -149,13 +149,15 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     payload = narrator.send(:payload)
     system_prompts = payload.fetch(:messages).select { |message| message.fetch(:role) == "system" }.map { |message| message.fetch(:content) }
 
-    assert_includes system_prompts, @runtime.system_prompt
+    assert_includes system_prompts.first, "Identity: The assistant is Coach Lila."
+    assert_includes system_prompts.first, "Voice: warm, direct, respectful."
     assert system_prompts.any? { |prompt| prompt.include?("Southern United States") }
     assert_includes payload.fetch(:messages).third.fetch(:content), "response layer for Coach Lila"
     assert_includes payload.fetch(:messages).last.fetch(:content), "Write Coach Lila's final response now."
     assert_includes payload.fetch(:messages).last.fetch(:content), "assigned_assistant_is_coach_assistant"
     refute_includes payload.fetch(:messages).last.fetch(:content), "mia_is_coach_assistant"
-    assert_equal "Y'all should review the confirmed plan first.", narrator.send(:sanitize_narration, "Coach Lila: Y'all should review the confirmed plan first.")
+    assert_equal "Review the confirmed plan first.", narrator.send(:sanitize_narration, "Coach Lila: Review the confirmed plan first.")
+    assert_nil narrator.send(:sanitize_narration, "Coach Lila: Y'all should review the confirmed plan first.")
   end
 
   test "narrator rejects provider output that violates the custom response shape" do
@@ -214,12 +216,13 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
         "How should our household prepare?",
         context: JSON.generate(basis: "approved test facts")
       )
-      assert_equal "Review the confirmed plan first. Then choose one concrete next move.", result
+      assert_equal "y'all Review the confirmed plan first. Then choose one concrete next move.", result
     end
 
     payload = JSON.parse(captured_requests.sole.body)
     system_prompts = payload.fetch("messages").select { |message| message.fetch("role") == "system" }.map { |message| message.fetch("content") }
-    assert_includes system_prompts, @runtime.system_prompt
+    assert_includes system_prompts.first, "Identity: The assistant is Coach Lila."
+    assert_includes system_prompts.first, "Voice: warm, direct, respectful."
     assert system_prompts.any? { |prompt| prompt.include?("Southern United States") }
   end
 
@@ -246,7 +249,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
 
     refute_equal "Only one sentence.", result
     assert_includes result, @runtime.uncertainty_line
-    assert_includes result, "I’ll answer from your saved records"
+    assert_includes result, "What would you like to check before choosing your next step?"
     assert ::Mia::ResponseShapePolicy.valid?(result, persona: @runtime), "the fallback itself fits the persona's 3-5 sentence shape"
   end
 

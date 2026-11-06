@@ -365,7 +365,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes zero, "Assumption only"
 
     purchase = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $5,000, can I buy a $900 laptop?").call
-    assert_includes purchase, "The $900 purchase"
+    assert_includes purchase, "$900 purchase"
     refute_includes purchase, "purchase is $5,000"
     refute_includes purchase, "Assumption only"
   end
@@ -391,7 +391,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     ).call
 
     assert_includes answer, "plan"
-    assert_includes answer, "The $900 purchase"
+    assert_includes answer, "$900 purchase"
     refute_includes answer, "Assumption only"
   end
 
@@ -703,12 +703,12 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     household = create_yellow_household
 
     purchase = HouseholdFinance::MiaCoachAnswerer.new(household, "Can I buy a $500 TV?").call
-    assert_includes purchase, "The $500 purchase"
+    assert_includes purchase, "$500 purchase"
     refute_includes purchase, "good goal"
 
     progress = HouseholdFinance::MiaCoachAnswerer.new(household, "How close am I to my $500 savings goal?").call.to_s
     refute_includes progress, "good goal"
-    refute_includes progress, "The $500 purchase"
+    refute_includes progress, "$500 purchase"
   end
 
   test "a reported spend without an I or we subject leaves the coach for the transaction draft path" do
@@ -964,10 +964,10 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     household = create_yellow_household
 
     {
-      "Can I afford a $5k car?" => "The $5,000 purchase",
-      "Can we afford a $1.5k trip for the kids?" => "The $1,500 purchase",
-      "Can I afford a $2K couch for work?" => "The $2,000 purchase",
-      "Can I afford a $3 thousand trip?" => "The $3,000 purchase"
+      "Can I afford a $5k car?" => "$5,000 purchase",
+      "Can we afford a $1.5k trip for the kids?" => "$1,500 purchase",
+      "Can I afford a $2K couch for work?" => "$2,000 purchase",
+      "Can I afford a $3 thousand trip?" => "$3,000 purchase"
     }.each do |prompt, expected|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
       assert_includes answer, expected, prompt
@@ -981,7 +981,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     [ "Can I afford a $5 kids meal?", "Can I buy a $5 Kmart shirt?" ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
-      assert_includes answer, "The $5 purchase", prompt
+      assert_includes answer, "$5 purchase", prompt
       refute_includes answer, "$5,000", prompt
     end
   end

@@ -68,7 +68,7 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
     five_answers
     HouseholdFinance::SetupUpdater.new(@household, debt_payment: "95").call
     post_message("Can I afford a $300 stroller?")
-    assert_match(/\AThe \$300 purchase/, reply)
+    assert_match(/\AThis month’s plan.*\$300 stroller/, reply)
     assert_includes reply, "$1,405"
     assert_includes reply, "$1,105"
     assert_nil response.parsed_body["mia_action_draft"]

@@ -122,6 +122,14 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
     end
   end
 
+  test "purchase articles cannot strip part of a pronoun into an invented item" do
+    coach = HouseholdFinance::MiaCoachAnswerer.allocate
+    coach.instance_variable_set(:@message, "The shoes are $90. Can I get them?")
+    assert_nil coach.send(:purchase_item)
+    coach.instance_variable_set(:@message, "Can I get the table?")
+    assert_equal "table", coach.send(:purchase_item)
+  end
+
   private
 
   def voice
