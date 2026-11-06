@@ -26,6 +26,10 @@ module AiModels
     first_present(env, TEXT_ENV_KEYS) || DEFAULT_TEXT_MODEL
   end
 
+  def participant_reader(env = ENV)
+    first_present(env, %w[AI_PARTICIPANT_READER_MODEL]) || "google/gemini-2.5-flash"
+  end
+
   def transcription(env = ENV)
     first_present(env, TRANSCRIPTION_ENV_KEYS) || DEFAULT_TRANSCRIPTION_MODEL
   end

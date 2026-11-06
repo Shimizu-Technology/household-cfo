@@ -49,15 +49,11 @@ module HouseholdFinance
     def stated_different_split?(family, categories)
       return true if categories.any? { |category| category.stack_key != "discretionary" && self.class.families(category.name).include?(family) &&
         !category.name.downcase.match?(TransactionCategorySuggester::NON_TRIP_VEHICLE_NAMES) }
-      # Only applied setup words establish a different split. An extracted bank
-      # label and an unapplied chat proposal cannot change this rule.
-      @setup_prompts ||= @household.mia_action_drafts.where(status: "applied", draft_type: %w[household_setup action_plan]).pluck(:source_prompt)
-      @setup_prompts.any? do |prompt|
-        prompt.to_s.split(/[.!?;]|\bbut\b/i).any? do |clause|
-          self.class.families(clause).include?(family) && clause.match?(/\b(?:fixed|essentials|bills)\b/i) &&
-            clause.match?(/\b(?:includes?|including|covers?|under|within|part of|counted in)\b/i) && !clause.match?(/\b(?:not|don['’]?t|exclude)\b/i)
-        end
-      end
+      # Only reviewed, applied structured preferences establish an exception.
+      # Never reinterpret a source prompt with language-pattern rules.
+      @setup_preferences ||= @household.mia_action_drafts.where(status: "applied", draft_type: %w[household_setup action_plan])
+        .order(:id).pluck(:metadata).flat_map { |metadata| Array(metadata["spending_preferences"]) }
+      @setup_preferences.reverse.find { |preference| preference["family"] == family.to_s }&.fetch("group") == "fixed"
     end
   end
 end

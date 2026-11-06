@@ -53,7 +53,7 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     %w[Payless Mobil].each do |merchant|
       assert_equal everyday, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name).category
     end
-    proposal.update!(status: "applied")
+    proposal.update!(status: "applied", metadata: { spending_preferences: %w[groceries fuel].map { |family| { family: family, group: "fixed", evidence: "Our fixed essentials include groceries and gas" } } })
     %w[Payless Mobil].each do |merchant|
       suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name)
       assert_nil suggestion.category

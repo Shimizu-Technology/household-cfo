@@ -87,6 +87,7 @@ module HouseholdFinance
       impact = setup_impact(before_values, normalized)
       metadata = { source: "mia_chat", parser: "model_intent" }
       metadata[:impact] = impact if impact
+      metadata[:spending_preferences] = command[:spending_preferences] if command[:spending_preferences].present?
       proposal_result(
         draft_type: "household_setup",
         title: "Review your household details",

@@ -28,11 +28,16 @@ module Api
         render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
       end
 
+      around_action :scope_participant_reading, only: :create
       before_action :authenticate_user!
       # Crisis messages are never throttled: emergency guidance must always answer.
       participant_rate_limit to: 20, within: 1.minute, name: "mia-minute", only: :create, unless: :crisis_message?
       participant_rate_limit to: 200, within: 1.hour, name: "mia-hour", only: :create, unless: :crisis_message?
       before_action :require_writable_household!, only: %i[create destroy]
+
+      def scope_participant_reading
+        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil) { yield }
+      end
 
       def index
         response.set_header("Cache-Control", "private, no-store")
@@ -121,6 +126,18 @@ module Api
         # ended in a canned reply). The active topic is left as it was.
         if attached_imports.empty? && HouseholdFinance::ConversationFollowupResolver.gratitude?(content)
           return render_acknowledgment_response(session, content, message_request: message_request)
+        end
+
+        if attached_imports.empty?
+          field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
+          field ||= "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary|money) )?goal to /i)
+          thread = session.active_topic.to_h.deep_symbolize_keys
+          action = thread[:action].to_h
+          pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
+          pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending)
+          HouseholdFinance::ParticipantMessageReader::Current.message = content
+          HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
         end
 
         # Challenge goal/pattern continuations must not fall through to household goal reads.
@@ -219,6 +236,7 @@ module Api
           selected_month: budget_month_param
         ).call
         intent_context[:available_product_modules] = module_guidance.context
+        intent_context[:participant_reading] = @participant_reading
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -553,7 +571,7 @@ module Api
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         turn = SavingsChallenge::ChatTurn.new(household: current_household, user: current_user, enrollment: enrollment,
           session: session, message: content, attachments: attached_imports, persona: module_guidance.persona(current_persona),
-          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context).call
+          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context, reading: @participant_reading).call
         @used_coach_content = turn.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!

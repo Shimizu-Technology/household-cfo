@@ -81,11 +81,12 @@ module SavingsChallenge
         "challenge_chat_cards" => Array(payload["challenge_chat_cards"]).filter_map { |card| cards[card["id"]]&.as_api_json })
     end
 
-    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil)
+    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil, reading: nil)
       @household, @user, @enrollment, @session, @message, @attachments = household, user, enrollment, session, message.to_s, attachments
       @persona, @history, @approved_content = persona, history, approved_content
       @available_product_modules = available_product_modules
       @topic = {}
+      @reading = reading || HouseholdFinance::ParticipantMessageReader.call(message: @message)
     end
 
     attr_reader :answer, :intake, :intakes, :cards, :supplied_content_context, :patterns
@@ -101,16 +102,25 @@ module SavingsChallenge
         @intakes = [ @intake ].compact
         return self
       end
-      parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty? && !self.class.protected_message?(@message)
+      parser = ChatIntake.new(@enrollment, message: @message, reading: @reading) if @attachments.empty?
       @intake = parser&.call
       @intakes = parser&.intakes || []
-      if SavingsReportText.plain_nothing_set_aside?(@message) && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      if @reading.facts.any? { |fact| fact["kind"] == "nothing_saved" } && @intakes.empty? && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
         if @intake&.dig(:kind) == "daily_report"
           coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: @intake)
           @answer = "Nothing set aside; that’s okay. #{coach.call}"
         else
           @answer = "Nothing set aside; that’s okay. Nothing has been added to your savings."
         end
+        return self
+      end
+      if @reading.care?
+        @answer = HouseholdFinance::ParticipantCare.answer(@message) || "That sounds hard. Your essentials come first, and setup can wait."
+        @answer += " Your reported amounts are still below for you to review when you're ready; nothing has been saved." if @intakes.any?
+        return self
+      end
+      if !@reading.available && @intakes.empty? && @attachments.empty? && !self.class.special?(@message, session: @session) && @message.match?(/\d/) && !self.class.protected_message?(@message)
+        @answer = HouseholdFinance::ParticipantMessageReader::OFF_REPLY
         return self
       end
       if @intakes.many?

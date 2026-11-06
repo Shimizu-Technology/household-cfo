@@ -213,6 +213,8 @@ module HouseholdFinance
 
     def call
       return nil if user_message.blank?
+      reader_result = participant_setup_result
+      return reader_result if reader_result
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
@@ -270,6 +272,59 @@ module HouseholdFinance
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] intent fallback: #{e.class}: #{e.message}")
       return explicit_read_only_result if read_only_request
       deterministic_scenario_fallback || setup_unrecognized_reply_result
+    end
+
+    def participant_setup_result
+      field = next_missing_setup_field
+      asked = field && guided_setup_question_asked?(field)
+      thread = context.dig(:conversation, :active_thread).to_h
+      action = thread[:action].to_h
+      fields = action[:setup_updates].to_h.keys
+      pending_field = fields.sole.to_s if fields.one? && thread[:status] == "pending_review"
+      pending_field = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
+      return unless asked || pending_field || context[:participant_reading]&.care?
+      return if ::Mia::CrisisBoundary.matches?(user_message) || ::Mia::CrisisBoundary.hopeless?(user_message) || MiaCoachAnswerer.prompt_injection?(user_message)
+
+      reading = context[:participant_reading] || ParticipantMessageReader.call(message: raw_user_message, setup_field: asked ? field : nil, pending_field: pending_field)
+      if reading.care?
+        text = ParticipantMessageReader::Current.set(message: raw_user_message, reading: reading) { ParticipantCare.answer(raw_user_message) }
+        return deterministic_setup_clarification(field || pending_field || "primary_goal", clarification: text)
+      end
+      answer_field = reading.answer_field
+      if answer_field && (!reading.correction || pending_field == answer_field)
+        value = reading.setup_answer.fetch("value")
+        if answer_field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
+          value = value.match?(/\Ano (?:income|debt payments)\z/i) ? "0" : Money.chat_amount_text(value.delete("$"))
+        end
+        if reading.correction && action[:type] == "schedule_income_change"
+          return Result.new(intent: "income_action", confidence: 1.0, continuation: true, resolved_message: user_message,
+            needs_clarification: false, clarification: "", topic: { type: "income", title: "Current salary" },
+            action: action.merge(amount: value), read_only_plan: {}, source: "participant_reader")
+        end
+        result = setup_reply_result(answer_field, value)
+        preferences = reading.spending_preferences.presence || thread[:spending_preferences]
+        result.action[:spending_preferences] = preferences if preferences.present? && result.action[:type] == "update_household_setup"
+        return result
+      end
+      # Explicit confirmations retain their grounded existing path; a named debt
+      # is handled by the narrow typed minimum-payment path, never as a name.
+      return if user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN) && MiaSetupReply.confirmation_updates(Array(context.dig(:conversation, :recent_messages)))
+      named_debt = setup_named_minimum_result if field == "debt_payment"
+      return named_debt if named_debt
+      purchase = reading.facts.find { |fact| fact["kind"] == "purchase" }
+      if purchase
+        merchant = purchase["merchant"].presence || purchase["item"]
+        if merchant.present?
+          return Result.new(intent: "transaction_report", confidence: 1.0, continuation: false, resolved_message: user_message,
+            needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported spending" },
+            action: { type: "create_transaction_draft", merchant: merchant, amount: Money.chat_amount_text(purchase["amount"].delete("$")),
+              occurred_on: purchase["day"].to_s.downcase == "yesterday" ? Date.current.yesterday.iso8601 : Date.current.iso8601, splits: [] }, read_only_plan: {}, source: "participant_reader")
+        end
+      end
+      result = deterministic_setup_clarification(field || pending_field,
+        clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
+      result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
+      result
     end
 
     def deterministic_scenario_result

@@ -33,12 +33,8 @@ module HouseholdFinance
     end
 
     def goal?(message)
-      text = message.to_s.squish
-      return false if text.blank? || question?(text) || ParticipantCare.required?(text)
-      return false if ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text)
-      return false if purchase_statement?(text) || bill_statement?(text) || income_statement?(text)
-      return false if text.match?(MiaIntentResolver::DEBT_FREE_AFFIRMATION_PATTERN) || text.match?(/\A[\d$,. ]+\z/)
-      true
+      current = ParticipantMessageReader::Current
+      current.message == message.to_s && current.reading&.answer_field == "primary_goal"
     end
 
     def question?(message)
