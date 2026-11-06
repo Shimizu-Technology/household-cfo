@@ -127,7 +127,7 @@ module SavingsChallenge
         @answer += " Your reported amounts are still below for you to review when you're ready; nothing has been saved." if @intakes.any?
         return self
       end
-      if !@reading.available && @intakes.empty? && @attachments.empty? && !self.class.special?(@message, session: @session) && @message.match?(/\d/) && !self.class.protected_message?(@message)
+      if !@reading.available && @intakes.empty? && parser&.rejection.nil? && @attachments.empty? && !self.class.special?(@message, session: @session) && @message.match?(/\d/) && !self.class.protected_message?(@message)
         @answer = HouseholdFinance::ParticipantMessageReader::OFF_REPLY
         return self
       end

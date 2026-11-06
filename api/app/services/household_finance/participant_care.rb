@@ -4,7 +4,7 @@ module HouseholdFinance
 
     def kind(message)
       current = ParticipantMessageReader::Current
-      return current.reading.care.to_sym if current.message == message.to_s && current.reading&.care?
+      return current.reading.care.to_sym if current.message.to_s.squish == message.to_s.squish && current.reading&.care?
       # Exact subject/action forms only during an outage or outside chat. Idioms
       # such as dead set/dead tired and fired up never satisfy these forms.
       text = message.to_s.tr("’", "'").strip

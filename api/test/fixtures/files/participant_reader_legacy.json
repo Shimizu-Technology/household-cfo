@@ -343,17 +343,6 @@
     "correction": false,
     "spending_preferences": []
   },
-  "500": {
-    "care": "none",
-    "facts": [],
-    "question": false,
-    "setup_answer": {
-      "field": "none",
-      "value": ""
-    },
-    "correction": false,
-    "spending_preferences": []
-  },
   "Set my challenge target": {
     "care": "none",
     "facts": [],
@@ -361,17 +350,6 @@
     "setup_answer": {
       "field": "name",
       "value": "Set my challenge target"
-    },
-    "correction": false,
-    "spending_preferences": []
-  },
-  "$500": {
-    "care": "none",
-    "facts": [],
-    "question": false,
-    "setup_answer": {
-      "field": "none",
-      "value": ""
     },
     "correction": false,
     "spending_preferences": []
@@ -1285,17 +1263,6 @@
     "correction": false,
     "spending_preferences": []
   },
-  "72": {
-    "care": "none",
-    "facts": [],
-    "question": false,
-    "setup_answer": {
-      "field": "none",
-      "value": ""
-    },
-    "correction": false,
-    "spending_preferences": []
-  },
   "Buy food at Kmart for $37": {
     "care": "none",
     "facts": [
@@ -1355,17 +1322,6 @@
     "setup_answer": {
       "field": "name",
       "value": "the cruz ohana"
-    },
-    "correction": false,
-    "spending_preferences": []
-  },
-  "0": {
-    "care": "none",
-    "facts": [],
-    "question": false,
-    "setup_answer": {
-      "field": "none",
-      "value": ""
     },
     "correction": false,
     "spending_preferences": []
@@ -1704,7 +1660,7 @@
       "field": "name",
       "value": "QA Family"
     },
-    "correction": false,
+    "correction": true,
     "spending_preferences": []
   },
   "The Mastercard minimum is $325": {
@@ -2364,6 +2320,451 @@
         "kind": "purchase",
         "amount": "$50",
         "merchant": "Costco",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "For today's check-in, I spent $12.34 at Payless on groceries today and bought nothing else. Please prepare one check-in card for me to review. Don't save these purchases until I approve.": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$12.34",
+        "merchant": "Payless",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I spent eighteen dollars and forty-seven cents at Payless this morning": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "eighteen dollars and forty-seven cents",
+        "merchant": "Payless",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I bought a $5 coffee at Starbucks and spent twelve dollars at Payless and bought nothing else": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$5",
+        "merchant": "Starbucks",
+        "item": "",
+        "day": ""
+      },
+      {
+        "kind": "purchase",
+        "amount": "twelve dollars",
+        "merchant": "Payless",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I spent $8 at Shell and 20 at Payless, felt rushed": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$8",
+        "merchant": "Shell",
+        "item": "",
+        "day": ""
+      },
+      {
+        "kind": "purchase",
+        "amount": "20",
+        "merchant": "Payless",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "spent 12 for lunch": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "12",
+        "merchant": "",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Yes, I set aside $20 today": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "set_aside",
+        "amount": "$20",
+        "merchant": "",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Yep, I set aside $20 today": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "set_aside",
+        "amount": "$20",
+        "merchant": "",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Okay. I set aside $20 today": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "set_aside",
+        "amount": "$20",
+        "merchant": "",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "We just set aside $20 today": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "set_aside",
+        "amount": "$20",
+        "merchant": "",
+        "item": "",
+        "day": "today"
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I feel stressed, spent $60 at Ross": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$60",
+        "merchant": "Ross",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Today I spent $12 at Busy Bee Cafe": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$12",
+        "merchant": "Busy Bee Cafe",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I felt rushed, spent $7 at Kmart": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$7",
+        "merchant": "Kmart",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I felt rushed and now I feel guilty, spent $7 at Kmart": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$7",
+        "merchant": "Kmart",
+        "item": "",
+        "day": ""
+      }
+    ],
+    "question": false,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "The Santos Cruz Dela Rosa extended family household of Dededo": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "name",
+      "value": "The Santos Cruz Dela Rosa extended family household of Dededo"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I take home about $4,800 a month from my job at the hospital": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "income",
+      "value": "$4,800"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Leon, Ana and Kids": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "name",
+      "value": "Leon, Ana and Kids"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Help my kids graduate debt-free": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "Help my kids graduate debt-free"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Help my daughter graduate debt-free": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "Help my daughter graduate debt-free"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Save $500 over 90 days": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "Save $500 over 90 days"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Pay off my loan": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "Pay off my loan"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "No debt": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "No debt"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Will & Grace Household": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "name",
+      "value": "Will & Grace Household"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "May Family": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "name",
+      "value": "May Family"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Build a three-month emergency fund": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "goal",
+      "value": "Build a three-month emergency fund"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "About $6,200 each month": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "income",
+      "value": "$6,200"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "Santos Cruz Dela Rosa extended family household": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "name",
+      "value": "Santos Cruz Dela Rosa extended family household"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "We pay about $150 a month": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "debt",
+      "value": "$150"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "none": {
+    "care": "none",
+    "facts": [],
+    "question": false,
+    "setup_answer": {
+      "field": "debt",
+      "value": "none"
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "I spent $12 at Target today": {
+    "care": "none",
+    "facts": [
+      {
+        "kind": "purchase",
+        "amount": "$12",
+        "merchant": "Target",
         "item": "",
         "day": "today"
       }

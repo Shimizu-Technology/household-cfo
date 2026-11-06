@@ -9,7 +9,7 @@ module ParticipantReaderTestSupport
       fixtures = @participant_reader_fixtures
       HouseholdFinance::ParticipantMessageReader.define_singleton_method(:call) do |**options|
         data = fixtures[options[:message].to_s]
-        next original.call(**options) unless data
+        next original.call(**options.merge(api_key: "")) unless data
 
         # A fixture answers only the question its case establishes. This keeps
         # a literal reused in a different stage from becoming a guessed answer.
@@ -32,5 +32,15 @@ module ParticipantReaderTestSupport
       HouseholdFinance::ParticipantMessageReader::Current.reset
       HouseholdFinance::ParticipantMessageReader.define_singleton_method(:call, @participant_reader_original) if @participant_reader_original
     end
+  end
+  def with_participant_reader_response(data)
+    klass = HouseholdFinance::ParticipantMessageReader
+    original = klass.method(:call)
+    klass.define_singleton_method(:call) do |**options|
+      new(**options.merge(transport: ->(_payload) { JSON.generate(data) })).call
+    end
+    yield
+  ensure
+    klass.define_singleton_method(:call, original)
   end
 end

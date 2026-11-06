@@ -1,8 +1,10 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/savings_challenge_test_support"
 require_relative "../support/savings_debt_test_support"
 
 class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   include SavingsChallengeTestSupport
   include SavingsDebtTestSupport
   setup do
@@ -248,23 +250,19 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     extractor_stub&.call
   end
 
-  test "an unreadable daily report may use the stubbed extractor, which is validated and never counted" do
-    ENV["OPENROUTER_API_KEY"] = "fictional-key"
-    extractor_stub = stub_private_method(SavingsChallenge::DailyReportExtractor, :openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "", counted: true }.to_json }
-    post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
-    assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
-    SavingsChallenge::DailyReportExtractor.class_eval do
-      define_method(:openrouter_response) { { purchases: [ { amount: "12", merchant: "Kings", day: "today" } ], no_spend: false, feeling_when_spent: "", feeling_now: "" }.to_json }
+  test "a structured reader purchase is validated once and never counted" do
+    data = { care: "none", question: false, correction: false, facts: [ { kind: "purchase", amount: "12", merchant: "Kings", item: "", day: "" } ],
+      setup_answer: { field: "none", value: "" }, spending_preferences: [], counted: true }
+    with_participant_reader_response(data) do
+      post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
+      assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
+      data.delete(:counted)
+      assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
+        post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
+      end
+      assert_equal [ { "amount_cents" => 1200, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
+      refute response.parsed_body.dig("savings_intake", "counted")
     end
-    narrator_stub = stub_private_method(HouseholdFinance::MiaNarrator, :openrouter_response) { raise "a daily report reply is deterministic" }
-    assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
-      post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json
-    end
-    assert_equal [ { "amount_cents" => 1200, "merchant" => "Kings", "purchased_on" => "2026-11-15" } ], response.parsed_body.dig("savings_intake", "purchases")
-    refute response.parsed_body.dig("savings_intake", "counted")
-  ensure
-    extractor_stub&.call
-    narrator_stub&.call
   end
 
   test "an ungrounded two-day model report falls back to Mia without a purchase card" do

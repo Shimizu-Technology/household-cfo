@@ -63,6 +63,12 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     refute read("rent 1400 power 200", object(field: "fixed", value: "1600"), setup_field: "fixed_expenses").available
   end
 
+  test "nothing saved cannot carry a negated amount into an accepted reading" do
+    result = read("i havent saved 30 yet", object(facts: [ fact("nothing_saved", "30", day: "") ]))
+    refute result.available
+    assert_empty result.facts
+  end
+
   test "outage accepts only clear anchored input and never guesses junk names or goals" do
     reader = HouseholdFinance::ParticipantMessageReader
     [ "idk", "lol", "asdf", "help", "hello", "not sure", "rent is 1400", "whats a good goal", "i dont have a goal", "ya", "k" ].each do |text|
@@ -85,6 +91,33 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
     parser.call
     assert_empty parser.intakes
+  end
+
+  test "quoted spoken cents are converted by the existing money normalizer" do
+    text = "I spent eighteen dollars and forty-seven cents at Payless today"
+    result = read(text, object(facts: [ fact("purchase", "eighteen dollars and forty-seven cents", merchant: "Payless") ]))
+    assert result.available
+    calendar = HouseholdFinance::PurchaseReportParser::Calendar.new(Date.current - 30, Date.current + 30, Date.current)
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_equal 1847, parser.intakes.sole.dig(:purchases, 0, :amount_cents)
+  end
+
+  test "an item is never promoted to an unknown merchant" do
+    text = "bought lunch 12 today"
+    result = read(text, object(facts: [ fact("purchase", "12", item: "lunch") ]))
+    calendar = HouseholdFinance::PurchaseReportParser::Calendar.new(Date.current - 30, Date.current + 30, Date.current)
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_equal "", parser.intakes.sole.dig(:purchases, 0, :merchant)
+  end
+
+  test "care survives whitespace normalization between routing and narration" do
+    text = "they  cut my hours"
+    result = read(text, object(care: "hardship"))
+    HouseholdFinance::ParticipantMessageReader::Current.set(message: text, reading: result) do
+      assert_equal :hardship, HouseholdFinance::ParticipantCare.kind(text.squish)
+    end
   end
 
   test "provider failure and denial follow the same outage contract without retries" do

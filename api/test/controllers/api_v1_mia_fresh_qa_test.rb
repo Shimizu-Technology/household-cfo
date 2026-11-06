@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     travel_to Time.zone.local(2026, 11, 5, 12)
     @user = User.create!(clerk_id: "fresh_#{SecureRandom.hex(8)}", email: "#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")

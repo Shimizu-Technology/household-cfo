@@ -130,6 +130,8 @@ module Api
 
         if attached_imports.empty?
           field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
+          recent_setup = session.chat_messages.order(:id).last(40).map { |turn| { role: turn.role, content: turn.content } }
+          field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: session.active_topic, recent_messages: recent_setup)
           field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
           thread = session.active_topic.to_h.deep_symbolize_keys
           action = thread[:action].to_h

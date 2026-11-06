@@ -158,6 +158,15 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_equal "fixed", MiaActionDraft.find(json.dig("mia_action_draft", "id")).metadata.dig("spending_preferences", 0, "group")
   end
 
+  test "an exact grief disclosure still leads with care when the reader is off" do
+    begin_setup
+    post "/api/v1/mia/messages", params: { message: "My mom passed" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
+    assert_response :created
+    assert_nil response.parsed_body["mia_action_draft"]
+    assert_match(/sorry for your loss/i, response.parsed_body.dig("assistant_message", "content"))
+    assert_empty @household.income_sources
+  end
+
   test "junk setup and outages repeat the question without a name or goal card" do
     household_say("Help me set up my household", reading)
     %w[idk none hi rent groceries ya k].each do |message|

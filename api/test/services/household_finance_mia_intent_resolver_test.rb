@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  include ParticipantReaderTestSupport
   test "yes confirms only setup facts the participant supplied before Mia asked" do
     context = setup_zero_context("household_name")
     context[:conversation][:recent_messages] = [

@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/savings_challenge_test_support"
 
 class ApiV1NaturalPurchaseReportsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   include SavingsChallengeTestSupport
 
   setup do
@@ -31,14 +33,14 @@ class ApiV1NaturalPurchaseReportsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "an incomplete report asks about the missing purchase without offering a partial card" do
+  test "an incomplete report during reader outage explains retry without offering a partial card" do
     [ "I spent $8 at Shell and bought lunch at Kings", "I spent $8 at Shell and a backpack 12 at Kings" ].each_with_index do |message, index|
       assert_no_difference [ "HouseholdTransaction.count", "SavingsDailyPurchaseDraft.count", "TransactionDraft.count" ] do
         post "/api/v1/mia/messages", params: { message: message, request_id: "missing-price-#{index}" }, headers: challenge_auth, as: :json
         assert_response :created
       end
       assert_nil response.parsed_body.fetch("savings_intake")
-      assert_equal "How much was the Kings purchase? Nothing was saved.", response.parsed_body.dig("assistant_message", "content")
+      assert_equal HouseholdFinance::ParticipantMessageReader::OFF_REPLY, response.parsed_body.dig("assistant_message", "content")
     end
   end
 

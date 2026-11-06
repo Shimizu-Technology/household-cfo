@@ -215,6 +215,7 @@ module HouseholdFinance
       return nil if user_message.blank?
       unless context[:participant_reading]
         field = next_missing_setup_field
+        field = nil unless field && guided_setup_question_asked?(field)
         field = "primary_goal" if user_message.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
         thread = context.dig(:conversation, :active_thread).to_h
         action = thread[:action].to_h
@@ -296,11 +297,19 @@ module HouseholdFinance
       return if ::Mia::CrisisBoundary.matches?(user_message) || ::Mia::CrisisBoundary.hopeless?(user_message) || MiaCoachAnswerer.prompt_injection?(user_message)
 
       reading = context[:participant_reading] || ParticipantMessageReader.call(message: raw_user_message, setup_field: asked ? field : nil, pending_field: pending_field)
-      if reading.care?
+      if reading.care? || ParticipantCare.required?(raw_user_message)
         return Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: user_message,
           needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Household coaching" },
           action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
       end
+      if (oversized = oversized_setup_text_field)
+        return deterministic_setup_clarification(oversized, clarification: "Please shorten the #{MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(oversized).downcase} to #{setup_text_limit(oversized)} characters or fewer so I can prepare it without truncating your words.")
+      end
+      # Preserve the existing closed, fully accounted typed-command grammar.
+      # It cannot consume an unrelated clause or invent an unstated total.
+      source_values, = deterministic_setup_values
+      explicit_setup = deterministic_setup_result if !reading.correction && source_values.length > 1
+      return explicit_setup if explicit_setup
       explicit_intake = MiaSetupIntake.new(raw_user_message, context: context).call
       return explicit_intake if explicit_intake
       income_change = deterministic_current_salary_result if reading.facts.any? { |fact| fact["kind"] == "income" }
@@ -309,7 +318,7 @@ module HouseholdFinance
       if answer_field && (!reading.correction || pending_field == answer_field)
         value = reading.setup_answer.fetch("value")
         if answer_field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
-          value = value.match?(/\Ano (?:income|debt payments)\z/i) ? "0" : Money.chat_amount_text(value.delete("$"))
+          value = ParticipantMessageReader.zero_answer?(value, field: answer_field) ? "0" : ParticipantMessageReader.amount_text(value)
         end
         if reading.correction && action[:type] == "schedule_income_change"
           return Result.new(intent: "income_action", confidence: 1.0, continuation: true, resolved_message: user_message,
@@ -324,17 +333,25 @@ module HouseholdFinance
       # Explicit confirmations retain their grounded existing path; a named debt
       # is handled by the narrow typed minimum-payment path, never as a name.
       return if user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN) && MiaSetupReply.confirmation_updates(Array(context.dig(:conversation, :recent_messages)))
+      if field == "debt_payment" && user_message.match?(CLEAN_NO_DEBT_PATTERN)
+        debt_free = deterministic_debt_free_result
+        return debt_free if debt_free
+      end
       named_debt = setup_named_minimum_result if field == "debt_payment"
       return named_debt if named_debt
       purchase = reading.facts.find { |fact| fact["kind"] == "purchase" }
       if purchase
-        merchant = purchase["merchant"].presence || purchase["item"]
+        merchant = purchase["merchant"]
         if merchant.present?
           return Result.new(intent: "transaction_report", confidence: 1.0, continuation: false, resolved_message: user_message,
             needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported spending" },
-            action: { type: "create_transaction_draft", merchant: merchant, amount: Money.chat_amount_text(purchase["amount"].delete("$")),
+            action: { type: "create_transaction_draft", merchant: merchant, amount: ParticipantMessageReader.amount_text(purchase["amount"]),
               occurred_on: purchase["day"].to_s.downcase == "yesterday" ? Date.current.yesterday.iso8601 : Date.current.iso8601, splits: [] }, read_only_plan: {}, source: "participant_reader")
         end
+      end
+      if purchase && merchant.blank?
+        return deterministic_setup_clarification(field || pending_field,
+          clarification: "I heard the purchase amount, but I still need the place before I can prepare its review. Nothing has been saved. #{MiaSetupGuide.question_message(field || pending_field)}")
       end
       result = deterministic_setup_clarification(field || pending_field,
         clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
