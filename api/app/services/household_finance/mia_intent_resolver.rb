@@ -242,7 +242,7 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
-      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
+      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && user_message.match(PurchaseQuestionText::PURCHASE_QUESTION)&.begin(0).to_i.positive? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end

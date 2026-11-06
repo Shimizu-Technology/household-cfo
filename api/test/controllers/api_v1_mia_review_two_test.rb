@@ -23,7 +23,7 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
   }.freeze
 
   ROUTING_CASES.each do |message, (priority, expected)|
-    test "shared routing: #{message}" do
+      test "shared routing: #{message}" do
       assert_equal priority, HouseholdFinance::MiaCoachAnswerer.routing_priority(message)
       next unless expected
 
@@ -33,6 +33,14 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
       refute response.parsed_body["mia_action_draft"]
       refute_match(/you kept|what worked/i, reply) if priority.in?(%i[hardship essential_skip])
     end
+  end
+
+  test "R2 an unsupported rent edit still answers the known current month without treating its amount as a year" do
+    post_message("change my rent to 2000, how much do i have left")
+    assert_includes reply, "July 2026"
+    assert_includes reply, "$1,890"
+    refute_includes reply, "2000"
+    assert_equal 2026, response.parsed_body.dig("month_answer", "year")
   end
 
   test "feeling plus month keeps the feeling short and the requested figures primary" do

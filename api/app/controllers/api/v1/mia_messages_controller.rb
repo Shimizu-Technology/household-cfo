@@ -2450,6 +2450,15 @@ module Api
           return acknowledge_reported_savings(answer)
         end
 
+        if HouseholdFinance::MiaCoachAnswerer.routing_priority(content) == :month && safe_month_answer(content, annual_plan: annual_plan)
+          fallback = if HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(content)
+            @mia_month_answer.response(next_move: "No amounts changed. Which change would you like to review?")
+          else
+            @mia_month_answer.response
+          end
+          return narrate_structured_answer(content, history, conversation_context, kind: "coaching", fallback_response: fallback, annual_plan: annual_plan, write_state: "no_write")
+        end
+
         context = HouseholdFinance::MiaContextBuilder.new(
           current_household,
           annual_plan: annual_plan,
