@@ -2,10 +2,12 @@
 
 require "json"
 require "set"
+require "timeout"
 
 module Mia
   module PersonaSetup
     class OperationContract
+      GUARD_TIMEOUT_SECONDS = 20
       MAX_OPERATIONS = 24
       MAX_OPERATIONS_BYTES = 32_768
       MAX_STATE_BYTES = 65_536
@@ -44,6 +46,7 @@ module Mia
         def review_note
           {
             "persona_setup_guard" => message,
+            "persona_setup_guard_unavailable" => ProposalGuard::UNAVAILABLE_NOTE,
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
             "persona_setup_phrase_use" => "The suggested change to when or how often you use this phrase was not in your message. Describe that change in your own words.",
@@ -64,6 +67,8 @@ module Mia
           case code
           when "persona_setup_evidence_missing", "persona_setup_exact_wording"
             "This suggestion used wording you did not provide. Please include the exact words you want."
+          when "persona_setup_guard_unavailable"
+            ProposalGuard::UNAVAILABLE_NOTE
           when "persona_setup_text_evidence"
             "Please include the words that support this coaching or teaching suggestion."
           when "persona_setup_voice_evidence"
@@ -96,12 +101,13 @@ module Mia
         end
       end
 
-      def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil, guard: ProposalGuard)
+      def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil, guard: ProposalGuard, guard_timeout: GUARD_TIMEOUT_SECONDS)
         @actor = actor
         @user_message = user_message.to_s.unicode_normalize(:nfkc)
         @persona = persona
         @previous_operations = previous_operations
         @evidence_state = evidence_state || persona.draft_config
+        @guard_timeout = guard_timeout
         @guard = guard
         @guard_results = {}
       end
@@ -179,6 +185,13 @@ module Mia
           raise ContractError.new("That would not change the current persona draft.", code: "persona_setup_no_change")
         end
 
+        # Reject schema-invalid candidates before any paid semantic review.
+        normalized.each do |operation|
+          next if @previous_operations.include?(operation)
+
+          validate_evidence!(op: operation["op"], path: operation["path"], value: operation["value"],
+            source: operation["source_basis"], evidence: operation["evidence_quote"])
+        end
         { operations: normalized, before_state:, after_state: }
       rescue PersonaSchema::InvalidConfiguration => error
         raise ContractError.new(error.errors.first, code: "persona_invalid")
@@ -203,7 +216,6 @@ module Mia
 
         value = op == "add_phrase" ? normalize_phrase_value(operation["value"]) : operation["value"]
         value = preserve_pending_list(path, value) if op == "set"
-        validate_evidence!(op:, path:, value:, source:, evidence:) unless @previous_operations.include?(operation)
 
         normalized = { "op" => op, "path" => path, "value" => value, "source_basis" => source, "evidence_quote" => evidence }
         yield normalized
@@ -277,11 +289,29 @@ module Mia
         current = existing || (path == "description" ? persona.description : path.split(".").reduce(@evidence_state) { |target, key| target.is_a?(Hash) ? target[key] : nil })
         operation = { "op" => op, "path" => path, "value" => value, "source_basis" => source, "evidence_quote" => evidence }
         key = JSON.generate([ operation, current ])
-        result = @guard_results[key] ||= @guard.call(user_message: user_message, operation: operation, current_value: current,
-          coach_name: persona.draft_config.dig("identity", "human_coach_name"))
+        result = @guard_results[key] ||= guarded_review(operation, current)
         return if result.allowed?
 
+        if result.unavailable?
+          raise ContractError.new(ProposalGuard::UNAVAILABLE_NOTE, code: "persona_setup_guard_unavailable")
+        end
         raise ContractError.new("Mia could not confirm this suggestion keeps your own meaning, limits and voice. Describe the change in your own words.", code: "persona_setup_guard")
+      end
+
+      def guarded_review(operation, current)
+        # Shared by the initial build and every salvage attempt. Include
+        # admission, network reads and provider retries in the same budget.
+        @guard_deadline ||= Process.clock_gettime(Process::CLOCK_MONOTONIC) + @guard_timeout
+        remaining = @guard_deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        raise ProposalGuard::DeadlineExceeded if remaining <= 0
+
+        Timeout.timeout(remaining, ProposalGuard::DeadlineExceeded) do
+          @guard.call(user_message: user_message, operation: operation, current_value: current,
+            coach_name: persona.draft_config.dig("identity", "human_coach_name"))
+        end
+      rescue ProposalGuard::DeadlineExceeded
+        Rails.logger.warn({ event: "mia.persona_setup.guard", allowed: false, reasons: [ "deadline" ], count: 1 }.to_json)
+        ProposalGuard::Result.new([ "deadline" ])
       end
 
       # Only the server passes already sealed, pending operations here. New
@@ -334,6 +364,12 @@ module Mia
 
       def suggestion_label(operation)
         value = operation.is_a?(Hash) ? operation["value"] : nil
+        if operation.is_a?(Hash) && operation["op"] == "set" && value.is_a?(Array)
+          saved = operation["path"].to_s.split(".").reduce(@evidence_state) { |target, key| target.is_a?(Hash) ? target[key] : nil }
+          additions = value - Array(saved)
+          removals = Array(saved) - value
+          value = additions + removals.map { |item| "Remove #{item}" }
+        end
         # Bound the excerpt so all 24 rejected operations fit the reply limit.
         preview = if value.is_a?(Hash) && value["text"].is_a?(String)
           value["text"]

@@ -67,7 +67,7 @@ class MiaPersonaSetupRiskSplitTest < ActiveSupport::TestCase
     unsafe = [ op("identity.human_coach_name", "Invented", "Lina"),
       op("voice.tone_traits.x", %w[warm direct respectful lighthearted], "No humour"),
       op("coaching.do", [ "Recommend specific stocks." ], "Recommend specific stocks."),
-      phrase("Pause", "crisis", 'I say "Pause"'), phrase("Not mine", "general", "Not mine"),
+      phrase("Pause", "crisis", 'I say "Pause"'), phrase("Invented quote", "general", "Not mine"),
       op("protected.setting", "unsafe", "Lina") ]
     unsafe.each do |operation|
       result = run_turn(message, [ operation ])

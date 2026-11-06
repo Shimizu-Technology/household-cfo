@@ -2,35 +2,30 @@
 
 module Mia
   module PersonaSetup
-    # Attribution is shared by phrases, prose and finite voice presets. A model
-    # cannot turn an exact substring inside another speaker's words into hers.
+    # Only transcript line labels identify speakers here. Attribution within
+    # prose belongs to ProposalGuard, which receives the complete message.
     class CoachSource
-      def initialize(coach_name: nil)
+      LABEL = /\A\s*([\p{L}][\p{L}\d .’'()#\[\]\/-]{0,35}):\s*/
+      ROLES = /\A(?:coach|me|client|participant|speaker|guest)(?:\s*[#\d(\[].*)?\z/i
+
+      def initialize(coach_name: nil, message: "")
         @coach_name = coach_name
+        labels = message.lines.filter_map { |line| line.match(LABEL)&.captures&.first }
+        @transcript = message.match?(/\btranscript\b/i) ||
+          (labels.map(&:downcase).uniq.length >= 2 && labels.any? { |label| label.match?(ROLES) || label.casecmp?(@coach_name.to_s) })
       end
 
       def body(line)
-        allowed = [ "coach", "me", "#{@coach_name}" ].reject(&:blank?)
-        body = line
-        nested = false
-        loop do
-          label = body.match(/\A\s*(?:["“]([^"”\n]+)["”]|([^:"“\n]+)):\s*/)
-          return body unless label
+        label = line.match(LABEL)
+        return line unless label && label[1].split.length <= 3
 
-          speaker = label[1] || label[2]
-          return body if prose_introduction?(speaker)
-          return unless allowed.any? { |name| speaker.strip.casecmp?(name) } || (nested && speaker.strip.casecmp?("note"))
+        speaker = label[1].strip
+        allowed = [ "coach", "me", @coach_name ].compact.reject(&:blank?)
+        own_label = allowed.any? { |name| speaker.casecmp?(name) }
+        return line unless @transcript || speaker.match?(ROLES) || own_label
+        return unless own_label
 
-          body = body[label.end(0)..]
-          nested = true
-        end
-      end
-
-      def prose_introduction?(text)
-        # Only the final clause before a colon identifies its speaker. An
-        # earlier voice instruction cannot turn "Client: I say" into hers.
-        text = text.split(/[.!?;—–]/).last.to_s
-        text.match?(/\A\s*(?:(?:i|we|she|he|they)(?:\s|['’])|(?:sound|speak|talk|respond|reply)\s+like\b|my\s+(?:[\p{L}’'-]+\s+){1,6}(?:is|stays|remains|sounds|feels)\b|the coach\s|her (?:phrase|saying|voice|tone|coaching|method|style) (?:is|was)\b|(?:(?:also|please)\s+)*(?:add|use|keep|say)\b)/i)
+        line[label.end(0)..]
       end
     end
   end

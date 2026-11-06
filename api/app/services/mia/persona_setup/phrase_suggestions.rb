@@ -28,24 +28,11 @@ module Mia
         @message.each_line do |line|
           body = coach_source(line)
           next unless body
-          # The source must identify the coach or explicitly request this phrase.
-          # A third party's quote, even inside a coach line, is not her voice.
+          # Wording must be exact. A quotation alone does not prove adoption:
+          # the semantic guard judges its speaker and use in the full message.
           body.to_enum(:scan, /["“]([^"”\n]{1,100})["”]/).each do
             match = Regexp.last_match
-            next unless self.class.key(match[1]) == self.class.key(text)
-
-            suffix = body[match.end(0)..].to_s
-            next if negative_suffix?(suffix)
-
-            prefix = body[0...match.begin(0)].split(/[.!?;]/).last.to_s
-            # A negative financial condition ("money they do not have")
-            # is not a ban on the following affirmative "I say".
-            attribution = prefix.match(/\b(?:i|we|she|the coach)\s+(?:(?:always|often|sometimes|usually)\s+)?(?:say|says|am saying|is saying)\s*[:,-]?\s*\z/i)
-            condition = prefix.match?(/\A\s*when\b/i) && attribution
-            next if negative_introduction?(condition ? attribution[0] : prefix)
-            next unless prefix.match?(/\b(?:(?:i|we|she|the coach)\s+(?:(?:always|often|sometimes|usually)\s+)?(?:say|says|am saying|is saying)|her\s+(?:phrase|saying)\s+is)\s*[:,-]?\s*\z|\A\s*(?:please\s+)?(?:add|use|keep)\b[^"“]*\b(?:phrase|saying|word for word)\b[^"“]*\z/i) || prefix.match?(/\b(?:use|add|keep)\s+(?:my|our|her|the coach['’]s)\s+(?:exact\s+)?(?:phrase|saying)\s*[:,-]?\s*\z/i) || prefix.match?(/\A\s*also\s+say\s*[:,-]?\s*\z/i) || (body != line && prefix.strip.empty?)
-
-            return match[1]
+            return match[1] if self.class.key(match[1]) == self.class.key(text)
           end
           # Exact unquoted authoring commands remain supported.
           if body.include?(text)
@@ -64,7 +51,7 @@ module Mia
       private
 
       def coach_source(line)
-        CoachSource.new(coach_name: @coach_name).body(line)
+        CoachSource.new(coach_name: @coach_name, message: @message).body(line)
       end
 
       def negative_suffix?(text)

@@ -118,9 +118,11 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
   end
 
   test "bare Say and a later withdrawal never authorize a phrase" do
+    setup_persona
     [ 'Say "I am broke." That is what clients tell me.', 'Say "Pay up." Not anymore though.', 'I say "Pay up." Not anymore.' ].each do |message|
       text = message[/"([^"]+)"/, 1]
-      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote(text), message
+      assert_equal text, Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote(text), message
+      assert_nil turn(message, [ phrase_operation(text, message) ], allow: false).proposal
     end
     assert_equal "Pause.", Mia::PersonaSetup::PhraseSuggestions.new(message: 'I say "Pause."').exact_quote("Pause")
   end
@@ -141,12 +143,184 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
 
   test "phone apostrophes compare consistently without changing the exact phrase" do
     assert_equal "Let’s pause.", Mia::PersonaSetup::PhraseSuggestions.new(message: 'I say "Let’s pause."').exact_quote("Let's pause.")
-    assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: 'I don’t say "Let’s pause."').exact_quote("Let's pause.")
+    setup_persona
+    message = 'I don’t say "Let’s pause."'
+    assert_equal "Let’s pause.", Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Let's pause.")
+    assert_nil turn(message, [ phrase_operation("Let’s pause.", message) ], allow: false).proposal
   end
 
   test "proposal guard model is independent of narration and has an explicit override" do
     assert_equal "google/gemini-2.5-flash", AiModels.proposal_guard({ "AI_MODEL" => "expensive-narrator" })
     assert_equal "cheap-judge", AiModels.proposal_guard({ "AI_PROPOSAL_GUARD_MODEL" => "cheap-judge" })
+  end
+
+  test "round five prose colon sayings reach the guard with complete attribution" do
+    setup_persona
+    messages = [
+      'Three things matter to me: honesty, patience and kindness. I say "Slow down." when someone rushes.',
+      'Warm older cousin vibe: direct, practical, never shaming. When someone is about to overspend I say "Slow down."',
+      'I work on Guam. Think of a warm older cousin: patient and honest. When they rush, I say "Slow down."',
+      'My manner: warm and patient. I say "Slow down."',
+      'Tone: warm. I say "Slow down."',
+      'For example: I say "Slow down."'
+    ]
+    calls = []
+    guard = Class.new do
+      define_singleton_method(:call) do |**options|
+        calls << options
+        Mia::PersonaSetup::ProposalGuard::Result.new([])
+      end
+    end
+    messages.each do |message|
+      op = phrase_operation("Slow down.", message)
+      built = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard).build([ op ])
+      assert_equal "Slow down.", built.dig(:after_state, "draft_config", "phrases").sole["text"]
+      assert_equal message, calls.last[:user_message]
+    end
+  end
+
+  test "round five other speaker prose is judged by the guard rather than colon rules" do
+    setup_persona
+    [ 'She told me at the bank: I say "Nobody owes you a loan."', 'My client is Ana: I say "I’ll deal with it next year."' ].each do |message|
+      captured = nil
+      guard = Class.new do
+        define_singleton_method(:call) do |**options|
+          captured = options
+          Mia::PersonaSetup::ProposalGuard::Result.new([ "speaker" ])
+        end
+      end
+      text = message[/"([^"]+)"/, 1]
+      result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard).build_partial([ phrase_operation(text, message) ])
+      assert_empty result[:operations]
+      assert_equal message, captured[:user_message]
+      assert_equal "persona_setup_guard", result[:dropped].sole[:code]
+    end
+    assert_includes Mia::PersonaSetup::ProposalGuard::SYSTEM_PROMPT, "She told me at the bank:"
+    assert_includes Mia::PersonaSetup::ProposalGuard::SYSTEM_PROMPT, "My client is Ana:"
+  end
+
+  test "round five guard preserves for audience conditions explicitly" do
+    assert_includes Mia::PersonaSetup::ProposalGuard::SYSTEM_PROMPT, "For married clients, suggest a joint money date once a month."
+    assert_includes Mia::PersonaSetup::ProposalGuard::SYSTEM_PROMPT, "For X"
+  end
+
+  test "round five unavailable check is an outage note with a warning count" do
+    setup_persona
+    logger = ActiveSupport::Logger.new(output = StringIO.new)
+    original = Rails.logger
+    Rails.logger = logger
+    guard = classifier(api_key: "")
+    guard.call
+    logs = output.string.lines.map { |line| JSON.parse(line) }
+    assert_equal 1, logs.sole["count"]
+    # A warning-only logger must still retain the failure event.
+    logger.level = Logger::WARN
+    output.truncate(0)
+    output.rewind
+    guard.call
+    assert_includes output.string, '"unavailable"'
+    singleton = Mia::PersonaSetup::ProposalGuard.singleton_class
+    original_call = singleton.instance_method(:call)
+    singleton.define_method(:call) { |**_| Mia::PersonaSetup::ProposalGuard::Result.new([ "provider_failure" ]) }
+    result = raw_turn("Call the assistant Lina.", [ operation("identity.assistant_name", "Lina", "Lina") ])
+    assert_nil result.proposal
+    assert_includes result.turn.assistant_message, "Mia couldn't check these suggestions just now. Nothing changed. Try again in a minute."
+    refute_includes result.turn.assistant_message, "Describe"
+    assert_equal 1, result.turn.assistant_message.scan("Mia couldn't check").length
+  ensure
+    Rails.logger = original if original
+    singleton.define_method(:call, original_call) if original_call
+  end
+
+  test "round five an exhausted real guard never retries and releases admission" do
+    guard = classifier
+    attempts = 0
+    guard.define_singleton_method(:classify) do
+      attempts += 1
+      sleep 0.2
+      GOOD.to_json
+    end
+    baseline = ApplicationRecord.connection.open_transactions
+    result = Timeout.timeout(0.03, Mia::PersonaSetup::ProposalGuard::DeadlineExceeded) { guard.call }
+    assert_equal [ "deadline" ], result.reasons
+    assert_equal 1, attempts
+    assert_equal baseline, ApplicationRecord.connection.open_transactions
+  end
+
+  test "round five unavailable public errors identify the service outage" do
+    error = Mia::PersonaSetup::OperationContract::ContractError.new("provider failure", code: "persona_setup_guard_unavailable")
+    assert_equal Mia::PersonaSetup::ProposalGuard::UNAVAILABLE_NOTE, error.public_message
+  end
+
+  test "round five one deadline covers every candidate and salvage retry" do
+    setup_persona
+    calls = 0
+    guard = Class.new do
+      define_singleton_method(:call) do |**_|
+        calls += 1
+        sleep 0.2
+        Mia::PersonaSetup::ProposalGuard::Result.new([])
+      end
+    end
+    message = "Call the assistant Lina. Be patient."
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard, guard_timeout: 0.03)
+      .build_partial([ operation("identity.assistant_name", "Lina", "Lina"), operation("description", "Be patient.", "Be patient.") ])
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    assert_operator elapsed, :<, 0.15
+    assert_equal 1, calls
+    assert_empty result[:operations]
+    assert_equal [ "persona_setup_guard_unavailable" ], result[:dropped].pluck(:code).uniq
+  end
+
+  test "round five the deadline preserves an already checked safe sibling" do
+    setup_persona
+    calls = 0
+    guard = Class.new do
+      define_singleton_method(:call) do |**_|
+        calls += 1
+        sleep 0.2 if calls > 1
+        Mia::PersonaSetup::ProposalGuard::Result.new([])
+      end
+    end
+    message = "Call the assistant Lina. Be patient. Coach mothers."
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard, guard_timeout: 0.03)
+      .build_partial([ operation("identity.assistant_name", "Lina", "Lina"), operation("description", "Be patient.", "Be patient."),
+        operation("identity.audience", "Mothers", "Coach mothers.") ])
+    assert_equal 2, calls
+    assert_equal [ "identity.assistant_name" ], result[:operations].pluck("path")
+    assert_equal 2, result[:dropped].length
+    assert_equal [ "persona_setup_guard_unavailable" ], result[:dropped].pluck(:code).uniq
+  end
+
+  test "round five schema invalid suggestions spend no guard calls and safe siblings survive" do
+    setup_persona
+    calls = []
+    guard = Class.new do
+      define_singleton_method(:call) do |**options|
+        calls << options
+        Mia::PersonaSetup::ProposalGuard::Result.new([])
+      end
+    end
+    message = "Be kind. Call the assistant Lina."
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message, guard: guard).build_partial([
+      operation("voice.tone_traits", %w[warm direct respectful invalid_trait], "Be kind."),
+      operation("identity.assistant_name", "Lina", "Lina")
+    ])
+    assert_equal [ "identity.assistant_name" ], calls.map { |call| call[:operation]["path"] }
+    assert_equal [ "identity.assistant_name" ], result[:operations].pluck("path")
+  end
+
+  test "round five Left out names only new traits that were dropped" do
+    setup_persona
+    result = turn("Add a playful voice.", [ operation("voice.tone_traits", %w[warm direct respectful lighthearted], "Add a playful voice.") ], allow: false)
+    assert_includes result.turn.assistant_message, "Left out: ‘lighthearted’."
+    %w[warm direct respectful].each { |saved| refute_includes result.turn.assistant_message, saved }
+  end
+
+  def phrase_operation(text, evidence)
+    { "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => evidence,
+      "value" => { "text" => text, "meaning" => text, "frequency" => "rare", "allowed_contexts" => [ "general" ], "prohibited_contexts" => [ "crisis" ], "caution" => "" } }
   end
 
   private

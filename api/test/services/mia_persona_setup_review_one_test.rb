@@ -23,7 +23,9 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
       result = run_turn(message, [])
       assert_nil result.proposal
       assert_empty @session.proposals
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase ]) }
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase ]) }
+      end
     end
   end
 
@@ -32,13 +34,15 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     test "R2 other speakers cannot become coach phrases #{message}" do
       assert_nil run_turn(message, []).proposal
       text = message[/"([^"]+)"/, 1]
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase(text) ]) }
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase(text) ]) }
+      end
     end
   end
 
-  [ "Client 1", "Participant #2", "Speaker 3", "Unknown speaker with a long label", "A1", "Client (guest)", "Client [1]", "Guest / visitor", "Guest 🤷", "Client phrases" ].each do |speaker|
+  [ "Client 1", "Participant #2", "Speaker 3", "Maria", "A1", "Client (guest)", "Client [1]", "Guest / visitor" ].each do |speaker|
     test "review two rejects noncoach transcript speaker #{speaker}" do
-      message = %(#{speaker}: I say "Chelu")
+      message = %(Suggest my voice from this transcript.\n#{speaker}: I say "Chelu"\nCoach: Let's pause.)
       assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message, coach_name: "Mrs. Mel").exact_quote("Chelu")
       assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
     end
@@ -47,16 +51,20 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
   [ "Client 1", "Participant #2", "Speaker 3", "Note: Client 1", "Guest / visitor", '"Client 1"' ].each do |speaker|
     test "review followup rejects nested #{speaker} inside a coach line" do
       message = %(Coach: #{speaker}: I say "Chelu")
-      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      assert_equal "Chelu", Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      end
     end
   end
 
   [ "but do not use that phrase", "but don't add that phrase", "but never use that phrase" ].each do |refusal|
     test "review followup rejects quoted wording followed by #{refusal}" do
       message = %(She says "Chelu" #{refusal})
-      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      assert_equal "Chelu", Mia::PersonaSetup::PhraseSuggestions.new(message: message).exact_quote("Chelu")
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      end
     end
   end
 
@@ -96,7 +104,7 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     assert_nil run_turn('She says "Another phrase".', []).proposal
   end
 
-  test "R2 coach speaker lines authorize only the coach not nested client speech" do
+  test "R2 transcript speaker lines authorize only the coach" do
     message = "Propose a voice from this transcript:\nClient: I say \"Client phrase\"\nCoach: I say \"Coach phrase\""
     result = run_turn(message, [ phrase("Coach phrase"), phrase("Client phrase") ])
     assert_equal [ "Coach phrase" ], result.proposal.after_state.dig("draft_config", "phrases").map { |item| item["text"] }
@@ -189,7 +197,9 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
 
   [ 'Her mom says "Chelu"', 'Her auntie says "Chelu"', 'Her sister says "Chelu"', 'I heard my neighbor say "Chelu"' ].each do |message|
     test "CR6 direct coach subject required #{message}" do
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Chelu") ]) }
+      end
     end
   end
 

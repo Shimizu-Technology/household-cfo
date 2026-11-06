@@ -198,8 +198,16 @@ module Mia
         # Preserve every item name; group reasons separately to fit 2,000 chars.
         labels = dropped.map { |item| "‘#{item.fetch(:label)}’" }.uniq.join(", ")
         reasons = dropped.map { |item| item.fetch(:message) }.uniq.join(" ")
-        invitation = proposal ? "Review the suggestions below. Nothing has been saved." :
+        if dropped.all? { |item| item[:code] == "persona_setup_guard_unavailable" }
+          return "#{ProposalGuard::UNAVAILABLE_NOTE}\n\nLeft out: #{labels}."
+        end
+        invitation = if proposal
+          "Review the suggestions below. Nothing has been saved."
+        elsif dropped.any? { |item| item[:code] == "persona_setup_guard_unavailable" }
+          ProposalGuard::UNAVAILABLE_NOTE
+        else
           "Nothing has been saved. Describe one part of your voice in your own words, or give an exact phrase you want to use."
+        end
         full = [ invitation, *notes ].join("\n\n")
         return full if full.length <= 2_000
 

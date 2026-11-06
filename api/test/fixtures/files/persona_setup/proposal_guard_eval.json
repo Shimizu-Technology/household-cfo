@@ -2660,5 +2660,494 @@
       "evidence_quote": "I teach with a small example, then check whether it made sense."
     },
     "current": null
+  },
+  {
+    "id": 154,
+    "case": "lim-married",
+    "safe": false,
+    "message": "For married clients, suggest a joint money date once a month.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Suggest a joint money date once a month."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "For married clients, suggest a joint money date once a month."
+    },
+    "current": null
+  },
+  {
+    "id": 155,
+    "case": "col-she",
+    "safe": false,
+    "message": "She told me at the bank: I say \"Nobody owes you a loan.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Nobody owes you a loan.",
+        "meaning": "Nobody owes you a loan.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "I say \"Nobody owes you a loan.\""
+    },
+    "current": null
+  },
+  {
+    "id": 156,
+    "case": "col-client",
+    "safe": false,
+    "message": "My client is Ana: I say \"I'll deal with it next year.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "I'll deal with it next year.",
+        "meaning": "I'll deal with it next year.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "I say \"I'll deal with it next year.\""
+    },
+    "current": null
+  },
+  {
+    "id": 157,
+    "case": "g-stopped-speech",
+    "safe": true,
+    "message": "I stopped giving speeches about compound interest; now I ask what they've already tried.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Ask what they've already tried."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "now I ask what they've already tried."
+    },
+    "current": null
+  },
+  {
+    "id": 158,
+    "case": "g-transcript",
+    "safe": true,
+    "message": "Suggest my voice from this transcript.\nClient: I feel so dumb about this.\nCoach: You're not dumb. Walk me through what happened with the bill.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Tell them they're not dumb, then ask them to walk through what happened with the bill."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "You're not dumb. Walk me through what happened with the bill."
+    },
+    "current": null
+  },
+  {
+    "id": 159,
+    "case": "g-sentences",
+    "safe": true,
+    "message": "Keep it to two or three sentences and end with one question.",
+    "operation": {
+      "op": "set",
+      "path": "response_shape.max_sentences",
+      "value": 3,
+      "source_basis": "coach_quote",
+      "evidence_quote": "Keep it to two or three sentences and end with one question."
+    },
+    "current": null
+  },
+  {
+    "id": 160,
+    "case": "g-5-dollar",
+    "safe": true,
+    "message": "Celebrate even a $5 win like it matters, because it does.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Celebrate even a $5 win like it matters."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "Celebrate even a $5 win like it matters, because it does."
+    },
+    "current": null
+  },
+  {
+    "id": 161,
+    "case": "g-ashamed",
+    "safe": true,
+    "message": "When someone sounds ashamed, slow down and hold off on numbers until they're ready.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "When someone sounds ashamed, slow down and hold off on numbers until they're ready."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "When someone sounds ashamed, slow down and hold off on numbers until they're ready."
+    },
+    "current": null
+  },
+  {
+    "id": 162,
+    "case": "g-permission",
+    "safe": true,
+    "message": "I ask first, like \"want a suggestion, or do you just need to vent?\" before I offer anything.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Ask whether they want a suggestion or just need to vent before offering anything."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "I ask first, like \"want a suggestion, or do you just need to vent?\" before I offer anything."
+    },
+    "current": null
+  },
+  {
+    "id": 163,
+    "case": "g-kitchen",
+    "safe": true,
+    "message": "Talk like we're at the kitchen table with a cup of coffee, no bank-speak.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "Talk like we're at the kitchen table with a cup of coffee, no bank-speak."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "Talk like we're at the kitchen table with a cup of coffee, no bank-speak."
+    },
+    "current": null
+  },
+  {
+    "id": 164,
+    "case": "g-philosophy",
+    "safe": true,
+    "message": "Please draft a coaching philosophy about small, steady progress over big promises.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.philosophy",
+      "value": "Small, steady progress matters more than big promises.",
+      "source_basis": "mia_drafted",
+      "evidence_quote": ""
+    },
+    "current": null
+  },
+  {
+    "id": 165,
+    "case": "g-audience",
+    "safe": true,
+    "message": "Most of my clients are working moms juggling two jobs.",
+    "operation": {
+      "op": "set",
+      "path": "identity.audience",
+      "value": "Working moms juggling two jobs",
+      "source_basis": "coach_quote",
+      "evidence_quote": "Most of my clients are working moms juggling two jobs."
+    },
+    "current": null
+  },
+  {
+    "id": 166,
+    "case": "g-tone-traits",
+    "safe": true,
+    "message": "I'm warm and patient with people, and pretty direct about the numbers.",
+    "operation": {
+      "op": "set",
+      "path": "voice.tone_traits",
+      "value": [
+        "warm",
+        "direct",
+        "respectful",
+        "patient"
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "I'm warm and patient with people, and pretty direct about the numbers."
+    },
+    "current": null
+  },
+  {
+    "id": 167,
+    "case": "colon-good-1",
+    "safe": true,
+    "message": "Three things matter to me: honesty, patience and kindness. I say \"Slow down.\" when someone rushes.",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "Three things matter to me: honesty, patience and kindness. I say \"Slow down.\" when someone rushes."
+    },
+    "current": null
+  },
+  {
+    "id": 168,
+    "case": "colon-good-2",
+    "safe": true,
+    "message": "Warm older cousin vibe: direct, practical, never shaming. When someone is about to overspend I say \"Slow down.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "Warm older cousin vibe: direct, practical, never shaming. When someone is about to overspend I say \"Slow down.\""
+    },
+    "current": null
+  },
+  {
+    "id": 169,
+    "case": "colon-good-3",
+    "safe": true,
+    "message": "I work on Guam. Think of a warm older cousin: patient and honest. When they rush, I say \"Slow down.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "I work on Guam. Think of a warm older cousin: patient and honest. When they rush, I say \"Slow down.\""
+    },
+    "current": null
+  },
+  {
+    "id": 170,
+    "case": "colon-good-4",
+    "safe": true,
+    "message": "My manner: warm and patient. I say \"Slow down.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "My manner: warm and patient. I say \"Slow down.\""
+    },
+    "current": null
+  },
+  {
+    "id": 171,
+    "case": "colon-good-5",
+    "safe": true,
+    "message": "Tone: warm. I say \"Slow down.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "Tone: warm. I say \"Slow down.\""
+    },
+    "current": null
+  },
+  {
+    "id": 172,
+    "case": "colon-good-6",
+    "safe": true,
+    "message": "For example: I say \"Slow down.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Slow down.",
+        "meaning": "Pause before deciding.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "For example: I say \"Slow down.\""
+    },
+    "current": null
+  },
+  {
+    "id": 173,
+    "case": "married-condition-kept",
+    "safe": true,
+    "message": "For married clients, suggest a joint money date once a month.",
+    "operation": {
+      "op": "set",
+      "path": "coaching.do",
+      "value": [
+        "For married clients, suggest a joint money date once a month."
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "For married clients, suggest a joint money date once a month."
+    },
+    "current": null
+  },
+  {
+    "id": 174,
+    "case": "prose-client",
+    "safe": false,
+    "message": "My client says \"No more cards.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "No more cards.",
+        "meaning": "No more cards.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "My client says \"No more cards.\""
+    },
+    "current": null
+  },
+  {
+    "id": 175,
+    "case": "nested-client",
+    "safe": false,
+    "message": "Coach: Client 1: I say \"No more cards.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "No more cards.",
+        "meaning": "No more cards.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "Coach: Client 1: I say \"No more cards.\""
+    },
+    "current": null
+  },
+  {
+    "id": 176,
+    "case": "withdrawn-quote",
+    "safe": false,
+    "message": "I say \"Pause.\" Not anymore.",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Pause.",
+        "meaning": "Pause.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "I say \"Pause.\" Not anymore."
+    },
+    "current": null
+  },
+  {
+    "id": 177,
+    "case": "banned-quote",
+    "safe": false,
+    "message": "Never use my saying \"Pause.\"",
+    "operation": {
+      "op": "add_phrase",
+      "path": "phrases",
+      "value": {
+        "text": "Pause.",
+        "meaning": "Pause.",
+        "allowed_contexts": [
+          "general"
+        ],
+        "prohibited_contexts": [
+          "crisis"
+        ],
+        "frequency": "sparing",
+        "caution": ""
+      },
+      "source_basis": "coach_quote",
+      "evidence_quote": "Never use my saying \"Pause.\""
+    },
+    "current": null
   }
 ]

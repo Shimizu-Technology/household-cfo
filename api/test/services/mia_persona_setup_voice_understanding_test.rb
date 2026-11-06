@@ -70,9 +70,11 @@ class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
   test "a voice preamble cannot disguise a same-line client speaker as coach prose" do
     [ "Client", "Participant #2", "Maria", "Guest / visitor" ].each do |speaker|
       message = %(Sound like a warm auntie. #{speaker}: I say "Rent comes first")
-      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Rent comes first"), speaker
-      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
-        contract(message).build([ phrase("Rent comes first", "Rent comes first", "Rent comes first") ])
+      assert_equal "Rent comes first", Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Rent comes first"), speaker
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+          contract(message).build([ phrase("Rent comes first", "Rent comes first", "Rent comes first") ])
+        end
       end
     end
   end
@@ -101,7 +103,12 @@ class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
       assert_equal "Small wins count, chelu.", Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Small wins count, chelu")
     end
     [ 'Do not use my saying "Small wins count, chelu."', 'My client says "Small wins count, chelu."', 'Client: Also say: "Small wins count, chelu."', 'Avoid saying "Small wins count, chelu."' ].each do |message|
-      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Small wins count, chelu"), message
+      expected = message.start_with?("Client:") ? nil : "Small wins count, chelu."
+      actual = Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Small wins count, chelu")
+      expected.nil? ? assert_nil(actual, message) : assert_equal(expected, actual, message)
+      with_proposal_guard(allowed: false) do
+        assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { contract(message).build([ phrase("Small wins count, chelu.", "Small wins count, chelu.", message) ]) }
+      end
       assert_empty Mia::PersonaSetup::PhraseSuggestions.new(message:).call([])
     end
     message = 'I say "Small wins count, chelu."'
