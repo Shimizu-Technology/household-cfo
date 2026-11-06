@@ -221,7 +221,7 @@ module HouseholdFinance
       unless context[:participant_reading]
         field = next_missing_setup_field
         field = nil unless field && guided_setup_question_asked?(field)
-        field = "primary_goal" if user_message.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
+        field = "primary_goal" if MiaSetupGuide.goal_change_request?(user_message)
         thread = context.dig(:conversation, :active_thread).to_h
         action = thread[:action].to_h
         fields = action[:setup_updates].to_h.keys
@@ -467,7 +467,7 @@ module HouseholdFinance
         if answer_field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
           value = ParticipantMessageReader.zero_answer?(value, field: answer_field) ? "0" : ParticipantMessageReader.amount_text(value)
         end
-        if reading.correction && action[:type] == "schedule_income_change"
+        if reading.correction && answer_field == "primary_income" && action[:type] == "schedule_income_change"
           return Result.new(intent: "income_action", confidence: 1.0, continuation: true, resolved_message: user_message,
             needs_clarification: false, clarification: "", topic: { type: "income", title: "Current salary" },
             action: action.merge(amount: value), read_only_plan: {}, source: "participant_reader")
@@ -1048,7 +1048,7 @@ module HouseholdFinance
     end
 
     def setup_primary_goal_change_result
-      match = user_message.match(/\A(?:please\s+)?(?:change|update|set)\s+(?:my|our)\s+(?:(?:main|primary)\s+(?:money\s+)?|money\s+)?goal\s+to\s+(.+?)[.!]?\z/i)
+      match = user_message.match(MiaSetupGuide::GOAL_CHANGE_REQUEST)
       return unless match && MiaSetupReply.goal?(match[1])
       setup_reply_result("primary_goal", match[1])
     end

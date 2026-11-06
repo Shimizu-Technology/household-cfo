@@ -1,6 +1,7 @@
 module HouseholdFinance
   class MiaSetupGuide
     SETUP_REQUEST = "Help me set up my household. Please ask me one simple question at a time."
+    GOAL_CHANGE_REQUEST = /\A(?:please\s+)?(?:change|update|set)\s+(?:my|our)\s+(?:(?:main|primary)\s+(?:money\s+)?|money\s+)?goal\s+to\s+(.+?)[.!]?\z/i
     REVIEW_BOUNDARY = "Tell me here and I’ll prepare a review card; nothing changes until you apply it."
     NEXT_QUESTIONS = {
       "household_name" => "What would you like to call this household?",
@@ -24,6 +25,10 @@ module HouseholdFinance
       def pending_question_field(missing, messages)
         recent = Array(messages).reverse.find { |item| item.to_h.symbolize_keys[:role].to_s == "assistant" && item.to_h.symbolize_keys[:content].to_s.include?("Next setup question:") }
         missing.find { |key| recent && [ NEXT_QUESTIONS[key], RESUME_QUESTIONS[key] ].compact.any? { |question| recent.to_h.symbolize_keys[:content].to_s.include?(question) } } || missing.first
+      end
+
+      def goal_change_request?(value)
+        normalized(value).match?(GOAL_CHANGE_REQUEST)
       end
 
       def setup_request?(value)

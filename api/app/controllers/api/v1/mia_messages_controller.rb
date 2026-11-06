@@ -168,7 +168,7 @@ module Api
             field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
           end
           field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
-          field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
+          field = "primary_goal" if HouseholdFinance::MiaSetupGuide.goal_change_request?(content)
           thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"

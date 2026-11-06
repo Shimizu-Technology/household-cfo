@@ -43,7 +43,7 @@ module HouseholdFinance
       savings_correction: {old_amount, new_amount, day}, exact quotes for an explicit correction to previously saved money, including 'change the 25 to 20'. Never emit a new set_aside fact for the correction. If unclear leave fields empty.
       setup_answer: field is goal/name/income/fixed/flexible/debt/none. Answer the open setup field, the supplied pending field when correction=true, or a saved field she explicitly names to correct. Every correction still needs a review card. A goal is an actual desired outcome, not junk, greetings, uncertainty, a question, a purchase, income/bill fact or a statement that she has no goal. A name is an actual household name, not idk/none/hi/rent/groceries/sounds good/ya/k or an unrelated fact. value is the exact answer span from her message, stripping correction chatter; for money it must be an exact amount quote. Do not sum bills or invent zeros. Explicit 'no income' or 'no debt payments' can be quoted as the value. A question about whether a bill belongs in a spending group is not a setup answer or a total: keep its bill facts, set question=true, and leave setup_answer as none. A separate explicitly stated monthly total in the same message can still answer the setup field. A stated fixed total including groceries is valid. One named debt with its minimum answers the debt question: quote its amount. For multiple debts, provide setup_details components instead of a total.
       Before emitting setup_answer, ask whether she actually supplied a name or goal. Uncertainty about supplying one is not an answer. Examples: open name + 'I have not picked a name yet' => {"field":"none","value":""}; open fixed + '2450 including food' => {"field":"fixed","value":"2450"}. Quoting an entire sentence as a money value is invalid. The setup value must be just the numeric text; preferences are separate.
-      correction: true only when replacing the supplied pending value, including oops/sorry i meant/no its/wait/i meant/no the cruz family. For an explicitly named saved setup field, return its field and replacement quoted value too; this only proposes a review.
+      correction: true when changing an earlier setup answer, whether pending or already saved, including oops/sorry i meant/no its/wait. An explicitly named setup field takes precedence over the supplied pending field: when she corrects fixed essentials while an income card is pending, answer fixed, not income. Return the named field and its exact replacement quote. Use the pending field only when she does not name a different field. This only proposes a review; it never changes saved values.
       defer_setup: true when she wants to skip the current setup question, does not know yet, wants to answer later, or asks to come back to it. This is never an answer or zero. False for a question asking what a setup term means.
       setup_details: use only for a list answering a setup money question or an explicitly named correction. field is the full setup field key or empty. components contains each amount with source: the exact disjoint clause quoting that amount and its bill/debt name; amount: the exact numeric money span. Never include an overall total alongside its parts, a balance as a minimum, or an unrelated purchase. cadence is monthly for monthly bills/minimums, monthly_count for an explicit count of paychecks answering monthly income ("2 paychecks of 1400"), weekly/biweekly for those stated frequencies, or empty. count is the exact count quote (digits or words) for monthly_count, otherwise empty. partial is true if the list is incomplete; never claim a list is complete merely because it was supplied. Empty details has field="", components=[], cadence="", count="", partial=true. Do not calculate totals.
       spending_preferences: explicit participant choices only. family groceries/fuel, group fixed/everyday, evidence an exact quote. 'Groceries are essentials', 'groceries go in bills', 'we count groceries as fixed', '$2000 including groceries' at the fixed question mean groceries=fixed. 'groceries arent part of my bills' means everyday. Do not infer preferences from merchant names alone.
@@ -144,10 +144,15 @@ module HouseholdFinance
       {}
     end
 
+    def explicit_setup_field?(field)
+      (field == "primary_goal" && MiaSetupGuide.goal_change_request?(@message)) ||
+        @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /))
+    end
+
     def validated_setup_details(details, correction:)
       return {} unless details.is_a?(Hash)
       field = details["field"]
-      explicitly_named = correction && field.is_a?(String) && @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /))
+      explicitly_named = correction && field.is_a?(String) && explicit_setup_field?(field)
       return {} unless field == @setup_field || field == @pending_field || explicitly_named
       details
     end
@@ -185,7 +190,7 @@ module HouseholdFinance
       return empty unless answer.is_a?(Hash) && answer.keys.sort == %w[field value] && SETUP_FIELDS.key?(answer["field"])
       validate_quote!(answer["value"])
       field = SETUP_FIELDS[answer["field"]]
-      return empty if answer["value"].blank? || field != (correction ? @pending_field : @setup_field) && !(correction && field && @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /)))
+      return empty if answer["value"].blank? || field != (correction ? @pending_field : @setup_field) && !(correction && field && explicit_setup_field?(field))
       if field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
         return empty.merge("needs_total" => true) unless (self.class.zero_answer?(answer["value"], field: field) || valid_money?(answer["value"])) && quoted_money?(answer["value"])
       end
