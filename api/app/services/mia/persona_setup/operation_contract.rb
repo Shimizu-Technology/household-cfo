@@ -45,8 +45,9 @@ module Mia
           {
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
+            "persona_setup_phrase_use" => "The suggested change to when or how often you use this phrase was not in your message. Describe that change in your own words.",
             "persona_setup_text_evidence" => "Mia could not match this to your words. Say it again in your own words, or add a phrase in Teaching.",
-            "persona_setup_voice_evidence" => "Please describe which voice choices you want to add or remove.",
+            "persona_setup_voice_evidence" => message,
             "persona_setup_drafting_not_requested" => "Please ask for a coaching philosophy before Mia writes one.",
             "persona_setup_crisis_phrase" => "Coaching phrases cannot be used during crisis support.",
             "persona_setup_participant_phrase" => "A participant’s own phrase must stay unchanged.",
@@ -65,7 +66,7 @@ module Mia
           when "persona_setup_text_evidence"
             "Please include the words that support this coaching or teaching suggestion."
           when "persona_setup_voice_evidence"
-            "Please describe the voice choices you want to add or remove, in your own words."
+            review_note
           when "persona_setup_drafting_not_requested"
             "Please ask for a coaching philosophy before Mia writes one for you."
           when "persona_setup_crisis_phrase"
@@ -117,7 +118,6 @@ module Mia
         accepted = []
         dropped = []
         built = nil
-        first_error = nil
         pending = operations.each_with_index.to_a
         loop do
           deferred = []
@@ -128,7 +128,6 @@ module Mia
               accepted << operation
               built = candidate
             rescue ContractError => error
-              first_error ||= error
               deferred << [ operation, index ]
               dropped << { index: index, label: suggestion_label(operation), code: error.code, message: error.review_note }
             end
@@ -139,8 +138,7 @@ module Mia
 
           pending = deferred
         end
-        raise first_error unless built
-
+        built ||= { operations: [], before_state: PersonaDraftUpdater.state_for(persona), after_state: PersonaDraftUpdater.state_for(persona) }
         built.merge(dropped: dropped)
       end
 
@@ -261,6 +259,7 @@ module Mia
           unless source == "mia_drafted" && !transcript_request?
             values = if op == "add_phrase"
               existing = Array(@evidence_state["phrases"]).find { |phrase| PhraseSuggestions.key(phrase["text"]) == PhraseSuggestions.key(value["text"]) }
+              validate_phrase_use!(existing, value, evidence) if existing
               existing && existing["meaning"] == value["meaning"] ? [] : [ value.fetch("meaning") ]
             elsif path.start_with?("curriculum.")
               current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
@@ -270,7 +269,8 @@ module Mia
               current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
               exact_strings(value) - exact_strings(current)
             end
-            unless exact_strings(values).all? { |item| TextEvidence.supports?(evidence, item) }
+            authored = CoachSource.new(coach_name: persona.draft_config.dig("identity", "human_coach_name")).text(user_message)
+            unless authored.include?(evidence) && exact_strings(values).all? { |item| TextEvidence.supports?(evidence, item) }
               raise ContractError.new("The suggestion must be supported by its cited words.", code: "persona_setup_text_evidence")
             end
           end
@@ -282,13 +282,45 @@ module Mia
         removed = value.is_a?(Array) && current.is_a?(Array) ? exact_strings(current) - exact_strings(value) : []
         return if added.empty? && removed.empty?
 
-        supported = (source == "coach_quote" || transcript_request?) &&
-          CulturalSafetyPolicy.violations(evidence, field: :style_instruction).empty? &&
-          added.all? { |item| VoiceEvidence.supports?(evidence, item) } &&
-          removed.all? { |item| VoiceEvidence.supports?(evidence, item, removal: true) }
-        unless supported
-          raise ContractError.new("Each added voice choice needs supporting words; removing one needs an explicit request.", code: "persona_setup_voice_evidence")
+        authored = CoachSource.new(coach_name: persona.draft_config.dig("identity", "human_coach_name")).text(user_message)
+        reason = if !(source == "coach_quote" || transcript_request?) || !authored.include?(evidence) || !VoiceEvidence.about_voice?(evidence)
+          "This used words that were not your description of your own voice. Describe how you speak to people."
+        elsif CulturalSafetyPolicy.violations(evidence, field: :style_instruction).any?
+          "This used a place or group identity to describe how you speak. Describe your own manner instead."
+        elsif added.any? { |item| !VoiceEvidence.supports?(authored, item) }
+          "This voice choice went against your description or lost a limit you gave. Describe when you want that tone."
+        elsif removed.any? { |item| !VoiceEvidence.supports?(authored, item, removal: true) }
+          "This removed voice choices you did not ask to remove. Name any choices you want to replace."
         end
+        raise ContractError.new(reason, code: "persona_setup_voice_evidence") if reason
+      end
+
+      def validate_phrase_use!(existing, value, evidence)
+        changed = %w[allowed_contexts prohibited_contexts frequency caution].select { |key| existing[key] != value[key] }
+        supported = changed.all? do |key|
+          case key
+          when "frequency"
+            frequency = {
+              "very_rare" => /\bvery rarely\b/i,
+              "rare" => /\b(?:rarely|occasionally|from time to time)\b/i,
+              "sparing" => /\b(?:sparing(?:ly)?|sometimes|occasionally|from time to time)\b/i,
+              "as_needed" => /\b(?:often|as needed|whenever|every time)\b/i
+            }[value[key]]
+            frequency && evidence.to_enum(:scan, frequency).any? do
+              match = Regexp.last_match
+              !evidence[0...match.begin(0)].split(/[.!?;]/).last.to_s.match?(VoiceEvidence::NEGATION)
+            end
+          when "caution"
+            value[key].present? ? TextEvidence.supports?(evidence, value[key]) :
+              %w[remove clear drop].any? { |verb| TextEvidence.supports?(evidence, "#{verb} caution") }
+          else
+            delta = (Array(value[key]) - Array(existing[key])) | (Array(existing[key]) - Array(value[key]))
+            delta.all? { |context| context == "crisis" || TextEvidence.supports?(evidence, context.tr("_", " ")) }
+          end
+        end
+        return if supported
+
+        raise ContractError.new("Changes to a saved phrase’s use need supporting words.", code: "persona_setup_phrase_use")
       end
 
       # Only the server passes already sealed, pending operations here. New

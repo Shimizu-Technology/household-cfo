@@ -16,7 +16,8 @@ module Mia
     CURATED_IDENTITY_PATTERN = /(?:
       guam|guamanians?|chamorros?|puerto\s+ricans?|filipinos?|samoans?|palauans?|tongans?|japanese|
       southerners?|southern|northerners?|northern|easterners?|eastern|westerners?|western|
-      pacific\s+islanders?|indigenous|black|latinx|queer|gen\s+[[:alnum:]]+
+      pacific\s+islanders?|islanders?|indigenous|black|latinx|queer|gen\s+[[:alnum:]]+|
+      british|french|american|hawaiian|catholic|christian|muslim|islamic|jewish|hindu|buddhist
     )/ix.freeze
     CURATED_GROUP_IDENTITY_PATTERN = /(?:
       guamanians?|chamorros?|puerto\s+ricans?|filipinos?|samoans?|palauans?|tongans?|japanese|
@@ -43,7 +44,7 @@ module Mia
       /\b#{CURATED_IDENTITY_PATTERN}\s+(?:locals?|residents?|people|families|users|participants)\b/ix,
       /\b#{CURATED_IDENTITY_PATTERN}\b/ix,
       /\b#{CURATED_IDENTITY_PATTERN}[\s-]*(?:style|#{RESPONSE_STYLE_PATTERN})\b/ix,
-      /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|like|based\s+on)\s+#{PLACE_PATTERN}\b/ix,
+      /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|based\s+on)\s+#{PLACE_PATTERN}\b/ix,
       /\bas\s+(?:if|though)\s+(?:you(?:'re|\s+are|\s+were)?|the\s+assistant(?:\s+is|\s+were)?|mia(?:\s+is|\s+were)?)?.{0,30}\b(?:from|grew\s+up\s+in)\s+#{PLACE_PATTERN}\b/ix,
       /\bread\s+like\s+.{0,30}\b(?:came|comes)\s+from\s+#{PLACE_PATTERN}\b/ix,
       /\b(?:distinct\s+)?#{PLACE_PATTERN}\s+character\b/ix,
@@ -130,11 +131,11 @@ module Mia
       private
 
       def identity_based_response_style?(text, field:, identity_labels:)
-        # A coach's familiar relationship comparison describes manner, not
-        # regional identity. Remove only this bounded simile from identity
-        # detection; any place, dialect or demographic claim still gets checked.
-        identity_text = text.gsub(/\b(?:sound|speak|talk|write|respond|reply|communicate)(?:s|ing)?\s+like\s+(?:a|an|my|your)\s+(?:(?:warm|kind|honest|calm|patient|direct|practical|supportive|trusted|older)(?:\s+|,\s*))*(?:auntie|aunt|uncle|friend|cousin|sister|brother|mentor)\b/i, "")
-        identity_basis = IDENTITY_BASIS_PATTERNS.any? { |pattern| identity_text.match?(pattern) } ||
+        # A role simile is not itself evidence of identity. Refuse positive
+        # place/group/dialect signals, rather than allowlisting familiar roles.
+        identity_basis = IDENTITY_BASIS_PATTERNS.any? { |pattern| text.match?(pattern) } ||
+          text.match?(/\blike\b[^.!?;]*\b(?:accent|dialect|vernacular|slang)\b/i) ||
+          text.match?(/\b(?i:(?:sound|speak|talk|write|respond|reply|communicate)(?:s|ing)?\s+like\b[^.!?;]*\b(?:from|in|of)\s+)[[:upper:]][[:alpha:]’'-]+/) ||
           Array(identity_labels).any? { |label| label.present? && text.match?(/\b#{Regexp.escape(label)}\b/i) }
         return identity_basis if field == :style_instruction
 

@@ -2,8 +2,9 @@
 
 module Mia
   module PersonaSetup
-    # Finite presets translate descriptions, but never grant unrelated choices.
-    # Each group is required; alternatives within a group are synonyms.
+    # Finite presets are reviewable mappings, not authored prose. This vocabulary
+    # detects contradictions and explicit removals; it does not require the
+    # coach to describe her voice with words from the menu.
     class VoiceEvidence
       TRAITS = {
         "warm" => [ "warm|friendly|kind" ],
@@ -16,7 +17,7 @@ module Mia
         "concise" => [ "concise|brief|briefly|short|succinct" ],
         "practical" => [ "practical|concrete|actionable" ],
         "reassuring" => [ "reassuring|reassure|comforting" ],
-        "lighthearted" => [ "lighthearted|humou?r|playful|funny" ],
+        "lighthearted" => [ "lighthearted|humou?r|playful|funny|jok(?:e|es|ing)" ],
         "formal" => [ "formal|professional" ],
         "clear" => [ "clear|plain|simple" ],
         "unhurried" => [ "unhurried|patient|slow|take (?:our|your|their) time" ]
@@ -66,23 +67,45 @@ module Mia
         # A bare descriptor, adjective list, or communication phrase can
         # support voice. Generic noun phrases such as "warm weather" and
         # "direct deposit" cannot borrow that adjective for a voice choice.
-        quote[match.end(0)..].match?(/\A(?:\s*[,.;:!?"'”’]|\s*\z|\s+(?:and|or|tone|voice|style|language|words|wording|manner|approach|energy|answers?|responses?|replies|sentences?|questions?|coaching|accountability|coach|briefly|next step|older cousin|auntie|aunt|friend|cousin|who|with|to|about tradeoffs)\b)/i)
+        quote[match.end(0)..].match?(/\A(?:\s*[,.;:!?"'”’]|\s*\z|\s+(?:only|when|if|unless|until|about|for|and|or|tone|voice|style|language|words|wording|manner|approach|energy|answers?|responses?|replies|sentences?|questions?|coaching|accountability|coach|briefly|next step|older cousin|auntie|aunt|friend|cousin|who|with|to|about tradeoffs)\b)/i)
+      end
+
+      def self.about_voice?(text)
+        return true if text.match?(/\b(?:voice|tone|style|sound|speak|talk|coach|coaching|respond|reply|replies|answers|wording|language|humou?r|jokes?)\b/i)
+        return true if text.match?(/\b(?:i|we|she)\s*(?:['’]m|['’]re|am|are|is|want|leave|listen|ask|explain)\b/i)
+        return true if text.match?(/\b(?:keep|be|stay|remain|use)\s+(?:it|things|the tone|my voice)\b/i)
+
+        TRAITS.values.flatten.any? do |alternatives|
+          text.to_enum(:scan, /\b(?:#{alternatives})\b/i).any? { descriptive_use?(text, Regexp.last_match) }
+        end
       end
 
       def self.supports?(quote, value, removal: false)
         groups = PRESETS[value]
         return false unless groups
+        return !contradicted?(quote, value) unless removal
 
         groups.all? do |alternatives|
           quote.to_enum(:scan, /\b(?:#{alternatives})\b/i).any? do
             match = Regexp.last_match
-            next false unless descriptive_use?(quote, match)
+            descriptive_use?(quote, match) && removal_requested?(quote[0...match.begin(0)].split(/[.!?;]|\bbut\b/i).last.to_s)
+          end
+        end
+      end
+
+      def self.contradicted?(quote, value)
+        PRESETS.fetch(value).any? do |alternatives|
+          mentions = quote.to_enum(:scan, /\b(?:#{alternatives})\b/i).map do
+            match = Regexp.last_match
+            next unless descriptive_use?(quote, match)
 
             prefix = quote[0...match.begin(0)].split(/[.!?;]|\bbut\b/i).last.to_s
-            # A negation scopes the following list until a sentence or contrast.
-            # Negative synonyms ("never shaming") are a single supporting match.
-            removal ? removal_requested?(prefix) : !prefix.match?(NEGATION)
+            suffix = quote[match.end(0)..].split(/[.!?;]|\bbut\b/i).first.to_s
+            prefix.match?(NEGATION) || prefix.match?(/\b(?:only|unless|until)\b/i) ||
+              suffix.match?(/\A[^,]*\b(?:only|when|if|unless|until)\b/i)
           end
+          # An explicit later correction can replace an earlier instruction.
+          mentions.compact.last == true
         end
       end
     end

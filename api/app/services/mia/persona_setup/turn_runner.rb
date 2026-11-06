@@ -133,18 +133,25 @@ module Mia
           phrases = pending_proposal&.after_state&.dig("draft_config", "phrases") || authorization.persona.draft_config["phrases"]
           operations = PhraseSuggestions.new(message: turn.user_message, coach_name: authorization.persona.draft_config.dig("identity", "human_coach_name"), phrases:).call(provider_result.operations)
           if operations.any?
-            built = ProposalBuilder.new(
-              persona: authorization.persona,
-              actor: authorization.actor,
-              user_message: turn.user_message,
-              previous: pending_proposal
-            ).call(operations, partial: true)
-            dropped = built.fetch(:dropped, [])
-            dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
-            session.proposals.where(status: "pending").order(:id).lock.each do |proposal|
-              proposal.resolve!(status: "superseded", actor: authorization.actor)
+            begin
+              built = ProposalBuilder.new(
+                persona: authorization.persona,
+                actor: authorization.actor,
+                user_message: turn.user_message,
+                previous: pending_proposal
+              ).call(operations, partial: true)
+            rescue OperationContract::ContractError => error
+              built = nil
+              dropped = [ { index: nil, label: "These suggestions", code: error.code, message: error.review_note } ]
             end
-            unless PersonaDraftUpdater.state_digest(built.fetch(:before_state)) == PersonaDraftUpdater.state_digest(built.fetch(:after_state))
+            dropped = built.fetch(:dropped, []) if built
+            dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
+            if built && built.fetch(:operations).any?
+              session.proposals.where(status: "pending").order(:id).lock.each do |pending|
+                pending.resolve!(status: "superseded", actor: authorization.actor)
+              end
+            end
+            if built && built.fetch(:operations).any? && PersonaDraftUpdater.state_digest(built.fetch(:before_state)) != PersonaDraftUpdater.state_digest(built.fetch(:after_state))
               proposal = CoachPersonaSetupProposal.create!(
                 session:,
                 turn:,
@@ -163,7 +170,7 @@ module Mia
           metadata = provider_result.metadata
           turn.update!(
             status: "ready",
-            assistant_message: review_message(provider_result.assistant_message, dropped),
+            assistant_message: review_message(provider_result.assistant_message, dropped, proposal:),
             provider: metadata["provider"],
             model: metadata["model"],
             prompt_version: metadata["prompt_version"],
@@ -175,17 +182,19 @@ module Mia
         end
       end
 
-      def review_message(message, dropped)
+      def review_message(message, dropped, proposal:)
         return message if dropped.empty?
 
         notes = dropped.map { |item| "Left out: ‘#{item.fetch(:label)}’. #{item.fetch(:message)}" }.uniq
         # Preserve every item name; group reasons separately to fit 2,000 chars.
         labels = dropped.map { |item| "‘#{item.fetch(:label)}’" }.uniq.join(", ")
         reasons = dropped.map { |item| item.fetch(:message) }.uniq.join(" ")
-        full = [ "Review the suggestions below. Nothing has been saved.", *notes ].join("\n\n")
+        invitation = proposal ? "Review the suggestions below. Nothing has been saved." :
+          "Nothing has been saved. Describe one part of your voice in your own words, or give an exact phrase you want to use."
+        full = [ invitation, *notes ].join("\n\n")
         return full if full.length <= 2_000
 
-        "Review the suggestions below. Nothing has been saved.\n\nLeft out: #{labels}. #{reasons.truncate(500, separator: " ")}"
+        "#{invitation}\n\nLeft out: #{labels}. #{reasons.truncate(500, separator: " ")}"
       end
 
       def log_contract_failure(code, turn_id, index = nil)

@@ -226,6 +226,26 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     assert_empty CoachPersonaSetupTurn.where(coach_persona_setup_session_id: session_id)
   end
 
+  test "normal descriptions with all suggestions rejected return ready notes and replay without a provider call" do
+    session_id = create_setup_session
+    before = @persona.reload.draft_config.deep_dup
+    calls = 0
+    resolver = fixed_resolver("Review this.", [ operation("identity.human_coach_name", "Invented name", evidence: "My voice is gentle.") ]) { calls += 1 }
+    with_controller_resolver(resolver) do
+      2.times do |attempt|
+        post turn_path(session_id), params: { turn: { message: "My voice is gentle." } },
+          headers: @headers.merge("Idempotency-Key" => "rejected-suggestions-123"), as: :json
+        assert_response(attempt.zero? ? :created : :ok)
+        assert_equal "ready", response.parsed_body.dig("session", "turns", 0, "status")
+        assert_includes response.parsed_body.dig("session", "turns", 0, "assistant_message"), "Left out:"
+        assert_nil response.parsed_body.dig("session", "proposal")
+      end
+    end
+    assert_equal before, @persona.reload.draft_config
+    assert_equal 1, calls
+    assert_equal 1, CoachPersonaSetupTurn.where(coach_persona_setup_session_id: session_id).count
+  end
+
   test "provider failure records a safe failed turn and no proposal" do
     session_id = create_setup_session
     resolver = Object.new

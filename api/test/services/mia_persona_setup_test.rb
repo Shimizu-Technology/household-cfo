@@ -30,9 +30,9 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     ).call(user_message: message, idempotency_key: "recorded-first-voice")
 
     assert_equal "ready", result.turn.reload.status
-    assert_equal 6, result.proposal.operations.length
+    assert_equal 7, result.proposal.operations.length
     assert_equal before.dig("voice", "tone_traits"), result.proposal.after_state.dig("draft_config", "voice", "tone_traits")
-    assert_equal before.dig("voice", "language_style"), result.proposal.after_state.dig("draft_config", "voice", "language_style")
+    assert_equal fixture.fetch("operations").find { |op| op["path"] == "voice.language_style" }.fetch("value"), result.proposal.after_state.dig("draft_config", "voice", "language_style")
     assert_equal "Chelu, pump the brakes", result.proposal.after_state.dig("draft_config", "phrases").sole.fetch("text")
     assert_equal before, @persona.reload.draft_config
     assert_includes result.turn.assistant_message, "Left out:"
@@ -72,18 +72,16 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal 4, applied.draft_config.dig("response_shape", "max_sentences")
   end
 
-  test "entirely invalid suggestions store a plain specific failure and preserve the pending proposal" do
+  test "entirely invalid suggestions store review notes and preserve the pending proposal" do
     original = ready_proposal
     resolver = fake_resolver { resolver_result("Review this.", [ operation("identity.human_coach_name", "Invented name", evidence: "Lina") ]) }
-    error = assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
-      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
-        .call(user_message: "Lina", idempotency_key: "invalid-voice-123")
-    end
-    assert_equal "persona_setup_exact_wording", error.code
-    assert_equal :unprocessable_entity, error.status
-    assert_equal "failed", error.result.turn.reload.status
-    assert_includes error.result.turn.assistant_message, "wording you did not provide"
-    refute_match(/identity\.|Contract|Invented/, error.result.turn.assistant_message)
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace, resolver:)
+      .call(user_message: "Lina", idempotency_key: "invalid-voice-123")
+    assert_equal "ready", result.turn.reload.status
+    assert_nil result.proposal
+    assert_includes result.turn.assistant_message, "wording you did not provide"
+    assert_includes result.turn.assistant_message, "Left out: ‘Invented name’"
+    refute_match(/identity\.|Contract|suggestions below/, result.turn.assistant_message)
     assert_equal "pending", original.reload.status
   end
 
@@ -360,7 +358,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   end
 
   test "review M1 transcript drafting also requires support for voice values" do
-    message = "Suggest a voice from this transcript: I keep it brief and practical."
+    message = "Suggest a voice from this transcript: I keep it brief and practical. No humour."
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: message).build([
         operation("voice.tone_traits", %w[warm direct respectful lighthearted], source: "mia_drafted", evidence: "I keep it brief and practical")
@@ -429,12 +427,11 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal %w[warm direct respectful practical concise], result.dig(:after_state, "draft_config", "voice", "tone_traits")
   end
 
-  test "review M1 rejects unsupported language presets despite a descriptive quote" do
-    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
-      Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use a warm tone. I keep answers short, 3 or 4 sentences.").build([
-        operation("voice.language_style", [ "Use plain language.", "Keep the next step concrete.", "Prefer conversational language." ], evidence: "I keep answers short, 3 or 4 sentences")
-      ])
-    end
+  test "risk split accepts language preset mappings from a descriptive quote" do
+    result = Mia::PersonaSetup::OperationContract.new(actor: @coach, persona: @persona, user_message: "Use a warm tone. I keep answers short, 3 or 4 sentences.").build([
+      operation("voice.language_style", [ "Use plain language.", "Keep the next step concrete.", "Prefer conversational language." ], evidence: "I keep answers short, 3 or 4 sentences")
+    ])
+    assert_includes result.dig(:after_state, "draft_config", "voice", "language_style"), "Prefer conversational language."
   end
 
   test "review M1 requires explicit removal and accepts negated respectful synonyms" do
@@ -1344,11 +1341,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical concise], evidence: "brief") ]) })
       .call(user_message: "Keep it brief.", idempotency_key: "fresh-qa-brief").proposal
     assert_equal %w[warm direct respectful practical concise], second.after_state.dig("draft_config", "voice", "tone_traits")
-    assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
-      Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
-        resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical concise formal], evidence: "practical") ]) })
-        .call(user_message: "Keep it brief.", idempotency_key: "fresh-qa-no-laundering")
-    end
+    result = Mia::PersonaSetup::TurnRunner.new(session: @session, actor: @coach, workspace: @workspace,
+      resolver: fake_resolver { resolver_result("Review this.", [ operation("voice.tone_traits", %w[warm direct respectful practical concise formal], evidence: "practical") ]) })
+      .call(user_message: "Keep it brief.", idempotency_key: "fresh-qa-no-laundering")
+    assert_nil result.proposal
+    assert_equal "ready", result.turn.status
+    assert_includes result.turn.assistant_message, "Left out:"
     assert_equal "pending", second.reload.status
     assert_equal "superseded", first.reload.status
   end

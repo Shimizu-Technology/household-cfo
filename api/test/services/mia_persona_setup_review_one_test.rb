@@ -134,7 +134,7 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     assert_equal 1, second.after_state.dig("draft_config", "phrases").length
     assert_equal "superseded", first.reload.status
     Mia::PersonaSetup::ProposalApplier.new(proposal: second, actor: @coach, workspace: @workspace).apply!(idempotency_key: "save-first-phrase")
-    assert_raises(Mia::PersonaSetup::TurnRunner::Error) { run_turn('She says "Chelu, pump the brakes.".', [ phrase("Chelu, pump the brakes.") ]) }
+    assert_nil run_turn('She says "Chelu, pump the brakes.".', [ phrase("Chelu, pump the brakes.") ]).proposal
     assert_equal 1, @persona.reload.draft_config["phrases"].length
   end
 
@@ -168,7 +168,10 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
   [ "Kill yourself", "You are a failure" ].each do |text|
     test "R17 harmful phrase #{text} fails setup and direct draft authoring" do
       message = %(She says "#{text}")
-      assert_raises(Mia::PersonaSetup::TurnRunner::Error) { run_turn(message, [ phrase(text) ]) }
+      result = run_turn(message, [ phrase(text) ])
+      assert_equal "ready", result.turn.status
+      assert_nil result.proposal
+      assert_includes result.turn.assistant_message, "Left out:"
       config = @persona.draft_config.deep_dup
       config["phrases"] = [ phrase(text)["value"] ]
       assert_raises(Mia::PersonaDraftUpdater::Error) do

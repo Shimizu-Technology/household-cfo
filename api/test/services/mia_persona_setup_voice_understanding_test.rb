@@ -96,6 +96,7 @@ class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
     @persona.update!(draft_config: @persona.draft_config.deep_merge("phrases" => [ original ]))
     message = 'Please use my saying "Chelu, pump the brakes." often.'
     raw = phrase(original["text"], original["meaning"], message)
+    raw["value"].merge!(original.slice("allowed_contexts", "prohibited_contexts", "caution"))
     operations = [ raw ]
     result = contract(message).build(operations)
     saved = result.dig(:after_state, "draft_config", "phrases").sole

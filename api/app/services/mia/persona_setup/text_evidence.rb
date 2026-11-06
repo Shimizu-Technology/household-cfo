@@ -76,6 +76,8 @@ module Mia
         # Normalize phone punctuation before contraction matching. Polarity is
         # local: a prohibition in one clause cannot authorize another clause.
         text.unicode_normalize(:nfkc).tr("‘’ʼ", "'").downcase
+          .gsub(/\b(i|we|you|they)'(?:m|re)\b/, "\\1 am")
+          .gsub(/\bkeep\s+(?=(?:your|the|my|our)\s+(?:voice|tone|style)\b)/, "")
           .gsub(/"[^"\n]*"/) { |phrase| phrase.tr(",.;:!?", " ") }
           .gsub(/\binstead of\b|\brefus(?:e|es|ed) to\b|\bused to\b|\bno longer\b/, "not ")
           .split(/(?<!\d)[,.]|[,.](?!\d)|[!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
