@@ -51,6 +51,8 @@ class ParticipantMessageReaderValidationTest < ActiveSupport::TestCase
     assert result.available
     assert result.question
     assert_empty result.facts
+    result = read("if i saved 20 today, my goal is for 2026", data(question: true, facts: [ fact("set_aside", "20", day: "today") ]))
+    assert_empty result.facts
     result = read("i saved 20 today, how am i doing", data(question: true, facts: [ fact("set_aside", "20", day: "today") ]))
     assert_equal "20", result.facts.sole["amount"]
     result = read("i saved 20. would 100 tomorrow be enough", data(question: true, facts: [ fact("set_aside", "20"), fact("set_aside", "100") ]))

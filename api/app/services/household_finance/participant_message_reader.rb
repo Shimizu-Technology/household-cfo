@@ -115,7 +115,7 @@ module HouseholdFinance
     end
 
     def hypothetical_amount?(amount)
-      @message.split(/\.(?!\d)|[!?;]|,(?!\d)/).select { |clause| clause.include?(amount) }.all? do |clause|
+      @message.split(/\.(?!\d)|[!?;]|,(?!\d)/).select { |clause| quoted_money?(amount, source: clause) }.all? do |clause|
         clause.match?(/\bif\b/i) || (@question && clause.match?(/\bwould\b/i))
       end
     end
@@ -131,8 +131,8 @@ module HouseholdFinance
       normalized.match?(/\A(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?\z/) && self.class.amount_cents(value).between?(0, Money::MAX_AMOUNT_CENTS)
     end
 
-    def quoted_money?(amount)
-      source = @message.gsub(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\b/, " ")
+    def quoted_money?(amount, source: @message)
+      source = source.gsub(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}:\d{2}\b/, " ")
       source.match?(/(?<![\w\d.,\/-])#{Regexp.escape(amount)}(?![\w\d]|\.\d|,\d)/)
     end
 
