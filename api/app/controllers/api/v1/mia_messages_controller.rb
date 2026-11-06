@@ -179,7 +179,7 @@ module Api
           if HouseholdFinance::ParticipantCare.kind(content) == :crisis
             return render_crisis_response(session, content, [], message_request: message_request)
           end
-          if HouseholdFinance::ParticipantCare.answer(content).present? && @participant_reading.facts.none? { |fact| fact["kind"].in?(%w[purchase set_aside withdrawal nothing_saved income]) }
+          if HouseholdFinance::ParticipantCare.answer(content).present? && !HouseholdFinance::MiaCoachAnswerer.spend_report_text?(content) && @participant_reading.facts.none? { |fact| fact["kind"].in?(%w[purchase set_aside withdrawal nothing_saved income]) }
             return render_household_read_response(session, content, HouseholdFinance::ParticipantCare.answer(content), message_request: message_request,
               topic: HouseholdFinance::ParticipantCare.topic(HouseholdFinance::ParticipantCare.kind(content), persona_context_id: current_participant_runtime.continuity_id))
           end

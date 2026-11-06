@@ -40,6 +40,12 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     assert_match(/landlord/, reply)
   end
 
+  test "a completed expense alongside food hardship is acknowledged without being silently dropped" do
+    ask("I spent my last $20 on gas and we have nothing to eat until payday")
+    assert_match(/food/i, reply)
+    assert_match(/not added.*\$20|review|draft/i, reply)
+  end
+
   test "budget frustration is not personal shame or crisis" do
     ask("im so done w this stupid budget lol")
     refute_match(/You are not stupid|988|readiness|approved data/i, reply)

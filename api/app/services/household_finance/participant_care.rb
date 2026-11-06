@@ -41,7 +41,7 @@ module HouseholdFinance
       return :housing if text.match?(/\Awe are about to be evicted[.!]?\z/i)
       return :housing if text.match?(/\b(?:can['’]?t|cant|cannot|won['’]?t|wont|unable to) (?:make|pay|cover|afford) (?:my |our |the )?rent\b/i)
       return :food if text.match?(/\b(?:help (?:with|w) food|food (?:help|support))\b/i)
-      return :food if text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?\b/i)
+      return :food if !text.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN) && text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?\b/i)
       return :food if MoneyMovementText.food_insecurity?(text)
       :essentials if MiaCoachAnswerer.essential_hardship?(text)
     end
@@ -90,7 +90,8 @@ module HouseholdFinance
       selected = care&.to_sym || kind(message)
       if selected.in?([ :hardship, :food, :housing, :job_loss ])
         if selected == :food || message.to_s.match?(/\b(?:food|eat|hungry|meals?|grocer\w*)\b/i)
-          return "Going without food is hard, and you deserve to eat. Food comes first for you and your family; saving and setup can wait. Ask your coach or someone you trust to help with getting food today and finding support nearby. I don't have verified local contacts to give you. Do you have enough food for everyone, including you, today?"
+          spend_note = MiaCoachAnswerer.spend_report_text?(message) ? " Your reported spending still needs review before it counts as spent." : ""
+          return "Going without food is hard, and you deserve to eat. Food comes first for you and your family; saving and setup can wait. Please talk with your coach or someone you trust about getting food today and finding support nearby. I don't have verified local contacts to give you.#{spend_note} Do you have enough food for everyone, including you, today?"
         end
         if message.to_s.match?(/\b(?:what|how|can|cant|cannot|can't)\b/i) && message.to_s.match?(/\brent\b/i)
           return "Protect food, housing, utilities and medicine. If rent may be short, contact your landlord before it is due and ask about a payment arrangement; they may or may not agree. Ask your coach or someone you trust to help you work through the options. What is the rent due date?"

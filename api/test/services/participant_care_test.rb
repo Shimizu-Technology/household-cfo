@@ -7,6 +7,8 @@ class ParticipantCareTest < ActiveSupport::TestCase
     assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer(text))
     assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer("we have no grocery money", care: :food))
     refute HouseholdFinance::ParticipantCare.kind("what if we out of food money")
+    refute HouseholdFinance::ParticipantCare.kind("we have no food allergies")
+    refute HouseholdFinance::ParticipantCare.kind("what if payday is late, we out of food money")
   end
 
   test "explicit financial questions do not carry the reader's prior care label" do
