@@ -21,6 +21,8 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
   end
 
   test "semantic observation wording reaches reviewed patterns and does not write" do
+    admission = HouseholdFinance::MiaProviderAdmission.method(:with_slot)
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot) { |**_, &block| block.call }
     purchase(Date.new(2026, 10, 5), "Ross", 2000)
     before = financial_counts
     [ "where could we trim things a bit", "anything little adding up lately", "whats my spending pattern" ].each do |message|
@@ -31,6 +33,8 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
         assert_equal before, financial_counts
       end
     end
+  ensure
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot, admission)
   end
 
   test "household patterns read confirmed purchases without drafting or changing financial records and replay safely" do
