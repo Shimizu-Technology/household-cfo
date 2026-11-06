@@ -7,8 +7,11 @@ module Mia
       text = content.to_s
       return :participant_system_wording if text.match?(/readiness colou?r|Plaid-derived|liquid account picture|Scenario only/i)
       return :invented_phone if text.match?(/(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]?\d{3}[ .-]?\d{4}(?!\d)|\b(?:call|phone|dial)\s+\+?\d[\d ()-]{2,}/i)
-      return :purchase_verdict if text.match?(/\b(?:go ahead|you can (?:buy|purchase|book|order)|i recommend (?:(?:that )?you (?:buy|purchase|book|order|get)|buying|purchasing|booking|ordering|getting|it\b)|plenty of room|no problem|i['’]ve decided|i have decided)\b/i)
-      return :purchase_verdict if text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).any? { |sentence| !(sentence.end_with?("?") && sentence.match?(/\A(?:what|which|how|would|could|should|do|does|is|are|can|will)\b/i)) && sentence.match?(/\b(?:you (?:should|ought to|must|need to)\s+(?:buy|purchase|book|order)|(?:^|[.!]\s*)(?:please\s+|go\s+)?(?:buy|purchase|book|order)\s+(?:it|the|a|an|this|that))\b/i) }
+      return :purchase_verdict if text.match?(/\b(?:go ahead|i recommend (?:(?:that )?you (?:buy|purchase|book|order|get)|buying|purchasing|booking|ordering|getting|it\b)|plenty of room|no problem|i['’]ve decided|i have decided)\b/i)
+      return :purchase_verdict if text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).any? do |sentence|
+        question = sentence.end_with?("?") && sentence.match?(/\A(?:what|which|how|would|could|should|do|does|is|are|can|will|if|when|before)\b/i)
+        !question && sentence.match?(/\b(?:you can (?:buy|purchase|book|order)|you (?:should|ought to|must|need to)\s+(?:buy|purchase|book|order)|(?:^|[.!]\s*)(?:please\s+|go\s+)?(?:buy|purchase|book|order)\s+(?:it|the|a|an|this|that))\b/i)
+      end
       return :unsupported_balance_claim if text.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
       unless confirmed_write
         text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).each do |sentence|
@@ -24,12 +27,8 @@ module Mia
             negated = passive_write[0].match?(/\b(?:not|never)\b/i) || prefix.match?(/\b(?:nothing|no (?:records?|changes?|purchases?))\z/i)
             return :false_write_claim unless negated
           end
-          saved_balance_description = sentence.match?(/\bsaved\s+[^.!?]{0,100}\bbalances?\b/i) && !sentence.match?(/\b(?:is|are|was|were|been|being)\s+(?:just\s+)?saved\b/i)
-          next if saved_balance_description
-          next if sentence.match?(/\b(?:already on record|historical|existing|previously recorded)\b/i)
-          next if sentence.match?(/\b(?:not|nothing|never)\b.{0,50}\b(?:saved|recorded|updated|logged)\b|\b(?:until|before)\b.{0,50}\b(?:saved|recorded|updated|logged)\b|\b(?:saved (?:plan|records?|amounts?)|recorded (?:purchases|spending|transactions|amounts))\b/i)
-
-          return :false_write_claim
+          # Adjectives such as "saved cash" and unanswered funding questions
+          # do not claim an app action. The semantic guard checks their grounding.
         end
       end
       nil

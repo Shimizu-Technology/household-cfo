@@ -312,7 +312,7 @@ module HouseholdFinance
 
     def purchase_prefix
       reference = answer_packet[:purchase_prefix].presence || answer_packet[:fallback_response].to_s
-      return unless reference.start_with?("The $") || reference.match?(/\A(?:Your(?: .+?)?|This month’s) plan (?:has .+? left|is .+? short), so /)
+      return unless answer_packet[:purchase_prefix].present? || reference.start_with?("The $") || reference.match?(/\A(?:Your(?: .+?)?|This month’s) plan (?:has .+? left|is .+? short), so /)
 
       # Older packets may still carry the two-sentence form.
       reference = reference.sub(/\. That['’]s a plan figure, not your bank balance\./, ", and that's a plan figure, not your bank balance.")

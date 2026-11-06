@@ -169,6 +169,39 @@ class MiaReviewThreeRegressionsTest < ActiveSupport::TestCase
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice), reply
   end
 
+  test "challenge no plan prefix reaches the model on both funded and unfunded questions" do
+    [ "Can I buy a $95 backpack? I saved cash for it.", "Can I buy a $360 console? I don't have the money." ].each do |message|
+      prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
+      narrator = HouseholdFinance::MiaNarrator.new(user_message: message, api_key: "fake", persona: voice,
+        answer_packet: { kind: "purchase_scenario", purchase_prefix: prefix, fallback_response: prefix })
+      narrator.define_singleton_method(:openrouter_response) { "Check required bills first. Which money would cover it?" }
+      assert_equal "live_model", narrator.tap(&:call).response_source
+    end
+  end
+
+  test "saved cash nouns and funding questions never imply a completed app write" do
+    [ "Which account or saved cash would cover it?", "Before you buy, check essentials without touching that saved cash.", "Money you saved for it still needs a bill check." ].each do |reply|
+      assert_nil Mia::NarrationClaims.rejection_reason(reply), reply
+    end
+    [ "I saved this purchase.", "This purchase was saved.", "Your plan has been updated.", "We recorded the spending." ].each do |reply|
+      assert_equal :false_write_claim, Mia::NarrationClaims.rejection_reason(reply), reply
+    end
+  end
+
+  test "timing questions do not become permission to purchase" do
+    [ "What is the latest date you can buy the tickets?", "If you keep this on the list, what date do you need to book by?" ].each do |reply|
+      assert_nil Mia::NarrationClaims.rejection_reason(reply), reply
+    end
+    [ "You can buy it.", "Go ahead and buy it.", "If you want it, you should buy it.", "You need to book it today." ].each do |reply|
+      assert_equal :purchase_verdict, Mia::NarrationClaims.rejection_reason(reply), reply
+    end
+  end
+
+  test "unfunded want phrase does not label a stated replacement as a want" do
+    policy = Mia::LanguagePolicy.new(user_message: "Could I buy $580 replacement tires? I would have to borrow.", persona: voice)
+    assert_nil policy.server_phrase
+  end
+
   private
   def config
     @config ||= persona_configuration.tap do |value|
