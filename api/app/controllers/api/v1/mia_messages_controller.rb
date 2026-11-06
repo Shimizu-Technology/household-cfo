@@ -2473,6 +2473,10 @@ module Api
           return narrate_structured_answer(content, history, conversation_context, kind: "coaching", fallback_response: fallback, annual_plan: annual_plan, write_state: "no_write")
         end
 
+        if @participant_reading && !@participant_reading.available && !@savings_household_request && !HouseholdFinance::SetupStatus.new(current_household).complete?
+          return HouseholdFinance::ParticipantMessageReader::HOUSEHOLD_OFF_REPLY
+        end
+
         context = HouseholdFinance::MiaContextBuilder.new(
           current_household,
           annual_plan: annual_plan,

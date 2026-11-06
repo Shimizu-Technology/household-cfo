@@ -53,6 +53,14 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "an unread first setup message names the manual route before the CTA" do
+    post "/api/v1/mia/messages", params: { message: "cruz house" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Enter my numbers"
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute HouseholdFinance::SetupStatus.new(@household).complete?
+  end
+
   test "a question after skipping income returns to the currently asked fixed question" do
     begin_setup
     household_say("skip", reading.merge(defer_setup: true))
