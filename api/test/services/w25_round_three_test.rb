@@ -60,9 +60,10 @@ class W25RoundThreeTest < ActiveSupport::TestCase
     calls = []
     result = Object.new
     with_method(HouseholdFinance::ParticipantMessageReader, :call, ->(**options) { calls << options; result }) do
-      assert_same result, HouseholdFinance::ParticipantMessageReader.read_once(message: "  im a burden  ", goal_conversation: true, recent_care: { care_kind: "crisis" }, setup_field: "primary_goal")
+      assert_same result, HouseholdFinance::ParticipantMessageReader.read_once(message: "  im  a burden  ", goal_conversation: true, recent_care: { care_kind: "crisis" }, setup_field: "primary_goal")
       assert_same result, HouseholdFinance::ParticipantMessageReader.read_once(message: "im a burden")
       assert_equal 1, calls.length
+      assert_equal "  im  a burden  ", calls.first[:message]
       assert_equal true, calls.first[:goal_conversation]
       assert_equal "primary_goal", calls.first[:setup_field]
     end

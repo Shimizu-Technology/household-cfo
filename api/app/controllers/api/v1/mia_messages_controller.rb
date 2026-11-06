@@ -648,6 +648,8 @@ module Api
         continuation = @participant_reading.care == "none"
         reference = if content.match?(/\b(?:food|hungry|grocer\w*)\b/i)
           HouseholdFinance::ParticipantCare.answer(content, care: :food)
+        elsif topic["care_kind"] == "crisis" && !continuation && @participant_reading.care != "crisis" && !HouseholdFinance::ParticipantCare.followup?(content)
+          HouseholdFinance::ParticipantCare.answer(content, care: @participant_reading.care)
         elsif topic["care_kind"] == "crisis" && (continuation || HouseholdFinance::ParticipantCare.followup?(content))
           "I'm glad you're here. You don't have to handle this alone. Is someone you trust with you right now?"
         elsif continuation && topic["care_kind"] == "housing"
