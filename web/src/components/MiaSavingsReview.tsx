@@ -2,6 +2,7 @@ import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
 
 // "Today", "Yesterday", or "Mon, Oct 20".
 function plainDay(iso: string, today?: string): string {
+  if (!iso) return 'Choose date'
   if (today && iso === today) return 'Today'
   if (today) {
     const yesterday = new Date(`${today}T00:00:00Z`)

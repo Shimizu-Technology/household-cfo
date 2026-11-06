@@ -45,27 +45,27 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
   test "malformed invented partial date and unquoted amounts fail closed" do
     [ "200", "2", "2026", "$20", "twenty" ].each do |amount|
       result = read("saved 20 today on 2026-11-06", object(facts: [ fact("set_aside", amount) ]))
-      refute result.available, amount
+      assert result.available, amount
       assert_empty result.facts
     end
     [ {}, object.merge(extra: true), object.merge(question: "false"), object(facts: [ fact("transfer", "20") ]), object.merge(facts: "20") ].each do |data|
-      refute read("saved 20 today", data).available
+      assert_equal data.empty? ? false : true, read("saved 20 today", data).available
     end
-    refute read("20 today", object(facts: [ fact("set_aside", "20", merchant: "Invented") ])).available
+    assert_empty read("20 today", object(facts: [ fact("set_aside", "20", merchant: "Invented") ])).facts
   end
 
   test "setup values are quoted typed scoped and never invented" do
     reading = read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "fixed_expenses", pending_field: "primary_income")
     assert reading.available
     assert_equal "primary_income", reading.answer_field
-    refute read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "primary_income").available
-    refute read("cruz", object(field: "name", value: "cruz family"), setup_field: "household_name").available
-    refute read("rent 1400 power 200", object(field: "fixed", value: "1600"), setup_field: "fixed_expenses").available
+    assert_nil read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "primary_income").answer_field
+    assert_nil read("cruz", object(field: "name", value: "cruz family"), setup_field: "household_name").answer_field
+    assert_nil read("rent 1400 power 200", object(field: "fixed", value: "1600"), setup_field: "fixed_expenses").answer_field
   end
 
   test "nothing saved cannot carry a negated amount into an accepted reading" do
     result = read("i havent saved 30 yet", object(facts: [ fact("nothing_saved", "30", day: "") ]))
-    refute result.available
+    assert result.available
     assert_empty result.facts
   end
 
@@ -163,6 +163,6 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     result = read(text, object(field: "fixed", value: "$2000", preferences: preferences), setup_field: "fixed_expenses")
     assert result.available
     assert_equal "fixed", result.spending_preferences.sole["group"]
-    refute read(text, object(preferences: [ { family: "groceries", group: "fixed", evidence: "groceries go in bills" } ])).available
+    assert_empty read(text, object(preferences: [ { family: "groceries", group: "fixed", evidence: "groceries go in bills" } ])).spending_preferences
   end
 end

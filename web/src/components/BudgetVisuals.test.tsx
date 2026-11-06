@@ -85,3 +85,11 @@ it('shows an uncategorized purchase waiting for review instead of a zero categor
   expect(container.textContent).toContain('$35 pending review')
   expect(container.textContent).not.toContain('$0')
 })
+
+it('does not present an unknown uncategorized amount as part of a known zero plan', () => {
+  const {container} = render(<ExpenseStackOverview positions={[
+    {id:0,name:'Uncategorized',stackKey:'discretionary',stackLabel:'Needs category',planned:0,actual:0,pending:35,remaining:0,active:true},
+    {id:2,name:'Everyday spending',stackKey:'discretionary',stackLabel:'Discretionary',planned:0,actual:0,pending:0,remaining:0,active:true},
+  ]} />)
+  expect(container.querySelector('.stack-discretionary .expense-stack-row-heading b')?.textContent).not.toContain('$0')
+})

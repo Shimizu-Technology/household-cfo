@@ -10,6 +10,7 @@ import './MiaDailyCheckIn.css'
 
 // "Today", "Yesterday", or "Mon, Oct 20" for a local calendar date.
 function plainDay(iso: string, today: string): string {
+  if (!iso) return 'Choose date'
   if (iso === today) return 'Today'
   const yesterday = new Date(`${today}T00:00:00Z`)
   yesterday.setUTCDate(yesterday.getUTCDate() - 1)
@@ -79,7 +80,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   useEffect(() => {
     const controller = new AbortController()
     for (const date of dateKey.split(',')) {
-      fetchDailyContext(date, controller.signal).then((context) => {
+      fetchDailyContext(date || undefined, controller.signal).then((context) => {
         if (dailyContextMatches(context, scope, cohortId)) setContexts((current) => ({ ...current, [date]: context }))
       }).catch(() => undefined)
     }
@@ -400,6 +401,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
                   <label className="mia-daily-place"><input aria-label={`Place for ${name}`} aria-describedby={note ? noteId : undefined} maxLength={120} autoComplete="off" placeholder="Where?" value={row.merchant} disabled={fieldsLocked} aria-invalid={Boolean(invalid[row.id]) || undefined} onChange={(event) => edit(row.id, { merchant: event.target.value })} /></label>
                   <span className="mia-daily-day">{plainDay(row.purchased_on, today)}</span>
                   <button type="button" className="mia-daily-remove" disabled={fieldsLocked} aria-label={`Remove ${name}`} onClick={() => remove(row.id)}><span aria-hidden="true">×</span></button>
+                  {report.date_required && <label className="mia-daily-date">Date<input type="date" aria-label={`Date for ${name}`} value={row.purchased_on} min={anyContext?.calendar.starts_on} max={anyContext?.calendar.local_today} disabled={fieldsLocked} required onChange={event => edit(row.id, {purchased_on: event.target.value})} /></label>}
                   {note && <p id={noteId} className="mia-daily-row-note">{note}</p>}
                 </>}
               </li>

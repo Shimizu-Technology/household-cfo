@@ -255,7 +255,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       setup_answer: { field: "none", value: "" }, spending_preferences: [], counted: true }
     with_participant_reader_response(data) do
       post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract-extra" }, headers: auth, as: :json
-      assert_nil response.parsed_body.fetch("savings_intake"), "an extra field rejects the whole proposal"
+      assert_equal false, response.parsed_body.fetch("savings_intake")["counted"], "an unsupported field never grants approval or discards the valid fact"
       data.delete(:counted)
       assert_no_difference [ "SavingsDailyPurchaseDraft.count", "SavingsDailyPurchaseVersion.count" ] do
         post "/api/v1/mia/messages", params: { message: "lunch w my cousins came to 12 at Kings", request_id: "daily-extract" }, headers: auth, as: :json

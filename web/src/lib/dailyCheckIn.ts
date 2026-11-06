@@ -236,7 +236,7 @@ export type TodayCheckIn = { context: DailyContext | null; checkedIn: boolean | 
 export function useTodayCheckIn(scope: BaselineScope | undefined, cohortId: number | undefined, enabled: boolean, refreshKey: number): TodayCheckIn {
   const [loaded, setLoaded] = useState<{ key: string; context: DailyContext } | null>(null)
   const [focusKey, setFocusKey] = useState(0)
-  const key = enabled && scope ? `${scope.user_id}:${scope.household_id}:${cohortId ?? ''}` : ''
+  const key = enabled && scope ? `${scope.user_id}:${scope.household_id}:${cohortId ?? ''}:${refreshKey}` : ''
   useEffect(() => {
     if (!key || !scope) return
     const controller = new AbortController()

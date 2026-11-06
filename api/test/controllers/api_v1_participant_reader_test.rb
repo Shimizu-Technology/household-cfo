@@ -158,6 +158,69 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_equal "fixed", MiaActionDraft.find(json.dig("mia_action_draft", "id")).metadata.dig("spending_preferences", 0, "group")
   end
 
+  test "compound fixed costs and named debts ask for one total without purchases" do
+    begin_setup(primary_income: 4800)
+    json = household_say("rent 1200 and power 300", reading(facts: [ fact("bill", "1200", item: "rent", day: ""), fact("bill", "300", item: "power", day: "") ], field: "fixed", value: "1200 and power 300"))
+    assert_nil json["mia_action_draft"]
+    assert_nil json["transaction_draft"]
+    assert_match(/one.*total/i, json.dig("assistant_message", "content"))
+    refute_match(/couldn.t read/i, json.dig("assistant_message", "content"))
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid, attributes: { fixed_expenses: 2000, flexible_spend: 650 }).call
+    household_say("Help me set up my household", reading)
+    json = household_say("visa 40 and jcpenney 25", reading(facts: [ fact("purchase", "40", merchant: "visa", day: ""), fact("purchase", "25", merchant: "jcpenney", day: "") ]))
+    assert_nil json["transaction_draft"]
+    assert_nil json["mia_action_draft"]
+    assert_match(/one.*total/i, json.dig("assistant_message", "content"))
+  end
+
+  test "an unavailable setup reader does not press the next question or name an absent Savings screen" do
+    household_say("Help me set up my household", reading)
+    klass = HouseholdFinance::ParticipantMessageReader
+    original = klass.method(:call)
+    klass.define_singleton_method(:call) { |**options| new(**options.merge(transport: ->(_) { raise Net::ReadTimeout })).call }
+    post "/api/v1/mia/messages", params: { message: "they laid me off and im scared" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
+    assert_response :created
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_match(/try again/i, reply)
+    refute_match(/Next setup question|Savings screen|call this household/i, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
+  ensure
+    klass&.define_singleton_method(:call, original) if original
+  end
+
+  test "an explicit draft request can prepare an undrafted recalled action but never replay an applied review" do
+    begin_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 650)
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "School supplies", stack_key: "discretionary", monthly_amount: 100)
+    session = @household.chat_sessions.find_by!(user: @user)
+    session.update!(active_topic: { schema_version: 2, id: SecureRandom.uuid, type: "budget_edit", title: "School supplies", status: "needs_clarification", year: 2026,
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "300", months: [ 11 ], year: 2026 } })
+    klass = HouseholdFinance::MiaIntentResolver
+    original = klass.instance_method(:call)
+    klass.define_method(:call) { nil }
+    json = household_say("draft that", reading)
+    assert json["mia_action_draft"], json.inspect
+    apply(json["mia_action_draft"])
+    count = MiaActionDraft.count
+    household_say("draft that", reading)
+    assert_equal count, MiaActionDraft.count
+  ensure
+    klass&.define_method(:call, original) if original
+  end
+
+  test "a mixed undated savings report asks its day without hiding the purchase or amount" do
+    with_reading(reading(facts: [ fact("purchase", "9", item: "lunch", day: ""), fact("set_aside", "5", day: "") ])) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "lunch 9 and saved 5" }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+      end
+    end
+    assert_response :created
+    assert_equal 1, response.parsed_body.fetch("challenge_chat_cards").length
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_match(/9/, reply)
+    assert_match(/5.*which day|which day.*5/i, reply)
+  end
+
   test "an exact grief disclosure still leads with care when the reader is off" do
     begin_setup
     post "/api/v1/mia/messages", params: { message: "My mom passed" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json

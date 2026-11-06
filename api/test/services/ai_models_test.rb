@@ -58,6 +58,12 @@ class AiModelsTest < ActiveSupport::TestCase
     end
   end
 
+  test "boot model log includes the resolved participant reader override" do
+    output = StringIO.new
+    AiModels.log_configuration(logger: ActiveSupport::Logger.new(output), env: { "AI_PARTICIPANT_READER_MODEL" => "test/reader" })
+    assert_includes output.string, "participant_reader=test/reader"
+  end
+
   private
 
   def with_env(values)

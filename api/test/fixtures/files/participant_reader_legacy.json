@@ -2798,5 +2798,16 @@
     },
     "correction": false,
     "spending_preferences": []
+  },
+  "lol": {
+    "care": "none",
+    "question": false,
+    "correction": false,
+    "facts": [],
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "spending_preferences": []
   }
 }

@@ -90,7 +90,7 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
                 <strong>{label}</strong>
                 <span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span>
               </div>
-              <b>{categories.length < 2 ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
+              <b>{categories.length < 2 || categories.some(category => category.id === 0) ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
             </div>
             {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}

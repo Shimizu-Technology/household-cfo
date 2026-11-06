@@ -52,45 +52,38 @@ module SavingsChallenge
     def structured_inputs
       inputs = @reading.facts.filter_map do |fact|
         next unless fact["kind"].in?(%w[set_aside withdrawal purchase])
-        date = fact["day"].blank? ? @enrollment.local_today : requested_date(fact["day"])
-        unless date && date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
-          @rejection = if date
-            { kind: date < @enrollment.starts_on ? :before_start : date > @enrollment.ends_on ? :after_end : :future,
-              date: date, today: @enrollment.local_today, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on }
-          else
-            { question: "Which day was that? Open Savings to review any earlier entry." }
-          end
-          next
-        end
         cents = HouseholdFinance::ParticipantMessageReader.amount_cents(fact.fetch("amount"))
         next unless cents.positive?
+        day = HouseholdFinance::ParticipantReportDay.call(day: fact["day"], message: @message, today: @enrollment.local_today)
+        if day.state == :missing && fact["kind"] != "purchase"
+          @rejection = { question: "You mentioned $#{format('%0.2f', cents / 100.0)} set aside or taken out. Which day was that? Nothing has been saved." }
+          next
+        end
+        date = day.state == :missing ? @enrollment.local_today : day.date
+        if date && !date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
+          @rejection = { kind: date < @enrollment.starts_on ? :before_start : date > @enrollment.ends_on ? :after_end : :future,
+            date: date, today: @enrollment.local_today, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on }
+          next
+        end
+        review_day = date&.iso8601 || ""
         if fact["kind"] == "purchase"
-          { kind: "daily_report", local_on: date.iso8601, no_spend: false,
-            purchases: [ { amount_cents: cents, merchant: fact["merchant"], purchased_on: date.iso8601 } ],
+          { kind: "daily_report", local_on: review_day, date_required: date.nil?, no_spend: false,
+            purchases: [ { amount_cents: cents, merchant: fact["merchant"], purchased_on: review_day } ],
             feelings: HouseholdFinance::PurchaseReportParser.feelings(@message), approval_state: "unreviewed_input", counted: false }
         else
           withdrawal = fact["kind"] == "withdrawal"
           { kind: withdrawal ? "withdrawal" : "contribution", amount_cents: cents,
-            signed_cents: withdrawal ? -cents : cents, effective_on: date.iso8601,
+            signed_cents: withdrawal ? -cents : cents, effective_on: review_day, date_required: date.nil?,
             approval_state: "unreviewed_input", counted: false, new_money_confirmation_required: !withdrawal }
         end
       end
+      inputs.each { |input| input.delete(:date_required) unless input[:date_required] }
       savings, reports = inputs.partition { |input| input[:kind] != "daily_report" }
       @ambiguous_movement = savings.uniq.length != savings.length
       grouped = reports.group_by { |input| input[:local_on] }.values.map do |rows|
         rows.first.merge(purchases: rows.flat_map { |input| input[:purchases] })
       end
       savings.uniq + grouped
-    end
-
-    def requested_date(message)
-      exact = message.scan(/\b\d{4}-\d{2}-\d{2}\b/)
-      relative = message.scan(/\b(?:today|yesterday)\b/i).map(&:downcase).uniq
-      return unless exact.length + relative.length == 1
-      return Date.iso8601(exact.sole) if exact.any?
-      @enrollment.local_today - (relative.sole.downcase == "yesterday" ? 1 : 0)
-    rescue Date::Error
-      nil
     end
   end
 end

@@ -302,6 +302,10 @@ module HouseholdFinance
           needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Household coaching" },
           action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
       end
+      if !reading.available && field == "debt_payment" && user_message.match?(CLEAN_NO_DEBT_PATTERN)
+        debt_free = deterministic_debt_free_result
+        return debt_free if debt_free
+      end
       if (oversized = oversized_setup_text_field)
         return deterministic_setup_clarification(oversized, clarification: "Please shorten the #{MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(oversized).downcase} to #{setup_text_limit(oversized)} characters or fewer so I can prepare it without truncating your words.")
       end
@@ -310,6 +314,16 @@ module HouseholdFinance
       source_values, = deterministic_setup_values
       explicit_setup = deterministic_setup_result if !reading.correction && source_values.length > 1
       return explicit_setup if explicit_setup
+      if !reading.available && !reading.answer_field
+        return deterministic_setup_clarification(field || pending_field, clarification: ParticipantMessageReader::HOUSEHOLD_OFF_REPLY)
+      end
+      if field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment]) && !reading.answer_field &&
+          (reading.setup_answer["needs_total"] || reading.facts.any? { |fact| fact["kind"] == "bill" } || (field == "debt_payment" && reading.facts.count { |fact| fact["kind"] == "purchase" } > 1))
+        result = deterministic_setup_clarification(field,
+          clarification: "What is the one monthly total for #{SetupStatus::FIELD_LABELS.fetch(field.to_sym).downcase}? Please give the total you want to use; I won't add the separate amounts or save anything for you.")
+        result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
+        return result
+      end
       explicit_intake = MiaSetupIntake.new(raw_user_message, context: context).call
       return explicit_intake if explicit_intake
       income_change = deterministic_current_salary_result if reading.facts.any? { |fact| fact["kind"] == "income" }
@@ -365,14 +379,9 @@ module HouseholdFinance
     end
 
     def participant_purchase_date(day)
-      date = case day.to_s.downcase
-      when "", "today" then Date.current
-      when "yesterday" then Date.current.yesterday
-      else Date.iso8601(day)
-      end
-      date unless date.future?
-    rescue Date::Error
-      nil
+      result = ParticipantReportDay.call(day: day, message: raw_user_message, today: Date.current)
+      date = result.state == :missing ? Date.current : result.date
+      date unless date&.future?
     end
 
     def deterministic_scenario_result
@@ -2448,7 +2457,7 @@ module HouseholdFinance
       return "#{ready_line}#{HOUSEHOLD_NAME_CLARIFICATION}" if fields == [ :household_name ]
 
       money_fields = fields - [ :household_name ]
-      labels = money_fields.map { |field| MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field).downcase }.to_sentence
+      labels = money_fields.map { |field| SetupStatus::FIELD_LABELS.fetch(field.to_sym).downcase }.to_sentence
       written = distinct_money_occurrences(user_message).map { |occurrence| occurrence.fetch(:amount_cents) }.select(&:positive?).uniq.first(8)
       listed = written.map { |cents| ActiveSupport::NumberHelper.number_to_currency(cents / 100.0, precision: (cents % 100).zero? ? 0 : 2) }
       mentioned = listed.length >= 2 ? " You mentioned #{listed.to_sentence}. Which of these should count for #{labels}, or what is the monthly total?" : " What #{money_fields.one? ? 'amount' : 'amounts'} should I use?"

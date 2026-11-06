@@ -82,3 +82,11 @@ it('keeps both independently reviewed facts from one message through a delayed r
   expect(hook.result.current.savings).toEqual([savings])
   expect(hook.result.current.reports).toHaveLength(1)
 })
+
+it('reports whether a received card was stored so fallback reviews remain available', () => {
+  const missing = renderHook(() => useChallengeChatCards(false, scope, undefined, undefined))
+  expect(missing.result.current.accept(card)).toBe(false)
+  const valid = renderHook(() => useChallengeChatCards(false, scope, actor, 3))
+  act(() => expect(valid.result.current.accept(card)).toBe(true))
+  expect(valid.result.current.reports).toHaveLength(1)
+})

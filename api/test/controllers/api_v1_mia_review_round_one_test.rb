@@ -108,7 +108,9 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     ask("none")
     assert response.parsed_body["mia_action_draft"], reply
     ask("I don't know")
-    assert_match(/unknown|Debt|debt/i, reply)
+    assert_match(/couldn.t read.*try again/i, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute_match(/Next setup question/i, reply)
     @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10000, minimum_payment_cents: 5000)
     @household.household_profile.update!(debt_tracking_mode: "individual")
     ask("No debt payments")

@@ -14,6 +14,15 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     @suggester = HouseholdFinance::TransactionCategorySuggester.new(@household)
   end
 
+  test "a generic transport label or route number is not a fuel purchase" do
+    [ "Route 76 Hardware", "transportation", "commute" ].each do |text|
+      assert_empty HouseholdFinance::EverydaySpendingPolicy.families(text), text
+    end
+    [ "76 Station", "Shell", "Mobil", "gasoline" ].each do |text|
+      assert_includes HouseholdFinance::EverydaySpendingPolicy.families(text), :fuel
+    end
+  end
+
   test "broad statement labels never silently put groceries and gas in fixed essentials" do
     fixed = @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
     [ "Payless", "Cost-U-Less", "Shell", "Mobil" ].each do |merchant|

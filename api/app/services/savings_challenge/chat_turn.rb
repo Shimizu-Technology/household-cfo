@@ -131,6 +131,12 @@ module SavingsChallenge
         @answer = HouseholdFinance::ParticipantMessageReader::OFF_REPLY
         return self
       end
+      if @intakes.any? && parser&.rejection&.dig(:question)
+        @answer = @intakes.map do |input|
+          CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: input, savings_intake: input).call
+        end.join(" ") + " " + parser.rejection[:question]
+        return self
+      end
       if @intakes.many?
         @answer = @intakes.map do |input|
           CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,

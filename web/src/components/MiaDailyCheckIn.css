@@ -89,3 +89,6 @@
 }
 .mia-daily-card form label { display: grid; gap: 6px; margin: 12px 0; }
 .mia-daily-card form input { min-height: 44px; min-width: 0; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: var(--field-radius, 12px); font: inherit; font-size: 1rem; background: var(--surface); color: var(--ink); }
+
+.mia-daily-date { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+.mia-daily-date input { min-width: 0; min-height: 44px; font-size: 16px; flex: 1; }

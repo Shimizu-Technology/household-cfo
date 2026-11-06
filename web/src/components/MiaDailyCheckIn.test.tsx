@@ -476,3 +476,10 @@ it('reconciles a Today approval after reload without saving the purchase twice',
   await act(async () => { await syncDailyCard(handoff.nonce) })
   expect(within(restored.card).queryByLabelText('Amount for Shell')).toBeNull()
 })
+
+it('shows an unresolved purchase date for the participant to choose', async () => {
+  const value = {...todayOnly,local_on:'',date_required:true,purchases:[{amount_cents:800,merchant:'Shell',purchased_on:''}]}
+  const {card} = renderCard(value)
+  expect(within(card).getByLabelText('Date for Shell')).toHaveProperty('value','')
+  expect(mutateDaily).not.toHaveBeenCalled()
+})

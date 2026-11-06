@@ -10568,12 +10568,16 @@ test('BOG UI explicit check-in reopens today after a chat question and on the ne
   await expect(prompt).toBeVisible()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).press('Enter')
   await expect(prompt).toBeVisible()
-  await openSection(page, 'Savings')
   await page.clock.setFixedTime(new Date('2026-09-29T02:00:00Z'))
   const tomorrow = structuredClone(dailyContext)
   tomorrow.calendar = { ...tomorrow.calendar, phase: 'active', local_today: '2026-09-29' }
   tomorrow.day = { ...tomorrow.day!, local_on: '2026-09-29', spending_state: 'unknown', check_in_id: null, check_in_version_id: null }
-  await page.route('http://api.test/api/v1/savings_challenge/daily/context**', route => route.fulfill({ json: { context: { ...tomorrow, cohort_id: 41, enrollment_id: 1 } } }))
+  await page.route(/^http:\/\/api\.test\/api\/v1\/savings_challenge\/daily(?:\?.*)?$/, route => route.fulfill({ json: { ...tomorrow, cohort_id: 41, enrollment_id: 1 } }))
+  const freshDay = page.waitForResponse(response => /^http:\/\/api\.test\/api\/v1\/savings_challenge\/daily(?:\?.*)?$/.test(response.url()))
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  expect((await (await freshDay).json()).calendar.local_today).toBe('2026-09-29')
+  await expect(prompt).toHaveCount(0)
+  await openSection(page, 'Savings')
   await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
   await expect(prompt).toBeVisible()
   await expect(prompt.getByRole('button', { name: 'No spending today' })).toBeEnabled()
@@ -13807,4 +13811,15 @@ test('Coach Studio phrase frequency stays readable and reachable by touch', asyn
   expect(bounds?.height).toBeGreaterThanOrEqual(44)
   expect(await frequency.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI a goal card does not hide a separate daily report fallback', async ({page}) => {
+  await openDaily(page, {active:true})
+  await sendMiaDailyReport(page, {
+    user_message:{id:8801,role:'user',author:'You',content:'I spent $8 today'},
+    assistant_message:{id:8802,role:'assistant',author:'Mia',content:'Check the purchase below.'},
+    savings_intake:miaDailyReport,
+    challenge_chat_cards:[{id:9901,kind:'goal',status:'pending',lock_version:0,enrollment_id:1,message_id:8802,state:{},input:{target_cents:50000,expected_plan_version_id:null}}],
+  })
+  await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toBeVisible()
 })

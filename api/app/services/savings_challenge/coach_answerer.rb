@@ -244,7 +244,8 @@ module SavingsChallenge
       purchases = report[:purchases]
       items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
       missing = purchases.count { |row| row[:merchant].blank? }
-      place = missing.zero? ? "" : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card."
+      date_note = report[:date_required] ? " Choose the date on the card." : (report[:local_on] != @enrollment.local_today.iso8601 ? " The card is for #{label_day(report[:local_on])}." : "")
+      place = missing.zero? ? date_note : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card.#{date_note}"
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
       # Respond only to feelings the participant actually stated: "Busy Bee Cafe"
       # is a place, and guilt is never assumed.
@@ -300,6 +301,7 @@ module SavingsChallenge
     end
 
     def label_day(iso)
+      return "on a date you choose" if iso.blank?
       date = Date.iso8601(iso.to_s)
       today = @enrollment.local_today
       return "today" if date == today
@@ -313,6 +315,9 @@ module SavingsChallenge
     # The card below lists it; nothing is saved until the participant saves it.
     def savings_intake_answer
       amount = money(@savings_intake[:amount_cents])
+      if @savings_intake[:date_required]
+        return "I heard #{amount} #{@savings_intake[:kind] == 'withdrawal' ? 'taken out' : 'set aside'}. Choose the date on the card; nothing has been saved."
+      end
       day = label_day(@savings_intake[:effective_on])
       if @savings_intake[:kind] == "withdrawal"
         "Got it: #{amount} taken out of your challenge savings #{day}. It's below for you to check. Nothing changes until you save it."

@@ -2,6 +2,8 @@ module HouseholdFinance
   # Broad spending groups have a default, rather than a new question for every
   # shop. A participant's explicit split or reviewed choice owns any exception.
   class EverydaySpendingPolicy
+    FUEL_TERMS = /\b(?:shell|mobil|gas|gasoline|fuel|76 station|76 gas)\b/i.freeze
+
     def self.family(value)
       families(value).first
     end
@@ -11,7 +13,7 @@ module HouseholdFinance
       return [] if text.match?(/\bgas\s+(?:co|company|utility|services?)\b/)
       result = []
       result << :groceries if text.match?(TransactionCategorySuggester::GROCERY_TERMS)
-      result << :fuel if text.match?(Regexp.union(TransactionCategorySuggester::TRANSPORT_TERMS, TransactionCategorySuggester::TRANSPORT_CATEGORY_NAMES))
+      result << :fuel if text.match?(FUEL_TERMS)
       result
     end
 

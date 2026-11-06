@@ -2170,6 +2170,9 @@ module Api
         command = topic[:action].to_h.deep_symbolize_keys
         if topic[:status] == "pending_review" && topic[:mia_action_draft_id].to_i.positive?
           command = command.merge(type: "review_pending_action", draft_id: topic[:mia_action_draft_id])
+        elsif content.to_s.squish.match?(/\A(?:please )?draft that[.!]?\z/i) && topic[:mia_action_draft_id].blank? && topic[:status].to_s.in?(%w[needs_clarification recalled])
+          # Explicit review request for this still-undrafted structured action.
+          # Applied or previously drafted topics never enter this branch.
         else
           command = {}
           pending_reviews = annual_budget_manager.plan_data.fetch(:pending_mia_action_drafts)

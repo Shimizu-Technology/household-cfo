@@ -830,6 +830,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [dailyIntake,setDailyIntake] = useState<{scope:string;intake:SavingsIntake;handoff?:{nonce:string;rowId:number}}|null>(null)
   const [miaDailyReports,setMiaDailyReports] = useState<{scope:string;report:DailyReportIntake;nonce:string}[]>([])
   const [dailyRefreshKey,setDailyRefreshKey] = useState(0)
+  const pendingCheckInPrompt = useRef<string | null>(null)
   const [checkInPromptScope, setCheckInPromptScope] = useState<string | null>(null)
   const [composerHint,setComposerHint] = useState<string|null>(null)
   const [evidenceReview, setEvidenceReview] = useState<{scope:string;entryVersionId:number}|null>(null)
@@ -1981,11 +1982,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => window.cancelAnimationFrame(animationFrame)
   }, [activeSection, manualSetupFocusRequest])
 
+  useEffect(() => {
+    const date = todayCheckIn.context?.calendar.local_today
+    if (date && pendingCheckInPrompt.current === challengeIntakeScope) {
+      pendingCheckInPrompt.current = null
+      setCheckInPromptScope(`${challengeIntakeScope}:${date}`)
+    }
+  }, [challengeIntakeScope, todayCheckIn.context])
+
   // The daily check-in lives in Ask Mia: Mia's prompt, then the composer. On
   // touch screens the keyboard would cover the prompt's buttons, so no focus.
   function openDailyCheckIn() {
     if (!switchSection('Ask Mia', { focusHeading: false })) return
-    setCheckInPromptScope(challengeIntakeScope)
+    pendingCheckInPrompt.current = challengeIntakeScope
+    setCheckInPromptScope(null)
     setDailyRefreshKey(value => value + 1)
     if (window.matchMedia?.('(pointer: coarse)').matches) return
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
@@ -2296,13 +2306,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       )
       assertOriginalWorkspace()
       const receivedChallengeCards = response.challenge_chat_cards?.length ? response.challenge_chat_cards : (response.challenge_chat_card ? [response.challenge_chat_card] : [])
-      receivedChallengeCards.forEach(challengeCards.accept)
+      const acceptedChallengeCards = receivedChallengeCards.filter(card => challengeCards.accept(card))
       challengeCards.retry()
       const reviewedIntake = checkedSavingsIntake(response.savings_intake)
       const dailyReport = checkedDailyReport(response.savings_intake)
       if (challengeIntakeScopeRef.current === challengeIntakeScope) {
-        setMiaSavingsNote(reviewedIntake && !receivedChallengeCards.some(card => card.kind === 'savings') ? { scope: challengeIntakeScope, intake: reviewedIntake } : null)
-        const entry = dailyReport && receivedChallengeCards.length === 0 ? { scope: challengeIntakeScope, report: dailyReport, nonce: crypto.randomUUID() } : null
+        setMiaSavingsNote(reviewedIntake && !acceptedChallengeCards.some(card => card.kind === 'savings') ? { scope: challengeIntakeScope, intake: reviewedIntake } : null)
+        const entry = dailyReport && !acceptedChallengeCards.some(card => card.kind === 'daily_report') ? { scope: challengeIntakeScope, report: dailyReport, nonce: crypto.randomUUID() } : null
         if (entry) registerDailyCard(entry)
         const staleNonces = new Set(miaDailyReports.filter((card) => !card.nonce.startsWith('server-card-') && !dailyCardNeedsAttention(card.nonce)).map((card) => card.nonce))
         staleNonces.forEach(forgetDailyCard)
@@ -3832,7 +3842,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && (checkInPromptScope === challengeIntakeScope || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null

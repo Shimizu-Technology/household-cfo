@@ -31,6 +31,21 @@ module ProviderOutageAlert
     Rails.logger.warn("[ProviderOutageAlert] alert failed: #{e.class}")
   end
 
+  # Reader transport/schema failures are operational outages, even when they
+  # are not account failures. Log each status, but send one signal per outage.
+  def reader_failure(status:, error_class:)
+    service = "participant_message_reader"
+    Rails.logger.warn({ event: "ai_reader_failure", service: service, status: status, error_class: error_class }.to_json)
+    return unless Rails.cache.write("ai_reader_failure:#{service}", true, unless_exist: true, expires_in: EMAIL_INTERVAL)
+    reason = "Participant message reader unavailable: #{error_class}"
+    if defined?(Sentry) && Sentry.initialized?
+      Sentry.capture_message(reason, level: :error, tags: { ai_service: service, ai_status: status }, fingerprint: [ "ai_reader_failure", service ])
+    end
+    email_ops(status, ACCOUNT_FAILURES.fetch(status), service, nil) if ACCOUNT_FAILURES.key?(status)
+  rescue StandardError => error
+    Rails.logger.warn("[ProviderOutageAlert] reader alert failed: #{error.class}")
+  end
+
   def provider_message(response)
     JSON.parse(response.body.to_s).dig("error", "message").to_s.truncate(200).presence
   rescue JSON::ParserError, TypeError

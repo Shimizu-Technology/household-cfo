@@ -13,7 +13,8 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
   test "M8 a miss stays in setup and a long name can be reviewed without truncation" do
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
     post_message("$3,900")
-    assert_includes reply, "What would you like to call this household?"
+    assert_match(/try again/i, reply)
+    refute_includes reply, "Next setup question"
     refute_match(/readiness|safe.to.spend/, reply)
     name = "The Santos Cruz Dela Rosa extended family household of Dededo"
     post_message(name)
@@ -27,7 +28,8 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
     HouseholdFinance::SetupUpdater.new(@household, household_name: "Cruz household", primary_goal: "Pay off Visa").call
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
     post_message("I am not sure")
-    assert_includes reply, "monthly take-home income"
+    assert_match(/try again/i, reply)
+    refute_includes reply, "Next setup question"
     post_message("I take home about $4,800 a month from my job at the hospital")
     draft = response.parsed_body.fetch("mia_action_draft")
     assert draft, reply
