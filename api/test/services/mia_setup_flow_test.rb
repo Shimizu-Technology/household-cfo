@@ -11,6 +11,25 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "a plain saved goal correction remains reviewable" do
+    result = resolve("change my goal to cover school fees", field: "primary_goal", complete: true,
+      data: { correction: true, setup_answer: { field: "goal", value: "cover school fees" } })
+    assert result&.actionable?, result.to_h.inspect
+    assert_equal "cover school fees", result.action.dig(:setup_updates, :primary_goal)
+  end
+
+  test "correcting fixed essentials while an income review is pending does not retarget the income" do
+    message = "actually fixed essentials is 1450"
+    parsed = HouseholdFinance::ParticipantMessageReader.new(message: message, pending_field: "primary_income").send(:validate,
+      { "care" => "none", "facts" => [], "question" => false, "correction" => true, "setup_answer" => { "field" => "fixed", "value" => "1450" }, "spending_preferences" => [] })
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: message, api_key: "", context: {
+      participant_reading: parsed, setup_status: { complete: true, missing_fields: [ { key: "debt_payment" } ] },
+      conversation: { active_thread: { status: "pending_review", action: { type: "schedule_income_change", amount: "3500", income_source_id: 1 } }, recent_messages: [] }
+    }).call
+    assert_equal "update_household_setup", result.action[:type]
+    assert_equal "1450", result.action.dig(:setup_updates, :fixed_expenses)
+  end
+
   test "a question mentioning a bill is answered before asking for a setup total" do
     result = resolve("does rent 1200 count as fixed essentials", field: "primary_income", data: {
       question: true, facts: [ { kind: "bill", amount: "1200", item: "rent", merchant: "", day: "" } ] })
