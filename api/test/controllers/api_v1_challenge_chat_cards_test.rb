@@ -17,6 +17,18 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "a patterns question never drops a completed purchase reported in the same turn" do
+    message = "spent 10 at Payless today, what spending patterns do you see?"
+    @participant_reader_fixtures[message] = { "care" => "none", "reply_intent" => "spending_patterns", "question" => true, "correction" => false,
+      "setup_answer" => { "field" => "none", "value" => "" }, "spending_preferences" => [],
+      "facts" => [ { "kind" => "purchase", "amount" => "10", "merchant" => "Payless", "item" => "", "day" => "today" } ] }
+    ask message, "w27-mixed-pattern"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    assert_equal "daily_report", card.fetch("kind")
+    assert_equal [ 1000 ], card.dig("input", "purchases").pluck("amount_cents")
+    assert_equal 0, SavingsDailyPurchaseVersion.count
+  end
+
   test "no savings statements keep purchases separate and repeats reuse their pending review" do
     [ "I spent $18 on lunch at Port of Mocha and I saved nothing today",
       "I spent $18 on lunch at Port of Mocha today and I didn't set aside anything",

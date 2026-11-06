@@ -13,9 +13,18 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "an unasked habit disclosure cannot become a spending records question" do
+    message = "i keep ordering gadgets when im tired"
+    result = read(message, object.merge(reply_intent: "spending_patterns", question: false))
+    assert result.available
+    refute HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "semantic reply intent is shared across reply paths and scoped to the exact message" do
     { "where could we trim things a bit" => "spending_patterns", "howd my first thirty days go" => "progress", "packed lunch the whole week woohoo" => "win" }.each do |message, intent|
-      result = read(message, object.merge(reply_intent: intent))
+      result = read(message, object.merge(reply_intent: intent, question: intent != "win"))
       assert result.available
       assert HouseholdFinance::MessageReplyIntent.matches?(message, intent)
       refute HouseholdFinance::MessageReplyIntent.matches?("another message", intent)
