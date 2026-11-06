@@ -107,8 +107,9 @@ module SavingsChallenge
         @intake, @answer = correction.values_at(:intake, :answer)
         parser = ChatIntake.new(@enrollment, message: @message, reading: @reading)
         parser.call
-        @intakes = [ @intake, *parser.intakes ].compact
-        parser.intakes.each do |input|
+        others = separate_from_correction(parser.intakes, Array(correction[:amounts]))
+        @intakes = [ @intake, *others ].compact
+        others.each do |input|
           @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
             message: @message, daily_report: input, savings_intake: input).call
         end
@@ -232,6 +233,15 @@ module SavingsChallenge
     end
 
     private
+
+    # The reader can also report a corrected amount as new savings. Only a further
+    # mention of that amount in the message makes it a separate event.
+    def separate_from_correction(intakes, amounts)
+      stated = @message.scan(/(?<![\d.,])\d[\d,]*(?:\.\d{1,2})?/).map { |value| HouseholdFinance::ParticipantMessageReader.amount_cents(value) }.tally
+      intakes.reject do |input|
+        input[:kind] == "contribution" && amounts.include?(input[:amount_cents]) && stated.fetch(input[:amount_cents], 0) <= 1
+      end
+    end
 
     def purchase_date_continuation
       return false unless @enrollment && @attachments.empty? && !@reading.care? && !self.class.protected_message?(@message)

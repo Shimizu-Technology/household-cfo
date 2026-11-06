@@ -8,6 +8,8 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 12
     MAX_OUTPUT_TOKENS = 8_000
+    # "Could I get a couch? I have $500 saved" states funding, not the couch's price.
+    FUNDING_AMOUNT = /\b(?:i|we)(?:['’]ve|\s+have|\s+got|\s+saved|\s+make|\s+earn)\b[^.!?;]*\d|\d[^.!?;]*\b(?:saved|set aside|in (?:my |our )?(?:savings|checking|account)|a (?:month|week|year))\b/i
     # One paycheck or week is not the monthly income the setup question asks for.
     PER_PAY_INCOME = /\b(?:\d+|two|three|four)\s+(?:pay\s?)?checks\b|\b(?:pay\s?)?checks?\s+(?:is|are|of)\b|\b(?:each|every|per)\s+(?:pay\s?)?(?:check|day)\b|\b(?:twice|two times) a month\b|\bsemi-?monthly\b|\bbi-?weekly\b|\bweekly\b|\b(?:a|per|each|every)\s+week\b|\bevery\s+(?:other|two|2)\s+weeks?\b/i.freeze
     MIN_ACTION_CONFIDENCE = 0.72
@@ -351,7 +353,7 @@ module HouseholdFinance
           elsif fact["merchant"].blank?
             "Where did you make that purchase?"
           else
-            "I couldn’t read \"#{fact['day']}\" as a completed purchase day. Which day was the purchase?"
+            "#{"I couldn’t read \"#{fact['day']}\" as a completed purchase day. " if fact['day'].present?}Which day was the purchase?"
           end
         else
           "What were the amount, place and past day for each purchase?"
@@ -1199,7 +1201,7 @@ module HouseholdFinance
       end
       if participant_amounts.empty? && scenario_type == "purchase" && PurchaseQuestionText.purchase_question?(user_message)
         whole_turn_amounts = money_cents_from_participant_text(user_message)
-        if whole_turn_amounts.one?
+        if whole_turn_amounts.one? && !user_message.match?(FUNDING_AMOUNT)
           participant_amounts = whole_turn_amounts
           scenario_text = user_message
         end

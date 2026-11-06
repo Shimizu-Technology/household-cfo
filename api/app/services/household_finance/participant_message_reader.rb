@@ -21,6 +21,9 @@ module HouseholdFinance
     # The reader's shame has to rest on her own words about herself. A repeated
     # habit or a rough spending day stays coaching, with the guard still judging it.
     SELF_JUDGEMENT = /\b(?:asham\w*|shame\w*|embarrass\w*|guilt\w*|stupid|dumb|idiot\w*|fool\w*|failure|failing|loser|worthless|useless|pathetic|hate myself|hate who|disgust\w*|disappoint\w*|bad (?:person|mom|mother|dad|father|wife|husband|parent)|terrible (?:person|mom|mother|dad|father|wife|husband|parent)|my fault|blame myself|whats? wrong with me|what['’]s wrong with me|cant do anything right|can['’]t do anything right)\b/i
+    # "set aside" and "put" only read as done with a subject: "i set aside 20 for
+    # next week's groceries" happened, "set aside 20 next week" has not.
+    COMPLETED_MOVE = /\b(?:spent|paid|bought|purchased|ordered|saved|deposited|withdrew|(?:i|we)\s+(?:just\s+|already\s+)?(?:set aside|put|stashed))\b/i
     MISPLACED_COMMA = /\d,\d{1,2}(?!\d)|\d,\d{4}|\d{4},\d/
     OFF_REPLY = "I couldn't read that just now. You can try again or use the Savings screen; nothing has been saved.".freeze
     PROMPT = <<~TEXT.freeze
@@ -174,9 +177,9 @@ module HouseholdFinance
       amount_clauses(amount).all? do |clause|
         lead = amount_lead(clause, amount).split(/\b(?:and|but|then)\b/i).last.to_s
         plan = lead.match(/\b(?:gonna|going to|planning|thinkin[g]? of|about to|will)\b/i)
-        completed = lead.match?(/\b(?:spent|paid|bought|purchased|ordered|saved|deposited|withdrew)\b/i)
+        completed = lead.match?(COMPLETED_MOVE)
         (plan && !completed) ||
-          (!completed_day && clause.match?(/\b(?:tomorrow|next week|next month)\b/i) && !clause.match?(/\b(?:spent|paid|bought|purchased|ordered|saved|deposited|withdrew)\b/i))
+          (!completed_day && clause.match?(/\b(?:tomorrow|next week|next month)\b/i) && !clause.match?(COMPLETED_MOVE))
       end
     end
 

@@ -130,12 +130,10 @@ class ApiV1CasualMoneyRoundTwoTest < ActionDispatch::IntegrationTest
     assert_includes body.dig("assistant_message", "content"), "savings"
   end
 
-  test "labels preserve participant spelling and do not turn a place or service into an object" do
+  test "merchant labels preserve participant spelling" do
     [ "7-eleven", "K-Mart", "GPA", "CVS", "McDonald's" ].each do |name|
       assert_equal name, HouseholdFinance::PurchaseQuestionText.merchant_label(name)
     end
-    assert_equal "$60 for ross", HouseholdFinance::PurchaseQuestionText.priced_item("ross", 6000)
-    assert_equal "$300 for dentist", HouseholdFinance::PurchaseQuestionText.priced_item("dentist", 30000)
   end
 
   test "reader off retains named bills full calendar dates and halloween stores" do

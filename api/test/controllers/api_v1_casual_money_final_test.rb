@@ -159,4 +159,21 @@ class ApiV1CasualMoneyFinalTest < ActionDispatch::IntegrationTest
     parser.instance_variable_set(:@rejection, structured)
     assert_equal [ structured ], parser.rejections
   end
+
+  test "a corrected amount the reader also reports makes no second savings card" do
+    body = send_message("oops the 25 i saved was really 20", reading(savings_correction: { old_amount: "25", new_amount: "20", day: "" },
+      facts: [ fact("set_aside", "20", "") ]))
+    assert_equal 1, body.fetch("challenge_chat_cards").length
+  end
+
+  test "a further mention of the corrected amount stays a separate savings card" do
+    body = send_message("change the 25 to 20 and i saved 20 today", reading(savings_correction: { old_amount: "25", new_amount: "20", day: "" },
+      facts: [ fact("set_aside", "20", "today") ]))
+    assert_equal 2, body.fetch("challenge_chat_cards").length
+  end
+
+  test "stated funding is not taken as the price of a purchase" do
+    body = send_message("Could I get a couch? I have $500 saved", reading(question: true), challenge: false)
+    refute_match(/\$500 couch|\$500 purchase/i, body.dig("assistant_message", "content"))
+  end
 end

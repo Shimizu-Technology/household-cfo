@@ -25,7 +25,7 @@ module SavingsChallenge
       return { answer: "I couldn't identify one saved #{money(old)} entry to fix. Open Savings and choose the entry, or tell me its date. Nothing has changed." } unless entries.one? && replacement.between?(1, 2_147_483_647)
       entry = entries.sole
       version = entry.current_approved_version
-      { answer: "Replace #{money(old)} with #{money(replacement)}? Review the correction below; your total stays the same until you confirm.",
+      { amounts: [ old, replacement ], answer: "Replace #{money(old)} with #{money(replacement)}? Review the correction below; your total stays the same until you confirm.",
         intake: { kind: "contribution", amount_cents: replacement, signed_cents: replacement, effective_on: version.effective_on.iso8601,
           approval_state: "unreviewed_input", counted: false, new_money_confirmation_required: false,
           correction: ParticipantSerializer.record(entry), reason: "Corrected the amount from #{money(old)} to #{money(replacement)} in chat" } }

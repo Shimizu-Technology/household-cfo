@@ -80,4 +80,12 @@ class CasualMoneyReadingTest < ActiveSupport::TestCase
     result = HouseholdFinance::ParticipantReportDay.call(day: "on halloween", message: "saved 20 on halloween", today: Date.new(2026, 11, 6))
     assert_equal Date.new(2026, 10, 31), result.date
   end
+
+  test "a completed set aside keeps its amount despite a future purpose" do
+    fact = ->(amount) { { kind: "set_aside", amount: amount, merchant: "", item: "", day: "" } }
+    assert_equal 1, read("i set aside $20 for next week's groceries", facts: [ fact.call("$20") ]).facts.length
+    assert_equal 1, read("we put 30 away for next month", facts: [ fact.call("30") ]).facts.length
+    assert_empty read("set aside 20 next week", facts: [ fact.call("20") ]).facts
+    assert_empty read("i will set aside 20 next week", facts: [ fact.call("20") ]).facts
+  end
 end
