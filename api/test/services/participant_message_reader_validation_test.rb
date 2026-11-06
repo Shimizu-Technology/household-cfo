@@ -83,4 +83,11 @@ class ParticipantMessageReaderValidationTest < ActiveSupport::TestCase
       assert_equal "none", read(message, data(care: "shame")).care, message
     end
   end
+  test "an insult predicated of a thing cannot manufacture self shame" do
+    assert_equal "none", read("this budget is stupid", data(care: "shame")).care
+  end
+
+  test "a thing insult does not erase separate self blame" do
+    assert_equal "shame", read("this stupid budget makes me feel like a failure", data(care: "shame")).care
+  end
 end

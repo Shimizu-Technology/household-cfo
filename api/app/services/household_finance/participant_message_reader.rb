@@ -94,7 +94,7 @@ module HouseholdFinance
       keys = %w[care facts question setup_answer correction spending_preferences]
       raise ArgumentError unless value.is_a?(Hash) && (value.keys & keys).any?
       care = value["care"].presence_in(%w[none hardship grief shame crisis]) || "none"
-      care = "none" if care == "shame" && @message.match?(THING_JUDGEMENT) && !@message.match?(/\b(?:myself|stupid me|dumb me|of me)\b/i)
+      care = "none" if care == "shame" && @message.match?(THING_JUDGEMENT) && !@message.gsub(THING_JUDGEMENT, " ").match?(SELF_JUDGEMENT)
       @question = value["question"] == true
       @hypothetical_movement = false
       @unclear_amount = value["unclear_amount"] == true
