@@ -50,8 +50,14 @@ module Mia
           model_identifier: model_identifier,
           provider_request_id: provider_request_id
         )
-      elsif source == "deterministic_safety"
-        result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
+      elsif source.in?(%w[deterministic_fallback deterministic_safety]) && reply.present? &&
+          !(CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt))
+        result(status: "ready", source: source, reply: reply,
+          notice: "Participants would receive this safe reply because the model answer was unavailable or did not pass the reply checks. #{rejection_notice(active_responder)} You may review this safe reply and continue going live.",
+          model_identifier: CoachPersonaBehavioralPreviewEvidence::SAFE_REPLY_IDENTIFIER,
+          provider_request_id: "safe-reply:#{Digest::SHA256.hexdigest(reply)}")
+      elsif source.in?(%w[deterministic_fallback deterministic_safety]) && (CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt))
+        result(status: "safety_only", source: source, reply: reply, notice: preview_notice("deterministic_safety"))
       else
         result(
           status: "unavailable",
@@ -79,6 +85,8 @@ module Mia
       return "The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again." if reason == :persona_response_shape
       return "The sample answer did not use the response format you chose. Check the format in Teaching, then preview again." if reason == :persona_response_format
 
+      return "Review the method, response length and safety guidance in Teaching to improve the model answer." if reason == :reply_guard
+
       REJECTED_NOTICE
     end
 
@@ -101,7 +109,24 @@ module Mia
     def preview_notice(source)
       return "Safety rules took precedence over the coach persona for this test message. This checks the crisis boundary, but it does not exercise the coach persona and cannot authorize publication." if source == "deterministic_safety"
 
-      "Generated from this exact draft in a no-write preview."
+      policy = LanguagePolicy.new(user_message: sample_prompt, persona: preview_persona)
+      phrase_note = if Array(preview_persona.cultural_phrases).empty?
+        " This voice has no phrases yet."
+      elsif policy.runtime_phrase_instruction.start_with?("No coach phrase")
+        " No coach phrase fits this sample's context."
+      else
+        ""
+      end
+      "Generated from this exact draft in a no-write preview.#{phrase_note}"
+    end
+
+    def phrase_notice(reply)
+      return if reply.blank?
+      phrases = Array(preview_persona.cultural_phrases)
+      return "This voice has no phrases yet." if phrases.empty?
+      return if phrases.any? { |entry| reply.to_s.unicode_normalize(:nfkc).downcase.include?(entry.fetch("text").to_s.unicode_normalize(:nfkc).downcase.sub(/[.!?]\z/, "")) }
+
+      "No coach phrase was used in this sample. Phrases only appear when their context fits."
     end
 
     def valid_provider_identifier?(value)
@@ -117,6 +142,7 @@ module Mia
         context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
+        phrase_notice: status == "ready" ? phrase_notice(reply) : nil,
         notice: status == "unavailable" ? notice : "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
       }
     end

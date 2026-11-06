@@ -10,7 +10,9 @@ import { Button } from './Button'
 import { PhraseUse } from './PhraseUse'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
-const samples = ['I want to spend $100 this weekend. How can I decide?', 'I had a hard week and spent more than I planned. What can I do next?']
+type PreviewAnswer = {question: string; answer: string; phraseNotice?: string | null; safeReply?: boolean; notice?: string}
+
+const samples = ['Should I buy a $100 treat on my credit card? I don’t have the money right now.', 'I had a hard week and spent more than I planned. What can I do next?']
 const previewUnavailableNotice = "The preview didn't come through. Try again in a minute."
 const previewRejectionNotices = new Set([
   'The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again.',
@@ -27,7 +29,7 @@ function previewFailureNotice(error: unknown): string {
 }
 export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false, active = true }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean; active?: boolean }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
-  const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
+  const [answers, setAnswers] = useState<PreviewAnswer[]>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
   const [unselectedGroupIds, setUnselectedGroupIds] = useState<number[]>([])
@@ -62,7 +64,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
 
-  const voiceReview = useRef<{ revision: number | null | undefined; version: number | undefined; readiness: AdminPersonaReleaseReadiness; checks: AdminPersonaEvaluationResult[]; answers: Array<{question: string; answer: string}> } | null>(null)
+  const voiceReview = useRef<{ revision: number | null | undefined; version: number | undefined; readiness: AdminPersonaReleaseReadiness; checks: AdminPersonaEvaluationResult[]; answers: PreviewAnswer[] } | null>(null)
 
   async function preview() {
     if (busy || lifecycle.pending || pendingLaunch || persona.draft_revision == null) return
@@ -98,7 +100,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
             if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice && previewRejectionNotices.has(result.preview.notice) ? result.preview.notice : previewUnavailableNotice)
             if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
             lastEvidence = result.behavioral_preview_evidence
-            results.push({ question, answer: result.behavioral_preview_evidence.output })
+            results.push({ question, answer: result.behavioral_preview_evidence.output, phraseNotice: result.preview?.phrase_notice, safeReply: result.behavioral_preview_evidence.source !== 'live_model', notice: result.preview?.notice })
             setAnswers([...results])
           }
           setStatus('Checking safety…')
@@ -233,7 +235,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
     {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><div className="coach-lifecycle-actions"><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></div></>}
     {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
-    <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4><p>{item.answer}</p></section>)}</div>
+    <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4>{item.safeReply && <p className="program-help"><strong>Safe reply participants would receive</strong></p>}<p>{item.answer}</p>{item.safeReply && <p className="program-help">{item.notice}</p>}{item.phraseNotice && <p className="program-help">{item.phraseNotice}</p>}</section>)}</div>
     {!pendingLaunch && groups.length > 0 && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
       {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4>{item.configuration.draft.experience_mode === 'savings_challenge' && item.preview.challenge_open !== true && <p>The program team still needs to open the savings challenge for this group. Participants will see “Your savings challenge opens soon” until then.</p>}{item.preview.upgrade_notice && <p>{item.preview.upgrade_notice}</p>}{toolChanges(item, groups.find(group => group.group.id === item.configuration.cohort.id)?.activeExperienceConfig).map(change => <p key={change}>{change}</p>)}<p>{item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}</p><p>{toolNavigation(item, (reviewedPersona ?? persona).draft?.identity.assistant_name ?? 'Mia').join(' · ')}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>Who this is for: {readiness.candidate.audience_snapshot.audience === "People participating in the human coach's financial education program." ? 'People in your coaching program.' : readiness.candidate.audience_snapshot.audience}<br />Community and culture: {readiness.candidate.audience_snapshot.culture.context === 'Use only cultural and community context explicitly approved by the human coach.' ? 'Only the details you have approved.' : readiness.candidate.audience_snapshot.culture.context}</p>}

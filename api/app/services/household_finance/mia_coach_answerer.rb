@@ -896,6 +896,9 @@ module HouseholdFinance
       return family_support_tradeoff_answer(amount_cents) if family_support_tradeoff?
 
       amount_label = amount_cents&.positive? ? "#{money(amount_cents)}" : "money"
+      if snapshot.fetch(:safe_to_spend_cents).nil?
+        return "Wanting to help makes sense, and I can't compare #{amount_label} to your safe-to-spend yet because your account balances aren't added in My Money. Keep bill money out of it, and set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
+      end
       if amount_cents&.positive? && amount_cents <= snapshot.fetch(:safe_to_spend_cents) && snapshot.fetch(:readiness_tone) != "red"
         return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
@@ -998,7 +1001,16 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = repeated_activity || "this spending"
-      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip. What was happening just before you decided to go again?"
+      return "It sounds like #{label} is becoming a repeat stop, and you are noticing it. A visit does not tell me whether you bought anything. What was happening just before you went?" if message.match?(/\b(?:went to|going to)\b/i) && !affirmed_repeat_purchase?
+
+      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next purchase. What was happening just before you decided to buy?"
+    end
+
+    def affirmed_repeat_purchase?
+      verbs = "(?:bought|buy(?:ing)?|spent|spend(?:ing)?|purchas(?:e|ed|ing)|order(?:ed|ing)?)"
+      text = message.gsub(/\b(?:don['’]?t|do not|didn['’]?t|did not|never|without|not)\s+(?!only\b)(?:(?:really|actually|even|ever|currently|yet)\s+){0,2}#{verbs}\b/i, "")
+      text = text.gsub(/\b#{verbs}\s+nothing\b/i, "")
+      text.match?(/\b#{verbs}\b/i)
     end
 
     def repeated_activity
@@ -1191,7 +1203,7 @@ module HouseholdFinance
       discretionary_remaining_cents = current_discretionary_remaining_cents
       safe_cents = snapshot.fetch(:safe_to_spend_cents)
       runway_status = "runway is #{snapshot.fetch(:runway_months)} months against a #{target_runway_months.round(1)} month target"
-      verdict = if snapshot.fetch(:readiness_tone) == "green" && safe_cents.positive?
+      verdict = if snapshot.fetch(:readiness_tone) == "green" && safe_cents.to_i.positive?
         "it may be okay only if the price fits inside true surplus and no sinking-fund bill is being skipped"
       else
         "I would not approve it yet unless it is a real need or already funded inside the plan"
@@ -1306,10 +1318,11 @@ module HouseholdFinance
     end
 
     def purchase_item
-      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:these|this|the|a|an|some)?\s*([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
+      match = purchase_comparison_text.match(/\b(?:buy|purchase|get|order|book|afford)\s+(?:(?:these|this|the|a|an|some)\s+)?([a-z0-9\s-]+?)(?:\s+(?:right now|today|this month|next month|for|because)|[?.!]|$)/i)
       return unless match
 
-      match[1].to_s.squish.presence
+      item = match[1].to_s.squish
+      item.presence unless item.match?(/\A(?:it|them|that|this|one|these|those)\z/i)
     end
 
     def active_plan

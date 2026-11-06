@@ -46,6 +46,18 @@ module ProviderOutageAlert
     Rails.logger.warn("[ProviderOutageAlert] reader alert failed: #{error.class}")
   end
 
+  def guard_failure(service:, status:, error_class:)
+    Rails.logger.warn({ event: "ai_guard_failure", service: service, status: status, error_class: error_class }.to_json)
+    email_ops(status, ACCOUNT_FAILURES.fetch(status), service, nil) if ACCOUNT_FAILURES.key?(status)
+    return unless Rails.cache.write("ai_guard_failure:#{service}", true, unless_exist: true, expires_in: EMAIL_INTERVAL)
+    if defined?(Sentry) && Sentry.initialized?
+      Sentry.capture_message("Reply review unavailable: #{error_class}", level: :error,
+        tags: { ai_service: service, ai_status: status }, fingerprint: [ "ai_guard_failure", service ])
+    end
+  rescue StandardError => error
+    Rails.logger.warn("[ProviderOutageAlert] guard alert failed: #{error.class}")
+  end
+
   def provider_message(response)
     JSON.parse(response.body.to_s).dig("error", "message").to_s.truncate(200).presence
   rescue JSON::ParserError, TypeError

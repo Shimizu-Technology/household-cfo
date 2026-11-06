@@ -1297,7 +1297,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "The $85 purchase"
+    assert_includes content, "$85 purchase"
     assert_includes content, "plan figure"
     assert_includes content, "Which account and spending category"
     refute_includes content.downcase, "confirm the draft"
@@ -1311,7 +1311,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     school_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes school_content, "The $120 purchase"
+    assert_includes school_content, "$120 purchase"
     assert_includes school_content, "plan figure"
     refute_includes school_content.downcase, "confirm the draft"
   end

@@ -87,14 +87,14 @@ class EnterpriseSyncConcurrencyTest < ActiveSupport::TestCase
     end
     @client.before_events = lambda do
       assert_equal 0, ActiveRecord::Base.connection.open_transactions
-      assert_equal 1, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid <> pg_backend_pid() AND classid = 167909 AND objid = 540281078").to_i
+      assert_equal 1, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND pid <> pg_backend_pid() AND classid = 167909 AND objid = 540281078").to_i
     end
     ActiveRecord::Base.cache { 2.times { Enterprise::EventPoll.call(client: @client) } }
     lock_queries = queries.select { |payload| payload[:sql].include?("pg_try_advisory_xact_lock(721164203985142)") }
     assert_equal 2, lock_queries.length
     refute lock_queries.any? { |payload| payload[:cached] }
     refute queries.any? { |payload| payload[:sql].include?("pg_advisory_unlock") }
-    assert_equal 0, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid = 167909 AND objid = 540281078").to_i
+    assert_equal 0, ActiveRecord::Base.connection.select_value("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND classid = 167909 AND objid = 540281078").to_i
   ensure
     ActiveSupport::Notifications.unsubscribe(subscription) if subscription
   end

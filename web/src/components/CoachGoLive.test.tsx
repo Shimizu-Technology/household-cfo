@@ -287,3 +287,40 @@ it('automatic preview completes in StrictMode after effect replay', async () => 
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
  expect(api.runAdminPersonaEvaluation).toHaveBeenCalledTimes(1)
 })
+
+it('shows when a preview did not use a coach phrase', async () => {
+  api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',phrase_notice:'No coach phrase was used in this sample. Phrases only appear when their context fits.'},behavioral_preview_evidence:ready.behavioral_preview_evidence})
+  render(<Harness />)
+  await review()
+  expect(screen.getAllByText('No coach phrase was used in this sample. Phrases only appear when their context fits.')).toHaveLength(2)
+  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+  expect(api.previewAdminPersona.mock.calls.map(call=>call[2])).toEqual(['Should I buy a $100 treat on my credit card? I don’t have the money right now.', 'I had a hard week and spent more than I planned. What can I do next?'])
+})
+
+it.each(['deterministic_fallback','deterministic_safety'])('labels %s samples honestly and still reaches go-live review',async(source)=>{
+ const evidence={...ready.behavioral_preview_evidence,source,output:'Pause and check the funding.'}
+ const notice='Participants would receive this safe reply. Review the method in Teaching.'
+ api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',source:'deterministic_fallback',notice},behavioral_preview_evidence:evidence})
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})
+ render(<Harness/>);await review()
+ expect(screen.getAllByText('Safe reply participants would receive')).toHaveLength(2)
+ expect(screen.getAllByText(notice)).toHaveLength(2)
+ expect(screen.getAllByText('Pause and check the funding.')).toHaveLength(2)
+ expect(screen.getByRole('button',{name:'Approve and go live'})).toHaveProperty('disabled',false)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
+
+it('keeps safe reply labels and phrase notices when returning to a cached preview',async()=>{
+ const phrase='No coach phrase was used in this sample.'
+ const notice='Participants would receive this safe reply.'
+ const evidence={...ready.behavioral_preview_evidence,source:'deterministic_fallback',output:'Check the funding.'}
+ api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',source:'deterministic_fallback',phrase_notice:phrase,notice},behavioral_preview_evidence:evidence})
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
+ expect(screen.getAllByText('Safe reply participants would receive')).toHaveLength(2)
+ expect(screen.getAllByText(phrase)).toHaveLength(2)
+ expect(screen.getAllByText(notice)).toHaveLength(2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})

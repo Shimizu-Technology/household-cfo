@@ -15,7 +15,7 @@ class ApiV1MiaReviewRoundTwoTest < ActionDispatch::IntegrationTest
         if index.zero?
           refute_match(/The \$.*purchase/i, answer)
         else
-          assert_match(/The \$300 purchase.*\$1,105/, answer)
+          assert_match(/\$300 stroller.*\$1,105/, answer)
         end
         assert_nil body["mia_action_draft"]
         assert_nil body["transaction_draft"]

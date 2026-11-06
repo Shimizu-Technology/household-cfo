@@ -8,9 +8,9 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
   teardown { travel_back }
 
   ROUTING_CASES = {
-    "I can't afford food. I stayed under budget; can I buy a purse?" => [ :hardship, "food for everyone comes first" ],
-    "I can't pay rent. How am I doing this month?" => [ :hardship, "food, housing, utilities" ],
-    "I cannot buy medicine. I stayed under my budget." => [ :hardship, "food, housing, utilities" ],
+    "I can't afford food. I stayed under budget; can I buy a purse?" => [ :hardship, "getting food today" ],
+    "I can't pay rent. How am I doing this month?" => [ :hardship, "food, housing, and required payments" ],
+    "I cannot buy medicine. I stayed under my budget." => [ :hardship, "food, housing, and required payments" ],
     "I stayed under my budget. I skipped lunch to save for the challenge" => [ :essential_skip, "Please do not skip food" ],
     "I skipped lunch to save. How am I doing this month?" => [ :essential_skip, "Please do not skip food" ],
     "I feel stressed about money. How am I doing this month?" => [ :month, "July 2026" ],

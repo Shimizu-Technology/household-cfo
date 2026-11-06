@@ -49,6 +49,33 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_empty result.facts
   end
 
+  test "an asked purchase stays a question even when the cash is said to be saved" do
+    text = "Could I buy a $75 lunch bag? I saved that cash separately from my challenge savings."
+    result = read(text, object(facts: [ fact("set_aside", "$75", day: "") ]).merge(question: true))
+    assert_empty result.facts
+    assert_not result.hypothetical_movement
+    assert_equal [ "20" ], read("can i count the 20 i saved today", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
+    assert_empty read("could i maybe just buy a $75 lunch bag", object(facts: [ fact("set_aside", "$75", day: "") ]).merge(question: true)).facts
+    assert_equal [ "20" ], read("can i put down the 20 i deposited today", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
+    assert_equal [ "20" ], read("saved 20 today, can i buy lunch", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
+  end
+
+  test "a stated report inside a question keeps its amount" do
+    [ [ "could i put down that i saved 20 today", "20" ], [ "can i put down 30 i set aside friday", "30" ], [ "should i put the $10 i saved today with the rest", "$10" ] ].each do |text, amount|
+      result = read(text, object(facts: [ fact("set_aside", amount, day: "") ]).merge(question: true))
+      assert_equal [ amount ], result.facts.pluck("amount"), text
+    end
+  end
+
+  test "reader shame needs the participant's own words about herself" do
+    [ "i spent too much at ross again", "I keep ordering shoes online at night even though I can't really pay for them.", "so frustrated, i keep messing up this budget" ].each do |text|
+      assert_equal "none", read(text, object(care: "shame")).care, text
+    end
+    [ "im so stupid with money", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
+      assert_equal "shame", read(text, object(care: "shame")).care, text
+    end
+  end
+
   test "misplaced commas are never read as larger amounts" do
     { "saved 1,20 today" => "1,20", "saved 20,30 today" => "20,30", "saved 2,5000 today" => "2,5000", "saved 1200,50 today" => "1200,50" }.each do |text, amount|
       result = read(text, object(facts: [ fact("set_aside", amount) ]))

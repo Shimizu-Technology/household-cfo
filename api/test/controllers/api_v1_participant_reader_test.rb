@@ -235,6 +235,18 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an asked purchase with saved cash gets an answer instead of a day question" do
+    with_reading(reading(facts: [ fact("set_aside", "$75", day: "") ]).merge(question: true)) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "Could I buy a $75 lunch bag? I saved that cash separately from my challenge savings." }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_empty json.fetch("challenge_chat_cards")
+        refute_match(/Which day|Got it/i, json.dig("assistant_message", "content"))
+      end
+    end
+  end
+
   test "a small report with a condition after it still reaches its card" do
     with_reading(reading(facts: [ fact("set_aside", "20") ])) do
       with_savings_runtime do
@@ -356,5 +368,72 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
       assert_empty response.parsed_body["challenge_chat_cards"]
       assert_includes response.parsed_body.dig("assistant_message", "content"), "try again"
     end
+  end
+  test "R5 current reader care preempts household date clarification and setup without a second read" do
+    [ [ "We buried my husband on Tuesday. Could I buy a $200 headstone deposit?", "grief", /sorry for your loss/ ],
+      [ "I don't know how much longer I can keep doing this", "crisis", /988/ ] ].each do |message, care, expected|
+      json = household_say(message, reading(care: care))
+      assert_match expected, json.dig("assistant_message", "content")
+      refute_match(/month and year|Next setup question|\$200/, json.dig("assistant_message", "content"))
+      assert_nil json["mia_action_draft"]
+      assert_nil json["transaction_draft"]
+      with_reading(reading(care: care)) do
+        with_savings_runtime do
+          post "/api/v1/mia/messages", params: { message: message }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+          assert_response :created
+          assert_match expected, response.parsed_body.dig("assistant_message", "content")
+          assert_empty Array(response.parsed_body["challenge_chat_cards"])
+        end
+      end
+    end
+  end
+
+  test "R5 model clarification is guarded and falls back for approval invented contact and outage" do
+    resolver = HouseholdFinance::MiaIntentResolver
+    old = resolver.instance_method(:call)
+    guard = Mia::ReplyGuard.method(:call)
+    [ [ "You can buy it, and I've saved it. Which color?", "purchase_approval" ],
+      [ "Call 671-555-0100 for the Bank of Guam program. Which one?", "invented_fact" ],
+      [ "Which account did you mean?", "provider_failure" ],
+      [ "Which account did you mean?", "sensitive_moment" ] ].each do |text, reason|
+      resolver.define_method(:call) do
+        self.class::Result.new(intent: "coaching", confidence: 0.95, continuation: false,
+          resolved_message: "that thing we talked about", needs_clarification: true, clarification: text,
+          topic: { type: "coaching" }, action: { type: "none" }, read_only_plan: {}, source: "model")
+      end
+      Mia::ReplyGuard.define_singleton_method(:call) { |**_| Mia::ReplyGuard::Result.new([ reason ]) }
+      json = household_say("What about that thing we talked about?", reading)
+      assert_equal "I want to make sure I have the right request. Please name the category, amount, and month you want to change. Nothing changed yet.", json.dig("assistant_message", "content")
+      assert_nil json["mia_action_draft"]
+    end
+  ensure
+    resolver.define_method(:call, old)
+    Mia::ReplyGuard.define_singleton_method(:call, guard)
+  end
+
+  test "R5 a hardship history never hides a later month question or recovered purchase" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "R5 household", primary_goal: "Cushion", primary_income: "4800",
+      fixed_expenses: "2100", flexible_spend: "900", debt_payment: "350").call
+    care = household_say("I lost my job yesterday.", reading(care: "hardship")).dig("assistant_message", "content")
+    assert_match(/sounds hard/, care)
+    answer = household_say("The rent. How much is left in my plan this month?", reading).dig("assistant_message", "content")
+    refute_equal care, answer
+    assert_match(/plan|November/i, answer)
+    assert_match(/\$[\d,]+/, answer)
+    refute_match(/What feels most urgent|when you're ready/, answer)
+    household_say("I started a new job last month and things are steady now", reading)
+    answer = household_say("Can I get a $40 pair of shoes?", reading).dig("assistant_message", "content")
+    refute_equal care, answer
+    refute_match(/What feels most urgent|when you're ready/, answer)
+    assert_match(/\$40/, answer)
+  end
+  test "R5 CR food floor survives a none reading before a purchase comparison" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "R5 food", primary_goal: "Cushion", primary_income: "4800", fixed_expenses: "2100", flexible_spend: "900", debt_payment: "350").call
+    json = household_say("We have no food this week. Can I buy a $300 TV?", reading)
+    answer = json.dig("assistant_message", "content")
+    assert_match(/food|eat/, answer)
+    refute_match(/\$300|would leave|plan has/i, answer)
+    assert_nil json["mia_action_draft"]
+    assert_nil json["transaction_draft"]
   end
 end

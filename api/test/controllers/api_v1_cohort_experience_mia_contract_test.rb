@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1CohortExperienceMiaContractTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
     @user, @household = HouseholdFinance::MiaEvalHousehold.create!
@@ -35,7 +37,7 @@ class ApiV1CohortExperienceMiaContractTest < ActionDispatch::IntegrationTest
     assert_includes system, '"disabled":["review","budget","profile","wealth","cfo_filter","optionality","statements"]'
     content = response.parsed_body.dig("assistant_message", "content")
     refute_includes content, "Open Wealth"
-    assert_includes content, "here in chat"
+    assert_includes content, "What would you like to check before choosing your next step?"
     assert_equal content, ChatMessage.find(response.parsed_body.dig("assistant_message", "id")).content
   end
 

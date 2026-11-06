@@ -230,12 +230,12 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert response.parsed_body.dig("preview", "guardrails_applied")
-    assert_equal "unavailable", response.parsed_body.dig("preview", "status")
+    assert_equal "ready", response.parsed_body.dig("preview", "status")
     assert_equal "deterministic_fallback", response.parsed_body.dig("preview", "source")
-    assert_nil response.parsed_body.dig("preview", "sample_reply")
-    assert_equal "The preview didn't come through. Try again in a minute.", response.parsed_body.dig("preview", "notice")
+    assert response.parsed_body.dig("preview", "sample_reply").present?
+    assert_includes response.parsed_body.dig("preview", "notice"), "safe reply"
     assert_match(/\A[0-9a-f]{64}\z/, response.parsed_body.dig("preview", "digest"))
-    assert_nil persona.reload.preview_digest
+    assert persona.reload.preview_digest.present?
 
     with_ready_preview do
       post "/api/v1/admin/personas/#{persona.id}/preview",
@@ -585,11 +585,11 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, persona.versions.count
   end
 
-  test "unavailable and unrequested behavioral previews cannot authorize publishing" do
+  test "safe and unrequested previews cannot bypass the remaining release gates" do
     coach = persona_user
-    persona = persona_for(coach, assistant_name: "Draft assistant")
 
     [ "Can I afford this purchase?", nil ].each do |sample_prompt|
+      persona = persona_for(coach, assistant_name: sample_prompt ? "Draft assistant" : "No sample assistant")
       post "/api/v1/admin/personas/#{persona.id}/preview",
         params: { preview: { draft_revision: 1, sample_prompt: sample_prompt } },
         headers: auth_headers(coach),
@@ -597,21 +597,28 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
       assert_response :success
       preview = response.parsed_body.fetch("preview")
-      assert_equal(sample_prompt ? "unavailable" : "not_requested", preview.fetch("status"))
+      assert_equal(sample_prompt ? "ready" : "not_requested", preview.fetch("status"))
       assert preview.fetch("rendered_instructions").present?
       assert_match(/\A[0-9a-f]{64}\z/, preview.fetch("digest"))
       assert preview.fetch("generated_at").present?
-      assert_nil persona.reload.preview_digest
-      assert_nil persona.previewed_at
-      assert_nil persona.previewed_draft_revision
+      if sample_prompt
+        assert persona.reload.preview_digest.present?
+        assert persona.previewed_at.present?
+        assert_equal 1, persona.previewed_draft_revision
+        assert_equal "deterministic_fallback", preview.fetch("source")
+      else
+        assert_nil persona.reload.preview_digest
+        assert_nil persona.previewed_at
+        assert_nil persona.previewed_draft_revision
+      end
 
       post "/api/v1/admin/personas/#{persona.id}/publish",
         params: { publish: { draft_revision: 1, preview_digest: preview.fetch("digest"), expected_published_version_id: nil } },
         headers: auth_headers(coach),
         as: :json
 
-      assert_response :unprocessable_entity
-      assert_equal "persona_preview_required", response.parsed_body.fetch("code")
+      assert_response(sample_prompt ? :conflict : :unprocessable_entity)
+      assert_equal(sample_prompt ? "persona_publish_conflict" : "persona_preview_required", response.parsed_body.fetch("code"))
       assert_empty persona.versions
     end
   end

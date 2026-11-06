@@ -2,13 +2,24 @@
 
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   SAMPLE = "I want to spend $100 this weekend. How can I decide?"
   LONG_REPLY = "Wanting something is normal. Pause before deciding. Check your basics first. Keep required payments covered. What is the purchase for?"
   VALID_REPLY = "Wanting something is normal. Protect your basics and required payments first. What is the purchase for?"
   FALLBACK = "Use the approved reference answer."
 
   setup do
+    Mia::ReplyGuard.singleton_class.define_method(:call) do |**args|
+      flags = case args[:reply]
+      when /That purchase works|You can (?:comfortably )?afford/ then [ "purchase_approval" ]
+      when /I recorded/ then [ "action_claim" ]
+      else []
+      end
+      Mia::ReplyGuard::Result.new(flags)
+    end
     @persona = Mia::RuntimePersona.for_preview(config: JSON.parse(file_fixture("mia_coach_short_config.json").read), persona_id: 42, draft_revision: 1)
     # Capacity has its own DB-lock suite. These fake transport replies exercise
     # validation and retries even when this machine's DB checkout exceeds 1s.
@@ -19,6 +30,24 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
 
   teardown do
     HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @original_admission)
+  end
+
+  test "a rewrite that stays too long after server figures is fitted from the middle" do
+    max = @persona.response_shape.fetch("max_sentences")
+    long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "The plan has room for review.") { long }
+    assert_nil result.rejection_reason
+    sentences = result.content.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
+    assert_equal max - 1, sentences.length
+    assert_equal "Sentence number 1 stays calm.", sentences.first
+    assert_equal "What matters most?", sentences.last
+  end
+
+  test "a fitted rewrite still fails its validators" do
+    max = @persona.response_shape.fetch("max_sentences")
+    long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { :unsafe }, fixed_prefix: "The plan has room for review.") { long }
+    assert_equal :unsafe, result.rejection_reason
   end
 
   test "preview repairs one safe length miss with exact draft and final provider provenance" do
@@ -43,7 +72,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
 
   [ true, false ].each do |preview|
     test "claim rewrite reruns every check for #{preview ? 'preview' : 'participant'}" do
-      original = "I cannot say that purchase works without knowing your bills. Protect food and housing first. Which category would fund it?"
+      original = "That purchase works. Protect food and housing first. Which category would fund it?"
       requests = []
       context = { preview_mode: preview, metrics: {}, debts: { records: [] } }.to_json
       with_provider_replies([ original, VALID_REPLY ], requests) do
@@ -52,7 +81,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
         assert_equal "live_model", responder.response_source
       end
       assert_equal 2, requests.length
-      assert_includes requests.last.fetch("messages").last.fetch("content"), "scenario_conclusion"
+      assert_includes requests.last.fetch("messages").last.fetch("content"), "purchase_approval"
     end
   end
 
@@ -69,13 +98,14 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     end
   end
 
-  test "participant purchase narration rejects figures and approval without a second attempt" do
+  test "participant purchase narration rejects figures and shares one approval rewrite" do
     unsafe = "You can afford it. Protect your bills first. Which account would you use?"
-    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe, unsafe ], message: "Can I afford a $300 stroller?")
     fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
     narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
-    assert_equal fallback, narrator.call
-    assert_equal 1, attempts.length
+    assert_equal narrator.send(:fallback_response), narrator.call
+    assert_equal 2, attempts.length
+    assert_equal :reply_guard, narrator.rejection_reason
   end
 
   test "preview rewrite still outside range falls back after exactly two requests" do
@@ -169,8 +199,8 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     { "I cannot afford food this week" => "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?",
       "I feel hopeless" => "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" }.each do |message, reply|
       narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
-      assert_equal reply, narrator.call
-      assert_equal 1, attempts.length
+      assert_equal Mia::SensitiveMoment.response(message), narrator.call
+      assert_equal 0, attempts.length
     end
   end
 

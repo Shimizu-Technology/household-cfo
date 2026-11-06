@@ -4,6 +4,7 @@ require "digest"
 require "json"
 
 class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
+  SAFE_REPLY_IDENTIFIER = "household-cfo/safe-reply-v1"
   PRIVACY_SCOPE = "no_saved_participant_or_household_data"
 
   belongs_to :release_candidate, class_name: "CoachPersonaReleaseCandidate",
@@ -13,13 +14,14 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
 
   validates :prompt, presence: true, length: { maximum: 2_000 }
   validates :output, presence: true, length: { maximum: 4_000 }
-  validates :response_source, inclusion: { in: [ "live_model" ] }
+  validates :response_source, inclusion: { in: [ "live_model", "deterministic_fallback", "deterministic_safety" ] }
   validates :model_identifier, :provider_request_id, presence: true, length: { maximum: 200 },
     format: { with: /\A[^\s[:cntrl:]]+\z/ }
   validates :privacy_scope, inclusion: { in: [ PRIVACY_SCOPE ] }
   validates :context_digest, :candidate_digest, :config_digest, :content_manifest_digest,
     :phrase_manifest_digest, :evidence_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :generated_at, presence: true
+  validate :source_provenance_matches
   validate :candidate_snapshot_matches
   validate :context_matches_current_preview, on: :create
   validate :generator_can_publish
@@ -54,12 +56,21 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
   end
 
   def provider_provenance_valid?
+    if response_source.in?(%w[deterministic_fallback deterministic_safety])
+      return model_identifier == SAFE_REPLY_IDENTIFIER && provider_request_id == "safe-reply:#{Digest::SHA256.hexdigest(output.to_s)}"
+    end
+    return false unless response_source == "live_model"
+
     [ model_identifier, provider_request_id ].all? do |value|
       value.to_s.present? && value.to_s.length <= 200 && value.to_s.match?(/\A[^\s[:cntrl:]]+\z/)
     end
   end
 
   private
+
+  def source_provenance_matches
+    errors.add(:base, "preview source provenance does not match") unless provider_provenance_valid?
+  end
 
   def candidate_snapshot_matches?
     release_candidate && candidate_digest == release_candidate.manifest_digest &&

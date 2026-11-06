@@ -36,7 +36,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("mia_action_draft")
     assert_nil body.fetch("transaction_draft")
     assert_empty body.dig("assistant_message", "presentation")
-    assert_includes body.dig("assistant_message", "content"), "$900 purchase"
+    assert_includes body.dig("assistant_message", "content"), "$900 laptop"
     assert_equal counts, financial_counts
     assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
     assert_equal accounts, @household.accounts.order(:id).pluck(:id, :balance_cents)
@@ -66,7 +66,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/mia/messages", params: { message: "What if I buy a $900 laptop? Do not change anything." }, headers: auth_headers, as: :json
     assert_response :created
     assert_empty response.parsed_body.dig("assistant_message", "presentation")
-    assert_includes response.parsed_body.dig("assistant_message", "content"), "$900 purchase"
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "$900 laptop"
     assert_equal counts, financial_counts
     assert_equal allocations, BudgetAllocation.order(:id).pluck(:id, :planned_amount_cents)
   end

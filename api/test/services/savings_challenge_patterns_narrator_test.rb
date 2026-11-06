@@ -1,6 +1,9 @@
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class SavingsChallengePatternsNarratorTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   REFERENCE = "From Aug to Oct in the recorded purchases, Ross ($600) and Kmart ($360) were your biggest flexible spends. 25 small buys of $25 or less stacked up around Friday through Sunday — $227.99 altogether. Spending half as much at Ross could free about $100 a month, based on the months recorded. Would you feel more comfortable cutting back on Ross or Kmart?".freeze
 
   def narrator

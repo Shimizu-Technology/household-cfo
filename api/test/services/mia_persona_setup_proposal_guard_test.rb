@@ -237,11 +237,12 @@ class MiaPersonaSetupProposalGuardTest < ActiveSupport::TestCase
     attempts = 0
     guard.define_singleton_method(:classify) do
       attempts += 1
-      sleep 0.2
-      GOOD.to_json
+      # Raise at the wire boundary so DB admission latency cannot consume an
+      # arbitrary 30ms timer before the classifier has even been entered.
+      raise Mia::PersonaSetup::ProposalGuard::DeadlineExceeded
     end
     baseline = ApplicationRecord.connection.open_transactions
-    result = Timeout.timeout(0.03, Mia::PersonaSetup::ProposalGuard::DeadlineExceeded) { guard.call }
+    result = guard.call
     assert_equal [ "deadline" ], result.reasons
     assert_equal 1, attempts
     assert_equal baseline, ApplicationRecord.connection.open_transactions

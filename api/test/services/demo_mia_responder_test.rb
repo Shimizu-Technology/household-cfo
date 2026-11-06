@@ -1,6 +1,9 @@
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class DemoMiaResponderTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   test "recorded coach preview asks whether the purchase fits without claiming it does" do
     reply = file_fixture("mia_preview_decision.txt").read.strip
     responder = stubbed_model_responder(reply)
@@ -16,6 +19,12 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_equal "live_model", responder.response_source
   end
 
+  test "the outage fallback keeps the spending pattern reply to spending" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    refute_match(/spending pattern/i, responder.send(:fallback_response, "i dont know how much longer i can keep doing this job", context: "{}", reason: "provider_failure"))
+    assert_match(/spending pattern/i, responder.send(:fallback_response, "i keep ordering shoes online", context: "{}", reason: "provider_failure"))
+  end
+
   test "recorded review preview discusses a yes or no without answering its checks" do
     reply = file_fixture("mia_preview_decision_review.txt").read.strip
     responder = Demo::MiaResponder.new(api_key: nil)
@@ -24,16 +33,12 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       user_message: "I want to spend $100 this weekend. How can I decide?")
   end
 
-  test "unanswered conditional checks are allowed only in coach previews" do
+  test "unanswered conditional checks are allowed for participants and coach previews" do
     responder = Demo::MiaResponder.new(api_key: nil)
     [ { metrics: {} }, Mia::PersonaPreviewer::PREVIEW_CONTEXT ].each do |context|
       [ "Check whether it fits your plan.", "Ask whether you can afford it.", "If it fits your plan, consider the tradeoff first." ].each do |reply|
         rejection = responder.send(:generic_claim_rejection, reply, context: context.to_json)
-        if context[:preview_mode]
-          assert_nil rejection, reply
-        else
-          assert_equal "scenario_conclusion", rejection, reply
-        end
+        assert_nil rejection, reply
       end
       [ "It fits your plan.", "You can afford it.", "Check whether it fits. You can afford it.",
         "If it fits your plan, that works for the purchase.", "Check if it fits; it fits your budget.",
@@ -42,7 +47,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       end
       assert_equal("unverified_amount", responder.send(:generic_claim_rejection,
         "Check whether it fits your plan. Your income is $999.", context: context.to_json))
-      assert_equal(context[:preview_mode] ? "readiness_mismatch" : "scenario_conclusion", responder.send(:generic_claim_rejection,
+      assert_equal("readiness_mismatch", responder.send(:generic_claim_rejection,
         "Check whether it fits your plan. Your readiness is green.", context: context.to_json))
     end
   end
@@ -176,6 +181,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   end
 
   test "a rejected model answer is sourced as fallback and cannot authorize a persona preview" do
+    Mia::ReplyGuard.singleton_class.define_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "purchase_approval" ]) }
     responder = Demo::MiaResponder.new(api_key: "test-key")
     responder.define_singleton_method(:openrouter_response) do |*_args, **_options|
       @response_source = "live_model"
@@ -318,35 +324,35 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
-  test "fallback discretionary purchase response preserves local demo line when api key is missing" do
+  test "fallback purchase response asks about funding without a canned persona line" do
     response = Demo::MiaResponder.new(api_key: nil).call("Can I buy the purse?")
 
-    assert_includes response, "Lanya chelu"
-    assert_includes response, "that purse isn’t in the cards right now"
-    assert_includes response, "30-day list"
+    assert_includes response, "Check the funding"
+    refute_includes response, "purse isn’t"
+    assert_includes response, "Which account would cover it?"
     refute_includes response, "*"
   end
 
-  test "fallback bag purchase intent also preserves the screenshot-ready purse line" do
+  test "fallback bag purchase keeps the decision with the participant" do
     response = Demo::MiaResponder.new(api_key: nil).call("Should I buy this bag?")
 
-    assert_includes response, "Lanya chelu"
-    assert_includes response, "that purse isn’t in the cards right now"
+    assert_includes response, "Check the funding"
+    refute_includes response, "purse isn’t"
   end
 
   test "fallback generic safe to spend question uses local spending check without forcing purse wording" do
     response = Demo::MiaResponder.new(api_key: nil).call("Can I spend money on this?")
 
-    assert_includes response, "Pump the brakes"
-    assert_includes response, "household baseline"
+    assert_includes response, "Check the funding"
+    assert_includes response, "food and required bills"
     refute_includes response, "purse"
   end
 
   test "fallback non-screenshot discretionary purchases use spending check instead of purse wording" do
     response = Demo::MiaResponder.new(api_key: nil).call("Can I buy coffee today?")
 
-    assert_includes response, "Pump the brakes"
-    assert_includes response, "household baseline"
+    assert_includes response, "Check the funding"
+    assert_includes response, "food and required bills"
     refute_includes response, "that purse isn’t in the cards right now"
   end
 
@@ -373,7 +379,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
     refute_includes response, "that purse isn’t in the cards right now"
     refute_includes response, "Pump the brakes"
-    assert_includes response, "do not have enough approved data"
+    assert_includes response, "Check the funding"
   end
 
   test "crisis language bypasses money coaching and returns immediate safety support" do
@@ -434,7 +440,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "That's a good question"
     assert_includes prompt, "assigned persona's approved cultural language"
     assert_includes prompt, "Never imitate an accent"
-    assert_includes prompt, "month-to-date actuals change only after the Household CFO confirms the draft"
+    assert_includes prompt, "participant can check the purchase before confirming it"
     assert_includes prompt, "pre-spend CFO decision"
     assert_includes prompt, "That's a smart question"
     assert_includes prompt, "answer the direct question first"
@@ -806,7 +812,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "transaction review"
   end
 
-  test "reflexive cultural openers are removed and recent use suppresses repeated chelu" do
+  test "ineligible cultural openers and recent repetitions are rejected before sanitation" do
     responder = Demo::MiaResponder.new(api_key: nil)
     direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
     standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
@@ -818,10 +824,10 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
     )
 
-    assert_equal "I drafted the July edit for review.", direct
-    assert_equal "The category already exists.", standalone
-    assert_equal "We were discussing the July edit. It is still pending.", recall
-    assert_equal "The August plan is ready. Review it before applying.", restrained
+    assert_nil direct
+    assert_nil standalone
+    assert_nil recall
+    assert_nil restrained
   end
 
   test "demo mode does not tell users to confirm unavailable drafts" do
@@ -931,7 +937,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
     assert_equal "Based on what I can see, I do not have enough approved data to answer that as a fact yet. " \
       "What I can tell you is that your readiness is Red (pause and stabilize basics) and your baseline surplus is $955 a month. " \
-      "Ask me about your readiness, safe-to-spend, debt, or this month’s spending, and I’ll answer from your saved records.", reply
+      "What would you like to check before choosing your next step?", reply
   end
 
   test "readiness that is not available yet is named as missing, never guessed" do
@@ -974,8 +980,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     responder.define_singleton_method(:openrouter_response) { |*_args, **_options| send(:provider_unavailable, "http_402") }
     reply = responder.call("Can I buy coffee today?", context: QA_CONTEXT)
 
-    assert reply.start_with?(Mia::FallbackReply::PROVIDER_UNAVAILABLE), reply
-    assert_includes reply, "Your safe-to-spend this month is $0, which is a decision guardrail"
+    assert reply.start_with?("I can’t give a full answer right now."), reply
+    assert_includes reply, "Check the funding before deciding"
     refute_includes reply, "Pump the brakes"
   end
 

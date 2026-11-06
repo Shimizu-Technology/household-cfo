@@ -27,7 +27,7 @@ module SavingsChallenge
     HOPELESS_STEP = "One small step, only if it feels okay: you can skip today, and a day you skip just stays unknown, not a miss. A smaller target is fine too, and nothing in this challenge is an obligation."
 
     # Verified facts the narrator may quote (approved optional card records only).
-    attr_reader :answer_facts
+    attr_reader :answer_facts, :purchase_prefix
 
     # True when the answer is final and should not be rewritten by the model.
     def deterministic? = @deterministic == true
@@ -46,6 +46,7 @@ module SavingsChallenge
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return deterministic(loan_answer) if loan_decision_question?
       return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
+      return deterministic(::Mia::SensitiveMoment.response(@message)) if ::Mia::SensitiveMoment.matches?(@message) && (!@daily_report || ::Mia::SensitiveMoment.grief?(@message))
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
@@ -61,6 +62,7 @@ module SavingsChallenge
           return deterministic(ranking) if ranking
           return debt_comparison_answer
         end
+        return purchase_answer if purchase_question?
         if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
           return debt_comparison_answer if @message.match?(/\b(?:minimum|apr|terms|what should i know|review|compare|comparison)\b/i)
           return deterministic(debt_answer)
@@ -78,6 +80,17 @@ module SavingsChallenge
     end
 
     private
+
+    def purchase_question?
+      HouseholdFinance::PurchaseQuestionText.read_only_purchase_question?(@message)
+    end
+
+    def purchase_answer
+      @purchase_prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
+      item = HouseholdFinance::PurchaseQuestionText.item_label(@message).presence || "purchase"
+      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "I would hold off on the #{item} rather than add a payment you cannot cover." : "Check what would pay for the #{item} before deciding."
+      "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
+    end
 
     def saved_total_question?
       return false if @message.match?(/\b(?:progress|goals?|targets?|need|should|could|can|would|accounts?)\b/i)

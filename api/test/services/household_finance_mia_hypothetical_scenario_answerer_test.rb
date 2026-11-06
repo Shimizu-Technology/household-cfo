@@ -43,9 +43,25 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
     @household.accounts.delete_all
     result = answer("purchase", 800, "Laptop")
 
-    assert_includes result.body, "do not know your account balances"
+    assert_includes result.body, "not your bank balance"
     assert_includes result.body, "$1,800"
     assert_includes result.body, "$1,000"
+  end
+
+  test "purchase subjects use natural articles and plural items" do
+    { [ 1800, "sofa" ] => "a $1,800 sofa", [ 800, "laptop" ] => "an $800 laptop", [ 90, "boots" ] => "$90 boots", [ 300, "stroller" ] => "a $300 stroller" }.each do |(amount, label), expected|
+      assert_includes answer("purchase", amount, label).body, "so #{expected} would"
+    end
+  end
+
+  test "current month comparison is concise while other months retain their year" do
+    result = answer("purchase", 300, "stroller")
+    assert_includes result.body, "This month’s plan has $1,800 left, so a $300 stroller would leave $1,500 if it is extra spending,"
+    assert_includes result.body, "if it is extra spending"
+    result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: 300,
+      label: "stroller", effective_on: Date.current.next_month.beginning_of_month.to_s,
+      annual_budget_manager: @manager, reference_month: Date.current.month).call
+    assert_includes result.body, "Your #{Date.current.next_month.strftime('%B %Y')} plan"
   end
 
   test "unresolved timing is declined instead of using the selected month" do

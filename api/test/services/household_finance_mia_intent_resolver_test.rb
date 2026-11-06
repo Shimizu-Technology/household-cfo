@@ -3414,7 +3414,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert result.read_only_plan?
     assert_equal "deterministic", result.source
     assert_equal "purchase", result.read_only_plan.dig(:items, 0, :scenario_type)
-    assert_equal "Appliance", result.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "appliance", result.read_only_plan.dig(:items, 0, :scenario_label)
     assert_equal "400", result.read_only_plan.dig(:items, 0, :amount)
     assert result.read_only_plan.dig(:items, 0, :timing_unavailable)
     assert_equal "none", result.action.fetch(:type)
@@ -3440,7 +3440,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     assert result.read_only_plan?
     assert_equal "deterministic", result.source
-    assert_equal "Laptop", result.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "laptop", result.read_only_plan.dig(:items, 0, :scenario_label)
     assert_equal "900", result.read_only_plan.dig(:items, 0, :amount)
   end
 

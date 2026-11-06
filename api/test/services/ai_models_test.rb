@@ -1,6 +1,11 @@
 require "test_helper"
 
 class AiModelsTest < ActiveSupport::TestCase
+  test "reply guard has its own cheap model and explicit override" do
+    assert_equal "google/gemini-2.5-flash", AiModels.reply_guard({})
+    assert_equal "test/guard", AiModels.reply_guard("AI_REPLY_GUARD_MODEL" => " test/guard ", "AI_MODEL" => "test/generator")
+  end
+
   test "text model prefers AI_MODEL, then the legacy OPENROUTER_MODEL, then the pinned default" do
     assert_equal "anthropic/claude-sonnet-5.5", AiModels.text({})
     assert_equal "google/gemini-2.5-flash", AiModels.text("OPENROUTER_MODEL" => "google/gemini-2.5-flash")

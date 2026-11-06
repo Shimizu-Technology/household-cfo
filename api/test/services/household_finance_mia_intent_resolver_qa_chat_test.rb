@@ -353,10 +353,10 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
 
     purchase = resolve("can we afford a $300 stroller", transport: outage)
     assert purchase.read_only_plan?
-    assert_equal "Stroller", purchase.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "stroller", purchase.read_only_plan.dig(:items, 0, :scenario_label)
     function_word = resolve("can we afford $300 for school shoes", transport: outage)
     assert function_word.read_only_plan?
-    assert_equal "", function_word.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "school shoes", function_word.read_only_plan.dig(:items, 0, :scenario_label)
   end
 
   # F9

@@ -9,6 +9,19 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "bank fees stay in spending totals but are excluded from small buys" do
+    purchase(Date.new(2026, 10, 23), "Cafe", 1200)
+    purchase(Date.new(2026, 10, 24), "Cafe", 1000)
+    purchase(Date.new(2026, 10, 25), "Cafe", 1449)
+    purchase(Date.new(2026, 10, 25), "Monthly service fee", 500)
+    purchase(Date.new(2026, 10, 25), "NSF Charge", 600)
+    result = analyze
+    assert_equal 4749, result[:observed_spending_cents]
+    cluster = result[:small_purchase_clusters].find { |row| row[:label] == "Friday through Sunday" }
+    assert_equal 3, cluster[:purchase_count]
+    assert_equal 3649, cluster[:total_cents]
+  end
+
   test "review one separately ranked merchants never inherit unrelated category names" do
     travel_to Time.zone.local(2026, 11, 5, 12) do
       dining = @household.budget_categories.create!(name: "Meals out", stack_key: "discretionary", sort_order: 2)

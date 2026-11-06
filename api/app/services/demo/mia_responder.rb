@@ -3,6 +3,7 @@ require "json"
 
 module Demo
   class MiaResponder
+    SPENDING_WORD = /\b(?:spen[dt]\w*|b(?:uy|ought)\w*|order\w*|purchas\w*|shop\w*|takeout|impulse)\b/i
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
@@ -52,13 +53,13 @@ module Demo
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
       Do not repeat an earlier safety or 988 reference on a later unrelated money question. Mention it again only if the participant's current message shows distress, hopelessness, or a safety concern in any wording, including short follow-ups to an earlier crisis turn; when unsure, keep the safety line.
       Write plain text only, with no markdown, bullets, or numbered lists. Do not use the words "just" or "simply" to make a step sound easy, and never call the participant "par".
-      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
+      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. If a purchase review was requested, say the participant can check the purchase before confirming it. Keep the wording natural; the review card explains how confirmation works.
       If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
       For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
       Do not open with generic filler such as "That's a good question" or "That's a smart question." Follow only the assigned persona's approved cultural language, context, caution, and frequency rules.
       Start with the direct answer, not praise, a greeting, or a term of endearment. Never imitate an accent, invent regional slang, or infer culture from a location label.
-      When purchase funding is unknown, say what information is needed before answering. Avoid saying afford, affordable, fits, works, or safe-to-spend even in a negative statement or a question; those phrases can sound like approval without verified funding. Ask one practical question about the plan or funding instead.
+      When purchase funding is unknown, say what information is needed before answering. Never approve spending or claim it is affordable or funded. You may advise waiting, holding off, or pausing a purchase; address a stated lack of money or use of a card directly. Ask one practical question about the plan or funding instead.
       In participant answers, say purchases waiting for review and spending you confirmed. Avoid pending drafts, month-to-date actuals, liquid account picture, unapproved, and spending baseline.
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
@@ -83,20 +84,48 @@ module Demo
       @supplied_content_context = []
     end
 
-    def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
+    def call(message, **options)
+      ::Mia::ReplyDeadline.within { deliver(message, **options) }
+    end
+
+    def deliver(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
       @fallback_reason = nil
       @rejection_reason = nil
+      @guard_care_kind = nil
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
+      @language_policy = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona)
+      @delivery_prefix = @language_policy.server_phrase_prefix.to_s
+      if @persona.respond_to?(:response_shape)
+        shape = @persona.response_shape
+        count = ::Mia::ResponseShapePolicy.new(@delivery_prefix, persona: @persona).sentence_count
+        @delivery_prefix = "" if count >= shape.fetch("max_sentences") || @delivery_prefix.length + 80 > shape.fetch("max_characters")
+      end
       return @persona.fallback_response(:low_signal_greeting) if clean_message.empty?
       if crisis_message?(clean_message)
         @response_source = "deterministic_safety"
         return crisis_response
       end
+      return fallback_response(clean_message, context: prompt_context, reason: :no_model) if ::Mia::CrisisBoundary.hopeless?(clean_message)
+      if (care = HouseholdFinance::ParticipantCare.answer(clean_message))
+        @response_source = "deterministic_safety"
+        return care
+      end
+      if ::Mia::SensitiveMoment.matches?(clean_message)
+        @response_source = "deterministic_safety"
+        return ::Mia::SensitiveMoment.response(clean_message)
+      end
+      care_guard = HouseholdFinance::ParticipantCare.guard_when_unread(clean_message, history: history, reply: "I couldn't read that safely just now. Please try again. Nothing changed.", api_key: @api_key)
+      @guard_care_kind = care_guard&.care
+      if care_guard&.sensitive?
+        @response_source = "deterministic_safety"
+        return HouseholdFinance::ParticipantCare.answer(clean_message, care: care_guard.care || "hardship")
+      end
+      return fallback_response(clean_message, context: prompt_context, reason: :provider_unavailable) if care_guard && !care_guard.allowed?
       grounded_response = grounded_answer(clean_message, context: context)
       if grounded_response
         @response_source = "verified_deterministic"
@@ -113,8 +142,10 @@ module Demo
       return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
 
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
-        repairable_claims: [ "scenario_conclusion" ],
-        validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
+        repairable_claims: [ "scenario_conclusion" ], fixed_prefix: @delivery_prefix,
+        guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
+          facts: reply_guard_facts(prompt_context), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
+        validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message, guard_covered: true) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
             conversation_resolution: conversation_resolution,
@@ -122,10 +153,21 @@ module Demo
         end
       end
       unless checked.rejection_reason
+        phrase_reason = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona).model_phrase_rejection_reason(checked.content)
+        if phrase_reason
+          @rejection_reason = phrase_reason
+          return fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
+        end
         @supplied_content_context = @approved_content if @response_source == "live_model"
-        return checked.content
+        prefix = checked.guard_result&.history_sensitive ? nil : @delivery_prefix
+        return [ prefix, checked.content ].compact_blank.join(" ")
       end
 
+      if checked.guard_result&.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(clean_message)
+        @response_source = "deterministic_safety"
+        @rejection_reason = :reply_guard
+        return HouseholdFinance::ParticipantCare.answer(clean_message, care: checked.guard_result.care || "hardship")
+      end
       @rejection_reason = checked.rejection_reason
       Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=#{checked.rejection_reason}")
       fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
@@ -164,17 +206,19 @@ module Demo
       payload = {
         model: @model,
         messages: [
-          { role: "system", content: @persona.system_prompt },
+          { role: "system", content: @delivery_prefix.present? ? @persona.system_prompt.sub(/^Response shape:[^\n]*$/, "") : @persona.system_prompt },
           *approved_content_messages,
           { role: "system", content: SAFETY_SYSTEM_PROMPT },
           *response_shape_messages(context),
+          { role: "system", content: ::Mia::LanguagePolicy.new(user_message: message, history: history, persona: @persona).server_phrase_instruction(include_phrase: @delivery_prefix.present?) },
           *verified_conversation_resolution_messages(conversation_resolution),
           { role: "user", content: household_context_message(context) },
           *conversation_history(history),
           { role: "user", content: message },
           *rewrite_messages
         ],
-        max_tokens: AiModels.output_budget(@model, 512)
+        provider: { data_collection: "deny", allow_fallbacks: false, require_parameters: true },
+        max_tokens: AiModels.output_budget(@model, 1_024)
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning
@@ -217,7 +261,7 @@ module Demo
     end
 
     def response_shape_messages(context)
-      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona)
+      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona, fixed_prefix: @delivery_prefix.to_s) + " Use short sentences, at most 30 words each. Ask one question, not several joined together. For example, ask 'Which bill needs protecting?' instead of asking about bills, timing and funding in the same sentence. Never write coach phrases; the server owns them."
       if parsed_context(context)["preview_mode"] == true
         instruction += " This is a no-write voice sample; the screen already explains the assistant identity and unloaded household data. " \
           "Do not repeat those notices in the answer. Never invent household facts or claim a write; if a missing fact matters, use one short clause within the sentence range."
@@ -298,9 +342,10 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
+      return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).model_phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
 
-      sanitized = content.to_s
+      sanitized = content.to_s.strip
         .sub(/\A#{Regexp.escape(@persona.name)}:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
         .then { |value| remove_banned_branding(value) }
@@ -308,7 +353,7 @@ module Demo
         .sub(/\A[\s,;:.-]+/, "")
         .squish
         .strip
-      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).sanitize(sanitized).to_s
+      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).sanitize_validated(sanitized).to_s
       unless transaction_report_message?(user_message)
         if !draft_capable && unsupported_current_draft_claim?(sanitized) && !existing_budget_review_recall?(conversation_resolution)
           return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."
@@ -354,14 +399,21 @@ module Demo
       generic_claim_rejection(content, context: context, user_message: user_message).present?
     end
 
-    # Which check a model reply failed, for the log; nil when it passed.
-    def generic_claim_rejection(content, context:, user_message: nil)
+    # Required financial truth stays whole. An oversized required core reaches
+    # ReplyGuard intact so its input limit fails closed before any provider call.
+    def reply_guard_facts(context)
+      facts = parsed_context(context).merge("coach_persona" => @persona.guard_facts)
+      ::Mia::ReplyGuard.bounded_facts(facts) || facts
+    end
+
+    def generic_claim_rejection(content, context:, user_message: nil, guard_covered: false)
+      return :unexpected_crisis_guidance if HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(user_message, content, care: @guard_care_kind)
       payload = parsed_context(context)
-      claim = ::Mia::NarrationClaims.rejection_reason(content)
+      claim = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered)
       return claim if claim
       return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
       return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
-      return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
+      return "scenario_conclusion" if !guard_covered && unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return if claimed_readiness.empty?
@@ -375,6 +427,7 @@ module Demo
     end
 
     def self.unsupported_scenario_conclusion?(content, preview: false)
+      return true if content.to_s.match?(/\b(?:yet|though|however|except|but)\b[^.!?]{0,45}\b(?:you (?:clearly can|have room)|it (?:clearly does|obviously is))\b/i)
       conclusions = Regexp.union(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN, MONETARY_APPROVAL_PATTERN)
       content.to_s.to_enum(:scan, conclusions).any? do
         match = Regexp.last_match
@@ -382,9 +435,13 @@ module Demo
         # Participants retain the stricter check; neither context may answer
         # the question with an unverified approval later in the reply.
         preceding = content.to_s[0...match.begin(0)]
+        local_prefix = preceding.split(/[.!?;\n]|\bbut\b/i).last.to_s
+        # Refusing to assert affordability is caution, not approval. The scope
+        # ends at the claim; a later positive claim is checked independently.
+        next false if local_prefix.match?(/\b(?:cannot|can['’]t|could not|couldn['’]t|do not|don['’]t)\s+(?:honestly\s+|yet\s+)?(?:say|tell|confirm|verify|claim|assume)\s+(?:you\s+|that\s+(?:the\s+)?)?\z/i)
         conditional = preceding.match?(/\b(?:whether|if)\s+\z/i) && !preceding.match?(/\bas\s+if\s+\z/i)
         answer_window = content.to_s[match.end(0)..].split(/[.!?\n]/, 3).first(2).join(".")
-        next false if preview && conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)
+        next false if conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)
 
         # A review habit is safe only when the same clause does not claim that
         # a purchase or spending decision works.
@@ -587,7 +644,8 @@ module Demo
     end
 
     def parsed_context(context)
-      JSON.parse(context.to_s)
+      value = JSON.parse(context.to_s)
+      value.is_a?(Hash) ? value : {}
     rescue JSON::ParserError, TypeError
       {}
     end
@@ -631,13 +689,12 @@ module Demo
       return low_signal_response(message) if low_signal_message?(message)
 
       hopeless = ::Mia::CrisisBoundary.hopeless?(message)
-      purchase_question = !hopeless && (screenshot_spending_question?(message) || spending_decision_question?(message))
-      # The persona's purchase lines answer a purchase question on their own.
-      # When the provider failed, say so first instead of sounding normal.
-      if purchase_question && reason != :provider_unavailable
-        return discretionary_spending_response if screenshot_spending_question?(message)
-
-        return spending_check_response
+      purchase_question = !hopeless && (HouseholdFinance::PurchaseQuestionText.purchase_question?(message) || screenshot_spending_question?(message) || spending_decision_question?(message))
+      if purchase_question
+        return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
+      end
+      if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN) && message.match?(SPENDING_WORD)
+        return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"
       end
 
       ::Mia::FallbackReply.new(

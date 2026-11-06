@@ -54,7 +54,7 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
 
   test "negative plan names its shortfall without a negative leaves figure" do
     answer = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: "300", label: "Stroller", annual_budget_manager: @manager, reference_month: 11).call.body
-    assert_includes answer, "short by $1,095"
+    assert_includes answer, "plan is $1,095 short"
     refute_match(/leaves -\$|plan figure for Stroller/, answer)
   end
 

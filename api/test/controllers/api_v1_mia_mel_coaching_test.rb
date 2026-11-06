@@ -1,7 +1,10 @@
 require "test_helper"
 require_relative "../support/mel_persona_test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
+  include ReplyGuardTestHelper
   include MelPersonaTestHelper
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
@@ -63,7 +66,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
       packet = attributes.fetch(:answer_packet)
       original.call(**attributes.merge(api_key: "synthetic")).tap do |narrator|
         narrator.define_singleton_method(:openrouter_response) do
-          "You noticed Ross is becoming a repeat stop. Chelu, pump the brakes on that one without beating yourself up. What was happening before you went in?"
+          "You noticed Ross is becoming a repeat stop. Pause before the next purchase. What was happening before you went in?"
         end
       end
     end
@@ -73,14 +76,14 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
       # an immediate real slot attempt still preserves admission coverage.
       ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = "0"
       HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, build)
-      post_message("I went to Ross again")
+      post_message("I keep buying things at Ross with money I don't have.")
     ensure
       ENV["MIA_PROVIDER_ADMISSION_WAIT_MS"] = previous_wait
       HouseholdFinance::MiaNarrator.singleton_class.define_method(:new, original)
     end
     assert_equal version.id, selected.version_id
     assert_nil packet[:annual_plan_summary]
-    assert_includes reply, "Chelu, pump the brakes"
+    assert_match(/\Achelu\. You noticed Ross/, reply)
     assert_equal version.id, ChatMessage.where(role: "assistant").order(:id).last.coach_persona_version_id
   end
 

@@ -55,7 +55,7 @@ module SavingsChallenge
     end
 
     def self.protected_message?(message)
-      message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
+      ::Mia::SensitiveMoment.matches?(message) || message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
         HouseholdFinance::MiaCoachAnswerer.routing_priority(message).in?(%i[hardship essential_skip]) ||
         ::Mia::CrisisBoundary.matches?(message) || ::Mia::CrisisBoundary.hopeless?(message)
     end
@@ -93,10 +93,15 @@ module SavingsChallenge
 
     def call
       @supplied_content_context = []
-      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message)
+      if ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
+        @answer = ::Mia::CrisisBoundary.response
+        @intakes = []
+        return self
+      end
+      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
         return self if review_continuation || pattern_turn || goal_turn || progress_turn
       end
-      correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
       if correction
         @intake, @answer = correction.values_at(:intake, :answer)
         @intakes = [ @intake ].compact
@@ -163,7 +168,7 @@ module SavingsChallenge
         @answer = reference
       else
         narrator = Narrator.new(user_message: @message,
-          answer_packet: { kind: "savings_challenge", basis: "participant-approved savings ledger and explicitly scoped baseline",
+          answer_packet: { kind: coach.purchase_prefix ? "purchase_scenario" : "savings_challenge", purchase_prefix: coach.purchase_prefix, basis: "participant-approved savings ledger and explicitly scoped baseline",
             write_state: "no_write", fallback_response: reference,
             guardrails: [ "90_day_total_not_monthly", "approved_new_money_reserved_only", "partial_coverage_is_not_full_household", "feelings_optional_private" ],
             available_product_modules: @available_product_modules, verified_facts: coach.answer_facts }.compact,
@@ -223,8 +228,8 @@ module SavingsChallenge
     end
 
     def money(cents)
-      whole, fraction = cents.abs.divmod(100)
-      "#{cents.negative? ? '-' : ''}$#{whole}#{fraction.zero? ? '' : ".#{fraction.to_s.rjust(2, '0')}"}"
+      fraction = cents.abs.modulo(100)
+      ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: fraction.zero? ? 0 : 2)
     end
 
     def pattern_turn

@@ -2785,5 +2785,38 @@
       "value": ""
     },
     "spending_preferences": []
+  },
+  "Should I purchase a $400 game console on a credit card? I don't have money set aside for it.": {
+    "care": "none",
+    "facts": [],
+    "question": true,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "ok last thing what should i focus on this week": {
+    "care": "none",
+    "facts": [],
+    "question": true,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
+  },
+  "How much is planned for Dining Out this month?": {
+    "care": "none",
+    "facts": [],
+    "question": true,
+    "setup_answer": {
+      "field": "none",
+      "value": ""
+    },
+    "correction": false,
+    "spending_preferences": []
   }
 }

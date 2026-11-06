@@ -1,6 +1,9 @@
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class MiaReviewRoundTwoTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   setup { travel_to Time.zone.local(2026, 5, 28, 12) }
   teardown { travel_back }
 
@@ -11,7 +14,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
       assert_equal :food_support_missing, food_narrator.send(:narration_rejection_reason, content), content
       subject = food_narrator
       subject.define_singleton_method(:openrouter_response) { content }
-      assert_equal food_fallback, subject.call
+      assert_equal Mia::SensitiveMoment.response("I've been skipping meals so the kids could eat"), subject.call
     end
   end
 
@@ -21,7 +24,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
       assert_nil food_narrator.send(:narration_rejection_reason, content), content
       subject = food_narrator
       subject.define_singleton_method(:openrouter_response) { content }
-      assert_equal content, subject.call
+      assert_equal Mia::SensitiveMoment.response("I've been skipping meals so the kids could eat"), subject.call
     end
   end
 
@@ -30,7 +33,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
       content = "You skipped meals so your kids could eat. #{instruction}; talk with your coach. Please get food today. Does everyone have enough food today?"
       subject = food_narrator
       subject.define_singleton_method(:openrouter_response) { content }
-      assert_equal food_fallback, subject.call
+      assert_equal Mia::SensitiveMoment.response("I've been skipping meals so the kids could eat"), subject.call
       assert_equal :food_support_missing, subject.send(:narration_rejection_reason, content)
     end
   end
@@ -118,7 +121,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_equal answerer("Can I buy a $200 stroller?").call, answerer(followup.message).call
   end
 
-  { "tomorrow" => "May 2026", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
+  { "tomorrow" => "This month’s", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
     test "purchase timing resolves #{timing} before the selected period default" do
       assert_includes answerer("Can I buy a $300 stroller #{timing}?", reference_month: 8).send(:purchase_plan_answer), label
     end
