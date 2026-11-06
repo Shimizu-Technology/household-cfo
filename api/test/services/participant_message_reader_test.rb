@@ -72,7 +72,7 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     [ "i spent too much at ross again", "I keep ordering shoes online at night even though I can't really pay for them.", "so frustrated, i keep messing up this budget" ].each do |text|
       assert_equal "none", read(text, object(care: "shame")).care, text
     end
-    [ "im so stupid with money", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
+    [ "im so stupid with money", "i am really stupid", "im such a complete failure", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
       assert_equal "shame", read(text, object(care: "shame")).care, text
     end
   end

@@ -42,7 +42,7 @@ module HouseholdFinance
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
     JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
-    EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:so )?stupid|spouse|fighting about money)\b/i.freeze
+    EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:(?:so|really|very|just|such|an?|total|complete|absolute|completely)\s+){0,4}stupid|spouse|fighting about money)\b/i.freeze
     BUDGET_FRUSTRATION_PATTERN = /\b(?:stupid|annoying|frustrat\w*|hate|done (?:with|w))\b.{0,35}\b(?:budget|challenge)\b|\b(?:budget|challenge)\b.{0,35}\b(?:annoying|frustrat\w*)\b/i.freeze
     BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze

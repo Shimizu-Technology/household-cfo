@@ -50,6 +50,8 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     ask("im so done w this stupid budget lol")
     refute_match(/You are not stupid|988|readiness|approved data/i, reply)
     assert_match(/frustrat|hardest/, reply)
+    ask("i am really stupid with this budget")
+    assert_match(/not stupid|worth/i, reply)
   end
 
   test "indirect crisis families reach 988 on household setup and challenge with models off" do
