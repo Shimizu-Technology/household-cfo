@@ -4856,7 +4856,7 @@ test('profile save sends only the fields the participant changed and guards unsa
   expect(await unloadBlocked()).toBe(false)
 })
 
-test('first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page }) => {
+test('first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page, browserName }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
   let setupRequests = 0
   page.on('request', (request) => { if (request.url().endsWith('/api/v1/workspace/setup')) setupRequests += 1 })
@@ -4876,8 +4876,9 @@ test('first-run setup leaves blank money unknown, accepts cents, and explains pr
 
   await income.fill('1234.56')
   // Save follows the last field in keyboard order.
+  // Safari's Option-Tab includes native buttons when ordinary Tab skips them.
   await page.getByLabel('Flexible spending').focus()
-  await page.keyboard.press('Tab')
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
   await expect(form.getByRole('button', { name: 'Save and talk to Mia' })).toBeFocused()
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.keyboard.press('Enter')
