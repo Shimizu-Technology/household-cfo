@@ -128,7 +128,7 @@ module Demo
         repairable_claims: [ "scenario_conclusion" ], fixed_prefix: @delivery_prefix,
         guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
           facts: parsed_context(prompt_context).merge("coach_persona" => @persona.guard_facts), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
-        validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
+        validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message, guard_covered: true) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
             conversation_resolution: conversation_resolution,
@@ -243,7 +243,7 @@ module Demo
     end
 
     def response_shape_messages(context)
-      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona, fixed_prefix: @delivery_prefix.to_s) + " Use short sentences, at most 30 words each. Ask one question, not several joined together. Never write coach phrases; the server owns them."
+      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona, fixed_prefix: @delivery_prefix.to_s) + " Use short sentences, at most 30 words each. Ask one question, not several joined together. For example, ask 'Which bill needs protecting?' instead of asking about bills, timing and funding in the same sentence. Never write coach phrases; the server owns them."
       if parsed_context(context)["preview_mode"] == true
         instruction += " This is a no-write voice sample; the screen already explains the assistant identity and unloaded household data. " \
           "Do not repeat those notices in the answer. Never invent household facts or claim a write; if a missing fact matters, use one short clause within the sentence range."
@@ -382,13 +382,13 @@ module Demo
     end
 
     # Which check a model reply failed, for the log; nil when it passed.
-    def generic_claim_rejection(content, context:, user_message: nil)
+    def generic_claim_rejection(content, context:, user_message: nil, guard_covered: false)
       payload = parsed_context(context)
-      claim = ::Mia::NarrationClaims.rejection_reason(content)
+      claim = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered)
       return claim if claim
       return "debt_detail" if unsupported_debt_detail_claim?(content, payload: payload)
       return "unverified_amount" unless financial_values_grounded?(content, payload: payload, user_message: user_message)
-      return "scenario_conclusion" if unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
+      return "scenario_conclusion" if !guard_covered && unsupported_scenario_conclusion?(content, preview: payload["preview_mode"] == true)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return if claimed_readiness.empty?
@@ -668,7 +668,7 @@ module Demo
       if purchase_question
         return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
       end
-      if message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN)
+      if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN)
         return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"
       end
 

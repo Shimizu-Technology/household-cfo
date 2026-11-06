@@ -79,7 +79,7 @@ module SpendingPatterns
     def bank_charge?(row)
       return row[:kind].in?(%w[fee interest]) if row[:kind].present?
 
-      row[:merchant].match?(/\A(?:nsf(?: fee)?|monthly service (?:fee|charge)|foreign[- ]transaction (?:fee|charge)|interest charge|(?:bank|service|overdraft|maintenance|atm|late) (?:service )?(?:fee|charge))\z/i)
+      row[:merchant].match?(/\A(?:nsf(?: (?:fee|charge))?|monthly service (?:fee|charge)|foreign[- ]transaction (?:fee|charge)|interest charge|(?:bank|service|overdraft|maintenance|atm|late) (?:service )?(?:fee|charge))\z/i)
     end
 
     def clusters(rows)

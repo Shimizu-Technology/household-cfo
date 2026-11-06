@@ -175,6 +175,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   end
 
   test "a rejected model answer is sourced as fallback and cannot authorize a persona preview" do
+    Mia::ReplyGuard.singleton_class.define_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "purchase_approval" ]) }
     responder = Demo::MiaResponder.new(api_key: "test-key")
     responder.define_singleton_method(:openrouter_response) do |*_args, **_options|
       @response_source = "live_model"

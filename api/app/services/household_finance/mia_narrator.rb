@@ -76,7 +76,7 @@ module HouseholdFinance
       checked = ::Mia::ResponseShapeRewriter.call(sanitized, persona: persona, user_message: user_message,
         fixed_prefix: delivery_prefix,
         repairable_claims: [ :scenario_conclusion ], guard: method(:guard_reply),
-        validator: method(:narration_rejection_reason)) do |instruction|
+        validator: ->(content) { narration_rejection_reason(content, guard_covered: purchase_coaching? || answer_packet[:kind] == "coaching") }) do |instruction|
         @response_shape_rewrite_messages = [ { role: "assistant", content: sanitized }, { role: "system", content: instruction } ]
         rewritten = MiaProviderAdmission.with_slot(call_site: "mia_narrator_shape_rewrite") { openrouter_response }
         sanitize_narration(rewritten)
@@ -216,7 +216,7 @@ module HouseholdFinance
       end
       instruction = ::Mia::ResponseShapeRewriter.instruction(persona, fixed_prefix: delivery_prefix)
       instruction += " Write only the remaining #{purchase_sentence_range.begin}–#{purchase_sentence_range.end} short coaching sentences, with no digits or currency, ending in one practical question." if purchase_coaching?
-      instruction + " Use short sentences, at most 30 words each. Ask one question, not several joined together. No headings, bullets or generic opener. " \
+      instruction + " Use short sentences, at most 30 words each. Ask one question, not several joined together. For example, ask 'Which bill needs protecting?' instead of asking about bills, timing and funding in the same sentence. No headings, bullets or generic opener. " \
         "For a pending proposal, preserve the proposed change and one review action; answer a requested month first. " \
         "A reported income change is separate from the approved plan; offer to review it without claiming it is saved."
     end
@@ -385,12 +385,12 @@ module HouseholdFinance
       @language_policy ||= ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona)
     end
 
-    def narration_rejection_reason(content)
+    def narration_rejection_reason(content, guard_covered: false)
       return :blank_response if content.blank?
-      claim_rejection = ::Mia::NarrationClaims.rejection_reason(content, confirmed_write: answer_packet[:write_state] == "confirmed_write" || (answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)))
+      claim_rejection = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered, confirmed_write: answer_packet[:write_state] == "confirmed_write" || (answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)))
       return claim_rejection if claim_rejection
       if purchase_coaching?
-        return :scenario_conclusion if ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
+        return :scenario_conclusion if !guard_covered && ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
         return :purchase_figures_in_coaching if content.match?(/\b(?:(?:would|will)\s+leave|plan\s+leaves)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b|[\p{N}\p{Sc}]|\b(?:dollars?|bucks|cents?|hundred|thousand|million)\b|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?\s+(?:left|remaining|available|to spend)\b/i)
         sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
         return :purchase_coaching_shape unless content.end_with?("?") && content.count("?") == 1
@@ -450,7 +450,7 @@ module HouseholdFinance
         return :internal_coaching_wording
       end
       return :stacked_record_caveats if content.scan(RECORD_CAVEAT_PATTERN).length > 1
-      return :false_write_claim if false_write_claim?(content)
+      return :false_write_claim if !guard_covered && false_write_claim?(content)
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)

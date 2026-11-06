@@ -14,9 +14,15 @@ module HouseholdFinance
         !text.match?(/\b(?:set|change|update|create|add|record|schedule|log)\b/i)
     end
 
+    # A future payoff describes how an existing card would be used; it is not
+    # a separate request to compare buying with paying down existing debt.
+    CARD_REPAYMENT = /\b(?:and\s+)?pay\s+(?:it|(?:off\s+)?(?:the|that|its)\s+(?:balance|card|statement))\s+(?:off\s+)?(?:in full\s+)?(?:next month|this month)\b/i.freeze
+
     def self.debt_question?(text)
-      text.to_s.match?(/\b(?:credit card|loan|debt)\s+(?:minimum\s+)?payments?\b|\bpayments?\s+(?:on|towards?|for)\s+(?:(?:my|our|the)\s+)?(?:credit card|loan|debt)\b/i) ||
-        text.to_s.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
+      return true if text.to_s.match?(/\b(?:credit card|loan|debt)\s+(?:minimum\s+)?payments?\b|\bpayments?\s+(?:on|towards?|for)\s+(?:(?:my|our|the)\s+)?(?:credit card|loan|debt)\b/i)
+
+      text = text.to_s.gsub(CARD_REPAYMENT, "").gsub(/\b(?:on|using|with)\s+(?:(?:my|our|the|a)\s+)?(?:credit )?card\b/i, "")
+      text.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
     end
 
     def self.item_label(message)

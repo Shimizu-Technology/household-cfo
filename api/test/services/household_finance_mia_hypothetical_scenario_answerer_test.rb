@@ -56,8 +56,8 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
 
   test "current month comparison is concise while other months retain their year" do
     result = answer("purchase", 300, "stroller")
-    assert_includes result.body, "This month’s plan has $1,800 left, so a $300 stroller would leave $1,500,"
-    refute_includes result.body, "if it is extra spending"
+    assert_includes result.body, "This month’s plan has $1,800 left, so a $300 stroller would leave $1,500 if it is extra spending,"
+    assert_includes result.body, "if it is extra spending"
     result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(@household, scenario_type: "purchase", amount: 300,
       label: "stroller", effective_on: Date.current.next_month.beginning_of_month.to_s,
       annual_budget_manager: @manager, reference_month: Date.current.month).call

@@ -12,6 +12,14 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
   FALLBACK = "Use the approved reference answer."
 
   setup do
+    Mia::ReplyGuard.singleton_class.define_method(:call) do |**args|
+      flags = case args[:reply]
+      when /That purchase works|You can (?:comfortably )?afford/ then [ "purchase_approval" ]
+      when /I recorded/ then [ "action_claim" ]
+      else []
+      end
+      Mia::ReplyGuard::Result.new(flags)
+    end
     @persona = Mia::RuntimePersona.for_preview(config: JSON.parse(file_fixture("mia_coach_short_config.json").read), persona_id: 42, draft_revision: 1)
     # Capacity has its own DB-lock suite. These fake transport replies exercise
     # validation and retries even when this machine's DB checkout exceeds 1s.
@@ -55,7 +63,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
         assert_equal "live_model", responder.response_source
       end
       assert_equal 2, requests.length
-      assert_includes requests.last.fetch("messages").last.fetch("content"), "scenario_conclusion"
+      assert_includes requests.last.fetch("messages").last.fetch("content"), "purchase_approval"
     end
   end
 
@@ -74,11 +82,12 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
 
   test "participant purchase narration rejects figures and shares one approval rewrite" do
     unsafe = "You can afford it. Protect your bills first. Which account would you use?"
-    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe, unsafe ], message: "Can I afford a $300 stroller?")
     fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
     narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
     assert_equal narrator.send(:fallback_response), narrator.call
     assert_equal 2, attempts.length
+    assert_equal :reply_guard, narrator.rejection_reason
   end
 
   test "preview rewrite still outside range falls back after exactly two requests" do

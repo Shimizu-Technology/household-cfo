@@ -998,6 +998,8 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = repeated_activity || "this spending"
+      return "It sounds like #{label} is becoming a repeat stop, and you are noticing it. A visit does not tell me whether you bought anything. What was happening just before you went?" if message.match?(/\b(?:went to|going to)\b/i) && !message.match?(/\b(?:bought|buy|spent|purchased|ordered)\b/i)
+
       "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next purchase. What was happening just before you decided to buy?"
     end
 

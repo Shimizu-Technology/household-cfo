@@ -34,7 +34,7 @@ module HouseholdFinance
     SCENARIO_TYPES = %w[none purchase one_time_income essential_expense extra_debt_payment].freeze
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
     HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical(?:ly)?|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
-    PURCHASE_SCENARIO_PATTERN = /\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend|book|order)\b/i.freeze
+    PURCHASE_SCENARIO_PATTERN = /\b(?:can|could|should|may)\s+(?:i|we)\s+take\b[^?!;]*\b(?:trip|vacation|staycation)\b|\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend|book|order)\b/i.freeze
     DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\b(?:if|given(?:\s+that)?)\s+(?:our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
     SAME_AMOUNT_PATTERN = /\b(?:(?:same|unchanged)\s+(?:amount|price|cost)|(?:amount|price|cost)\s+(?:is\s+)?(?:the\s+)?same|keep .{0,80}\b(?:amount|price|cost)\b.{0,30}\bsame)\b/i.freeze
@@ -245,7 +245,7 @@ module HouseholdFinance
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
           !PurchaseQuestionText.debt_question?(user_message) &&
-          !user_message.match?(/\b(?:and|also|then|plus)\b/i) &&
+          !user_message.gsub(PurchaseQuestionText::CARD_REPAYMENT, "").match?(/\b(?:and|also|then|plus)\b/i) &&
           !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::COMPOUND_PURCHASE_DEBT_PATTERN)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan? && scenario.read_only_plan.dig(:items, 0, :scenario_type) == "purchase"

@@ -68,7 +68,7 @@ module HouseholdFinance
       priced_item = PurchaseQuestionText.priced_item(item, amount_cents)
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
       period = date.beginning_of_month == Date.current.beginning_of_month ? "This month’s" : "Your #{facts[:period_label]}"
-      "#{period} plan #{before}, so #{priced_item} #{comparison}, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the

@@ -5,6 +5,7 @@ require_relative "../support/reply_guard_test_helper"
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   test "review one all narration paths reject invented balances verdicts phones and false writes" do
+    Mia::ReplyGuard.singleton_class.define_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "purchase_approval", "action_claim" ]) }
     [ "purchase_scenario", "coaching", "budget_action", "transaction_draft" ].each do |kind|
       packet = { kind: kind, write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown. Which category would cover it?" }
       [ "You have money in the bank", "There is money in your account", "That is available to spend", "Go ahead and buy it", "You can buy it", "I recommend you buy it", "There is plenty of room", "It is no problem for your budget", "I've decided this is a yes", "I saved it to your budget", "I saved it to your budget. Nothing changed", "It was recorded", "Your plan was updated", "I logged it", "Call 671-555-0100 for help", "Phone (671) 555 0101" ].each do |claim|

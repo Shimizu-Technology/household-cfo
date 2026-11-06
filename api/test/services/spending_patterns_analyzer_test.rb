@@ -14,8 +14,9 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     purchase(Date.new(2026, 10, 24), "Cafe", 1000)
     purchase(Date.new(2026, 10, 25), "Cafe", 1449)
     purchase(Date.new(2026, 10, 25), "Monthly service fee", 500)
+    purchase(Date.new(2026, 10, 25), "NSF Charge", 600)
     result = analyze
-    assert_equal 4149, result[:observed_spending_cents]
+    assert_equal 4749, result[:observed_spending_cents]
     cluster = result[:small_purchase_clusters].find { |row| row[:label] == "Friday through Sunday" }
     assert_equal 3, cluster[:purchase_count]
     assert_equal 3649, cluster[:total_cents]

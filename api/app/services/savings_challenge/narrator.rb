@@ -6,7 +6,7 @@ module SavingsChallenge
       "#{super} This is the 90-day savings challenge. The recommended $500 is total new money reserved over the whole personal window, never a monthly obligation. Use only the approved facts and coverage in the verified reference. Statements, credit cards, bank links and a full budget are optional. Unknown progress is not zero. Feelings are optional and private. Drafts need participant approval. Lower spending, refunds, debt payments and old or borrowed money do not automatically create savings. Never tell someone to skip essentials or required payments; offer a smaller comfortable target or postponement. Do not invent a complete baseline, successful upload reconciliation, financial write or sharing grant."
     end
 
-    def narration_rejection_reason(content)
+    def narration_rejection_reason(content, guard_covered: false)
       super || (challenge_boundary_violation?(content) ? :savings_challenge_boundary : nil)
     end
 

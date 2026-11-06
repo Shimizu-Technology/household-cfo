@@ -51,13 +51,13 @@ module Mia
           provider_request_id: provider_request_id
         )
       elsif source.in?(%w[deterministic_fallback deterministic_safety]) && reply.present? &&
-          !(source == "deterministic_safety" && (CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt)))
+          !(CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt))
         result(status: "ready", source: source, reply: reply,
           notice: "Participants would receive this safe reply because the model answer was unavailable or did not pass the reply checks. #{rejection_notice(active_responder)} You may review this safe reply and continue going live.",
           model_identifier: CoachPersonaBehavioralPreviewEvidence::SAFE_REPLY_IDENTIFIER,
           provider_request_id: "safe-reply:#{Digest::SHA256.hexdigest(reply)}")
-      elsif source == "deterministic_safety"
-        result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
+      elsif source.in?(%w[deterministic_fallback deterministic_safety]) && (CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt))
+        result(status: "safety_only", source: source, reply: reply, notice: preview_notice("deterministic_safety"))
       else
         result(
           status: "unavailable",
@@ -142,7 +142,7 @@ module Mia
         context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
-        phrase_notice: phrase_notice(reply),
+        phrase_notice: status == "ready" ? phrase_notice(reply) : nil,
         notice: status == "unavailable" ? notice : "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
       }
     end

@@ -4,7 +4,7 @@ module Mia
   # Deterministic floor; the independent guard can only tighten this routing.
   module SensitiveMoment
     GRIEF = /\b(?:passed away|(?:my|our)\s+(?:[\w’'-]+\s+){0,2}(?:mom|mother|dad|father|son|daughter|husband|wife|spouse|partner|brother|sister|parents?|grand\w+|friend|baby|child|uncle|aunt|cousin)\b[^.!?]{0,25}\b(?:died|death)|bereave\w*|griev\w*|mourning|funeral|casket)\b/i.freeze
-    STRAIN = /\b(?:(?:went|go|going) without (?:food|meals?)|lost my job|(?:laid|laying) off|make ends meet|(?:can['’]?t|cannot)\s+(?:make|pay|cover|afford|buy)\s+(?:(?:my|our|the|any)\s+)?(?:rent|food|groceries|minimum(?: payment)?|bills?)|hate myself|feel like a loser|(?:i|we)(?:[\u0027’](?:m|re)|\s+(?:am|are|feel|felt))\s+(?:[\w’\u0027-]+\s+){0,4}(?:crying|worthless|failure|guilty|ashamed|shame))\b/i.freeze
+    STRAIN = /\b(?:(?:went|go|going) without (?:food|meals?)|lost my job|(?:laid|laying) off|make ends meet|(?:can['’]?t|cannot)\s+(?:make|pay|cover|afford|buy)\s+(?:(?:my|our|the|any)\s+)?(?:rent|food|groceries|minimum(?:s| payments?)?|bills?)|hate myself|feel like a loser|(?:i|we)(?:[\u0027’](?:m|re)|\s+(?:am|are|feel|felt))\s+(?:[\w’\u0027-]+\s+){0,4}(?:crying|worthless|failure|guilty|ashamed|shame))\b/i.freeze
 
     def self.grief?(text) = text.to_s.match?(GRIEF)
 
