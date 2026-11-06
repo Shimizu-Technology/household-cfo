@@ -376,7 +376,7 @@ module Api
           guide = HouseholdFinance::MiaSetupGuide.new(current_household)
           field = @mia_setup_question_field if guide.next_missing_field
           if field && !assistant_content.include?("Next setup question:")
-            assistant_content = "#{assistant_content} #{HouseholdFinance::MiaSetupGuide.question_message(field, resume: true)}"
+            assistant_content = "#{assistant_content} #{HouseholdFinance::MiaSetupGuide.resume_question_message(field, history)}"
           end
         end
         assistant_content = append_persona_capability_boundary(content, assistant_content)

@@ -989,7 +989,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     context = { metrics: { readiness: "unavailable_until_debt_minimums_confirmed", monthly_income: "$4,800" } }.to_json
     reply = stubbed_model_responder("Your readiness is Red.").call("whats my readiness color", context: context)
 
-    assert reply.start_with?("Still to add: debt minimums"), reply
+    assert reply.start_with?("Your household setup is complete. For spending guidance, confirm your debt minimums."), reply
     refute_includes reply, "readiness color"
     refute_match(/readiness is (?:red|yellow|green)/i, reply)
   end

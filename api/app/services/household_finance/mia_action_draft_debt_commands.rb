@@ -2,6 +2,13 @@ module HouseholdFinance
   module MiaActionDraftDebtCommands
     private
 
+    def debt_review_summary(label, payload)
+      details = []
+      details << "#{money(payload[:balance_cents])} balance" if payload[:balance_known]
+      details << "#{money(payload[:minimum_payment_cents])} monthly minimum" if payload[:minimum_payment_known]
+      details.any? ? "Review #{label}: #{details.join(' and ')}. Nothing saves until you apply this card." : "I prepared #{label} for your review."
+    end
+
     def structured_debt_create_proposal
       label = command[:debt_name].to_s.squish.truncate(120, omission: "…")
       return validation_result("Tell me what this debt should be called. Nothing changed.") if label.blank?
@@ -19,7 +26,7 @@ module HouseholdFinance
         target_record_type: "Debt", target_record_id: nil, payload: payload,
         before_snapshot: {}, after_snapshot: payload.merge(active: true)
       )
-      proposal_result(draft_type: "debt_plan", title: "Add debt", summary: "I prepared #{label} for your review.", rationale: individual_debt_change_rationale("be added", "This record affects planning only after you apply it. No payment is made."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
+      proposal_result(draft_type: "debt_plan", title: "Add debt", summary: debt_review_summary(label, payload), rationale: individual_debt_change_rationale("be added", "This record affects planning only after you apply it. No payment is made."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end
@@ -41,7 +48,7 @@ module HouseholdFinance
         target_record_type: "Debt", target_record_id: debt.id, payload: payload,
         before_snapshot: before, after_snapshot: after
       )
-      proposal_result(draft_type: "debt_plan", title: "Update debt", summary: "I prepared an update to #{debt.label} for your review.", rationale: individual_debt_change_rationale("be updated", "The approved record stays unchanged until you apply this card."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
+      proposal_result(draft_type: "debt_plan", title: "Update debt", summary: debt_review_summary(debt.label, payload), rationale: individual_debt_change_rationale("be updated", "The approved record stays unchanged until you apply this card."), items: [ item ], metadata: { source: "mia_chat", parser: "model_intent", setup_progress: SetupStatus.new(household).missing_field_keys.include?("debt_payment") })
     rescue ArgumentError => e
       validation_result("#{e.message}. Nothing changed.")
     end

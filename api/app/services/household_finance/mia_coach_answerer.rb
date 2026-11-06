@@ -318,7 +318,11 @@ module HouseholdFinance
       liquid_missing = !AssetPortfolio.new(household).liquid_balance_known?
       missing = liquid_missing ? "debt minimums and checking, savings, and emergency-fund balances" : "debt minimums"
       account_step = liquid_missing ? " Add your account balances in My Money, under Accounts." : ""
-      "Still to add: #{missing}. I cannot judge your emergency cushion or available cash from missing numbers.#{account_step} #{MiaSetupGuide.question_message('debt_payment')}"
+      if setup_status.complete?
+        "Your household setup is complete. For spending and cushion guidance, I still need #{missing}. I cannot judge available cash from missing numbers.#{account_step} Open Debt in My Money to review minimums, including no debt payments if there are none."
+      else
+        "Still to add: #{missing}. I cannot judge your emergency cushion or available cash from missing numbers.#{account_step} #{MiaSetupGuide.question_message('debt_payment')}"
+      end
     end
 
     def confirmed_debt_free_answer

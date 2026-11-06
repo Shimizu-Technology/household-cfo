@@ -673,8 +673,14 @@ module HouseholdFinance
     def proposal_result(title:, summary:, rationale:, items:, metadata: {}, draft_type: "budget_edit", year: annual_budget_manager.year)
       calculation = command[:setup_calculation] if command.is_a?(Hash)
       if calculation
-        verified = MiaSetupCalculation.new(message: raw_input, reading: ParticipantMessageReader::Current.reading, field: calculation[:field]).call if ParticipantMessageReader::Current.reading
-        if verified && verified == calculation
+        prior = if calculation[:prior_draft_id]
+          draft = household.mia_action_drafts.pending.find_by(id: calculation[:prior_draft_id], requested_by_user: user)
+          draft&.metadata&.dig("setup_calculation")&.deep_symbolize_keys&.merge(draft_id: draft.id)
+        end
+        return validation_result("That earlier review is no longer pending. Please give the full list again. Nothing changed.") if calculation[:prior_draft_id] && !prior
+        verified = MiaSetupCalculation.new(message: raw_input, reading: ParticipantMessageReader::Current.reading, field: calculation[:field], prior: prior).call if ParticipantMessageReader::Current.reading
+        return validation_result("I could not verify that total. Please give the named parts again. Nothing changed.") unless verified && verified.deep_symbolize_keys == calculation
+        if verified
           metadata = metadata.merge(setup_calculation: verified)
           summary = verified[:description]
           rationale = [ verified[:description], rationale ].join(" ")

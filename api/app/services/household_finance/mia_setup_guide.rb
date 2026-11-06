@@ -21,10 +21,19 @@ module HouseholdFinance
       "debt_payment" => "What monthly debt minimum should we review? You can say no debt payments."
     }.freeze
 
+    RETRY_QUESTIONS = {
+      "household_name" => "Which household name would you like to review?",
+      "primary_goal" => "Which money goal should we put on your plan?",
+      "primary_income" => "What monthly take-home income should I put on the review card?",
+      "fixed_expenses" => "Which monthly total should we review for your must-pay bills?",
+      "flexible_spend" => "What monthly estimate should we review for everyday costs?",
+      "debt_payment" => "What debt minimums should we review, or are there no debt payments?"
+    }.freeze
+
     class << self
       def pending_question_field(missing, messages)
         recent = Array(messages).reverse.find { |item| item.to_h.symbolize_keys[:role].to_s == "assistant" && item.to_h.symbolize_keys[:content].to_s.include?("Next setup question:") }
-        missing.find { |key| recent && [ NEXT_QUESTIONS[key], RESUME_QUESTIONS[key] ].compact.any? { |question| recent.to_h.symbolize_keys[:content].to_s.include?(question) } } || missing.first
+        missing.find { |key| recent && [ NEXT_QUESTIONS[key], RESUME_QUESTIONS[key], RETRY_QUESTIONS[key] ].compact.any? { |question| recent.to_h.symbolize_keys[:content].to_s.include?(question) } } || missing.first
       end
 
       def goal_change_request?(value)
@@ -32,7 +41,7 @@ module HouseholdFinance
       end
 
       def setup_request?(value)
-        normalized(value).casecmp?(SETUP_REQUEST) || normalized(value).match?(/\A(?:please\s+)?(?:help\s+me\s+(?:to\s+)?|let['’]?s\s+)?(?:set\s*up|start\s+setting\s+up)\s+(?:my|our)\s+household[.!]?\z/i)
+        normalized(value).match?(/\A(?:please )?(?:resume|continue)(?: my| our)? (?:household )?setup[.!]?\z/i) || normalized(value).casecmp?(SETUP_REQUEST) || normalized(value).match?(/\A(?:please\s+)?(?:help\s+me\s+(?:to\s+)?|let['’]?s\s+)?(?:set\s*up|start\s+setting\s+up)\s+(?:my|our)\s+household[.!]?\z/i)
       end
 
       def question_message(field, resume: false)
@@ -49,15 +58,24 @@ module HouseholdFinance
 
       def server_question_asked?(field, active_thread:, recent_messages:)
         return false if other_question_pending?(active_thread)
-        # Recover after a clarification or unrelated answer replaces the active
-        # topic. Only a server-authored setup question establishes this context.
-        questions = [ question_message(field), question_message(field, resume: true) ].compact
-        if field.to_s == "flexible_spend"
-          questions << "Next setup question: About how much does this household spend flexibly each month? Enter 0 if there is none. #{REVIEW_BOUNDARY}"
-        end
-        Array(recent_messages).reverse.any? do |message|
+        recent = Array(recent_messages).reverse.find do |message|
           turn = message.to_h.deep_symbolize_keys
-          turn[:role] == "assistant" && questions.any? { |question| turn[:content].to_s.end_with?(question) }
+          turn[:role] == "assistant" && (turn[:content].to_s.include?("Next setup question:") || turn[:content].to_s.include?("Setup is paused."))
+        end
+        return false unless recent
+        text = recent.to_h.deep_symbolize_keys[:content].to_s
+        return false if text.include?("Setup is paused.")
+        questions = [ question_message(field), question_message(field, resume: true), "Next setup question: #{RETRY_QUESTIONS[field.to_s]} #{REVIEW_BOUNDARY}" ]
+        questions << "Next setup question: About how much does this household spend flexibly each month? Enter 0 if there is none. #{REVIEW_BOUNDARY}" if field.to_s == "flexible_spend"
+        questions.any? { |question| text.end_with?(question) }
+      end
+
+      def resume_question_message(field, messages)
+        last = Array(messages).reverse.find { |item| item.to_h.symbolize_keys[:role].to_s == "assistant" && item.to_h.symbolize_keys[:content].to_s.include?("Next setup question:") }
+        if last && last.to_h.symbolize_keys[:content].to_s.include?(RESUME_QUESTIONS[field.to_s].to_s)
+          "Next setup question: #{RETRY_QUESTIONS.fetch(field.to_s)} #{REVIEW_BOUNDARY}"
+        else
+          question_message(field, resume: true)
         end
       end
 
