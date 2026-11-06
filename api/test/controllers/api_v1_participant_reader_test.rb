@@ -235,6 +235,18 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an asked purchase with saved cash gets an answer instead of a day question" do
+    with_reading(reading(facts: [ fact("set_aside", "$75", day: "") ]).merge(question: true)) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "Could I buy a $75 lunch bag? I saved that cash separately from my challenge savings." }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_empty json.fetch("challenge_chat_cards")
+        refute_match(/Which day|Got it/i, json.dig("assistant_message", "content"))
+      end
+    end
+  end
+
   test "a small report with a condition after it still reaches its card" do
     with_reading(reading(facts: [ fact("set_aside", "20") ])) do
       with_savings_runtime do
