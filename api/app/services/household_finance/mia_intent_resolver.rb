@@ -792,6 +792,7 @@ module HouseholdFinance
     def setup_unrecognized_reply_result
       field = next_missing_setup_field
       return unless field && guided_setup_question_asked?(field)
+      return if guided_setup_non_answer? || MiaCoachAnswerer.spend_report_text?(user_message)
       deterministic_setup_clarification(field, clarification: "I haven't added that to your setup. #{MiaSetupGuide.question_message(field)}")
     end
 

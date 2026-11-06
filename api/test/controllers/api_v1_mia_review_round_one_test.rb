@@ -16,6 +16,7 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     [ "My husband left me last night", "I need to talk to someone", "How do I contact my coach?", "How can I reach my coach?", "What is a sinking fund?", "Can I afford a $300 stroller?" ].each do |message|
       ask(message)
       refute_match(/\ANext setup question:/, reply, message)
+      refute_match(/I haven't added that to your setup/, reply, message)
       assert_nil response.parsed_body["mia_action_draft"], message
     end
   end

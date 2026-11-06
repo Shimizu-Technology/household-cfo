@@ -46,7 +46,9 @@ module SavingsChallenge
           text.match?(/\Amonthly (?:service fee|maintenance fee|service charge)\z/) ||
           text.match?(/\bbank\b/) && text.match?(/\bservice (?:fee|charge)\b/)
         return if (event_type == "fee" || text.match?(/\bfees?\b/)) && !bank_fee
-        stack = if event_type == "fee" || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|groceries|supermarkets?|payless|cost u less|fuel|gasoline|shell|mobil|service fee)\b/)
+        # Groceries and fuel can belong to either broad group in her plan.
+        # A shop name cannot override her setup; ask unless she chose before.
+        stack = if event_type == "fee" || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|service fee)\b/)
           "non_discretionary"
         elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|includes tip|netflix|streaming|subscription|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
           "discretionary"

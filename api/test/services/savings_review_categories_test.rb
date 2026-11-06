@@ -19,6 +19,12 @@ class SavingsReviewCategoriesTest < ActiveSupport::TestCase
     end
   end
 
+  test "groceries and fuel need a choice instead of a broad fixed default" do
+    [ "Payless", "Payless Supermarket", "Cost-U-Less", "Shell", "Mobil", "Groceries", "Fuel", "Gasoline" ].each do |merchant|
+      assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant), merchant
+    end
+  end
+
   test "transfers payments fees and refunds never get merchant hints" do
     [ "GPA payment", "Water transfer", "Ross refund", "Internet fee" ].each do |merchant|
       assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant), merchant
