@@ -130,6 +130,26 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
     assert_equal "table", coach.send(:purchase_item)
   end
 
+  test "large generic context keeps financial guard facts within the request budget" do
+    seen = []
+    Mia::ReplyGuard.singleton_class.define_method(:call) do |**args|
+      seen << args[:facts]
+      guard = Mia::ReplyGuard.new(**args)
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.call
+    end
+    facts = { metrics: { baseline_surplus_cents: 100_000 }, debts: { records: [ { label: "Card", balance_cents: 50_000 } ] }, documents: "会" * 30_000 }
+    responder = Demo::MiaResponder.new(api_key: "fake", persona: voice)
+    reply = "Check required bills first. What would you check before deciding?"
+    responder.define_singleton_method(:openrouter_response) { |*, **_| @response_source = "live_model"; reply }
+    assert_equal reply, responder.call("What should I focus on next?", context: facts.to_json)
+    assert_equal "live_model", responder.response_source
+    assert_equal facts[:metrics].stringify_keys, seen.last["metrics"]
+    assert_equal facts[:debts].deep_stringify_keys, seen.last["debts"]
+    assert_operator seen.last.to_json.bytesize, :<=, 12_000
+    refute seen.last.key?("documents")
+  end
+
   private
 
   def voice

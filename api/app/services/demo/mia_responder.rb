@@ -3,6 +3,9 @@ require "json"
 
 module Demo
   class MiaResponder
+    GUARD_FACTS_MAX_BYTES = 12_000
+    GUARD_FACT_PRIORITY = %w[coach_persona metrics household setup available_product_modules financial_accounts income_sources debts expense_stack_totals annual_budget tracked_goals pending_review].freeze
+
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
@@ -127,7 +130,7 @@ module Demo
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
         repairable_claims: [ "scenario_conclusion" ], fixed_prefix: @delivery_prefix,
         guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
-          facts: parsed_context(prompt_context).merge("coach_persona" => @persona.guard_facts), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
+          facts: reply_guard_facts(prompt_context), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
         validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message, guard_covered: true) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
@@ -382,6 +385,21 @@ module Demo
     end
 
     # Which check a model reply failed, for the log; nil when it passed.
+    # The guard's 48KB envelope also contains the participant, history and reply.
+    # Keep small contexts verbatim; in large contexts prioritize whole financial
+    # facts over bulky optional data. Omitted facts can only make the guard stricter.
+    def reply_guard_facts(context)
+      facts = parsed_context(context).merge("coach_persona" => @persona.guard_facts)
+      return facts if JSON.generate(facts).bytesize <= GUARD_FACTS_MAX_BYTES
+
+      (GUARD_FACT_PRIORITY + facts.keys).uniq.each_with_object({}) do |key, bounded|
+        next unless facts.key?(key)
+        next if JSON.generate(bounded.merge(key => facts[key])).bytesize > GUARD_FACTS_MAX_BYTES
+
+        bounded[key] = facts[key]
+      end
+    end
+
     def generic_claim_rejection(content, context:, user_message: nil, guard_covered: false)
       payload = parsed_context(context)
       claim = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered)
