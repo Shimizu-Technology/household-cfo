@@ -1563,6 +1563,7 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
 }
 
 export type AdminPersonaSetupChange = {
+  phrase?: PersonaConfiguration['phrases'][number] | null
   group: string
   path: string
   label: string

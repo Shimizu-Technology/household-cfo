@@ -36,7 +36,7 @@ module Mia
         finalize_turn!(turn_id: turn.id, provider_result:)
       rescue ProposalResolver::Error => error
         failed_result = fail_turn!(turn&.id, error.code)
-        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.",
+        raise Error.new("Mia could not prepare a proposal. Nothing changed. Try again in a minute.",
           code: error.code, status: :service_unavailable, result: failed_result)
       rescue OperationContract::ContractError => error
         failed_result = fail_turn!(turn&.id, error.code, message: error.public_message)
@@ -129,13 +129,15 @@ module Mia
 
           proposal = nil
           dropped = []
-          operations = PhraseSuggestions.new(message: turn.user_message, coach_name: authorization.persona.draft_config.dig("identity", "human_coach_name")).call(provider_result.operations)
+          pending_proposal = session.proposals.lock.find_by(status: "pending")
+          phrases = pending_proposal&.after_state&.dig("draft_config", "phrases") || authorization.persona.draft_config["phrases"]
+          operations = PhraseSuggestions.new(message: turn.user_message, coach_name: authorization.persona.draft_config.dig("identity", "human_coach_name"), phrases:).call(provider_result.operations)
           if operations.any?
             built = ProposalBuilder.new(
               persona: authorization.persona,
               actor: authorization.actor,
               user_message: turn.user_message,
-              previous: session.proposals.lock.find_by(status: "pending")
+              previous: pending_proposal
             ).call(operations, partial: true)
             dropped = built.fetch(:dropped, [])
             dropped.each { |item| log_contract_failure(item.fetch(:code), turn.id, item.fetch(:index)) }
@@ -190,7 +192,7 @@ module Mia
         Rails.logger.warn("Persona setup contract rejected turn_id=#{turn_id} operation_index=#{index} contract_code=#{code}")
       end
 
-      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Try again or use Guided setup.")
+      def fail_turn!(turn_id, code, message: "Mia could not prepare a proposal. Try again in a minute.")
         return unless turn_id
 
         ApplicationRecord.transaction do

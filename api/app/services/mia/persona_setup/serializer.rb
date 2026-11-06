@@ -85,6 +85,7 @@ module Mia
             group: GROUPS.fetch(path.split(".").first, "Other"),
             path:,
             label: path == "phrases" ? phrase_label(operation) : path.split(".").last.tr("_", " ").titleize,
+            phrase: operation["op"] == "add_phrase" ? operation["value"] : nil,
             before: before_value(proposal, operation),
             after: after_value(proposal, operation),
             source_basis: operation.fetch("source_basis"),

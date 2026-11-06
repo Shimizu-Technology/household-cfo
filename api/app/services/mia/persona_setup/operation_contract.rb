@@ -55,7 +55,7 @@ module Mia
             "persona_setup_no_change" => "It already matches your assistant.",
             "persona_setup_too_large" => "It was too large to review at once.",
             "persona_invalid" => "It did not meet the rules that protect participants."
-          }.fetch(code, "Mia could not prepare it for review. Try Guided setup.")
+          }.fetch(code, "Mia could not prepare it for review. Try describing one change at a time.")
         end
 
         def public_message
@@ -65,7 +65,7 @@ module Mia
           when "persona_setup_text_evidence"
             "Please include the words that support this coaching or teaching suggestion."
           when "persona_setup_voice_evidence"
-            "Please describe how you speak to clients, such as warm, direct, or brief. A place name alone cannot describe your voice."
+            "Please describe the voice choices you want to add or remove, in your own words."
           when "persona_setup_drafting_not_requested"
             "Please ask for a coaching philosophy before Mia writes one for you."
           when "persona_setup_crisis_phrase"
@@ -86,10 +86,10 @@ module Mia
             elsif message.include?("dialect, slang, or cultural traits")
               "A place or identity alone cannot describe your voice. Please share your own words."
             else
-              "This suggestion did not meet the rules that protect participants. Try a different description or use Guided setup."
+              "This suggestion did not meet the rules that protect participants. Try a different description."
             end
           else
-            "Mia could not prepare this suggestion for review. Try a shorter description or use Guided setup."
+            "Mia could not prepare this suggestion for review. Try a shorter description."
           end
         end
       end
@@ -260,7 +260,8 @@ module Mia
           # Explicitly requested creative philosophy is labelled Mia drafted.
           unless source == "mia_drafted" && !transcript_request?
             values = if op == "add_phrase"
-              [ value.fetch("meaning") ]
+              existing = Array(@evidence_state["phrases"]).find { |phrase| PhraseSuggestions.key(phrase["text"]) == PhraseSuggestions.key(value["text"]) }
+              existing && existing["meaning"] == value["meaning"] ? [] : [ value.fetch("meaning") ]
             elsif path.start_with?("curriculum.")
               current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
               added = Array(value) - Array(current)
@@ -390,9 +391,17 @@ module Mia
         permitted = %w[text meaning allowed_contexts prohibited_contexts frequency caution]
         phrase = value.slice(*permitted).merge("provenance" => "coach_authored")
         phrases = state.fetch("draft_config").fetch("phrases")
-        return if phrases.any? { |item| PhraseSuggestions.key(item["text"]) == PhraseSuggestions.key(phrase["text"]) }
-
-        phrases << phrase
+        existing = phrases.find { |item| PhraseSuggestions.key(item["text"]) == PhraseSuggestions.key(phrase["text"]) }
+        if existing
+          unless existing["provenance"] == "coach_authored"
+            raise ContractError.new("A participant’s own phrase must stay unchanged.", code: "persona_setup_participant_phrase")
+          end
+          # Keep the exact saved text and artifact identity. The schema reseals
+          # the changed meaning/use and publication requires a fresh review.
+          existing.merge!(phrase.except("text", "provenance"))
+        else
+          phrases << phrase
+        end
       end
 
       def normalize_phrase_value(raw_value)

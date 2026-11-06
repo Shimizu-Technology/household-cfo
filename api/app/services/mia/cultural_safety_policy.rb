@@ -130,7 +130,11 @@ module Mia
       private
 
       def identity_based_response_style?(text, field:, identity_labels:)
-        identity_basis = IDENTITY_BASIS_PATTERNS.any? { |pattern| text.match?(pattern) } ||
+        # A coach's familiar relationship comparison describes manner, not
+        # regional identity. Remove only this bounded simile from identity
+        # detection; any place, dialect or demographic claim still gets checked.
+        identity_text = text.gsub(/\b(?:sound|speak|talk|write|respond|reply|communicate)(?:s|ing)?\s+like\s+(?:a|an|my|your)\s+(?:(?:warm|kind|honest|calm|patient|direct|practical|supportive|trusted|older)(?:\s+|,\s*))*(?:auntie|aunt|uncle|friend|cousin|sister|brother|mentor)\b/i, "")
+        identity_basis = IDENTITY_BASIS_PATTERNS.any? { |pattern| identity_text.match?(pattern) } ||
           Array(identity_labels).any? { |label| label.present? && text.match?(/\b#{Regexp.escape(label)}\b/i) }
         return identity_basis if field == :style_instruction
 

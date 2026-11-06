@@ -101,7 +101,7 @@ it('keeps success when parent props refresh and does not restart preview',async(
 it('CR21 shows actual Savings navigation and the unopened challenge before approval and after success',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:false,upgrade_notice:'This update adds Statements',modules:['home','review','ask_mia','budget','profile','wealth','statements'].map(id=>({id,enabled:true,label:id}))}}]})
  api.postCoachLaunch.mockResolvedValue({persona:published,launch:{groups:[{...group,challenge_closed:true}]}})
- render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy()
+ render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy();expect(screen.queryByText(/Tools included:/)).toBeNull()
  expect(screen.getByText('This update adds Statements')).toBeTruthy()
  expect(screen.getByText(/program team still needs to open/)).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('program team still needs to open')
@@ -214,4 +214,35 @@ it('CR21 shows the ordered secondary tools inside More',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'household_cfo'}},preview:{module_order:order,modules:order.map(id=>({id,enabled:true,label:id}))}}]})
  render(<Harness/>);await review()
  expect(screen.getByText('Home · Mia · Budget · Statements · More: Optionality · CFO Filter')).toBeTruthy()
+})
+
+it('W23 returns to Go live without repeating paid answers and refreshes group settings',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review()
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
+ await screen.findByText('Review before going live')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(api.runAdminPersonaEvaluation).toHaveBeenCalledTimes(1)
+ expect(api.fetchAdminPersonaReleaseReadiness).toHaveBeenCalledTimes(2)
+ expect(screen.getByText(/Occasionally, during everyday coaching/)).toBeTruthy()
+})
+
+it('W23 refuses reused preview if the saved evidence changed while away',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review()
+ view.rerender(<Active active={false}/>);
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:{...ready.behavioral_preview_evidence,digest:'changed'}})
+ view.rerender(<Active active/>);await screen.findByRole('alert')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
+})
+
+it('W23 refuses a previously previewed phrase after audience review rejects it',async()=>{
+ function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
+ const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,phrase_audience_reviews:[{...ready.phrase_audience_reviews[0],review_state:'rejected'}]})
+ view.rerender(<Active active/>);expect((await screen.findByRole('alert')).textContent).toContain('rejected for this audience')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2);expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })

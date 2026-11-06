@@ -59,11 +59,14 @@ module Mia
 
       def self.descriptive_use?(quote, match)
         return true if match[0].match?(/\s/)
+        # These are teaching actions/objects, not descriptive adjectives. Their
+        # surrounding nouns must not be judged like "direct deposit".
+        return true if match[0].match?(/\A(?:explain|define|terms|jargon|reflect|questions?|patterns?|choices?|tradeoffs?)\z/i)
 
         # A bare descriptor, adjective list, or communication phrase can
         # support voice. Generic noun phrases such as "warm weather" and
         # "direct deposit" cannot borrow that adjective for a voice choice.
-        quote[match.end(0)..].match?(/\A(?:\s*[,.;:!?"'”’]|\s*\z|\s+(?:and|or|tone|voice|style|language|wording|manner|approach|energy|answers?|responses?|replies|sentences?|questions?|coaching|accountability|coach|briefly|next step|older cousin|about tradeoffs)\b)/i)
+        quote[match.end(0)..].match?(/\A(?:\s*[,.;:!?"'”’]|\s*\z|\s+(?:and|or|tone|voice|style|language|words|wording|manner|approach|energy|answers?|responses?|replies|sentences?|questions?|coaching|accountability|coach|briefly|next step|older cousin|auntie|aunt|friend|cousin|who|with|to|about tradeoffs)\b)/i)
       end
 
       def self.supports?(quote, value, removal: false)
