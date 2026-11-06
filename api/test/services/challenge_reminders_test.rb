@@ -1,4 +1,5 @@
 require "test_helper"
+require "mail"
 require_relative "../support/savings_challenge_test_support"
 
 class ChallengeRemindersTest < ActiveSupport::TestCase
