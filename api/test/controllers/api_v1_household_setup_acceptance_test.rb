@@ -249,6 +249,21 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 390000, @household.income_sources.sole.amount_cents
   end
 
+  test "yes confirms setup facts given in separate earlier turns before a setup restart" do
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    [ "$3,900", "The Reyes Family of Mangilao and Dededo Guam with Grandma Rosa and the Three Kids Too", "Help me set up my household" ].each do |content|
+      session.chat_messages.create!(role: "user", content: content)
+    end
+    session.chat_messages.create!(role: "assistant", content: 'Happy to help. Is your household name "The Reyes Family", and is $3,900 your monthly take-home income?')
+    post_message("Yes")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert draft, response.parsed_body.inspect
+    assert_equal 0, @household.income_sources.count
+    apply(draft)
+    assert_equal "The Reyes Family", @household.reload.name
+    assert_equal 390000, @household.income_sources.sole.amount_cents
+  end
+
   test "an open monthly income review accepts a natural correction without a model" do
     HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
       attributes: { household_name: "Reyes Family", primary_goal: "Save for a house" }).call

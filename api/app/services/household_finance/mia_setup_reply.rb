@@ -4,6 +4,34 @@ module HouseholdFinance
   module MiaSetupReply
     module_function
 
+    def confirmation_updates(messages)
+      index = messages.rindex { |turn| turn[:role] == "assistant" }
+      return unless index
+      question = messages[index][:content].to_s
+      match = question.match(/\bis your household name\s+["“'‘](.+?)["”'’],?\s+and is\s+\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+your monthly (?:take[ -]home )?income\?["”]?\s*\z/i)
+      return unless match
+
+      name, amount = match.captures
+      cents = Money.chat_cents(amount)
+      return {} unless cents.between?(0, Money::MAX_AMOUNT_CENTS) && name.length <= 120
+      sources = messages.take(index).filter_map { |turn| turn[:content].to_s.squish if turn[:role] == "user" }
+        .reject { |text| text.match?(/\?|\b(?:not|isn['’]?t|don['’]?t|if|would|could|might)\b/i) }
+      name_known = sources.any? do |text|
+        source = text[/\b(?:household (?:is called|name is)|call it)\s+([^.!?]+)/i, 1] || text
+        source = source.sub(/[.!]\z/, "").squish
+        source.match?(/\A[\p{L}\p{M}\d '&-]+\z/) && (source.casecmp?(name) || source.downcase.start_with?("#{name.downcase} of "))
+      end
+      income_facts = sources.filter_map do |text|
+        raw = text.match(MiaIntentResolver::GUIDED_MONEY_REPLY_PATTERN)&.[](1) || text.match(MiaSetupIntake::PATTERNS.fetch(:primary_income))&.[](1)
+        Money.chat_cents(raw) if raw
+      end
+      return {} unless name_known && income_facts.last == cents
+
+      { household_name: name, primary_income: Money.chat_amount_text(amount) }
+    rescue ArgumentError
+      {}
+    end
+
     def goal?(message)
       text = message.to_s.squish
       explicit = text.match(/\b(?:(?:main|primary|money|financial|household)\s+)*goal\s+(?:is|:|to)\s+(.+)/i)

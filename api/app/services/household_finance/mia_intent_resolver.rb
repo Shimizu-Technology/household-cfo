@@ -729,6 +729,15 @@ module HouseholdFinance
       messages = Array(context.dig(:conversation, :recent_messages))
       assistant = messages.reverse.find { |turn| turn[:role] == "assistant" }
       return unless assistant && assistant[:content].to_s.match?(/\?|\bconfirm\b/i)
+      if (updates = MiaSetupReply.confirmation_updates(messages))
+        field = next_missing_setup_field || "primary_income"
+        return deterministic_setup_clarification(field, clarification: "Please tell me that detail again so I can prepare the right review. #{MiaSetupGuide.question_message(field)}") if updates.empty?
+
+        return Result.new(intent: "household_action", confidence: 1.0, continuation: true,
+          resolved_message: "Our household is called #{updates[:household_name]}. Our monthly income is $#{updates[:primary_income]}.",
+          needs_clarification: false, clarification: "", topic: { type: "household_setup", title: "Household setup" },
+          action: { type: "update_household_setup", setup_updates: updates }, read_only_plan: {}, source: "deterministic")
+      end
       prior = messages.reverse.find { |turn| turn[:role] == "user" }
       return unless prior && prior[:content].present?
 
