@@ -64,7 +64,7 @@ module HouseholdFinance
       return :housing if text.match?(/\Awe are about to be evicted[.!]?\z/i)
       return nil if text.match?(/\b(?:so we moved|so i moved|used to|years? ago|all good now|doing better|figured it out)\b/i)
       return :housing if text.match?(/\b(?:can['’]?t|cant|cannot|won['’]?t|wont|unable to) (?:make|pay|cover|afford) (?:my |our |the )?rent\b/i)
-      return :food if !text.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN) && text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?(?=\s*(?:[,.!?;]|\z|(?:until|til|till|today|tonight|left)\b))/i)
+      return :food if !text.match?(MoneyMovementText::NOT_HARDSHIP_PATTERN) && text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?(?=\s*(?:[,.!?;]|\z|(?:until|til|till|today|tonight|left|and|because|so)\b))/i)
       return :food if MoneyMovementText.food_insecurity?(text)
       return nil if reading_available?(message)
       return :hardship if text.match?(/\b(?:my|our|the)?\s*(?:baby|child|husband|wife|mom|dad)\b.{0,30}\b(?:in (?:the )?hospital|hospitalized)\b/i)

@@ -4,6 +4,7 @@ class ParticipantCareTest < ActiveSupport::TestCase
   test "outage food loss in casual grammar keeps food help without guessing contacts" do
     text = "kids didnt eat today, we out of food money"
     assert_equal :food, HouseholdFinance::ParticipantCare.kind(text)
+    assert_equal :food, HouseholdFinance::ParticipantCare.kind("we out of food money and the kids didnt eat")
     assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer(text))
     assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer("we have no grocery money", care: :food))
     refute HouseholdFinance::ParticipantCare.kind("what if we out of food money")
