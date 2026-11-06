@@ -270,7 +270,7 @@ module HouseholdFinance
         return purchase if purchase
       end
 
-      setup_result = setup_correction_result || setup_confirmation_result || setup_interruption_result || setup_goal_interruption_result || setup_primary_goal_change_result || setup_named_minimum_result || setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
+      setup_result = setup_correction_result || setup_confirmation_result || setup_interruption_result || setup_goal_interruption_result || setup_primary_goal_change_result || setup_named_balance_and_minimum_result || setup_named_minimum_result || setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
