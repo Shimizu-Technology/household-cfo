@@ -35,6 +35,8 @@ Each default is a proposal for review, not an already configured or agreed servi
 
 Use fictional data and record the tested release/version. This walkthrough is still to be performed with Mel; local engineering demonstrations are not her acceptance.
 
+As of October 18, 2026 this flow runs end to end in the app UI in a local rehearsal: an admin creates the program and names Mel as owner, and she can do the setup herself (build and publish the persona, choose the Savings experience, seal and launch). The admin then opens the challenge with a recorded reason. This packet has still not been sent to Mel or BOG, and nothing in it has been accepted.
+
 1. Enroll without debt or a full annual budget. Review the dates, voluntary target and privacy notice. Choose $300 for the demonstration, then separately inspect the postponed-target experience.
 2. Review a three-month baseline and an incomplete baseline. Explain the coverage labels, correct a mistaken classification and choose a comfortable experiment without treating essentials as spare money.
 3. Stage and explicitly approve $100 of eligible new reserve money. Link $25.50 of reviewed evidence, then approve a $25 withdrawal. The result is $75 reported and $0.50 supported, included within $75. Pending changes must not replace approved progress.
