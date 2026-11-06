@@ -6,7 +6,7 @@ require "json"
 module Mia
   module PersonaSetup
     class ProposalBuilder
-      PROMPT_VERSION = "coach_persona_setup_v5"
+      PROMPT_VERSION = "coach_persona_setup_v7"
       SCHEMA_VERSION = "coach_persona_setup_operations_v1"
 
       def self.digest_for(persona:, base_draft_revision:, base_config_digest:, operations:, before_state:, after_state:, prompt_version: PROMPT_VERSION)

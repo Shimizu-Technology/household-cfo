@@ -132,7 +132,7 @@ module Mia
             state.fetch("draft_config").fetch("phrases").reject! { |item| item.fetch("artifact_id") == phrase.fetch("artifact_id") } if phrase
           end
         end
-        TextEvidence.reconcile_prohibitions!(state)
+        ProhibitionFloor.reconcile!(state)
         state
       end
 

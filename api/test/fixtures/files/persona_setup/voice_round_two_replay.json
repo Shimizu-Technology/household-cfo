@@ -1,0 +1,222 @@
+[
+  {
+    "message": "I coach like a patient neighbour at the kitchen table. I give people time to finish, then help them choose a next step they can actually do.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "patient",
+          "unhurried",
+          "practical"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I coach like a patient neighbour at the kitchen table. I give people time to finish, then help them choose a next step they can actually do."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I coach like a patient neighbour at the kitchen table.",
+          "I give people time to finish, then help them choose a next step they can actually do."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I coach like a patient neighbour at the kitchen table. I give people time to finish, then help them choose a next step they can actually do."
+      }
+    ],
+    "assistant_message": "Here is a proposal based on your patient neighbour at the kitchen table description. I've suggested tone traits and kept your own wording as coaching guidance. Nothing has been saved, so please look over the suggestions below."
+  },
+  {
+    "message": "Keep that easygoing manner, but be frank about the consequences. I don't want jokes or pep talks when someone is scared.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "patient",
+          "unhurried",
+          "practical",
+          "candid"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "be frank about the consequences"
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I coach like a patient neighbour at the kitchen table.",
+          "I give people time to finish, then help them choose a next step they can actually do.",
+          "Keep that easygoing manner, but be frank about the consequences."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Keep that easygoing manner, but be frank about the consequences."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do_not",
+        "value": [
+          "I don't want jokes or pep talks when someone is scared."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I don't want jokes or pep talks when someone is scared."
+      }
+    ],
+    "assistant_message": "Here is a proposal that keeps your easygoing manner and adds being frank about consequences. I also drafted a limit on jokes and pep talks when someone is scared. Nothing has been saved, so please look over the suggestions below."
+  },
+  {
+    "message": "My replies are matter-of-fact and kind. I break a knotty money question into a couple of small pieces instead of delivering a lecture.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "My replies are matter-of-fact and kind.",
+          "Break a knotty money question into a couple of small pieces instead of delivering a lecture."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "My replies are matter-of-fact and kind. I break a knotty money question into a couple of small pieces instead of delivering a lecture."
+      },
+      {
+        "op": "set",
+        "path": "coaching.method",
+        "value": "Break a knotty money question into a couple of small pieces instead of delivering a lecture.",
+        "source_basis": "coach_quote",
+        "evidence_quote": "I break a knotty money question into a couple of small pieces instead of delivering a lecture."
+      }
+    ],
+    "assistant_message": "I drafted a few suggestions from your note about being matter-of-fact and kind, and breaking a knotty money question into small pieces instead of lecturing. Nothing has been saved yet. Please look over the suggestions below and keep only what sounds like you."
+  },
+  {
+    "message": "When a client gets stuck I say \"We can start with the piece in front of us.\" I mean choose one manageable action; use that saying sparingly.",
+    "operations": [
+      {
+        "op": "add_phrase",
+        "path": "phrases",
+        "value": {
+          "text": "We can start with the piece in front of us.",
+          "meaning": "When a client gets stuck, choose one manageable action.",
+          "allowed_contexts": [
+            "general"
+          ],
+          "prohibited_contexts": [
+            "crisis"
+          ],
+          "frequency": "sparing",
+          "caution": ""
+        },
+        "source_basis": "coach_quote",
+        "evidence_quote": "When a client gets stuck I say \"We can start with the piece in front of us.\" I mean choose one manageable action; use that saying sparingly."
+      }
+    ],
+    "assistant_message": "I drafted a proposal for your phrase \"We can start with the piece in front of us.\", marked as sparing use for when a client gets stuck. Nothing has been saved yet. Please look over the suggestion below and keep it only if it sounds like you."
+  },
+  {
+    "message": "I sound like a considerate librarian: clear, measured, and happy to explain the same thing twice. I leave the final choice with the person.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "clear",
+          "calm",
+          "patient"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I sound like a considerate librarian: clear, measured, and happy to explain the same thing twice."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I sound like a considerate librarian: clear, measured, and happy to explain the same thing twice.",
+          "I leave the final choice with the person."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I sound like a considerate librarian: clear, measured, and happy to explain the same thing twice. I leave the final choice with the person."
+      }
+    ],
+    "assistant_message": "I've put together a proposed draft from your librarian description, including leaving the final choice with the person. Nothing has been saved yet. Please look over the suggestions below and review each one."
+  },
+  {
+    "message": "A client once told me \"I ruin everything I touch.\" Those are her words. My reply should acknowledge the worry and ask which part she wants to tackle first.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "I sound like a considerate librarian: clear, measured, and happy to explain the same thing twice.",
+          "I leave the final choice with the person.",
+          "My reply should acknowledge the worry and ask which part she wants to tackle first."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "My reply should acknowledge the worry and ask which part she wants to tackle first."
+      }
+    ],
+    "assistant_message": "I've drafted a suggestion based on your note about acknowledging the worry and asking which part she wants to tackle first. It's a proposal only, and nothing has been saved. Please look over the suggestion below."
+  },
+  {
+    "message": "I'm a coach who brings a little sparkle to good news and gets very still for a difficult decision. I care more about being useful than sounding clever.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "voice.tone_traits",
+        "value": [
+          "warm",
+          "direct",
+          "respectful",
+          "encouraging",
+          "calm",
+          "practical"
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I'm a coach who brings a little sparkle to good news and gets very still for a difficult decision. I care more about being useful than sounding clever."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "Bring a little sparkle to good news and get very still for a difficult decision.",
+          "Care more about being useful than sounding clever."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "I'm a coach who brings a little sparkle to good news and gets very still for a difficult decision. I care more about being useful than sounding clever."
+      }
+    ],
+    "assistant_message": "Here is a draft for you to review, and nothing has been saved yet. I picked up on your sparkle for good news and your stillness for hard decisions, and I kept your own wording in the coaching notes. Please look over the suggestions below."
+  },
+  {
+    "message": "Please keep the serious side for setbacks. Don\u2019t adopt the saying \"You did this to yourself.\" I would rather ask what support would make the next step easier.",
+    "operations": [
+      {
+        "op": "set",
+        "path": "coaching.do",
+        "value": [
+          "Keep the serious side for setbacks.",
+          "Ask what support would make the next step easier."
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Please keep the serious side for setbacks. Don\u2019t adopt the saying \"You did this to yourself.\" I would rather ask what support would make the next step easier."
+      },
+      {
+        "op": "set",
+        "path": "coaching.do_not",
+        "value": [
+          "Do not adopt the saying \"You did this to yourself.\""
+        ],
+        "source_basis": "coach_quote",
+        "evidence_quote": "Don\u2019t adopt the saying \"You did this to yourself.\""
+      }
+    ],
+    "assistant_message": "Here are suggestions for your review, and nothing has been saved. I left out \"You did this to yourself.\" as a phrase and drafted it as something to avoid, and I added your preference to ask what support would make the next step easier. Please look over the suggestions below."
+  }
+]

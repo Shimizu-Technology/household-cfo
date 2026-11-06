@@ -28,7 +28,7 @@ export async function reviewCoachSettings(groupIds: number[], isCurrent: () => b
 
 export function toolChanges(item: CoachSettingsReview['tools'][number], activeConfiguration?: CohortExperienceDraft | null): string[] {
   const previous = activeConfiguration ?? item.configuration.published_version?.config
-  if (!previous) return [`Tools included: ${item.preview.modules.filter(module => module.enabled).map(module => module.label).join(', ')}.`]
+  if (!previous) return []
   const changes = []
   for (const module of item.preview.modules) {
     if (module.core) continue

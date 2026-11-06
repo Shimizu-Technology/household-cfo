@@ -1,0 +1,17 @@
+{
+  "assistant_message": "I've put together a proposal for the warm, honest auntie feel you described. Nothing has been saved yet. Please look over the suggestion below and see if it fits how you want Mia to come across.",
+  "operations": [
+    {
+      "op": "set",
+      "path": "voice.tone_traits",
+      "value": [
+        "warm",
+        "direct",
+        "respectful",
+        "candid"
+      ],
+      "source_basis": "coach_quote",
+      "evidence_quote": "Sound like a warm auntie who is honest with people."
+    }
+  ]
+}

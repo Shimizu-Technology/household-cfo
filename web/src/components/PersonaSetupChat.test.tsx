@@ -106,6 +106,21 @@ describe('PersonaSetupChat', () => {
   })
   afterEach(cleanup)
 
+  it('shows saved and proposed phrase use in plain words', async () => {
+    const next = proposalSession()
+    const before = {text:'Pause', meaning:'Take a moment before deciding.', frequency:'rare', allowed_contexts:['general'], prohibited_contexts:['crisis'], caution:'Ask gently.'} as PersonaConfiguration['phrases'][number]
+    const after = {...before, frequency:'as_needed'} as PersonaConfiguration['phrases'][number]
+    next.proposal!.grouped_changes = [{group:'Phrases',changes:[{group:'Phrases',path:'phrases',label:'Change: when to use it',phrase:after,before,after,source_basis:'coach_quote',evidence_quote:'Please use my saying "Pause" often.'}]}]
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(next)
+    render(<Harness saveAndPreview />)
+    await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByRole('button', {name:'Review in form'}))
+    expect(await screen.findByText('Change: when to use it', {selector:'header strong'})).toBeTruthy()
+    expect(screen.getByText('Before', {selector:'dt'})).toBeTruthy()
+    expect(screen.getByText('After', {selector:'dt'})).toBeTruthy()
+    expect(screen.getByText(/^Occasionally, during everyday coaching/)).toBeTruthy()
+    expect(screen.getAllByText(/^Whenever the situation fits, during everyday coaching/).length).toBeGreaterThan(0)
+  })
   it('R5 rejects a focused review back to a usable composer',async()=>{
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session()})
@@ -321,10 +336,12 @@ describe('PersonaSetupChat', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
 
     expect(await screen.findByRole('button', { name: 'Send to Mia' })).toBeTruthy()
-    expect(composer.value).toBe('Use a calm voice.')
+    expect(composer.value).toBe('')
     expect(screen.getByRole('alert').textContent).toContain('This suggestion used wording you did not provide.')
     expect(screen.getByRole('alert').textContent).not.toContain('503')
 
+    await userEvent.click(screen.getByRole('button', { name: 'Edit failed message' }))
+    expect(composer.value).toBe('Use a calm voice.')
     await userEvent.click(screen.getByRole('button', { name: 'Send to Mia' }))
     await screen.findByText('Coach name')
     expect(apiMocks.createAdminPersonaSetupTurn.mock.calls[1][3]).not.toBe(apiMocks.createAdminPersonaSetupTurn.mock.calls[0][3])
@@ -489,7 +506,7 @@ describe('PersonaSetupChat', () => {
     const useAll=await screen.findByRole('button',{name:'Use all suggestions'});await waitFor(()=>expect(useAll).toHaveProperty('disabled',false))
     expect(screen.getByText('Review each suggestion',{selector:'summary'}).closest('details')?.open).toBe(false)
     await userEvent.click(screen.getByText('Review each suggestion',{selector:'summary'}))
-    expect(screen.getByText('3',{selector:'.coach-suggestion-value'})).toBeTruthy()
+    expect(screen.getByText('3 sentences',{selector:'.coach-suggestion-value'})).toBeTruthy()
     await userEvent.click(screen.getByRole('checkbox',{name:'Keep: Longest answer'}))
     await userEvent.click(screen.getByRole('button',{name:'Use selected suggestions'}))
     await screen.findByText('Live preview for 81')

@@ -12,6 +12,7 @@ import {
   type PersonaConfiguration,
 } from '../api'
 import { Button } from './Button'
+import { PhraseUse } from './PhraseUse'
 import { readCoachVoiceTranscript } from '../enterpriseApi'
 import './PersonaVoiceFlow.css'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -69,10 +70,11 @@ export function PersonaSetupChat({
   }, [persona.id])
 
   const latestTurn = session?.turns.at(-1)
+  const failedMessage = latestTurn?.status === 'failed' ? latestTurn.user_message : null
   useLayoutEffect(() => {
     const transcript = transcriptRef.current
     if (!loading && transcript) transcript.scrollTop = transcript.scrollHeight
-  }, [loading, latestTurn?.id, latestTurn?.status])
+  }, [loading, latestTurn?.id, latestTurn?.status, error, pending])
 
   useLayoutEffect(() => {
     if (loading || disabled || pending || mutationLifecycle.pending || !focusTargetRef.current) return
@@ -171,6 +173,7 @@ export function PersonaSetupChat({
       setSession(next)
       if (!latestTurn || latestTurn.status !== 'ready') {
         if (latestTurn?.status !== 'processing') setRetryKey(null)
+        if (latestTurn?.status === 'failed') { setMessage(''); focusTargetRef.current = 'composer' }
         setError(latestTurn?.assistant_message || (latestTurn?.status === 'processing'
           ? 'Mia is still preparing this proposal. Retry shortly with the same request.'
           : 'Mia could not prepare this proposal. Your message is ready to retry.'))
@@ -186,10 +189,11 @@ export function PersonaSetupChat({
           setSession(returnedSession)
           const latestTurn = returnedSession.turns[returnedSession.turns.length - 1]
           if (latestTurn?.status !== 'processing') setRetryKey(null)
+          if (latestTurn?.status === 'failed') { setMessage(''); focusTargetRef.current = 'composer' }
         }
         const latestTurn = returnedSession?.turns.at(-1)
         setError(latestTurn?.status === 'failed'
-          ? latestTurn.assistant_message || 'Mia could not prepare a proposal. Nothing changed. Try again or use Guided setup.'
+          ? latestTurn.assistant_message || 'Mia could not prepare a proposal. Nothing changed. Try describing one change at a time.'
           : setupErrorMessage(caught, 'Mia could not prepare this proposal. Try again.'))
       }
     } finally {
@@ -372,6 +376,7 @@ export function PersonaSetupChat({
           {uploading && <p role="status">Reading your transcript…</p>}
           <div><small>{message.length.toLocaleString()}/24,000</small><Button type="submit" disabled={!message.trim() || !session || pending !== null || session.stale || uploading}>{pending === 'send' ? 'Mia is preparing…' : retryKey ? 'Retry message' : 'Send to Mia'}</Button></div>
         </form>
+        {failedMessage && !message && <Button variant="secondary" disabled={pending !== null} onClick={() => { setMessage(failedMessage); composerRef.current?.focus() }}>Edit failed message</Button>}
         <button className="persona-setup-start-over" type="button" disabled={!session || pending !== null} onClick={() => void updateSession('abandon')}>Start a fresh setup chat</button>
       </section>
 
@@ -383,7 +388,7 @@ export function PersonaSetupChat({
         </header>
           <>
             <dl className="persona-proposal-summary">
-              {groupedChanges.map((group) => <div key={group.group}><dt>{group.group}</dt><dd>{sectionSummary(group.group, group.changes)}</dd></div>)}
+              {groupedChanges.map((group) => <div key={group.group}><dt>{group.group}</dt><dd>{sectionSummary(group.group, group.changes)}{group.group === 'Phrases' && group.changes.map((change, index) => change.phrase ? <PhraseUse key={index} phrase={change.phrase} /> : null)}</dd></div>)}
             </dl>
             <details className="persona-proposal-choices" open={focusedReview || undefined}><summary>Review each suggestion</summary>
             <div className="persona-proposal-groups">
@@ -431,17 +436,32 @@ export function PersonaSetupChat({
 }
 
 function ProposalChange({ change, compact = false }: { change: AdminPersonaSetupChange; compact?: boolean }) {
+  if (change.phrase && change.before && typeof change.before === 'object' && 'frequency' in change.before && 'allowed_contexts' in change.before) {
+    const before = change.before as NonNullable<AdminPersonaSetupChange['phrase']>
+    return <article className="persona-proposal-change">
+      <header><strong>{suggestionLabel(change)}</strong><span>{proposalSourceLabel(change)}</span></header>
+      <p>{change.phrase.text}</p>
+      <dl><div><dt>Before</dt><dd><PhraseUse phrase={before} /></dd></div><div><dt>After</dt><dd><PhraseUse phrase={change.phrase} /></dd></div></dl>
+      {change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}
+    </article>
+  }
   return (
     <article className="persona-proposal-change">
       <header><strong>{suggestionLabel(change)}</strong><span>{proposalSourceLabel(change)}</span></header>
-      {compact && <p className="coach-suggestion-value">{displayValue(change.after)}</p>}
+      {change.phrase && <PhraseUse phrase={change.phrase} />}
+      {compact && <p className="coach-suggestion-value">{changeValue(change)}</p>}
       {compact ? <details><summary>Original wording and source</summary><p>{displayValue(change.before)}</p>{change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</details> : <><dl>
         <div><dt>Before</dt><dd>{displayValue(change.before)}</dd></div>
-        <div><dt>After</dt><dd>{displayValue(change.after)}</dd></div>
+        <div><dt>After</dt><dd>{changeValue(change)}</dd></div>
       </dl>
       {change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}</>}
     </article>
   )
+}
+
+function changeValue(change: AdminPersonaSetupChange): string {
+  const value = displayValue(change.after)
+  return change.path === 'response_shape.min_sentences' || change.path === 'response_shape.max_sentences' ? `${value} sentences` : change.path === 'response_shape.max_characters' ? `${value} characters` : value
 }
 
 function displayValue(value: unknown): string {
@@ -454,7 +474,7 @@ function displayValue(value: unknown): string {
 }
 
 function sectionSummary(group: string, changes: AdminPersonaSetupChange[]): string {
-  if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${displayValue(change.after)}”`).join(', ')
+  if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${change.phrase?.text ?? displayValue(change.after)}”`).join(', ')
   const examples = changes.find((change) => change.path === 'curriculum.examples')?.after
   if (group === 'Examples' && Array.isArray(examples)) return `${examples.length} example ${examples.length === 1 ? 'reply' : 'replies'} for everyday questions`
   const min = changes.find(change => change.path === 'response_shape.min_sentences')?.after
@@ -462,7 +482,7 @@ function sectionSummary(group: string, changes: AdminPersonaSetupChange[]): stri
   if (group === 'Voice' && min != null && max != null) return `Answers: ${min === max ? min : `${min} to ${max}`} sentences`
   const first = changes.find((change) => change.path === 'voice.tone_traits') ?? changes[0]
   if (!first) return ''
-  const value = Array.isArray(first.after) ? first.after.map(displayValue).join(', ') : displayValue(first.after)
+  const value = Array.isArray(first.after) ? first.after.map(displayValue).join(', ') : changeValue(first)
   return `${first.path.startsWith('response_shape.') ? `${suggestionLabel(first)}: ` : ''}${value}`.replaceAll('\n', ' ')
 }
 
@@ -498,6 +518,7 @@ function suggestionLabel(change: AdminPersonaSetupChange): string {
     'coaching.principles': 'What matters in your teaching', 'coaching.philosophy': 'Your approach',
     'voice.tone_traits': 'How you sound', 'voice.accountability_style': 'How you encourage follow-through',
     'voice.language_style': 'Words you use', 'voice.energy': 'Your energy',
+    'culture.locale_label': 'Where you coach',
     'identity.assistant_name': 'Assistant name', 'identity.human_coach_name': 'Coach name',
     'identity.assistant_relationship': 'Your assistant’s role', 'identity.audience': 'Who you help',
     'identity.human_coach_title': 'Your coaching role', 'identity.client_term': 'What you call the people you help',
