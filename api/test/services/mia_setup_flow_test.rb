@@ -11,6 +11,14 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "a question mentioning a bill is answered before asking for a setup total" do
+    result = resolve("does rent 1200 count as fixed essentials", field: "primary_income", data: {
+      question: true, facts: [ { kind: "bill", amount: "1200", item: "rent", merchant: "", day: "" } ] })
+    refute result&.actionable?
+    refute_match(/one monthly total/i, result&.clarification.to_s)
+    assert_includes result&.clarification.to_s, "regular must-pay"
+  end
+
   test "a monthly named card payment remains reviewable after optional debt stops gating setup" do
     result = resolve("$325 a month on the Mastercard", complete: true)
     assert result.actionable?, result.to_h.inspect

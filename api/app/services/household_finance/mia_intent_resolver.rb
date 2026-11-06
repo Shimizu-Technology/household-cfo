@@ -334,6 +334,7 @@ module HouseholdFinance
         next_field = keys.drop(keys.index(field).to_i + 1).find { |key| missing.include?(key) }
         return deterministic_setup_clarification(field, clarification: "We can leave that unknown for now. Enter my numbers lets you fill in what you know and come back to the rest. #{MiaSetupGuide.question_message(next_field)}")
       end
+      return if reading.question && !reading.answer_field
       if !reading.available && !reading.answer_field
         return deterministic_setup_clarification(field || pending_field, clarification: ParticipantMessageReader::HOUSEHOLD_OFF_REPLY)
       end
@@ -378,7 +379,6 @@ module HouseholdFinance
         result.action[:spending_preferences] = preferences if preferences.present? && result.action[:type] == "update_household_setup"
         return result
       end
-      return nil if reading.question
       # Explicit confirmations retain their grounded existing path; a named debt
       # is handled by the narrow typed minimum-payment path, never as a name.
       return if user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN) && MiaSetupReply.confirmation_updates(Array(context.dig(:conversation, :recent_messages)))
@@ -886,8 +886,9 @@ module HouseholdFinance
         return if MiaSetupReply.confirmation_updates(Array(context.dig(:conversation, :recent_messages)))
         return deterministic_setup_clarification(field, clarification: "Take your time. #{MiaSetupGuide.question_message(field)}")
       end
-      if guided_setup_non_answer?
-        explanation = if MiaSetupReply.question?(user_message)
+      question = context[:participant_reading]&.question || MiaSetupReply.question?(user_message)
+      if guided_setup_non_answer? || question
+        explanation = if question
           if user_message.match?(/\bfixed essentials\b/i)
             "Fixed essentials are regular must-pay household costs, such as rent, power and water."
           elsif user_message.match?(/\b(?:everyday|flexible) spending\b/i)
@@ -896,7 +897,7 @@ module HouseholdFinance
             "Start with what feels manageable after food, housing, utilities, medicine and required payments. We can choose an amount once you know what is left."
           end
         end
-        return if MiaSetupReply.question?(user_message) && explanation.nil?
+        return if question && explanation.nil?
         deterministic_setup_clarification(field, clarification: "#{explanation || "You can leave this for later; an unknown amount stays blank."} #{MiaSetupGuide.question_message(field, resume: true)}")
       end
     end
@@ -983,7 +984,7 @@ module HouseholdFinance
     def setup_unrecognized_reply_result
       field = next_missing_setup_field
       return unless field && guided_setup_question_asked?(field)
-      return if guided_setup_non_answer? || MiaCoachAnswerer.spend_report_text?(user_message)
+      return if context[:participant_reading]&.question || guided_setup_non_answer? || MiaCoachAnswerer.spend_report_text?(user_message)
       deterministic_setup_clarification(field, clarification: "I haven't added that to your setup. #{MiaSetupGuide.question_message(field)}")
     end
 
