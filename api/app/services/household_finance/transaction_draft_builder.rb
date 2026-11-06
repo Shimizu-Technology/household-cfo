@@ -36,6 +36,13 @@ module HouseholdFinance
       { amount: Money.chat_amount_text(match[1]), merchant: merchant }
     end
 
+    # The outage path retains the established utility/purpose grammar without
+    # running an operation or inventing a place for an incomplete report.
+    def self.report_merchant(message)
+      candidate = new(nil, message, user: nil).send(:merchant)
+      candidate unless candidate == "Manual spend"
+    end
+
     def initialize(household, message, user:, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, idempotency_key: nil)
       @household = household
       @message = PurchaseReportText.normalize(message).squish

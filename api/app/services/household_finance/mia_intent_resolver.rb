@@ -610,6 +610,9 @@ module HouseholdFinance
 
       rows = parsed.report[:purchases]
       return unless rows.length <= MAX_TRANSACTION_REPORTS
+      if rows.one? && rows.sole[:merchant].blank?
+        rows.sole[:merchant] = TransactionDraftBuilder.report_merchant(report_message).to_s
+      end
       if rows.any? { |row| row[:merchant].blank? }
         return Result.new(**common, intent: "clarification", needs_clarification: true,
           clarification: "Where did you make that purchase? Nothing has been saved.", action: { type: "none" })

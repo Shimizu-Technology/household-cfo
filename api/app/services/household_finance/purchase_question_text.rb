@@ -48,7 +48,7 @@ module HouseholdFinance
     end
 
     def self.merchant_label(value)
-      text = FinancialDocuments::MerchantNormalizer.call(value).to_s
+      text = value.to_s.squish
       text == text.downcase ? text.titleize : text
     end
 

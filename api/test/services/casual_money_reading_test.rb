@@ -66,6 +66,7 @@ class CasualMoneyReadingTest < ActiveSupport::TestCase
     assert_equal "Payless", HouseholdFinance::PurchaseQuestionText.merchant_label("payless")
     assert_equal "Goodyear", HouseholdFinance::PurchaseQuestionText.merchant_label("goodyear")
     assert_equal "KIN", HouseholdFinance::PurchaseQuestionText.merchant_label("KIN")
+    assert_equal "Ross Dress for Less", HouseholdFinance::PurchaseQuestionText.merchant_label("Ross Dress for Less")
   end
 
   test "shopping return language is distinct from refunds and money movements" do
