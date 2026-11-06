@@ -313,6 +313,9 @@ module HouseholdFinance
           needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Household coaching" },
           action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
       end
+      # A form save can complete setup while an older chat card remains pending.
+      # Keep that review available, but do not turn ordinary chat into its answer.
+      return if context.dig(:setup_status, :complete) == true && !reading.correction && !reading.answer_field
       if !reading.available && field == "debt_payment" && user_message.match?(CLEAN_NO_DEBT_PATTERN)
         debt_free = deterministic_debt_free_result
         return debt_free if debt_free

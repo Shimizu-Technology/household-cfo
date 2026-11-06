@@ -11,6 +11,17 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "an old pending setup card does not restart questioning after the form completes" do
+    parsed = HouseholdFinance::ParticipantMessageReader.new(message: "thanks").send(:validate,
+      { "care" => "none", "facts" => [], "question" => false, "correction" => false, "setup_answer" => { "field" => "none", "value" => "" }, "spending_preferences" => [] })
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "thanks", api_key: "", context: {
+      participant_reading: parsed, setup_status: { complete: true, missing_fields: [ { key: "debt_payment" } ] },
+      conversation: { active_thread: { status: "pending_review", action: { type: "update_household_setup", setup_updates: { household_name: "Old name" } } },
+        recent_messages: [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("household_name") } ] }
+    }).call
+    refute result&.clarification?, result.to_h.inspect
+  end
+
   test "the reader can recognize a new deferral without a wording regex" do
     result = resolve("could we park this one for now", field: "primary_income", data: { defer_setup: true })
     assert result.clarification?
