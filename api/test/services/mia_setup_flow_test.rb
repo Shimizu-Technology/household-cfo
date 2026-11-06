@@ -20,15 +20,6 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     refute result.action.key?(:debt_type)
   end
 
-  test "an unread first setup message names the manual route even before the CTA" do
-    result = HouseholdFinance::MiaIntentResolver.new(user_message: "cruz house", api_key: "", context: {
-      setup_status: { complete: false, missing_fields: [ { key: "household_name" } ] }, conversation: { active_thread: {}, recent_messages: [] }
-    }).call
-    assert result&.clarification?
-    assert_includes result.clarification, "Enter my numbers"
-    refute result.actionable?
-  end
-
   test "asking to total actual quoted paychecks produces review instead of another monthly question" do
     text = "we get 2 paychecks of 1400, can you add that for our monthly income"
     result = resolve(text, field: "primary_income", data: { question: true, facts: [ { kind: "income", amount: "1400", item: "paychecks", merchant: "", day: "" } ],

@@ -2359,6 +2359,10 @@ module Api
           return narrate_structured_answer(content, history, conversation_context, kind: kind, fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: write_state, selected_month: transaction_draft.occurred_on.month)
         end
 
+        if @participant_reading && !@participant_reading.available && !@savings_household_request && !HouseholdFinance::SetupStatus.new(current_household).complete?
+          return HouseholdFinance::ParticipantMessageReader::HOUSEHOLD_OFF_REPLY
+        end
+
         context = HouseholdFinance::MiaContextBuilder.new(
           current_household,
           annual_plan: annual_plan,
