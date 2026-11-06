@@ -102,6 +102,7 @@ module HouseholdFinance
         resolved_message: sanitized_text(topic["resolved_message"], max_length: MAX_TOPIC_TEXT_LENGTH),
         next_move: sanitized_text(topic["next_move"], max_length: MAX_TOPIC_TEXT_LENGTH),
         action: action_payload(topic["action"]),
+        setup_calculation: pending_setup_calculation(topic),
         spending_preferences: topic["spending_preferences"],
         read_only_plan: read_only_plan,
         document_evidence: document_evidence&.deep_symbolize_keys,
@@ -110,6 +111,14 @@ module HouseholdFinance
         transaction_draft_id: topic["transaction_draft_id"].presence,
         updated_at: sanitized_text(topic["updated_at"], max_length: 40)
       }.compact
+    end
+
+    def pending_setup_calculation(topic)
+      return unless topic["status"] == "pending_review"
+      draft = household.mia_action_drafts.pending.find_by(id: topic["mia_action_draft_id"])
+      return unless draft && draft.source_chat_message&.chat_session_id == chat_session.id
+      calculation = draft.metadata["setup_calculation"]
+      calculation&.deep_symbolize_keys&.merge(draft_id: draft.id)
     end
 
     def action_plan_payload(topic)

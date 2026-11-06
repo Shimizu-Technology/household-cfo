@@ -108,7 +108,7 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     assert result.actionable?, result.to_h.inspect
     assert_equal "405.0", result.action[:minimum_payment]
     assert_equal "unknown", result.action[:amount]
-    assert_includes result.action.dig(:setup_calculation, :description), "$95 + $310 = $405"
+    assert_includes result.action.dig(:setup_calculation, :description), "Visa $95 + car $310 = $405"
   end
 
   test "an everyday spending question is answered and resumes without becoming a value" do

@@ -38,7 +38,7 @@ module Mia
     }.freeze
     NO_DEBT_NEXT_MOVE = "If a balance or payment is missing, add it in My Money so I coach from the right picture.".freeze
     READINESS_UNAVAILABLE = {
-      "unavailable_until_debt_minimums_confirmed" => "Still to add: debt minimums. Open Debt in My Money to add them, or confirm no debt payments if there are none.",
+      "unavailable_until_debt_minimums_confirmed" => "Your household setup is complete. For spending guidance, confirm your debt minimums. Open Debt in My Money to add them, or confirm no debt payments if there are none.",
       "unavailable_until_liquid_balances_confirmed" => "Still to add: account balances. Open Accounts in My Money and leave any amount you do not know blank.",
       "unavailable_until_setup_complete" => "Your starting household details are not finished yet. Ask me to help set up your household, one question at a time."
     }.freeze

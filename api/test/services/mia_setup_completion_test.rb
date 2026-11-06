@@ -23,7 +23,7 @@ class MiaSetupCompletionTest < ActiveSupport::TestCase
     })
     result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed, field: "fixed_expenses").call
     assert_equal "1055.0", result[:value]
-    assert_includes result[:description], "$990 + $65 = $1,055"
+    assert_includes result[:description], "Rent $990 + water $65 = $1,055"
   end
 
   test "server adds exact bill spans and preserves a partial list for review" do
@@ -32,7 +32,7 @@ class MiaSetupCompletionTest < ActiveSupport::TestCase
       components: [ { source: "rent 1200", amount: "1200" }, { source: "power 300", amount: "300" } ] }
     result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details)).call
     assert_equal "1500.0", result[:value]
-    assert_includes result[:description], "$1,200 + $300 = $1,500"
+    assert_includes result[:description], "Rent $1,200 + power $300 = $1,500"
     assert_includes result[:description], "missing"
   end
 
