@@ -94,6 +94,22 @@ class MiaReviewFiveRegressionsTest < ActiveSupport::TestCase
     end
   end
 
+  test "R5 history sensitivity removes only the coach phrase and preserves guarded fixed figures" do
+    message = "Can I get a $40 pair of shoes?"
+    read_care(message, "none")
+    fixed = "This month’s plan has $1,450 left, so $40 shoes would leave $1,410 if it is extra spending, and that's a plan figure, not your bank balance."
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: message, api_key: "fake", history: [ { role: "user", content: "I lost my job yesterday." } ],
+      answer_packet: { kind: "purchase_scenario", fallback_response: fixed })
+    coaching = "Hold off on the shoes for now. Keep rent protected first. Could the shoes wait?"
+    narrator.define_singleton_method(:openrouter_response) { coaching }
+    with_method(Mia::ReplyGuard, :call, ->(**_) { Mia::ReplyGuard::Result.new([], care: "none", history_sensitive: true) }) do
+      with_method(HouseholdFinance::MiaProviderAdmission, :with_slot, ->(**_, &block) { block.call }) do
+        assert_equal "#{fixed} #{coaching}", narrator.call
+        assert_equal "live_model", narrator.response_source
+      end
+    end
+  end
+
   test "R5 hardship history shapes coaching without replacing the requested answer and recovery clears it" do
     persona = create_persona
     history = [ { role: "user", content: "I lost my job yesterday." } ]

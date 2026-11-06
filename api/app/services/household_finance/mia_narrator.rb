@@ -104,7 +104,7 @@ module HouseholdFinance
       end
       return reject_narration(checked.rejection_reason) if checked.rejection_reason
 
-      prefix = checked.guard_result&.history_sensitive ? nil : delivery_prefix
+      prefix = checked.guard_result&.history_sensitive ? (purchase_coaching? ? purchase_prefix : nil) : delivery_prefix
       reply = [ prefix, checked.content ].compact_blank.join(" ")
 
       @supplied_content_context = approved_content
