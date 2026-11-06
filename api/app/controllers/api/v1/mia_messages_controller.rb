@@ -2270,6 +2270,7 @@ module Api
         guard = ::Mia::ReplyGuard.call(user_message: params[:message].to_s, history: @mia_conversation_messages,
           facts: {}, reply: text)
         return HouseholdFinance::ParticipantCare.answer(params[:message].to_s, care: guard.care || "hardship") if guard.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(params[:message].to_s)
+        return fixed if HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(params[:message].to_s, text, care: guard.care)
         guard.allowed? ? text : fixed
       end
 

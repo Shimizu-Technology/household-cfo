@@ -40,6 +40,17 @@ module HouseholdFinance
       guard
     end
 
+    # An authoritative current "none" is not permission for generated crisis
+    # instructions. Preserve explicit hotline questions and the crisis floor.
+    def unexpected_crisis_guidance?(message, reply, care: nil)
+      care = ParticipantMessageReader::Current.reading.care if reading_available?(message)
+      return false unless care == "none"
+      return false if ::Mia::CrisisBoundary.matches?(message) || ::Mia::CrisisBoundary.hopeless?(message)
+      return false if message.to_s.match?(/\b(?:988|911|lifeline|crisis line)\b/i)
+
+      ::Mia::CrisisBoundary.safety_reply?(reply) || reply.to_s.match?(/\b(?:call|dial|contact)\s+(?:the\s+)?911\b/i)
+    end
+
     def required?(message) = kind(message).present?
 
     def answer(message, care: nil)

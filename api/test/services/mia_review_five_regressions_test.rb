@@ -60,6 +60,38 @@ class MiaReviewFiveRegressionsTest < ActiveSupport::TestCase
     end
   end
 
+  test "R5 a none reading prevents model-written crisis guidance for ordinary idioms" do
+    text = "Feeling dead tired is a real signal, and it makes sense that you are worn down. I'm Mia, a digital assistant guided by Mrs. Mel's approach, and nothing about money needs to be decided tonight. If this tiredness feels heavy or hopeless, please call or text 988, or get next to someone you trust. If it is a long day, what is one thing you can set down tonight so you can rest?"
+    [ "dead tired", "this is killing me lol", "im done with this budget", "i dont know how much longer i can keep doing this job" ].each do |message|
+      read_care(message, "none")
+      narrator = HouseholdFinance::MiaNarrator.new(user_message: message, api_key: "fake", answer_packet: { kind: "coaching", fallback_response: "Check the plan first. Which bill comes next?" })
+      responder = Demo::MiaResponder.new(api_key: "fake")
+      assert_equal :unexpected_crisis_guidance, narrator.send(:narration_rejection_reason, text, guard_covered: true)
+      assert_equal "unexpected_crisis_guidance", responder.send(:generic_claim_rejection, text, context: "{}", user_message: message, guard_covered: true).to_s
+      responder.define_singleton_method(:openrouter_response) { |*, **_| text }
+      with_method(Mia::ReplyGuard, :call, ->(**_) { Mia::ReplyGuard::Result.new([], care: "none") }) do
+        refute Mia::CrisisBoundary.safety_reply?(responder.call(message, context: "{}")), message
+        assert_equal :unexpected_crisis_guidance, responder.rejection_reason
+      end
+    end
+  end
+
+  test "R5 crisis guidance stays available for crisis readings direct hotline questions and the crisis floor" do
+    text = Mia::CrisisBoundary.response
+    message = "What does 988 do?"
+    read_care(message, "none")
+    refute HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(message, text)
+    message = "I don't know how much longer I can keep doing this"
+    read_care(message, "crisis")
+    refute HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(message, text)
+    message = "I want to kill myself"
+    read_care(message, "none")
+    refute HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(message, text)
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+    assert HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?("dead tired", text, care: "none")
+    refute HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?("dead tired", text)
+  end
+
   test "R5 guard current care is separate from historical sensitivity and preserves grief type" do
     message = "My dog died and the house is quiet. Can I get a chair?"
     flags = Mia::ReplyGuard::FLAGS.index_with { false }.merge("sensitive_moment" => true, "care" => "grief", "history_sensitive" => false)

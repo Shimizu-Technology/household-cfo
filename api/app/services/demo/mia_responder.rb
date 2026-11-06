@@ -94,6 +94,7 @@ module Demo
       @response_source = "deterministic_fallback"
       @fallback_reason = nil
       @rejection_reason = nil
+      @guard_care_kind = nil
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
@@ -121,6 +122,7 @@ module Demo
         return ::Mia::SensitiveMoment.response(clean_message)
       end
       care_guard = HouseholdFinance::ParticipantCare.guard_when_unread(clean_message, history: history, reply: "I couldn't read that safely just now. Please try again. Nothing changed.", api_key: @api_key)
+      @guard_care_kind = care_guard&.care
       if care_guard&.sensitive?
         @response_source = "deterministic_safety"
         return HouseholdFinance::ParticipantCare.answer(clean_message, care: care_guard.care || "hardship")
@@ -416,6 +418,7 @@ module Demo
     end
 
     def generic_claim_rejection(content, context:, user_message: nil, guard_covered: false)
+      return :unexpected_crisis_guidance if HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?(user_message, content, care: @guard_care_kind)
       payload = parsed_context(context)
       claim = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered)
       return claim if claim
