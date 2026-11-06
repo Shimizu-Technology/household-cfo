@@ -100,6 +100,7 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
       reply = policy.remove_model_phrases("That took real effort. Small wins count, chelu. What helped you keep going?")
       assert_equal "That took real effort. What helped you keep going?", reply
       assert_nil policy.model_phrase_rejection_reason(reply)
+      assert_equal "That took real effort. What helped?", policy.remove_model_phrases("That took real effort, and small wins count, chelu. What helped?")
     end
   end
   test "as needed differs from sparing and wins can use their own phrase" do

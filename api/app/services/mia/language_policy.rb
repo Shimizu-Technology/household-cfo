@@ -105,9 +105,18 @@ module Mia
     # Eligibility and frequency still belong exclusively to server_phrase.
     def remove_model_phrases(content)
       value = all_cultural_phrases.sort_by { |entry| -entry.fetch("text").length }.reduce(content.to_s) do |text, entry|
-        text.gsub(custom_phrase_pattern(entry.fetch("text")), " ")
+        phrase = entry.fetch("text")
+        complete = phrase.match?(/[.!?…]\z/)
+        pattern = custom_phrase_pattern(complete ? phrase.sub(/[.!?…]+\z/, "") : phrase)
+        pattern = /#{pattern.source}(?=[ \t]*(?:[.,!?;:]|\z))[ \t]*[.!?]?/i if complete
+        text.gsub(pattern) do |matched|
+          prefix = Regexp.last_match.pre_match.rstrip
+          # Preserve a sentence ending when the phrase ended an existing clause.
+          prefix.present? && !prefix.match?(/[.!?]\z/) && matched.match?(/[.!?]\z/) ? "." : " "
+        end
       end
-      value.gsub(/[ \t]+([.!?,;:])/, '\\1').gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip.presence
+      value.gsub(/,\s*and\s*\./i, ".").gsub(/[ \t]+([.!?,;:])/, '\\1')
+        .gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip.presence
     end
 
     def model_phrase_rejection_reason(content)
