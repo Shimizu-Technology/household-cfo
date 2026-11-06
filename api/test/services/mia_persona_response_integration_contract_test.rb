@@ -171,9 +171,9 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       api_key: "test-key",
       persona: @runtime
     )
-    narrator.define_singleton_method(:openrouter_response) { "Only one sentence." }
+    narrator.define_singleton_method(:openrouter_response) { "First step. Second step. Third step. Fourth step. Fifth step. Sixth step." }
 
-    refute Mia::ResponseShapePolicy.valid?("Only one sentence.", persona: @runtime)
+    refute Mia::ResponseShapePolicy.valid?("First step. Second step. Third step. Fourth step. Fifth step. Sixth step.", persona: @runtime)
     assert_equal "Review the confirmed plan first.", narrator.call
   end
 
@@ -216,7 +216,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
         "How should our household prepare?",
         context: JSON.generate(basis: "approved test facts")
       )
-      assert_equal "y'all Review the confirmed plan first. Then choose one concrete next move.", result
+      assert_equal "y'all. Review the confirmed plan first. Then choose one concrete next move.", result
     end
 
     payload = JSON.parse(captured_requests.sole.body)
@@ -232,7 +232,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     response.body = JSON.generate(
       id: "gen-invalid-shape",
       model: "anthropic/claude-sonnet-4.5",
-      choices: [ { message: { content: "Only one sentence." } } ]
+      choices: [ { message: { content: "First step. Second step. Third step. Fourth step. Fifth step. Sixth step." } } ]
     )
     http = Object.new
     http.define_singleton_method(:request) { |_request| response }
@@ -247,7 +247,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       )
     end
 
-    refute_equal "Only one sentence.", result
+    refute_equal "First step. Second step. Third step. Fourth step. Fifth step. Sixth step.", result
     assert_includes result, @runtime.uncertainty_line
     assert_includes result, "What would you like to check before choosing your next step?"
     assert ::Mia::ResponseShapePolicy.valid?(result, persona: @runtime), "the fallback itself fits the persona's 3-5 sentence shape"

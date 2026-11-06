@@ -84,6 +84,14 @@ module Mia
       cultural_phrases.find { |entry| custom_phrase_allowed?(entry) }&.fetch("text")
     end
 
+    # A bare address/fragment must not run into the model's first sentence.
+    # Keep the exact approved text and supply only a sentence separator.
+    def server_phrase_prefix
+      phrase = server_phrase
+      return if phrase.blank?
+      phrase.match?(/[.!?…]["'’”)]?\z/) ? phrase : "#{phrase}."
+    end
+
     def server_phrase_instruction(include_phrase: true)
       if include_phrase && server_phrase
         "The coach phrase will be said just before your reply; don't repeat or paraphrase it. " \

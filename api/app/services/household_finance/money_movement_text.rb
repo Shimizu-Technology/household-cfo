@@ -63,7 +63,7 @@ module HouseholdFinance
       "short\\s+on\\s+(?:money|cash)|(?:until|til|till|before)\\s+(?:payday|pay\\s+day|we\\s+get\\s+paid|i\\s+get\\s+paid|(?:my|our|the|next)\\s+(?:pay)?check))".freeze
     STRONG_FOOD_INSECURITY_PATTERNS = [
       /\bnothing\s+(?:left\s+)?(?:to|fo)\s+eat\b(?!\s+(?:at|in)\s+(?:work|school|the\s+office))/i,
-      /\b(?:have|got|has|there\s+is|there['’]?s)\s+(?:no|zero)\s+(?:more\s+)?(?:food|groceries)\b(?!\s+(?:deliver|truck|court|allerg|stamps))/i,
+      /\b(?:have|got|has|there\s+is|there['’]?s)\s+(?:no|zero)\s+(?:more\s+)?(?:food|groceries)\b(?!\s+(?:deliver|truck|court|allerg|stamps|expenses?|costs?|budget|category|allocation|plan|line))/i,
       /\bno\s+(?:more\s+)?(?:food|groceries)\s+(?:in\s+the\s+(?:house|fridge)|at\s+home|left|until|till|til)\b/i,
       /\b(?:ran|run|running)\s+out\s+of\s+(?:food|groceries)\b(?!\s+(?:budget|category|allocation|money))|\b(?:are|am|we['’]?re|i['’]?m)\s+(?:completely\s+|totally\s+)?out\s+of\s+food\b(?!\s+(?:budget|category|allocation|money))/i,
       /\bwe\s+no\s+more\s+(?:food|money\s+for\s+(?:food|groceries))\b/i,
@@ -197,10 +197,10 @@ module HouseholdFinance
       return false if value.match?(NOT_HARDSHIP_PATTERN)
       return true if value.match?(/\b(?:i|we|(?:my|our|the) kids?)\s+(?:have not|haven't|had not|hadn't)\s+eaten\b/i)
       return true if value.match?(/\b(?:i|we)\s+(?:(?:have|been|am|are|keep)\s+){0,3}skip(?:ped|ping)?\s+meals?\b[^.!?]{0,70}\b(?:to feed\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family|husband|wife|partner|parents?|mom|dad|them)|so\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family|husband|wife|partner|parents?|mom|dad|they)\s+(?:could|can|would)\s+eat)\b/i)
-      return true if STRONG_FOOD_INSECURITY_PATTERNS.any? { |pattern| value.match?(pattern) }
       return true if value.match?(/\b(?:i|we)\s+(?:(?:have|had|been|am|are|was|were|keep)\s+){0,3}(?:skip(?:ped|ping)?|miss(?:ed|ing)?|went\s+without|go(?:ing)?\s+without)\s+(?:(?:my|our|some|a)\s+)?(?:meals?|food|breakfast|lunch|dinner)\b[^.!?]{0,60}\bso\s+(?:(?:my|our|the)\s+)?(?:kids?|children|family)\s+(?:could|can|would)\s+eat\b/i)
-      return false if value.match?(DISCRETIONARY_FOOD_PATTERN) || value.match?(FOOD_BUDGET_PATTERN)
       return false if value.match?(THIRD_PARTY_PATTERN) && !value.match?(OWN_HARDSHIP_PATTERN)
+      return true if STRONG_FOOD_INSECURITY_PATTERNS.any? { |pattern| value.match?(pattern) }
+      return false if value.match?(DISCRETIONARY_FOOD_PATTERN) || value.match?(FOOD_BUDGET_PATTERN)
 
       HARDSHIP_FOOD_PATTERNS.any? { |pattern| value.match?(pattern) }
     end

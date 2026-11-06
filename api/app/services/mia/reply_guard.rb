@@ -34,6 +34,28 @@ module Mia
       Do not mark a flag just because the participant asks a question or mentions a figure; classify claims in proposed_reply, except sensitive_moment which classifies the participant's situation.
     PROMPT
 
+    FACTS_MAX_BYTES = 12_000
+    INPUT_MAX_BYTES = 48_000
+    OPTIONAL_FACT_KEYS = %w[coach_persona available_product_modules conversation_state personalization_memory].freeze
+
+    # Keep required financial truth whole. Only optional presentation/history
+    # context may be left out; an oversized required core fails closed.
+    def self.bounded_facts(facts, max_bytes: FACTS_MAX_BYTES)
+      return if max_bytes < 2
+      return facts if JSON.generate(facts).bytesize <= max_bytes
+      return unless facts.is_a?(Hash)
+
+      bounded = facts.reject { |key, _| OPTIONAL_FACT_KEYS.include?(key.to_s) }
+      return if JSON.generate(bounded).bytesize > max_bytes
+      OPTIONAL_FACT_KEYS.each do |name|
+        key = facts.keys.find { |candidate| candidate.to_s == name }
+        next unless key
+        candidate = bounded.merge(key => facts[key])
+        bounded = candidate if JSON.generate(candidate).bytesize <= max_bytes
+      end
+      bounded
+    end
+
     def self.call(**options)
       new(**options).call
     end
@@ -43,11 +65,15 @@ module Mia
       @data = { participant_message: user_message.to_s, recent_history: summary(history), allowed_facts: facts, proposed_reply: reply.to_s }
       current = HouseholdFinance::ParticipantMessageReader::Current
       @data[:current_care] = current.reading.care if HouseholdFinance::ParticipantCare.reading_available?(user_message)
+      budget = [ FACTS_MAX_BYTES, INPUT_MAX_BYTES - JSON.generate(@data.merge(allowed_facts: {})).bytesize ].min
+      bounded = self.class.bounded_facts(facts, max_bytes: budget)
+      @facts_input_limit = bounded.nil?
+      @data[:allowed_facts] = bounded if bounded
     end
 
     def call
       return result([ "unavailable" ]) if @api_key.blank?
-      return result([ "input_limit" ]) if JSON.generate(@data).bytesize > 48_000
+      return result([ "input_limit" ]) if @facts_input_limit || JSON.generate(@data).bytesize > INPUT_MAX_BYTES
 
       floor = deterministic_reasons
       return result(floor) if floor.any?

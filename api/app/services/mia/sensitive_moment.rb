@@ -11,7 +11,7 @@ module Mia
     def self.matches?(text)
       current = HouseholdFinance::ParticipantMessageReader::Current
       if current.message.to_s.squish == text.to_s.squish && current.reading&.available
-        return current.reading.care?
+        return current.reading.care? || HouseholdFinance::ParticipantCare.required?(text)
       end
       grief?(text) || text.to_s.match?(STRAIN) || CrisisBoundary.matches?(text) || CrisisBoundary.hopeless?(text) ||
         HouseholdFinance::MoneyMovementText.food_insecurity?(text) || HouseholdFinance::MiaCoachAnswerer.essential_hardship?(text)

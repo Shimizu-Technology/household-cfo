@@ -92,6 +92,96 @@ class MiaReviewFiveRegressionsTest < ActiveSupport::TestCase
     refute HouseholdFinance::ParticipantCare.unexpected_crisis_guidance?("dead tired", text)
   end
 
+  test "R5 CR stated and denied purchases distinguish visits from buying" do
+    [ "I keep going to Ross and buying clothes", "I keep going to Ross but I didn't buy shoes and bought clothes" ].each do |message|
+      coach = HouseholdFinance::MiaCoachAnswerer.allocate
+      coach.instance_variable_set(:@message, message)
+      refute_includes coach.send(:repeated_pattern_answer), "A visit does not tell me"
+    end
+    [ "I keep going to Ross", "I keep going to Ross without buying anything", "I keep going to Ross but I don't buy anything", "I keep going to Ross and bought nothing" ].each do |message|
+      coach = HouseholdFinance::MiaCoachAnswerer.allocate
+      coach.instance_variable_set(:@message, message)
+      assert_includes coach.send(:repeated_pattern_answer), "A visit does not tell me", message
+    end
+  end
+
+  test "R5 CR challenge income purchase fallback cannot imply an approved household comparison" do
+    prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
+    narrator = SavingsChallenge::Narrator.new(user_message: "My income is now $5,600 monthly. Could I buy a $740 laptop?", api_key: "",
+      answer_packet: { kind: "purchase_scenario", purchase_prefix: prefix, fallback_response: prefix })
+    reply = narrator.call
+    assert_includes reply, "no household plan"
+    refute_includes reply, "this comparison uses your approved plan"
+  end
+
+  test "R5 CR narrator guard facts prioritize safety over large conversation memory" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "Your plan leaves $1,450, not bank cash.", annual_plan_summary: { plan_left_cents: 145000 },
+      personalization_memory: { memories: [ "long " * 15000 ] }, conversation_state: { summary: "old " * 15000 } }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "What is left in my plan?", answer_packet: packet, api_key: "fake")
+    seen = nil
+    with_method(Mia::ReplyGuard, :call, ->(**options) { seen = options[:facts]; Mia::ReplyGuard::Result.new([]) }) do
+      narrator.send(:guard_reply, "Which bill comes next?")
+    end
+    assert_operator seen.to_json.bytesize, :<=, 12000
+    assert_equal 145000, seen.dig(:annual_plan_summary, :plan_left_cents)
+    assert_equal "no_write", seen[:write_state]
+    assert_equal packet[:fallback_response], seen[:fallback_response]
+    refute seen.key?(:personalization_memory)
+  end
+
+  test "R5 CR guard fact budget reserves the wire envelope and fails closed on oversized required truth" do
+    flags = Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false)
+    facts = { fallback_response: "Your plan leaves $1,450, not bank cash.", annual_plan_summary: { plan_left_cents: 145000 }, personalization_memory: "x" * 11000 }
+    history = 8.times.map { { role: "user", content: "字" * 600 } }
+    guard = Mia::ReplyGuard.new(user_message: "😀" * 7000, history: history, facts: facts, reply: "r" * 3000, api_key: "fake")
+    guard.define_singleton_method(:classify) { flags.to_json }
+    with_method(HouseholdFinance::MiaProviderAdmission, :with_slot, ->(**_, &block) { block.call }) do
+      assert guard.call.allowed?
+    end
+    data = guard.instance_variable_get(:@data)
+    assert_operator data.to_json.bytesize, :<=, 48000
+    assert_equal 145000, data.dig(:allowed_facts, :annual_plan_summary, :plan_left_cents)
+    too_large = Mia::ReplyGuard.new(user_message: "What is left?", history: [], facts: { fallback_response: "x" * 13000 }, reply: "Check the plan.", api_key: "fake")
+    too_large.define_singleton_method(:classify) { raise "required facts must not be sent" }
+    assert_equal [ "input_limit" ], too_large.call.reasons
+  end
+
+  test "R5 CR current none never suppresses certain household food insecurity" do
+    message = "We have no food this week. Can I buy a $300 TV?"
+    read_care(message, "none")
+    assert_equal :food, HouseholdFinance::ParticipantCare.kind(message)
+    assert Mia::SensitiveMoment.matches?(message)
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: message, api_key: "", answer_packet: { kind: "purchase_scenario", fallback_response: "The $300 TV would leave $1,150, not bank cash." })
+    reply = narrator.call
+    assert_match(/food|eat/, reply)
+    refute_includes reply, "$300"
+    [ "My cousin has no food this week but we are doing fine. Can I buy a $300 TV?", "We have no food expenses this week. Can I buy a $300 TV?" ].each do |other|
+      read_care(other, "none")
+      refute HouseholdFinance::ParticipantCare.required?(other), other
+      refute Mia::SensitiveMoment.matches?(other), other
+    end
+  end
+
+  test "R5 CR unavailable reader clarification uses guard detected grief without a second read" do
+    message = "Since the farewell, the house feels empty."
+    current = HouseholdFinance::ParticipantMessageReader::Current
+    unavailable = HouseholdFinance::ParticipantMessageReader.new(message: message, api_key: "").call
+    current.message, current.reading = message, unavailable
+    controller = Api::V1::MiaMessagesController.new
+    controller.define_singleton_method(:params) { ActionController::Parameters.new(message: message) }
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "coaching", confidence: 1.0, continuation: false,
+      resolved_message: message, needs_clarification: true, clarification: "Which month?", topic: {}, action: { type: "none" }, read_only_plan: {}, source: "model")
+    calls = 0
+    with_method(HouseholdFinance::ParticipantMessageReader, :call, ->(**_) { raise "a second reader is forbidden" }) do
+      with_method(Mia::ReplyGuard, :call, ->(**_) { calls += 1; Mia::ReplyGuard::Result.new([ "sensitive_moment" ], care: "grief") }) do
+        reply = controller.send(:clarification_answer, intent)
+        assert_equal HouseholdFinance::ParticipantCare.answer(message, care: "grief"), reply
+        refute_includes reply, "Which month"
+        assert_equal 1, calls
+      end
+    end
+  end
+
   test "R5 guard current care is separate from historical sensitivity and preserves grief type" do
     message = "My dog died and the house is quiet. Can I get a chair?"
     flags = Mia::ReplyGuard::FLAGS.index_with { false }.merge("sensitive_moment" => true, "care" => "grief", "history_sensitive" => false)

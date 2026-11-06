@@ -415,4 +415,13 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     refute_match(/What feels most urgent|when you're ready/, answer)
     assert_match(/\$40/, answer)
   end
+  test "R5 CR food floor survives a none reading before a purchase comparison" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "R5 food", primary_goal: "Cushion", primary_income: "4800", fixed_expenses: "2100", flexible_spend: "900", debt_payment: "350").call
+    json = household_say("We have no food this week. Can I buy a $300 TV?", reading)
+    answer = json.dig("assistant_message", "content")
+    assert_match(/food|eat/, answer)
+    refute_match(/\$300|would leave|plan has/i, answer)
+    assert_nil json["mia_action_draft"]
+    assert_nil json["transaction_draft"]
+  end
 end

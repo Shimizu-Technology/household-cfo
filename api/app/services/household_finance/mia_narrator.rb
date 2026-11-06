@@ -339,7 +339,7 @@ module HouseholdFinance
 
     def delivery_prefix
       figures = purchase_coaching? ? purchase_prefix : nil
-      phrase = language_policy.server_phrase
+      phrase = language_policy.server_phrase_prefix
       prefix = [ figures, phrase ].compact_blank.join(" ")
       # Figures take priority; leave room for at least one coaching question.
       if persona.respond_to?(:response_shape)
@@ -365,7 +365,8 @@ module HouseholdFinance
       range = purchase_sentence_range(include_phrase: false)
       sentences = []
       if range.end.positive?
-        sentences << (PurchaseQuestionText.income_with_purchase?(user_message) ? "We can review the income change separately; this comparison uses your approved plan." : PurchaseQuestionText.unfunded?(user_message) ? "I would hold off until you know how to cover it." : "Check the funding before deciding.") if range.end > 1
+        household_comparison = !purchase_prefix.start_with?("There is no household plan in this challenge")
+        sentences << (household_comparison && PurchaseQuestionText.income_with_purchase?(user_message) ? "We can review the income change separately; this comparison uses your approved plan." : PurchaseQuestionText.unfunded?(user_message) ? "I would hold off until you know how to cover it." : "Check the funding before deciding.") if range.end > 1
         sentences << "Keep food and required bills covered." if range.end > 2
         sentences << "The decision stays with you." if range.end > 3
         sentences << "Which account would cover it?"
@@ -381,8 +382,10 @@ module HouseholdFinance
 
     def guard_reply(content)
       reply = [ delivery_prefix, content ].compact_blank.join(" ")
+      facts = answer_packet.merge(coach_persona: persona.guard_facts)
+      bounded = ::Mia::ReplyGuard.bounded_facts(facts)
       ::Mia::ReplyGuard.call(user_message: user_message, history: history,
-        facts: answer_packet.merge(coach_persona: persona.guard_facts), reply: reply, api_key: api_key)
+        facts: bounded || facts, reply: reply, api_key: api_key)
     end
 
     def sanitize_narration(content)

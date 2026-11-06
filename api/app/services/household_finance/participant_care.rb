@@ -6,13 +6,12 @@ module HouseholdFinance
       current = ParticipantMessageReader::Current
       if current.message.to_s.squish == message.to_s.squish && current.reading&.available
         return current.reading.care.to_sym if current.reading.care?
-        return
       end
       if current.message.to_s.squish == message.to_s.squish && current.guard_care.present?
         return current.guard_care.to_sym unless current.guard_care == "none"
       end
-      # Exact subject/action forms only during an outage or outside chat. Idioms
-      # such as dead set/dead tired and fired up never satisfy these forms.
+      # Exact subject/action forms remain a deterministic floor. Idioms such
+      # as dead set/dead tired and fired up never satisfy these forms.
       text = message.to_s.tr("’", "'").strip
       return :grief if text.match?(/\A(?:my|our) (?:mom|dad|mother|father|husband|wife|sister|brother|grandfather|grandmother|nana) (?:just )?(?:died|passed away|passed)(?: (?:today|yesterday|this week|this weekend))?[.!]?\z/i)
       return :job_loss if text.match?(/\A(?:i lost my job|my employer (?:fired me|let me go))(?: (?:today|yesterday|last week))?[.!]?\z/i)

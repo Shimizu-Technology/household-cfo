@@ -101,7 +101,7 @@ module Demo
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
       @language_policy = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona)
-      @delivery_prefix = @language_policy.server_phrase.to_s
+      @delivery_prefix = @language_policy.server_phrase_prefix.to_s
       if @persona.respond_to?(:response_shape)
         shape = @persona.response_shape
         count = ::Mia::ResponseShapePolicy.new(@delivery_prefix, persona: @persona).sentence_count

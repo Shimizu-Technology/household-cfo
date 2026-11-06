@@ -998,9 +998,16 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = repeated_activity || "this spending"
-      return "It sounds like #{label} is becoming a repeat stop, and you are noticing it. A visit does not tell me whether you bought anything. What was happening just before you went?" if message.match?(/\b(?:went to|going to)\b/i) && !message.match?(/\b(?:bought|buy|spent|purchased|ordered)\b/i)
+      return "It sounds like #{label} is becoming a repeat stop, and you are noticing it. A visit does not tell me whether you bought anything. What was happening just before you went?" if message.match?(/\b(?:went to|going to)\b/i) && !affirmed_repeat_purchase?
 
       "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next purchase. What was happening just before you decided to buy?"
+    end
+
+    def affirmed_repeat_purchase?
+      verbs = "(?:bought|buy(?:ing)?|spent|spend(?:ing)?|purchas(?:e|ed|ing)|order(?:ed|ing)?)"
+      text = message.gsub(/\b(?:don['’]?t|do not|didn['’]?t|did not|never|without|not)\s+(?!only\b)(?:(?:really|actually|even|ever|currently|yet)\s+){0,2}#{verbs}\b/i, "")
+      text = text.gsub(/\b#{verbs}\s+nothing\b/i, "")
+      text.match?(/\b#{verbs}\b/i)
     end
 
     def repeated_activity
