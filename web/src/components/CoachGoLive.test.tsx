@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useState } from 'react'
+import { StrictMode, useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail } from '../api'
@@ -278,4 +278,12 @@ it('returning after publication clears success and reviews current settings', as
  expect(screen.queryByRole('heading',{name:'Your program is live'})).toBeNull()
  expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2)
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
+
+it('automatic preview completes in StrictMode after effect replay', async () => {
+ function Automatic() { const lifecycle=useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} autoPreview /> }
+ render(<StrictMode><Automatic /></StrictMode>)
+ await screen.findByText('Review before going live')
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ expect(api.runAdminPersonaEvaluation).toHaveBeenCalledTimes(1)
 })

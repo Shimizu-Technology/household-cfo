@@ -47,8 +47,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const finishMutation = lifecycle.finish
   useEffect(() => {
     activity.current = active
-    return () => {
-      activity.current = false
+    if (!active) {
       previewGeneration.current += 1
       if (previewTicket.current) finishMutation(previewTicket.current)
       previewTicket.current = null
