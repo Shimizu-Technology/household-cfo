@@ -43,6 +43,7 @@ module Mia
 
         def review_note
           {
+            "persona_setup_guard" => message,
             "persona_setup_evidence_missing" => "The supporting words were missing from your message.",
             "persona_setup_exact_wording" => "It used wording you did not provide.",
             "persona_setup_phrase_use" => "The suggested change to when or how often you use this phrase was not in your message. Describe that change in your own words.",
@@ -95,12 +96,14 @@ module Mia
         end
       end
 
-      def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil)
+      def initialize(actor:, user_message:, persona:, previous_operations: [], evidence_state: nil, guard: ProposalGuard)
         @actor = actor
         @user_message = user_message.to_s.unicode_normalize(:nfkc)
         @persona = persona
         @previous_operations = previous_operations
         @evidence_state = evidence_state || persona.draft_config
+        @guard = guard
+        @guard_results = {}
       end
 
       # Keep the strict contract as the authority. Each accepted prefix is fully
@@ -155,7 +158,7 @@ module Mia
             raise ContractError.new("Mia proposed more than one change to the same field.", code: "persona_setup_duplicate") unless mutation_targets.add?(target)
           end
         end
-        TextEvidence.reconcile_prohibitions!(after_state)
+        ProhibitionFloor.reconcile!(after_state)
         unless participant_artifacts(before_state) == participant_artifacts(after_state)
           raise ContractError.new("Participant-supplied phrase artifacts cannot be changed by setup chat.", code: "persona_setup_participant_phrase")
         end
@@ -196,6 +199,8 @@ module Mia
         evidence = normalize_text(operation.fetch("evidence_quote"), max: 500, allow_blank: source == "mia_drafted")
         raise ContractError, "Mia returned an unsupported change operation." unless op.in?(OPERATIONS)
         raise ContractError, "Mia returned an unsupported evidence type." unless source.in?(SOURCES)
+        raise ContractError, "Mia tried to change a protected persona field." if op == "set" && !path.in?(SET_PATHS)
+
         value = op == "add_phrase" ? normalize_phrase_value(operation["value"]) : operation["value"]
         value = preserve_pending_list(path, value) if op == "set"
         validate_evidence!(op:, path:, value:, source:, evidence:) unless @previous_operations.include?(operation)
@@ -221,12 +226,12 @@ module Mia
 
       def validate_evidence!(op:, path:, value:, source:, evidence:)
         if source == "coach_quote"
-          unless evidence.present? && user_message.squish.include?(evidence)
+          unless evidence.present? && comparison_text(user_message).include?(comparison_text(evidence))
             raise ContractError.new("Every coach-authored change must cite exact wording from this message.", code: "persona_setup_evidence_missing")
           end
         else
           if transcript_request? && op == "set" && path.in?(TRANSCRIPT_DRAFTABLE_PATHS)
-            unless evidence.present? && user_message.squish.include?(evidence)
+            unless evidence.present? && comparison_text(user_message).include?(comparison_text(evidence))
               raise ContractError.new("A transcript suggestion must cite exact source wording.", code: "persona_setup_evidence_missing")
             end
 
@@ -249,78 +254,34 @@ module Mia
             raise ContractError.new("Phrases require the coach's own words and permission to use them.", code: "persona_setup_exact_wording")
           end
           exact_values.each do |text|
-            next if text.blank? || user_message.include?(text)
+            next if text.blank? || comparison_text(user_message).include?(comparison_text(text))
 
             raise ContractError.new("Names, community facts, and phrases must appear exactly in the coach's message.", code: "persona_setup_exact_wording")
           end
         end
-        if path.start_with?("coaching.", "curriculum.") || op == "add_phrase"
-          # Explicitly requested creative philosophy is labelled Mia drafted.
-          unless source == "mia_drafted" && !transcript_request?
-            values = if op == "add_phrase"
-              existing = Array(@evidence_state["phrases"]).find { |phrase| PhraseSuggestions.key(phrase["text"]) == PhraseSuggestions.key(value["text"]) }
-              validate_phrase_use!(existing, value, evidence) if existing
-              existing && existing["meaning"] == value["meaning"] ? [] : [ value.fetch("meaning") ]
-            elsif path.start_with?("curriculum.")
-              current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
-              added = Array(value) - Array(current)
-              added.flat_map { |item| item.is_a?(Hash) ? item.values : item }
-            else
-              current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
-              exact_strings(value) - exact_strings(current)
-            end
-            authored = CoachSource.new(coach_name: persona.draft_config.dig("identity", "human_coach_name")).text(user_message)
-            unless authored.include?(evidence) && exact_strings(values).all? { |item| TextEvidence.supports?(evidence, item) }
-              raise ContractError.new("The suggestion must be supported by its cited words.", code: "persona_setup_text_evidence")
-            end
+        existing = if op == "add_phrase"
+          Array(@evidence_state["phrases"]).find { |phrase| PhraseSuggestions.key(phrase["text"]) == PhraseSuggestions.key(value["text"]) }
+        end
+        if existing && (Array(existing["prohibited_contexts"]) - Array(value["prohibited_contexts"])).any?
+          raise ContractError.new("A phrase’s safety limits cannot be loosened in setup chat.", code: "persona_setup_phrase_use")
+        end
+        if op == "set" && path.start_with?("voice.") && CulturalSafetyPolicy.violations(evidence, field: :style_instruction).any?
+          raise ContractError.new("This used a place or group identity to describe how you speak. Describe your own manner instead.", code: "persona_setup_voice_evidence")
+        end
+        if op == "set" && path.start_with?("voice.") && value.is_a?(Array)
+          saved = path.split(".").reduce(@evidence_state) { |target, key| target.is_a?(Hash) ? target[key] : nil }
+          if (Array(saved) - value).any? { |item| !voice_removal_requested?(item) }
+            raise ContractError.new("This removed voice choices you did not ask to remove. Name any choices you want to replace.", code: "persona_setup_voice_evidence")
           end
         end
-        return unless path.start_with?("voice.")
+        current = existing || (path == "description" ? persona.description : path.split(".").reduce(@evidence_state) { |target, key| target.is_a?(Hash) ? target[key] : nil })
+        operation = { "op" => op, "path" => path, "value" => value, "source_basis" => source, "evidence_quote" => evidence }
+        key = JSON.generate([ operation, current ])
+        result = @guard_results[key] ||= @guard.call(user_message: user_message, operation: operation, current_value: current,
+          coach_name: persona.draft_config.dig("identity", "human_coach_name"))
+        return if result.allowed?
 
-        current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
-        added = exact_strings(value) - exact_strings(current)
-        removed = value.is_a?(Array) && current.is_a?(Array) ? exact_strings(current) - exact_strings(value) : []
-        return if added.empty? && removed.empty?
-
-        authored = CoachSource.new(coach_name: persona.draft_config.dig("identity", "human_coach_name")).text(user_message)
-        reason = if !(source == "coach_quote" || transcript_request?) || !authored.include?(evidence) || !VoiceEvidence.about_voice?(evidence)
-          "This used words that were not your description of your own voice. Describe how you speak to people."
-        elsif CulturalSafetyPolicy.violations(evidence, field: :style_instruction).any?
-          "This used a place or group identity to describe how you speak. Describe your own manner instead."
-        elsif added.any? { |item| !VoiceEvidence.supports?(authored, item) }
-          "This voice choice went against your description or lost a limit you gave. Describe when you want that tone."
-        elsif removed.any? { |item| !VoiceEvidence.supports?(authored, item, removal: true) }
-          "This removed voice choices you did not ask to remove. Name any choices you want to replace."
-        end
-        raise ContractError.new(reason, code: "persona_setup_voice_evidence") if reason
-      end
-
-      def validate_phrase_use!(existing, value, evidence)
-        changed = %w[allowed_contexts prohibited_contexts frequency caution].select { |key| existing[key] != value[key] }
-        supported = changed.all? do |key|
-          case key
-          when "frequency"
-            frequency = {
-              "very_rare" => /\bvery rarely\b/i,
-              "rare" => /\b(?:rarely|occasionally|from time to time)\b/i,
-              "sparing" => /\b(?:sparing(?:ly)?|sometimes|occasionally|from time to time)\b/i,
-              "as_needed" => /\b(?:often|as needed|whenever|every time)\b/i
-            }[value[key]]
-            frequency && evidence.to_enum(:scan, frequency).any? do
-              match = Regexp.last_match
-              !evidence[0...match.begin(0)].split(/[.!?;]/).last.to_s.match?(VoiceEvidence::NEGATION)
-            end
-          when "caution"
-            value[key].present? ? TextEvidence.supports?(evidence, value[key]) :
-              %w[remove clear drop].any? { |verb| TextEvidence.supports?(evidence, "#{verb} caution") }
-          else
-            delta = (Array(value[key]) - Array(existing[key])) | (Array(existing[key]) - Array(value[key]))
-            delta.all? { |context| context == "crisis" || TextEvidence.supports?(evidence, context.tr("_", " ")) }
-          end
-        end
-        return if supported
-
-        raise ContractError.new("Changes to a saved phrase’s use need supporting words.", code: "persona_setup_phrase_use")
+        raise ContractError.new("Mia could not confirm this suggestion keeps your own meaning, limits and voice. Describe the change in your own words.", code: "persona_setup_guard")
       end
 
       # Only the server passes already sealed, pending operations here. New
@@ -336,6 +297,16 @@ module Mia
         kept = current.reject { |item| removal_requested?(item) }
         # Ignore an unsupported omission, including "do not remove".
         (kept + value).uniq
+      end
+
+      def voice_removal_requested?(item)
+        target = item.to_s.unicode_normalize(:nfkc).tr("‘’ʼ", "'").downcase
+          .sub(/\A(?:use|keep|prefer|be|explain)\s+/, "").sub(/[.!?]+\z/, "")
+        user_message.tr("‘’ʼ", "'").downcase.split(/[.!?;\n]/).any? do |clause|
+          next false if clause.match?(/\b(?:do not|don't|never|without)\s+(?:ever\s+)?(?:remove|drop|delete|replace|take out)\b/i)
+
+          clause.match?(/\b(?:remove|drop|delete|replace|replacing|take out)\b/i) && clause.include?(target)
+        end
       end
 
       def removal_requested?(item)
@@ -480,7 +451,7 @@ module Mia
       end
 
       def changed_exact_strings(path, value)
-        current = path.split(".").reduce(@evidence_state) { |target, key| target.to_h[key] }
+        current = path.split(".").reduce(@evidence_state) { |target, key| target.is_a?(Hash) ? target[key] : nil }
         added = exact_strings(value) - exact_strings(current)
         return added unless value.is_a?(Array) && current.is_a?(Array)
 
@@ -490,6 +461,10 @@ module Mia
       def participant_artifacts(state)
         Array(state.dig("draft_config", "phrases"))
           .select { |phrase| phrase.is_a?(Hash) && phrase["provenance"] == "participant_supplied" }
+      end
+
+      def comparison_text(value)
+        value.to_s.unicode_normalize(:nfkc).tr("‘’ʼ", "'").squish
       end
 
       def normalize_text(value, max:, allow_blank: false)

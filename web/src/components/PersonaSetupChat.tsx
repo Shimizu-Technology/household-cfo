@@ -436,6 +436,15 @@ export function PersonaSetupChat({
 }
 
 function ProposalChange({ change, compact = false }: { change: AdminPersonaSetupChange; compact?: boolean }) {
+  if (change.phrase && change.before && typeof change.before === 'object' && 'frequency' in change.before && 'allowed_contexts' in change.before) {
+    const before = change.before as NonNullable<AdminPersonaSetupChange['phrase']>
+    return <article className="persona-proposal-change">
+      <header><strong>{suggestionLabel(change)}</strong><span>{proposalSourceLabel(change)}</span></header>
+      <p>{change.phrase.text}</p>
+      <dl><div><dt>Before</dt><dd><PhraseUse phrase={before} /></dd></div><div><dt>After</dt><dd><PhraseUse phrase={change.phrase} /></dd></div></dl>
+      {change.evidence_quote && <blockquote>“{change.evidence_quote}”</blockquote>}
+    </article>
+  }
   return (
     <article className="persona-proposal-change">
       <header><strong>{suggestionLabel(change)}</strong><span>{proposalSourceLabel(change)}</span></header>
@@ -465,7 +474,7 @@ function displayValue(value: unknown): string {
 }
 
 function sectionSummary(group: string, changes: AdminPersonaSetupChange[]): string {
-  if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${displayValue(change.after)}”`).join(', ')
+  if (group === 'Phrases') return changes.map((change) => change.after == null ? `Remove “${displayValue(change.before)}”` : `“${change.phrase?.text ?? displayValue(change.after)}”`).join(', ')
   const examples = changes.find((change) => change.path === 'curriculum.examples')?.after
   if (group === 'Examples' && Array.isArray(examples)) return `${examples.length} example ${examples.length === 1 ? 'reply' : 'replies'} for everyday questions`
   const min = changes.find(change => change.path === 'response_shape.min_sentences')?.after

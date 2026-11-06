@@ -9,18 +9,6 @@ module Mia
         @coach_name = coach_name
       end
 
-      def text(message)
-        message.each_line.filter_map do |line|
-          source = body(line.sub(/\A\s*(?:propose|suggest|derive)\b[^\n:]*\btranscripts?\s*:\s*/i, ""))
-          next unless source
-
-          source.split(/(?<=[.!?;])\s+/).reject do |sentence|
-            sentence.match?(/\b(?:(?i:(?:my|our|the|a|her|his|their)\s+(?:client|participant|mother|father|friend|relative|husband|wife))|(?!I\b|We\b|She\b|He\b|They\b|Also\b|Please\b)[[:upper:]][[:alpha:]'’-]+)\s+(?:says?|said|tells?|told|used to say)\b/) ||
-              sentence.match?(/\b(?:client|participant)(?:['’]s)?\s+(?:words?|line|voice|tone|style)\b/i)
-          end.join(" ")
-        end.join(" ").squish
-      end
-
       def body(line)
         allowed = [ "coach", "me", "#{@coach_name}" ].reject(&:blank?)
         body = line

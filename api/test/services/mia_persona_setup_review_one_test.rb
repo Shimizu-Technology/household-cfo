@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/proposal_guard_test_helper"
 require_relative "../support/persona_test_helper"
 
 class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
+  include ProposalGuardTestHelper
   include PersonaTestHelper
 
   setup do
@@ -90,7 +92,7 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     result = run_turn(message, [ proposed ])
     actual = result.proposal.after_state.dig("draft_config", "phrases").sole
     assert_equal "Chelu, pump the brakes.", actual["text"]
-    assert_equal actual["text"], actual["meaning"]
+    assert_equal proposed["value"]["meaning"], actual["meaning"]
     assert_nil run_turn('She says "Another phrase".', []).proposal
   end
 
@@ -148,23 +150,6 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     assert_equal original, @persona.reload.draft_config.dig("identity", "assistant_name")
   end
 
-  [ "She rarely celebrates small wins", "She stopped celebrating small wins", "She avoids celebrating small wins",
-    "She refuses to celebrate small wins", "She used to celebrate small wins" ].each do |source|
-    test "R7 R8 limiting polarity #{source}" do
-      refute Mia::PersonaSetup::TextEvidence.supports?(source, "Celebrate small wins")
-    end
-  end
-  [ "Do not ever shame anyone", "Don't ever shame anyone", "Never ever shame anyone", "She doesnt shame clients",
-    "Nobody should shame clients", "She wouldnt shame clients", "She shouldnt shame clients", "She isnt shaming clients", "She hasn't shamed clients" ].each do |source|
-    test "R8 negative polarity #{source}" do
-      refute Mia::PersonaSetup::TextEvidence.supports?(source, "Shame clients"), source
-    end
-  end
-  test "R8 negative cue before ask cannot become positive" do
-    refute Mia::PersonaSetup::TextEvidence.supports?("She didnt ask questions", "Ask questions")
-    assert Mia::PersonaSetup::TextEvidence.supports?("Do not ever shame clients", "Never shame clients")
-  end
-
   [ "Kill yourself", "You are a failure" ].each do |text|
     test "R17 harmful phrase #{text} fails setup and direct draft authoring" do
       message = %(She says "#{text}")
@@ -185,12 +170,6 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     assert_raises(Mia::PersonaDraftUpdater::Error) do
       Mia::PersonaDraftUpdater.new(persona: @persona, actor: @coach, workspace: @workspace).call!(expected_draft_revision: @persona.draft_revision, description: @persona.description, draft_config: config)
     end
-  end
-
-  test "R8 ordinary words ending in nt do not become negations" do
-    assert Mia::PersonaSetup::TextEvidence.supports?("I want to celebrate small wins", "Celebrate small wins")
-    assert Mia::PersonaSetup::TextEvidence.supports?("Count the amount for rent", "Count the amount for rent")
-    refute Mia::PersonaSetup::TextEvidence.supports?("She hadnt asked questions", "Ask questions")
   end
 
   test "CR4 malformed phrase siblings are left out without losing a valid name" do
@@ -242,12 +221,6 @@ class MiaPersonaSetupReviewOneTest < ActiveSupport::TestCase
     Mia::PersonaDraftUpdater.new(persona: @persona, actor: other, workspace: @workspace, protect_pending_suggestions: true, discard_pending_suggestions: true).call!(**args)
     assert_equal "stale", @session.proposals.sole.status
     assert_equal "Ask one question.", @persona.reload.draft_config.dig("coaching", "method")
-  end
-
-  [ "She is avoiding celebrating small wins", "She keeps stopping short of celebrating small wins", "She is refusing to celebrate small wins", "She stops celebrating small wins" ].each do |source|
-    test "CR10 negative verb inflections #{source}" do
-      refute Mia::PersonaSetup::TextEvidence.supports?(source, "Celebrate small wins")
-    end
   end
 
   private

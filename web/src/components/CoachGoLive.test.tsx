@@ -246,3 +246,36 @@ it('W23 refuses a previously previewed phrase after audience review rejects it',
  view.rerender(<Active active/>);expect((await screen.findByRole('alert')).textContent).toContain('rejected for this audience')
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2);expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })
+
+it('selects newly created groups while hidden without reselecting a deselected group', async () => {
+ function Dynamic({ extra = false }: { extra?: boolean }) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={extra ? [group, {...group, id:43, name:'New people'}] : [group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={false} /> }
+ const view = render(<Dynamic />)
+ fireEvent.click(screen.getByRole('checkbox', {name:'Practice people'}))
+ view.rerender(<Dynamic extra />)
+ await waitFor(() => expect(screen.getByRole('checkbox', {name:'New people'})).toHaveProperty('checked', true))
+ expect(screen.getByRole('checkbox', {name:'Practice people'})).toHaveProperty('checked', false)
+})
+it('leaving during a preview prevents the second paid answer and safety evaluation', async () => {
+ let finish!: (value: unknown) => void
+ api.previewAdminPersona.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+ function Active({active}: {active:boolean}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active} /> }
+ const view=render(<Active active />)
+ fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ await waitFor(()=>expect(api.previewAdminPersona).toHaveBeenCalledTimes(1))
+ view.rerender(<Active active={false} />)
+ finish({behavioral_preview_evidence:ready.behavioral_preview_evidence})
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false))
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(1)
+ expect(api.runAdminPersonaEvaluation).not.toHaveBeenCalled()
+})
+it('returning after publication clears success and reviews current settings', async () => {
+ function Active({active}: {active:boolean}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1); const [value,setValue]=useState(persona); return <CoachGoLive persona={value} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={setValue} active={active} /> }
+ const view=render(<Active active />);await approve();await screen.findByRole('heading',{name:'Your program is live'})
+ api.fetchAdminPersona.mockResolvedValue(published)
+ view.rerender(<Active active={false} />)
+ view.rerender(<Active active />)
+ await screen.findByText('Review before going live')
+ expect(screen.queryByRole('heading',{name:'Your program is live'})).toBeNull()
+ expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})

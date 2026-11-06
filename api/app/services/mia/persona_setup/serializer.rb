@@ -84,7 +84,7 @@ module Mia
           {
             group: GROUPS.fetch(path.split(".").first, "Other"),
             path:,
-            label: path == "phrases" ? phrase_label(operation) : path.split(".").last.tr("_", " ").titleize,
+            label: path == "phrases" ? phrase_label(proposal, operation) : path.split(".").last.tr("_", " ").titleize,
             phrase: operation["op"] == "add_phrase" ? operation["value"] : nil,
             before: before_value(proposal, operation),
             after: after_value(proposal, operation),
@@ -97,13 +97,14 @@ module Mia
       end
 
       def before_value(proposal, operation)
-        return nil if operation["op"] == "add_phrase"
+        return saved_phrase(proposal, operation)&.slice("text", "meaning", "frequency", "allowed_contexts", "prohibited_contexts", "caution") if operation["op"] == "add_phrase"
         return operation["value"] if operation["op"] == "remove_phrase"
 
         dig_state(proposal.before_state, operation.fetch("path"))
       end
 
       def after_value(proposal, operation)
+        return operation["value"] if operation["op"] == "add_phrase" && saved_phrase(proposal, operation)
         return operation.dig("value", "text") if operation["op"] == "add_phrase"
         return nil if operation["op"] == "remove_phrase"
 
@@ -117,8 +118,18 @@ module Mia
         keys.reduce(state.fetch("draft_config")) { |target, key| target.to_h[key] }
       end
 
-      def phrase_label(operation)
-        operation["op"] == "remove_phrase" ? "Remove phrase" : "Add phrase"
+      def saved_phrase(proposal, operation)
+        return unless operation["op"] == "add_phrase"
+
+        Array(proposal.before_state.dig("draft_config", "phrases")).find do |phrase|
+          PhraseSuggestions.key(phrase["text"]) == PhraseSuggestions.key(operation.dig("value", "text"))
+        end
+      end
+
+      def phrase_label(proposal, operation)
+        return "Remove phrase" if operation["op"] == "remove_phrase"
+
+        saved_phrase(proposal, operation) ? "Change: when to use it" : "Add phrase"
       end
     end
   end

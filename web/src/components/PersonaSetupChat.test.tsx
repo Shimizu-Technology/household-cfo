@@ -106,6 +106,21 @@ describe('PersonaSetupChat', () => {
   })
   afterEach(cleanup)
 
+  it('shows saved and proposed phrase use in plain words', async () => {
+    const next = proposalSession()
+    const before = {text:'Pause', meaning:'Take a moment before deciding.', frequency:'rare', allowed_contexts:['general'], prohibited_contexts:['crisis'], caution:'Ask gently.'} as PersonaConfiguration['phrases'][number]
+    const after = {...before, frequency:'as_needed'} as PersonaConfiguration['phrases'][number]
+    next.proposal!.grouped_changes = [{group:'Phrases',changes:[{group:'Phrases',path:'phrases',label:'Change: when to use it',phrase:after,before,after,source_basis:'coach_quote',evidence_quote:'Please use my saying "Pause" often.'}]}]
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(next)
+    render(<Harness saveAndPreview />)
+    await screen.findByText('Your voice suggestions')
+    await userEvent.click(screen.getByRole('button', {name:'Review in form'}))
+    expect(await screen.findByText('Change: when to use it', {selector:'header strong'})).toBeTruthy()
+    expect(screen.getByText('Before', {selector:'dt'})).toBeTruthy()
+    expect(screen.getByText('After', {selector:'dt'})).toBeTruthy()
+    expect(screen.getByText(/^Occasionally, during everyday coaching/)).toBeTruthy()
+    expect(screen.getAllByText(/^Whenever the situation fits, during everyday coaching/).length).toBeGreaterThan(0)
+  })
   it('R5 rejects a focused review back to a usable composer',async()=>{
     apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
     apiMocks.resolveAdminPersonaSetupProposal.mockResolvedValue({session:session()})

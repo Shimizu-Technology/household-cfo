@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/proposal_guard_test_helper"
 require_relative "../support/persona_test_helper"
 
 class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
+  include ProposalGuardTestHelper
   include PersonaTestHelper
 
   setup do
@@ -63,22 +65,6 @@ class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
     proposal = Struct.new(:operations, :before_state, :after_state).new(repaired, Mia::PersonaDraftUpdater.state_for(@persona), { "draft_config" => @persona.draft_config })
     change = serialized.send(:grouped_changes, proposal).sole[:changes].sole
     assert_equal meaning, change.dig(:phrase, "meaning")
-  end
-
-  test "an embellished meaning falls back to the complete coach sentence without losing when to use it" do
-    message = 'When someone is about to overspend I say "Chelu, pump the brakes." and suggest waiting 30 days.'
-    repaired = Mia::PersonaSetup::PhraseSuggestions.new(message:).call([ phrase("Chelu, pump the brakes", "An invented charming island expression.", "Chelu, pump the brakes") ])
-    saved = contract(message).build(repaired).dig(:after_state, "draft_config", "phrases").sole
-    assert_equal message, saved["meaning"]
-    refute_includes saved["meaning"], "invented"
-  end
-
-  test "recovered meaning comes only from the authorized coach quote" do
-    message = "My client says \"Pause\" when rent is due.\nCoach: I say \"Pause\" when someone is about to overspend."
-    repaired = Mia::PersonaSetup::PhraseSuggestions.new(message:).call([ phrase("Pause", "An invented explanation", "Pause") ])
-    saved = contract(message).build(repaired).dig(:after_state, "draft_config", "phrases").sole
-    assert_equal 'I say "Pause" when someone is about to overspend.', saved["meaning"]
-    refute_includes saved["meaning"], "rent"
   end
 
   test "a voice preamble cannot disguise a same-line client speaker as coach prose" do

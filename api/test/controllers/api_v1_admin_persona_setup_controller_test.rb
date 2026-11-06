@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/proposal_guard_test_helper"
 require_relative "../support/persona_test_helper"
 
 class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
+  include ProposalGuardTestHelper
   include PersonaTestHelper
 
   setup do

@@ -30,7 +30,8 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const [answers, setAnswers] = useState<Array<{question: string; answer: string}>>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
-  const [groupIds, setGroupIds] = useState<number[]>(cohorts.filter((item) => item.assignable).map((item) => item.id))
+  const [unselectedGroupIds, setUnselectedGroupIds] = useState<number[]>([])
+  const groupIds = cohorts.filter(item => item.assignable && !unselectedGroupIds.includes(item.id)).map(item => item.id)
   const [groups, setGroups] = useState<GroupReview[]>([])
   const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
   const { currentUser } = useAuthContext()
@@ -40,6 +41,24 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const previewTicket = useRef<ReturnType<CoachWorkspaceMutationLifecycle['begin']> | null>(null)
+  const activity = useRef(active)
+  const previewGeneration = useRef(0)
+  const finishMutation = lifecycle.finish
+  useEffect(() => {
+    activity.current = active
+    return () => {
+      activity.current = false
+      previewGeneration.current += 1
+      if (previewTicket.current) finishMutation(previewTicket.current)
+      previewTicket.current = null
+    }
+  }, [active, finishMutation])
+  const [previousActive, setPreviousActive] = useState(active)
+  if (previousActive !== active) {
+    setPreviousActive(active)
+    if (!active) { setBusy(false); setLive(false); setStatus(''); setGroups([]); setSettings(null); setReadiness(null) }
+  }
   const requestId = useRef(crypto.randomUUID())
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
@@ -50,8 +69,10 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
     if (busy || lifecycle.pending || pendingLaunch || persona.draft_revision == null) return
     startedAutomatically.current = true
     const ticket = lifecycle.begin()
-    const current = () => mounted.current && lifecycle.isCurrent(ticket)
-    setBusy(true); setError(null); setReadiness(null); setChecks([]); setAnswers([]); setSettings(null); setGroups([]); setReviewedPersona(null); requestId.current = crypto.randomUUID()
+    previewTicket.current = ticket
+    const generation = ++previewGeneration.current
+    const current = () => mounted.current && activity.current && generation === previewGeneration.current && lifecycle.isCurrent(ticket)
+    setBusy(true); setLive(false); setError(null); setReadiness(null); setChecks([]); setAnswers([]); setSettings(null); setGroups([]); setReviewedPersona(null); requestId.current = crypto.randomUUID()
     try {
       const source = await fetchAdminPersona(persona.id)
       if (!current()) return
@@ -118,7 +139,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       setGroups(reviews)
       setStatus(source.has_unpublished_changes === false ? 'Review the appearance, tools and groups below. Your participants still have their current settings.' : 'Review the answers, phrases and groups below. Your participants still have their current settings.')
     } catch (caught) { if (current()) { setStatus(''); setError(caught instanceof Error ? caught.message : 'The preview could not finish. Try again.') } }
-    finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
+    finally { if (mounted.current && generation === previewGeneration.current) setBusy(false); if (previewTicket.current === ticket) previewTicket.current = null; lifecycle.finish(ticket) }
   }
 
   const startedAutomatically = useRef(false)
@@ -209,7 +230,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>{live ? 'Your program is live' : voiceChanges ? 'Hear your assistant, then go live' : 'Review changes, then go live'}</h3><p>{live ? 'Your people have the published assistant, appearance and tools.' : voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
     {!live && !(reviewedPersona ?? persona).published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
-    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setGroupIds((ids) => event.target.checked ? [...ids, group.id] : ids.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
+    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setUnselectedGroupIds((ids) => event.target.checked ? ids.filter((id) => id !== group.id) : [...ids, group.id]); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><div className="coach-lifecycle-actions"><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></div></>}
     {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
