@@ -104,7 +104,7 @@ module Mia
     ].freeze
     # Missing spaces are common in rushed disclosures. This matches the same
     # intent/action structure, not a bag of self-harm words.
-    COMPACT_EXPLICIT = /(?:i(?:['’]?m|am)?|\A)(?:wantto|wanna|wana|will|gonna|gona|gunna|goingto|going2|aboutto|planto|intendto)(?:just)?(?:k(?:ill|il|ll)myself|hurtmyself|harmmyself|hangmyself|shootmyself|endmylife|takemyownlife|overdose|die)(?:(?:to|2)?night|tonite|today|tomorrow|now|rn)?\b/i
+    COMPACT_EXPLICIT = /(?:i(?:['’]?m|am)?|\A)(?:(?:really|rlly|just|actually|seriously|honestly|desperately))*(?:wantto|wanna|wana|will|gonna|gona|gunna|goingto|going2|aboutto|planto|intendto)(?:(?:really|rlly|just|actually|seriously|honestly|desperately))*(?:k(?:ill|il|ll)myself|hurtmyself|harmmyself|hangmyself|shootmyself|endmylife|takemyownlife|overdose|die)(?:(?:to|2)?night|tonite|today|tomorrow|now|rn)?\b/i
     SOFT_FAMILIES = [
       /\b(?:stop|stopping)\s+existing\b/i,
       /\b(?:wish|hope)\b[^.!?]{0,55}\b(?:never|not)\s+(?:been\s+)?born\b/i,
@@ -118,7 +118,7 @@ module Mia
       /\b(?:end(?:ing)?|over)\s+(?:it|it all|everything|things)#{TIME_WORDS}#{PHRASE_END}/i,
       /\bbetter\s+(?:off\s+)?(?:dead|gone|without me|w\/o me)\b|\bbetter\s+off\s+if\s+i\s+(?:was|were)\s+(?:dead|gone)\b/i,
       /\b(?:world|everyone|everybody|evryone|family|kids|children)\b[^.!?]{0,55}\bbetter\b[^.!?]{0,35}\b(?:without me|w\/o me)\b/i,
-      /\b(?:disappear\w*|vanish\w*)\b/i,
+      /\bi\s+(?:(?:want to|wanna|wish i could|just|could|should|will|might)\s+)*(?:disappear\w*|vanish\w*)\b/i,
       /\b(?:nobody|no one|noone)\b[^.!?]{0,55}\b(?:care|notice|miss)\b[^.!?]{0,45}\b(?:died|dead|gone|disappear\w*|wasn['’]?t|wasnt|weren['’]?t|around)\b/i,
       /\b(?:nobody|no one|noone)\s+(?:even\s+)?needs?\s+me\b/i,
       /\b(?:dont|don['’]?t|dnt|do not)\s+(?:(?:wanna|wana|want to|want ta)\s+)?(?:b|be)\s+(?:here|alive)\s+(?:any\s?more|no more|tomorrow|tonight|much longer)\b/i,
@@ -130,10 +130,18 @@ module Mia
       /\b(?:soon|tomorrow)\b[^.!?]{0,35}\b(?:wont|won['’]?t|will not)\s+be\s+(?:a\s+)?problem\b/i,
       /\btired\s+of\s+being\s+alive\b|\b(?:no reason|nothing)\s+(?:to|left to)\s+(?:live|keep going|keep living)\b|\bnothing\s+to\s+live\s+for\b/i,
       /\b(?:point\s+(?:of|in)\s+(?:going on|living)|deserve\s+to\s+live|life\b[^.!?]{0,20}\bworth\s+living)\b/i,
-      /\bburden\b/i,
+      /\b(?:i['’]?m|im|i am|i feel|we are|we['’]re)\s+(?:(?:just|such|like|so|really)\s+)*(?:a\s+)?burden\b/i,
       /\b(?:might|could)\s+(?:just\s+)?do\s+something\s+to\s+myself\b/i,
       /\bjump\s+(?:off|from)\b/i,
       /\b(?:ready|want|wanna)\b[^.!?]{0,25}\b(?:go|be)\b[^.!?]{0,20}\bwith\s+(?:my|our)\s+(?:mom|dad|mother|father|parents?|husband|wife|child|baby)\b/i
+    ].freeze
+
+    PERSONAL_NET = /\b(?:better off (?:dead|gone)|i (?:wish i (?:was|were)|(?:would|could|should|might) (?:just )?be) dead(?! rich)|if i (?:was|were) gone|(?:wont|won['’]?t|will not) be (?:here|around) much longer|debt (?:dies|die) with me|(?:might|may) as well be dead|(?:my|the) (?:very )?last budget|last budget|no reason to keep (?:going|living).*\bgoodbye|(?:goodbye|farewell).*(?:life|world|kids|family)|(?:world|everyone|everybody).{0,40}without me|burden (?:on|to) (?:my |our |the )?(?:kids|children|family|parents|husband|wife|partner|people|everybody|everyone)|better off if i (?:just )?(?:wasn['’]?t|wasnt|weren['’]?t) here|tired of being here|better off (?:with|w) (?:the |my )?insurance money|(?:not |won['’]?t be |wont be )?making it to christmas|driv(?:e|ing) off the road)\b/i
+    EXTRA_EXPLICIT = [
+      /\b(?:i(?:['’]m| am)?|im)\s+(?:(?:really|rlly|just|actually|seriously|honestly|desperately)\s+)*#{INTENT_SOURCE}\s+(?:(?:really|just|actually|seriously)\s+)*(?:#{SELF_ACTION_SOURCE}|die|slit (?:my )?wrists|cut (?:my )?wrists)\b/i,
+      /\b(?:i(?:['’]m| am)?\s+|im\s+)?(?:gonna|going to|will|want to)\s+(?:swallow|take)\s+(?:all|a whole bottle of)\s+(?:my )?(?:meds|medications|pills|tylenol)\b/i,
+      /\bi (?:got|have) a gun\b[^.!?]{0,60}\b(?:going to|gonna|will) use it on myself\b/i,
+      /\bi (?:just )?(?:took|swallowed) (?:a |the )?whole bottle of (?:tylenol|pills|meds|medication)\b/i
     ].freeze
 
     WELLBEING_CHECK = "If you ever feel like you might hurt yourself, please call or text 988 right now, or 911 in an emergency. You deserve support, and the money plan can wait until you have it."
@@ -144,23 +152,32 @@ module Mia
     end
 
     def self.explicit?(message)
-      text = normalized(message)
+      text = normalized(message).gsub(/k[1!]ll/i, "kill")
+      return false if text.match?(/\Aif\b.*\b(?:fee|bill|tax|budget)\b.*\b(?:gonna|going to) die\b.*\b(?:lol|lmao|haha)\b/i)
+      return true if EXTRA_EXPLICIT.any? { |pattern| text.match?(pattern) }
       EXPLICIT_PATTERNS.any? { |pattern| text.match?(pattern) } || text.delete(" ").match?(COMPACT_EXPLICIT)
     end
 
     def self.soft?(message)
       text = normalized(message)
       return false if explicit?(text)
+      return true if text.match?(PERSONAL_NET)
+      if bounded_ordinary?(text)
+        # Remove the bounded trigger, not other risk wording in the message.
+        text = text.gsub(/\bpills?\b/i, "medicine").gsub(/\bburden\b/i, "load")
+          .gsub(/\b(?:disappear\w*|vanish\w*)\b/i, "change")
+          .gsub(/\b(?:wont|won['’]?t|will not|not going to) be (?:here|around)\b/i, "travel")
+      end
 
       (LEGACY_SOFT_PATTERNS + SOFT_FAMILIES + HOPELESS_PATTERNS).any? { |pattern| text.match?(pattern) } ||
         (text.match?(GIVE_UP_PATTERN) && !text.match?(ADVICE_QUESTION_PATTERN))
     end
 
-    def self.matches?(message)
+    def self.matches?(message, **reader_options)
       return true if explicit?(message)
       return false unless soft?(message)
 
-      reading = HouseholdFinance::ParticipantMessageReader.read_once(message: message)
+      reading = HouseholdFinance::ParticipantMessageReader.read_once(message: message, **reader_options)
       !reading.available || reading.care == "crisis"
     end
 
@@ -174,11 +191,23 @@ module Mia
       matches?(previous_user_message) || hopeless?(previous_user_message)
     end
 
-    # Compatibility for callers that used to add an independent wellbeing line.
-    # Ambiguous language now has exactly one reader-assisted crisis decision;
-    # a reader "none" must never acquire 988 through this second route.
-    def self.hopeless?(_message)
-      false
+    # A narrow second safety net never turns ordinary money-object wording
+    # into crisis. It only supplements normal help after a semantic none/shame.
+    def self.hopeless?(message)
+      return false unless normalized(message).match?(PERSONAL_NET)
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      reading = current.reading if current.message.to_s.squish == message.to_s.squish
+      reading&.available && %w[none shame].include?(reading.care)
+    end
+
+    def self.bounded_ordinary?(text)
+      return false if text.match?(/\b(?:kill|hurt|harm|overdos\w*|suicid\w*|swallow|take (?:them |it )?all|whole bottle|dead|die|dying|myself)\b/i)
+      return true if text.match?(/\bpills?\b/) && text.match?(/\b(?:refill|cost|price|prescription|pharmacy)\b|\$?\d/i)
+      return true if text.match?(/\bburden\b/i) && !text.match?(/\b(?:i|im|i['’]m|myself|we)\b/i)
+      return true if text.match?(/\b(?:money|savings|paycheck|cash|funds)\b.{0,35}\b(?:disappear\w*|vanish\w*)\b/i)
+      return true if text.match?(/\b(?:disappear\w*|vanish\w*)\b.{0,35}\b(?:money|savings|cash|creditors? call lists?)\b/i)
+      text.match?(/\b(?:wont|won['’]?t|will not|not going to) be (?:here|around)\b/i) &&
+        text.match?(/\b(?:travel\w*|vacation|visiting|flight|trip)\b|\bon (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i)
     end
 
     # Adds an acknowledgement (when the reply has none) and the safety check to

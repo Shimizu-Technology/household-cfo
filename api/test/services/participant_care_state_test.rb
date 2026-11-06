@@ -16,6 +16,18 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     result
   end
 
+  test "crisis latch survives another care label and a money topic" do
+    @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:crisis))
+    assert_equal "crisis", @state.transition("i feel ashamed", reading("i feel ashamed", care: "shame", status: "ongoing"), history: []).fetch("care_kind")
+    assert_equal "crisis", @state.transition("how much is left", reading("how much is left", status: "new_topic"), history: []).fetch("care_kind")
+  end
+
+  test "resolved acknowledgements retain a real crisis topic without a last question" do
+    @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:crisis))
+    result = reading("thanks", status: "resolved")
+    assert_equal "crisis", @state.transition("thanks", result, history: []).fetch("care_kind")
+  end
+
   test "unlisted replies retain care without extending its deadline" do
     deadline = @state.active.fetch("expires_at")
     [ "how", "how?", "what?", "why", "?", "could you stay a moment" ].each do |text|

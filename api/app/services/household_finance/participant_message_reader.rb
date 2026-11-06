@@ -53,9 +53,10 @@ module HouseholdFinance
     def self.call(**options) = new(**options).call
 
     def self.read_once(message:, **options)
-      return Current.reading if Current.message == message.to_s && Current.reading
+      message = message.to_s.squish
+      return Current.reading if Current.message.to_s.squish == message && Current.reading
 
-      Current.message = message.to_s
+      Current.message = message
       Current.reading = call(message: message, **options)
     end
 

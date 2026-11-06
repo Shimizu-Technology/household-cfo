@@ -8,6 +8,16 @@ module HouseholdFinance
         "persona_context_id" => persona_context_id }
     end
 
+    # This protects release only; every other unresolved reply still stays in
+    # care through state, without a follow-up vocabulary deciding its route.
+    def followup?(message)
+      ConversationFollowupResolver.acknowledgment?(message) || message.to_s.squish.match?(/\A(?:idk|i (?:just )?(?:dont|don't|do not) know|yeah|yes|no|maybe)[.!? ]*\z/i)
+    end
+
+    def explicit_recovery?(message)
+      message.to_s.match?(/\b(?:all good now|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now|(?:i|we) figured it out|(?:i|we)(?: am| are|['’]m|['’]re|m|re) (?:okay|ok|safe) now|(?:i|we) (?:am|are) safe)\b/i)
+    end
+
     def scenario_current_only?(history: [], context: {})
       return true if ParticipantMessageReader::Current.scenario_current_only
       conversation = context.to_h.deep_symbolize_keys[:conversation].to_h

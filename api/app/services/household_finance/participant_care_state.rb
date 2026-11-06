@@ -36,8 +36,11 @@ module HouseholdFinance
       else
         ParticipantCare.kind(message)
       end
-      recovered = !reading.available && message.match?(/\A\s*(?:all good now\b|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now\b|(?:i|we) figured it out\b)/i)
-      released = current.nil? && (recovered || report || reading.answer_field.present? || financial || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
+      recovery = ParticipantCare.explicit_recovery?(message)
+      recovered = !reading.available && recovery
+      released = current.nil? && !ParticipantCare.followup?(message) &&
+        (recovered || report || reading.answer_field.present? || financial || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
+      released = recovery if prior && prior["care_kind"] == "crisis"
       if released
         archive(prior) if prior
         @session.update!(active_topic: {}) if prior
@@ -49,6 +52,7 @@ module HouseholdFinance
       kind = :food if (current.in?([ :hardship, :essentials ]) || (prior && current.nil?)) && message.match?(/\b(?:food|hungry|eat|grocer\w*)\b/i)
       kind = :housing if current == :hardship && message.match?(/\brent\b/i)
       kind = :hardship if kind.to_s == "essentials"
+      kind = "crisis" if prior && prior["care_kind"] == "crisis"
       topic = prior || ParticipantCare.topic(kind, persona_context_id: @persona_context_id)
       topic = topic.merge("type" => "care", "care_kind" => kind.to_s,
         "disclosure" => prior&.fetch("disclosure", nil) || message.to_s.first(700),
