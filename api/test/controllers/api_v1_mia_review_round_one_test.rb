@@ -102,13 +102,15 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
 
   test "debt replies support none and natural amounts but never overwrite individual minimums" do
     five_answers
+    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "flexible_spend" ])
     ask(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    ask("skip")
     ask("We pay about $150 a month")
     assert response.parsed_body["mia_action_draft"], reply
     ask("none")
     assert response.parsed_body["mia_action_draft"], reply
     ask("I don't know")
-    assert_match(/couldn.t read.*try again/i, reply)
+    assert_match(/(?:leave that unknown|Setup is paused).*Enter my numbers/i, reply)
     assert_nil response.parsed_body["mia_action_draft"]
     refute_match(/Next setup question/i, reply)
     @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10000, minimum_payment_cents: 5000)

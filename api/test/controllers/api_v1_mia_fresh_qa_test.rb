@@ -42,10 +42,13 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
   test "M3 no debt payments is a reviewed minimum of zero not an invented balance" do
     five_answers
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
-    assert_includes reply, "debt minimum"
+    assert_includes reply, "setup is complete"
     post_message("no debt payments")
     draft = response.parsed_body.fetch("mia_action_draft")
     assert draft, reply
+    refute HouseholdFinance::DebtPortfolio.new(@household.reload).minimum_payment_known?
+    post_message("yes")
+    assert_equal draft.fetch("id"), response.parsed_body.dig("mia_action_draft", "id")
     refute HouseholdFinance::DebtPortfolio.new(@household.reload).minimum_payment_known?
     post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", params: {}, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
     assert_response :success

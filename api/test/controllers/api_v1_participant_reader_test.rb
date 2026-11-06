@@ -53,6 +53,74 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "pending bill additions and named corrections preserve prior parts through Apply" do
+    begin_setup(primary_income: 3500)
+    entries = [
+      [ "rent 1080 and power 220", false, [ { source: "rent 1080", amount: "1080" }, { source: "power 220", amount: "220" } ], "Rent $1,080 + power $220 = $1,300" ],
+      [ "oh and water is 60", false, [ { source: "water is 60", amount: "60" } ], "Rent $1,080 + power $220 + water $60 = $1,360" ],
+      [ "wait power is 250", true, [ { source: "power is 250", amount: "250" } ], "Rent $1,080 + power $250 + water $60 = $1,390" ]
+    ]
+    cards = entries.map do |message, correction, parts, expected|
+      json = household_say(message, reading(correction: correction).merge(setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: parts }))
+      assert_includes json.dig("assistant_message", "content"), expected
+      card = json.fetch("mia_action_draft")
+      assert card, json.inspect
+      assert_equal parts.length == 2 ? 2 : 3, MiaActionDraft.find(card["id"]).metadata.dig("setup_calculation", "components").length
+      card
+    end
+    refute_includes @household.reload.confirmed_setup_fields, "fixed_expenses"
+    apply(cards.last)
+    assert_includes @household.reload.confirmed_setup_fields, "fixed_expenses"
+    assert_equal 139000, @household.budget_categories.find_by!(stack_key: "non_discretionary").budget_allocations.maximum(:planned_amount_cents)
+    cards.first(2).each { |card| assert_equal "canceled", MiaActionDraft.find(card["id"]).status }
+  end
+
+  test "asking the same setup definition twice uses another return question" do
+    begin_setup(primary_income: 3500)
+    first = household_say("what are fixed essentials", reading.merge(question: true)).dig("assistant_message", "content")
+    second = household_say("what are fixed essentials", reading.merge(question: true)).dig("assistant_message", "content")
+    refute_equal first, second
+    assert_includes second, HouseholdFinance::MiaSetupGuide::RETRY_QUESTIONS.fetch("fixed_expenses")
+  end
+
+  test "skipping every remaining question pauses with a route and does not attach a later bare amount" do
+    begin_setup
+    4.times { household_say("skip", reading.merge(defer_setup: true)) }
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "Setup is paused"
+    assert_includes reply, "income"
+    assert_includes reply, "Enter my numbers"
+    post "/api/v1/mia/messages", params: { message: "2800" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
+    assert_response :created
+    assert_nil response.parsed_body["mia_action_draft"]
+    assert_nil @household.reload.confirmed_setup_fields.find { |field| field == "debt_payment" }
+  end
+
+  test "completed setup coaching explains optional prerequisites without restarting setup" do
+    begin_setup(primary_income: 3500, fixed_expenses: 1700, flexible_spend: 600)
+    assert HouseholdFinance::SetupStatus.new(@household).complete?
+    json = household_say("what should i do with my emergency cushion", reading.merge(question: true))
+    refute_includes json.dig("assistant_message", "content"), "Still to add:"
+    refute_includes json.dig("assistant_message", "content"), "Next setup question:"
+  end
+
+  test "an unread first setup message names the manual route before the CTA" do
+    post "/api/v1/mia/messages", params: { message: "cruz house" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Enter my numbers"
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute HouseholdFinance::SetupStatus.new(@household).complete?
+  end
+
+  test "a question after skipping income returns to the currently asked fixed question" do
+    begin_setup
+    household_say("skip", reading.merge(defer_setup: true))
+    json = household_say("What is a sinking fund?", reading.merge(question: true))
+    assert_nil json["mia_action_draft"]
+    assert_includes json.dig("assistant_message", "content"), HouseholdFinance::MiaSetupGuide.question_message("fixed_expenses", resume: true)
+    refute_includes json.dig("assistant_message", "content"), HouseholdFinance::MiaSetupGuide.question_message("primary_income", resume: true)
+  end
+
   test "reader preserves care and independent mixed cards through replay without saving" do
     text = "they cut my hours but i saved 20 today and 10 yesterday, bought lunch 12 today"
     data = reading(care: "hardship", facts: [ fact("set_aside", "20"), fact("set_aside", "10", day: "yesterday"), fact("purchase", "12", item: "lunch") ])
@@ -198,27 +266,37 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_equal "fixed", MiaActionDraft.find(json.dig("mia_action_draft", "id")).metadata.dig("spending_preferences", 0, "group")
   end
 
-  test "compound fixed costs and named debts ask for one total without purchases" do
+  test "quoted bills and named minimums produce server totals on review cards without purchases" do
     begin_setup(primary_income: 4800)
     json = household_say("rent 1200 and power 300", reading(facts: [ fact("bill", "1200", item: "rent", day: ""), fact("bill", "300", item: "power", day: "") ], field: "fixed", value: "1200 and power 300"))
-    assert_nil json["mia_action_draft"]
+    assert json["mia_action_draft"]
     assert_nil json["transaction_draft"]
-    assert_match(/one.*total/i, json.dig("assistant_message", "content"))
-    refute_match(/couldn.t read/i, json.dig("assistant_message", "content"))
-    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid, attributes: { fixed_expenses: 2000, flexible_spend: 650 }).call
-    household_say("Help me set up my household", reading)
-    json = household_say("visa 40 and jcpenney 25", reading(facts: [ fact("purchase", "40", merchant: "visa", day: ""), fact("purchase", "25", merchant: "jcpenney", day: "") ]))
+    assert_includes json.dig("assistant_message", "content"), "Rent $1,200 + power $300 = $1,500"
+    assert_empty @household.expense_items
+    household_say("skip", reading.merge(defer_setup: true))
+    household_say("skip", reading.merge(defer_setup: true))
+    details = { field: "debt_payment", cadence: "monthly", count: "", partial: true,
+      components: [ { source: "visa min 40", amount: "40" }, { source: "jcpenney min 25", amount: "25" } ] }
+    json = household_say("visa min 40 and jcpenney min 25", reading.merge(setup_details: details))
     assert_nil json["transaction_draft"]
-    assert_nil json["mia_action_draft"]
-    assert_match(/one.*total/i, json.dig("assistant_message", "content"))
+    assert json["mia_action_draft"]
+    assert_includes json.dig("assistant_message", "content"), "Visa $40 + jcpenney $25 = $65"
+    assert_empty @household.household_transactions
+    refute HouseholdFinance::DebtPortfolio.new(@household).minimum_payment_known?
   end
 
-  test "per-paycheck income asks for the monthly total instead of using one paycheck" do
+  test "counted monthly checks get a calculated review while unconverted pay cadence asks for a monthly amount" do
     begin_setup
-    [ [ "2 paychecks of 1400", "1400" ], [ "my check is 900 twice a month", "900" ], [ "i get 1000 a week", "1000" ] ].each do |message, amount|
+    details = { field: "primary_income", cadence: "monthly_count", count: "2", partial: false,
+      components: [ { source: "2 paychecks of 1400", amount: "1400" } ] }
+    json = household_say("2 paychecks of 1400", reading(field: "income", value: "1400").merge(setup_details: details))
+    assert json["mia_action_draft"]
+    assert_includes json.dig("assistant_message", "content"), "2 × $1,400 = $2,800"
+    assert_empty @household.income_sources
+    [ [ "my check is 900 twice a month", "900" ], [ "i get 1000 a week", "1000" ] ].each do |message, amount|
       json = household_say(message, reading(field: "income", value: amount))
       assert_nil json["mia_action_draft"], message
-      assert_match(/one monthly income total/i, json.dig("assistant_message", "content"), message)
+      assert_match(/can't assume your monthly take-home income|does not tell me your monthly income/i, json.dig("assistant_message", "content"), message)
     end
     assert_not_nil household_say("we bring in 4650 monthly", reading(field: "income", value: "4650"))["mia_action_draft"]
   end
@@ -353,11 +431,14 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
 
   test "junk setup and outages repeat the question without a name or goal card" do
     household_say("Help me set up my household", reading)
-    %w[idk none hi rent groceries ya k].each do |message|
+    %w[none hi rent groceries ya k].each do |message|
       json = household_say(message, reading)
       assert_nil json["mia_action_draft"], message
       assert_includes json.dig("assistant_message", "content"), "What would you like to call"
     end
+    json = household_say("idk", reading.merge(defer_setup: true))
+    assert_nil json["mia_action_draft"]
+    assert_includes json.dig("assistant_message", "content"), "main money goal"
     post "/api/v1/mia/messages", params: { message: "sounds good" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}" }, as: :json
     assert_response :created
     assert_nil response.parsed_body["mia_action_draft"]
