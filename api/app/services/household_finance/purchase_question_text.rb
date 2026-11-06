@@ -4,7 +4,7 @@ module HouseholdFinance
     Result = Data.define(:text, :needs_clarification)
     CORRECTION = /\A(?:(?:no|actually|sorry|correction|wait)[,:;]?\s+)*(?:(?:it|the (?:price|cost))\s+(?:actually\s+)?(?:is|costs?)\b|i meant\b|make (?:it|that)\b|\$\s*[\d,.]+(?:k|\s+dollars?)?(?:,?\s+please)?[.!]?\s*\z)/i.freeze
 
-    INCOME_TOPIC = /\b(?:raise|income|salary|make|earn|take home|bring home)\b/i.freeze
+    INCOME_TOPIC = /\b(?:raise|income|salary|earn|take home|bring home)\b|\bmake\s+\$?\d/i.freeze
     PURCHASE_QUESTION = /\b(?:can|could|should|may)\s+(?:i|we)\b[^?!;]*\b(?:buy|purchase|afford|get|spend|book|order)\b/i.freeze
 
     def self.income_with_purchase?(message)
@@ -12,6 +12,30 @@ module HouseholdFinance
       question = text.match(PURCHASE_QUESTION)
       question && text[0...question.begin(0)].match?(INCOME_TOPIC) &&
         !text.match?(/\b(?:set|change|update|create|add|record|schedule|log)\b/i)
+    end
+
+    def self.debt_question?(text)
+      text.to_s.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
+    end
+
+    def self.item_label(message)
+      text = purchase_clause(message)
+      tail = text[/\$\s*[\d,.]+(?:k\b)?\s+(?:for\s+)?(.+)/i, 1] || text[/\b(?:buy|purchase|afford|get|book|order)\s+(.+)/i, 1]
+      label = tail.to_s.split(/[?.!;,]|\s+(?:or|on|with|from|at|next|this month|today|tomorrow|but|because|and)\b/i).first.to_s
+        .sub(/\A(?:a|an|the|this)\s+/i, "").sub(/\Apair of\s+/i, "").strip
+      return "" if label.blank? || label.match?(/\A(?:on|for|it|this|that|help|smaller goal|my streak|help|less|credit card|loan)\b/i)
+
+      label.casecmp?("tv") ? "TV" : label.downcase
+    end
+
+    def self.purchase_question?(message)
+      text = message.to_s
+      !debt_question?(text) && !text.match?(/\bspend less\b/i) &&
+        MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) } && item_label(text).present?
+    end
+
+    def self.unfunded?(text)
+      text.to_s.match?(/\b(?:don['’]?t|do not) have (?:the )?money\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
     end
 
     def self.purchase_clause(message)

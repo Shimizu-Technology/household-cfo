@@ -43,7 +43,7 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
     @household.accounts.delete_all
     result = answer("purchase", 800, "Laptop")
 
-    assert_includes result.body, "do not know your account balances"
+    assert_includes result.body, "not your bank balance"
     assert_includes result.body, "$1,800"
     assert_includes result.body, "$1,000"
   end

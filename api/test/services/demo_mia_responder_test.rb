@@ -1,6 +1,9 @@
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class DemoMiaResponderTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   test "recorded coach preview asks whether the purchase fits without claiming it does" do
     reply = file_fixture("mia_preview_decision.txt").read.strip
     responder = stubbed_model_responder(reply)
@@ -806,7 +809,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "transaction review"
   end
 
-  test "reflexive cultural openers are removed and recent use suppresses repeated chelu" do
+  test "ineligible cultural openers and recent repetitions are rejected before sanitation" do
     responder = Demo::MiaResponder.new(api_key: nil)
     direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
     standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
@@ -818,10 +821,10 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
     )
 
-    assert_equal "I drafted the July edit for review.", direct
-    assert_equal "The category already exists.", standalone
-    assert_equal "We were discussing the July edit. It is still pending.", recall
-    assert_equal "The August plan is ready. Review it before applying.", restrained
+    assert_nil direct
+    assert_nil standalone
+    assert_nil recall
+    assert_nil restrained
   end
 
   test "demo mode does not tell users to confirm unavailable drafts" do

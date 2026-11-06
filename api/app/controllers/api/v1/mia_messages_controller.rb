@@ -1714,7 +1714,7 @@ module Api
         annual_plan = read_only_result.annual_plan if read_only_result
         direct_answer = read_only_result&.answer
         if read_only_result && read_only_result.presentation.nil?
-          direct_answer = narrate_structured_answer(content, [], conversation_context, kind: "purchase_scenario",
+          direct_answer = narrate_structured_answer(content, @mia_conversation_messages, conversation_context, kind: "purchase_scenario",
             fallback_response: direct_answer, annual_plan: annual_plan, write_state: "no_write")
         end
         if direct_answer.blank? && intent_result.clarification?

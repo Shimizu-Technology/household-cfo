@@ -244,6 +244,7 @@ module HouseholdFinance
       return setup_result if setup_result
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
+          !PurchaseQuestionText.debt_question?(user_message) &&
           !user_message.match?(/\b(?:and|also|then|plus)\b/i) &&
           !user_message.match?(MiaCoachAnswerer::INVESTMENT_PATTERN) && !user_message.match?(MiaCoachAnswerer::COMPOUND_PURCHASE_DEBT_PATTERN)
         scenario = deterministic_scenario_fallback
@@ -907,6 +908,7 @@ module HouseholdFinance
     def deterministic_scenario_type(value = user_message)
       text = normalized_text(value)
       return unless text.match?(HYPOTHETICAL_PATTERN) || text.match?(PURCHASE_SCENARIO_PATTERN)
+      return if PurchaseQuestionText.debt_question?(text)
       # Lending to or helping family is a family-support decision, not a purchase.
       return if text.match?(FAMILY_LENDING_PATTERN)
       return "extra_debt_payment" if text.match?(/\b(?:extra|additional)\b.{0,50}\b(?:debt|credit card|loan|principal|payment)\b|\b(?:debt|credit card|loan)\b.{0,50}\b(?:extra|additional)\b/i)
@@ -919,9 +921,7 @@ module HouseholdFinance
     def deterministic_scenario_label(scenario_type)
       case scenario_type
       when "purchase"
-        match = PurchaseQuestionText.purchase_clause(user_message).match(/\$\s*#{Money::CHAT_NUMBER_SOURCE}(?:k\b|\s*thousand\b)?(?:\s+dollars?)?\s+([[:alpha:]][[:alpha:]-]*(?:\s+[[:alpha:]][[:alpha:]-]*){0,5})\b/i)
-        label = match&.[](1).to_s.split(/\s+(?:on|with|from|at|for|next|this|today|tomorrow|but|because|and)\b/i).first.to_s
-        label.split.first.to_s.match?(SCENARIO_LABEL_STOPWORD_PATTERN) ? "" : (label == label.upcase ? label : label.downcase)
+        PurchaseQuestionText.item_label(user_message)
       when "one_time_income"
         user_message.match(/\b(bonus|refund|windfall)\b/i)&.[](1)&.titleize.to_s
       when "essential_expense"

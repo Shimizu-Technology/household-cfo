@@ -15,11 +15,12 @@ module Mia
 
       shape = persona.response_shape
       prefix_count = ResponseShapePolicy.new(fixed_prefix, persona: persona).sentence_count
-      minimum = [ shape.fetch("min_sentences") - prefix_count, 1 ].max
-      maximum = [ shape.fetch("max_sentences") - prefix_count, 1 ].max
-      remaining_characters = [ shape.fetch("max_characters") - fixed_prefix.length - (fixed_prefix.present? ? 1 : 0), 1 ].max
+      minimum = [ shape.fetch("min_sentences") - prefix_count, 0 ].max
+      maximum = [ shape.fetch("max_sentences") - prefix_count, 0 ].max
+      remaining_characters = shape.fetch("max_characters") - fixed_prefix.length - (fixed_prefix.present? ? 1 : 0)
+      return "The fixed figures use the available reply budget. Return no coaching; figures take priority over a question." if maximum.zero? || remaining_characters < 40
       prefix_instruction = fixed_prefix.present? ? "The server already supplies #{prefix_count} sentence(s). The complete reply must stay within #{shape.fetch('min_sentences')}-#{shape.fetch('max_sentences')} sentences. Return only the remaining coaching. " : ""
-      sentence_instruction = fixed_prefix.present? ? "Write exactly #{maximum} coaching sentences" : "Use #{minimum}-#{maximum} sentences total"
+      sentence_instruction = fixed_prefix.present? ? "Use #{minimum}-#{maximum} coaching sentences" : "Use #{minimum}-#{maximum} sentences total"
       "#{prefix_instruction}#{sentence_instruction}, at most #{remaining_characters} characters. " \
         "Fit validation, necessary caveats, and one next step inside that range; do not add separate openings or disclaimers. " \
         "Safety and hardship instructions take precedence over this length."

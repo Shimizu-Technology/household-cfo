@@ -45,6 +45,7 @@ module SavingsChallenge
       return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return deterministic(loan_answer) if loan_decision_question?
       return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
+      return deterministic(::Mia::SensitiveMoment.response(@message)) if ::Mia::SensitiveMoment.matches?(@message) && (!@daily_report || ::Mia::SensitiveMoment.grief?(@message))
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
         return attachment_answer if @attachments.any?
@@ -78,15 +79,13 @@ module SavingsChallenge
 
     def purchase_question?
       !HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(@message) &&
-        HouseholdFinance::MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| @message.match?(pattern) }
+        HouseholdFinance::PurchaseQuestionText.purchase_question?(@message)
     end
 
     def purchase_answer
       @purchase_prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
-      question = HouseholdFinance::PurchaseQuestionText.purchase_clause(@message)
-      item = question[/\$[\d,.]+\s+([[:alpha:]][[:alpha:]-]*)/, 1]
-      item = item.to_s.match?(/\A(?:on|for|at|in|a|an|the)\z/i) ? "purchase" : item.presence || "purchase"
-      stance = @message.match?(/credit card|don.t have|do not have/i) ? "I would hold off on the #{item} rather than add a card payment you cannot cover." : "Check what would pay for the #{item} before deciding."
+      item = HouseholdFinance::PurchaseQuestionText.item_label(@message).presence || "purchase"
+      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "I would hold off on the #{item} rather than add a payment you cannot cover." : "Check what would pay for the #{item} before deciding."
       "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
     end
 

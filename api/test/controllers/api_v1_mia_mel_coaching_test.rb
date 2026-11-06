@@ -1,7 +1,10 @@
 require "test_helper"
 require_relative "../support/mel_persona_test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
+  include ReplyGuardTestHelper
   include MelPersonaTestHelper
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
@@ -63,7 +66,7 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
       packet = attributes.fetch(:answer_packet)
       original.call(**attributes.merge(api_key: "synthetic")).tap do |narrator|
         narrator.define_singleton_method(:openrouter_response) do
-          "You noticed Ross is becoming a repeat stop. Chelu, pump the brakes on that one without beating yourself up. What was happening before you went in?"
+          "You noticed Ross is becoming a repeat stop. Chelu, pump the brakes on that one. What was happening before you went in?"
         end
       end
     end

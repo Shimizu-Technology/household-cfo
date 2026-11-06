@@ -1,7 +1,10 @@
 require "test_helper"
 require_relative "../support/savings_challenge_test_support"
 
+require_relative "../support/reply_guard_test_helper"
+
 class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   include SavingsChallengeTestSupport
 
   setup do

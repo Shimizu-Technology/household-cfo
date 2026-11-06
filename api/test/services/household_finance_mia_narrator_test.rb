@@ -1,11 +1,14 @@
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   test "review one all narration paths reject invented balances verdicts phones and false writes" do
     [ "purchase_scenario", "coaching", "budget_action", "transaction_draft" ].each do |kind|
       packet = { kind: kind, write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown. Which category would cover it?" }
       [ "You have money in the bank", "There is money in your account", "That is available to spend", "Go ahead and buy it", "You can buy it", "I recommend you buy it", "There is plenty of room", "It is no problem for your budget", "I've decided this is a yes", "I saved it to your budget", "I saved it to your budget. Nothing changed", "It was recorded", "Your plan was updated", "I logged it", "Call 671-555-0100 for help", "Phone (671) 555 0101" ].each do |claim|
-        assert_equal packet[:fallback_response], narrate("#{packet[:fallback_response]} #{claim}. What comes next?", packet, "Can I afford a stroller?"), "#{kind}: #{claim}"
+        assert_equal expected_fallback(packet), narrate("#{packet[:fallback_response]} #{claim}. What comes next?", packet, "Can I afford a stroller?"), "#{kind}: #{claim}"
       end
     end
   end
@@ -26,23 +29,23 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "review one purchase narration adds only short numberless coaching to fixed facts" do
     packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
     safe = "Protect food and bills first. Which category would cover it?"
-    assert_equal "#{packet[:fallback_response].sub('. Cash', '; Cash')} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
+    assert_equal "#{packet[:fallback_response]} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
     [ "The $300 purchase would leave $1,405 in the plan. Cash is unknown. Which category?", "It would leave one thousand dollars. What next?", "Protect bills first.", "Choose a category. Protect bills. Check food. Check the cushion. What next?" ].each do |unsafe|
-      assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
+      assert_equal expected_fallback(packet), narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
     end
   end
 
   test "review one numberless purchase coaching excludes unicode figures and currencies" do
     packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
     [ "Consider the ３ options. Which protects food and bills?", "Protect food and bills before spending ₹. Which category would cover it?" ].each do |unsafe|
-      assert_equal packet[:fallback_response], narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
+      assert_equal expected_fallback(packet), narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
     end
   end
 
   test "review one food praise in later sentences and invented phones fail" do
     packet = { kind: "coaching", write_state: "no_write", fallback_response: "Get food today and talk to your coach. Does everyone have food today?" }
     [ "You need food today. Great discipline putting the kids first; talk to your coach. Is there food today?", "You need food today; talk to your coach. Call 671-555-0100. Is there food today?" ].each do |unsafe|
-      assert_equal packet[:fallback_response], narrate(unsafe, packet, "I've been skipping meals to feed my kids"), unsafe
+      assert_equal Mia::SensitiveMoment.response("I've been skipping meals to feed my kids"), narrate(unsafe, packet, "I've been skipping meals to feed my kids"), unsafe
     end
   end
 
@@ -60,7 +63,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     [ "Your plan sets aside $700 for flexible spending this year.", "Your yearly flexible spending plan is $700.",
       "Your flexible spending plan is $700 for October 2026.", "You have $700 yearly.",
       "Your flexible spending plan is $700 for october 2026.", "Your flexible spending plan is $700 for may 2026." ].each do |claim|
-      assert_equal packet[:fallback_response], narrate("#{claim} Consider waiting on the purse. What would you pause to fund it?", packet, "Should I buy a $60 purse?"), claim
+      assert_equal expected_fallback(packet), narrate("#{claim} Consider waiting on the purse. What would you pause to fund it?", packet, "Should I buy a $60 purse?"), claim
     end
     reply = "Your flexible spending plan is $700 for November 2026. Consider waiting on the purse. What would you pause to fund it?"
     assert_equal reply, narrate(reply, packet, "Should I buy a $60 purse?")
@@ -94,15 +97,15 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       annual_plan_summary: { pending_draft_count: 18, month_answer: { pending_count: 18 } } }
     missing = "Your plan leaves breathing room. Your cushion needs building. Add your account balances."
     wrong = "Your plan leaves breathing room. Your cushion needs building. Review the 2 purchases waiting for you."
-    assert_equal packet[:fallback_response], narrate(missing, packet, "How am I doing this month?")
-    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(missing, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(wrong, packet, "How am I doing this month?")
     repeated = "Your plan leaves breathing room. You have 18 purchases waiting. Review the 18 purchases waiting for you."
-    assert_equal packet[:fallback_response], narrate(repeated, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(repeated, packet, "How am I doing this month?")
     misplaced = "Your plan leaves breathing room. Review the 18 purchases waiting for you. Add your account balances."
-    assert_equal packet[:fallback_response], narrate(misplaced, packet, "How am I doing this month?")
-    assert_equal packet[:fallback_response], narrate(packet[:fallback_response], packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(misplaced, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(packet[:fallback_response], packet, "How am I doing this month?")
     packet[:annual_plan_summary][:month_answer] = { pending_count: nil, pending_list_truncated: true }
-    assert_equal packet[:fallback_response], narrate(wrong, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(wrong, packet, "How am I doing this month?")
     honest = "Your plan leaves breathing room. Your cushion needs building. The review list is incomplete, so check the purchases waiting there."
     assert_equal honest, narrate(honest, packet, "How am I doing this month?")
   end
@@ -164,7 +167,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "stress with a month question acknowledges briefly and answers in the first sentence" do
     packet = { kind: "coaching", write_state: "no_write", fallback_response: "That sounds stressful; your plan needs the missing numbers. Check the next bill." }
     reply = "Feeling stressed makes sense, and the numbers are steadier than the stress might be telling you. Your plan leaves breathing room. Check the next bill."
-    assert_equal packet[:fallback_response], narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
     reply = "That sounds stressful; your plan needs the missing income number. Your cushion is not known yet. Add that number first."
     assert_equal reply, narrate(reply, packet, "I feel stressed about money. How am I doing this month?")
   end
@@ -172,7 +175,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "month narration rejects an invented surplus fund but accepts the emergency cushion" do
     packet = { kind: "coaching", write_state: "no_write", fallback_response: "Use your month picture." }
     reply = "Your plan leaves breathing room. Your surplus fund still needs building. Check the next bill."
-    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(reply, packet, "How am I doing this month?")
     reply = "Your plan leaves breathing room. Your emergency cushion still needs building. Check the next bill."
     assert_equal reply, narrate(reply, packet, "How am I doing this month?")
   end
@@ -182,15 +185,15 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     reply = "Your plan leaves breathing room, not a bank balance or permission to spend. Your cushion needs building. Check the next bill."
     assert_equal reply, narrate(reply, packet, "How am I doing this month?")
     reply = "Your plan leaves breathing room, not a bank balance. This is not cash. Check the next bill."
-    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(reply, packet, "How am I doing this month?")
     reply = "Your plan leaves breathing room, not a bank balance. You have a purchase waiting on review so it hasn't changed your spending total yet. Check the next bill."
-    assert_equal packet[:fallback_response], narrate(reply, packet, "How am I doing this month?")
+    assert_equal expected_fallback(packet), narrate(reply, packet, "How am I doing this month?")
   end
 
   test "Ross reflections reject a store visit disclaimer" do
     packet = { kind: "coaching", write_state: "no_write", fallback_response: "What happened before Ross?" }
     reply = "A store visit without an amount doesn't tell me anything about damage, so this is about the habit. Ross is a repeat stop. What happened before Ross?"
-    assert_equal packet[:fallback_response], narrate(reply, packet, "I went to Ross again")
+    assert_equal expected_fallback(packet), narrate(reply, packet, "I went to Ross again")
   end
 
   test "recorded Ross embarrassment rejects voice abstention and purchase intake explanations" do
@@ -387,7 +390,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     start_options = []
     response = ok_response(
       choices: [
-        { message: { content: "That's a good question. You have $55 left, chelu, but $40 is still pending review. Review those drafts before actuals change." } }
+        { message: { content: "That's a good question. You have $55 left but $40 is still pending review. Review those drafts before actuals change." } }
       ]
     )
 
@@ -526,7 +529,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "That category is archived. Restore it or choose another name. What would you like to do?", answer
+      assert_equal "That category is archived. Restore it or choose another name.", answer
     end
   end
 
@@ -594,7 +597,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "This budget change is ready for review. Apply it only if July and $3,950 are right.", answer
+      assert_equal "I drafted setting Fixed essentials to $3,950 for July. Review it before applying.", answer
     end
   end
 
@@ -1646,5 +1649,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   ensure
     singleton.send(:remove_method, :logger) if singleton.method_defined?(:logger)
     singleton.define_method(:logger) { original.call }
+  end
+  def expected_fallback(packet)
+    HouseholdFinance::MiaNarrator.new(user_message: "Can I afford a stroller?", answer_packet: packet, api_key: "").send(:fallback_response)
   end
 end

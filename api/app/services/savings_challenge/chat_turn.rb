@@ -55,7 +55,7 @@ module SavingsChallenge
     end
 
     def self.protected_message?(message)
-      message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
+      ::Mia::SensitiveMoment.matches?(message) || message.match?(CoachAnswerer::PROTECTED_BASELINE) ||
         HouseholdFinance::MoneyMovementText.food_insecurity?(message) ||
         ::Mia::CrisisBoundary.matches?(message) || ::Mia::CrisisBoundary.hopeless?(message)
     end

@@ -3,7 +3,10 @@
 require "test_helper"
 require_relative "../support/persona_test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   include PersonaTestHelper
 
   setup do

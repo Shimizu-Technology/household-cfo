@@ -97,6 +97,11 @@ module Demo
         @response_source = "deterministic_safety"
         return crisis_response
       end
+      return fallback_response(clean_message, context: prompt_context, reason: :no_model) if ::Mia::CrisisBoundary.hopeless?(clean_message)
+      if ::Mia::SensitiveMoment.matches?(clean_message)
+        @response_source = "deterministic_safety"
+        return ::Mia::SensitiveMoment.response(clean_message)
+      end
       grounded_response = grounded_answer(clean_message, context: context)
       if grounded_response
         @response_source = "verified_deterministic"
@@ -122,6 +127,19 @@ module Demo
         end
       end
       unless checked.rejection_reason
+        phrase_reason = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona).phrase_rejection_reason(checked.content)
+        guard = ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
+          facts: JSON.parse(prompt_context), reply: checked.content, api_key: @api_key) unless phrase_reason
+        if phrase_reason || !guard.allowed?
+          @rejection_reason = phrase_reason || :reply_guard
+          if guard&.sensitive?
+            @response_source = "deterministic_safety"
+            return ::Mia::SensitiveMoment.response(clean_message)
+          end
+          @response_source = "deterministic_fallback"
+          @fallback_reason = :reply_rejected
+          return ::Mia::FallbackReply.new(reason: :reply_rejected, message: clean_message, context: prompt_context, persona: ::Mia::Persona.default).call
+        end
         @supplied_content_context = @approved_content if @response_source == "live_model"
         return checked.content
       end
@@ -299,6 +317,7 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
+      return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
 
       sanitized = content.to_s
@@ -309,7 +328,7 @@ module Demo
         .sub(/\A[\s,;:.-]+/, "")
         .squish
         .strip
-      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).sanitize(sanitized).to_s
+      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).sanitize_validated(sanitized).to_s
       unless transaction_report_message?(user_message)
         if !draft_capable && unsupported_current_draft_claim?(sanitized) && !existing_budget_review_recall?(conversation_resolution)
           return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."
@@ -376,6 +395,7 @@ module Demo
     end
 
     def self.unsupported_scenario_conclusion?(content, preview: false)
+      return true if content.to_s.match?(/\b(?:yet|though|however|except|but)\b[^.!?]{0,45}\b(?:you (?:clearly can|have room)|it (?:clearly does|obviously is))\b/i)
       conclusions = Regexp.union(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN, MONETARY_APPROVAL_PATTERN)
       content.to_s.to_enum(:scan, conclusions).any? do
         match = Regexp.last_match

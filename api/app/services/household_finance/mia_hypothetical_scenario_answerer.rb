@@ -57,15 +57,17 @@ module HouseholdFinance
       manager = date.year == annual_budget_manager.year ? annual_budget_manager : AnnualBudgetManager.new(household, year: date.year)
       facts = MiaMonthAnswer.new(household, annual_plan: manager.read_only_plan_data, month: date.month).call
       return "Your plan starts in #{Date.iso8601(facts[:plan_starts_on]).strftime('%B %Y')}, so #{facts[:period_label]} has no plan to compare the #{money(amount_cents)} purchase against. Which month are you considering it for?" if facts[:before_plan_start]
+      return "I need your starting household details before comparing this purchase. #{MiaSetupGuide.new(household).after_apply_message}" unless setup_status.complete?
       return "Your #{date.year} plan is not set up yet, so I cannot compare this purchase for #{facts[:period_label]}. Open Budget to set up that year’s plan when you are ready. Nothing has been created or saved." unless facts[:plan_available]
       left = facts[:plan_left_cents]
       return "I cannot compare the #{money(amount_cents)} purchase for #{facts[:period_label]} with your plan yet. Still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}. Can you add those in My Money before we work through this purchase?" if left.nil?
 
       remaining = left - amount_cents
       comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
-      item = label == TITLES.fetch("purchase") ? "" : " for #{label == label.upcase ? label : label.downcase}"
-      before = left.negative? ? "is short by #{money(left.abs)}" : "leaves #{money(left)}"
-      "The #{money(amount_cents)} purchase#{item} #{comparison} if it is extra spending; your #{facts[:period_label]} plan #{before} before it. That is a plan figure, and I #{AssetPortfolio.new(household).liquid_balance_known? ? 'cannot verify today’s available cash or upcoming payments' : 'do not know your account balances or upcoming payments yet'}. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      item = label == TITLES.fetch("purchase") ? "purchase" : (label == label.upcase ? label : label.downcase)
+      article = amount_cents.div(100).to_s.match?(/\A(?:8|11|18)/) ? "an" : "a"
+      before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
+      "Your #{facts[:period_label]} plan #{before}, so #{article} #{money(amount_cents)} #{item} #{comparison} if it is extra spending. That's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the

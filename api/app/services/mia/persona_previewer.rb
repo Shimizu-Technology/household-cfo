@@ -116,7 +116,7 @@ module Mia
       return if reply.blank?
       phrases = Array(preview_persona.cultural_phrases)
       return "This voice has no phrases yet." if phrases.empty?
-      return if phrases.any? { |entry| reply.downcase.include?(entry.fetch("text").downcase) }
+      return if phrases.any? { |entry| reply.to_s.unicode_normalize(:nfkc).downcase.include?(entry.fetch("text").to_s.unicode_normalize(:nfkc).downcase.sub(/[.!?]\z/, "")) }
 
       "No coach phrase was used in this sample. Phrases only appear when their context fits."
     end

@@ -24,6 +24,16 @@ Every real Mia response should be governed in this order:
 8. Recent chat history.
 9. General model knowledge only when app data does not answer the question.
 
+## Reply delivery checks
+
+Household, challenge, and preview model replies share deterministic checks and at most one length rewrite. After those checks, `Mia::ReplyGuard` makes a separate OpenRouter classification through `MiaProviderAdmission`. Its model is `AiModels.reply_guard` (`google/gemini-2.5-flash` by default; override with `AI_REPLY_GUARD_MODEL`). It receives the participant message, bounded recent history, the allowed facts, and the complete proposed reply as untrusted JSON data.
+
+The guard requires every schema boolean and rejects extra fields, malformed output, incomplete output, timeouts, provider errors, and any flagged condition. Rejection returns deterministic wording without a coach phrase; the guard never rewrites. Logs and notifications contain only counts and reasons. This is an additional safety check with measured errors, not a guarantee that a classifier catches every unsafe sentence.
+
+The server selects phrase eligibility from real history, stated contexts and meaning, sensitivity, and frequency. `as_needed`, `sparing`, and `rare` suppress reuse across two, four, and six assistant turns respectively. The raw reply must use at most one eligible exact phrase; altered phrases and distinctive phrase words outside that phrase are rejected before sanitation. Current grief and hardship receive care first, and semantic sensitivity discovered by the guard can only tighten that routing.
+
+Purchase figures and the cash caveat are server-written, with real sentence boundaries. Coaching receives only the remaining sentence and character budget. When figures use that budget, they take priority over a question. The deterministic purchase fallback follows the same range.
+
 ## The contract
 
 Mia should:

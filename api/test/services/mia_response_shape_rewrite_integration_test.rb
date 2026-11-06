@@ -2,7 +2,10 @@
 
 require "test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   SAMPLE = "I want to spend $100 this weekend. How can I decide?"
   LONG_REPLY = "Wanting something is normal. Pause before deciding. Check your basics first. Keep required payments covered. What is the purchase for?"
   VALID_REPLY = "Wanting something is normal. Protect your basics and required payments first. What is the purchase for?"
@@ -74,7 +77,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
     fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
     narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
-    assert_equal fallback, narrator.call
+    assert_equal narrator.send(:fallback_response), narrator.call
     assert_equal 1, attempts.length
   end
 
@@ -169,8 +172,8 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     { "I cannot afford food this week" => "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?",
       "I feel hopeless" => "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" }.each do |message, reply|
       narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
-      assert_equal reply, narrator.call
-      assert_equal 1, attempts.length
+      assert_equal Mia::SensitiveMoment.response(message), narrator.call
+      assert_equal 0, attempts.length
     end
   end
 

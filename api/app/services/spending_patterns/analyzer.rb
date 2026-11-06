@@ -54,7 +54,7 @@ module SpendingPatterns
     private
 
     def source_row(row)
-      { source_version_id: row.id, date: row.posted_on, merchant: FinancialDocuments::MerchantNormalizer.call(row.merchant.presence || "Unnamed purchase"), amount_cents: row.purchase_amount_cents || -row.signed_amount_cents,
+      { source_version_id: row.id, kind: row.event_type, date: row.posted_on, merchant: FinancialDocuments::MerchantNormalizer.call(row.merchant.presence || "Unnamed purchase"), amount_cents: row.purchase_amount_cents || -row.signed_amount_cents,
         splits: [ split(row.budget_category, row.purchase_amount_cents || -row.signed_amount_cents) ] }
     end
 
@@ -76,8 +76,14 @@ module SpendingPatterns
       end.sort_by { |row| [ -row[:total_cents], row[:label] ] }
     end
 
+    def bank_charge?(row)
+      return row[:kind].in?(%w[fee interest]) if row[:kind].present?
+
+      row[:merchant].match?(/\A(?:nsf(?: fee)?|monthly service (?:fee|charge)|foreign[- ]transaction (?:fee|charge)|interest charge|(?:bank|service|overdraft|maintenance|atm|late) (?:service )?fee)\z/i)
+    end
+
     def clusters(rows)
-      small = rows.select { |row| row[:amount_cents] <= 2_500 && !row[:merchant].match?(/\b(?:bank|service|overdraft|maintenance|atm|late)\s+(?:service\s+)?fees?\b/i) }
+      small = rows.select { |row| row[:amount_cents] <= 2_500 && !bank_charge?(row) }
       groups = small.group_by { |row| row[:date].strftime("%A") }.map { |label, group| [ label, group ] }
       groups += small.group_by { |row| row[:date].day <= 10 ? "the first ten days of the month" : row[:date].day <= 20 ? "the middle of the month" : "the end of the month" }.to_a
       groups += [ [ "Friday through Sunday", small.select { |row| [ 5, 6, 0 ].include?(row[:date].wday) } ] ]

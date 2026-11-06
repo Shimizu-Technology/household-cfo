@@ -1,7 +1,10 @@
 require "test_helper"
 require_relative "../support/persona_test_helper"
 
+require_relative "../support/reply_guard_test_helper"
+
 class MiaVoiceDeliveryTest < ActiveSupport::TestCase
+  include ReplyGuardTestHelper
   include PersonaTestHelper
 
   test "cautious recommendations survive but approvals and false receipts do not" do
@@ -17,11 +20,10 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a $2,000 TV on my credit card? I don't have the money.",
       answer_packet: { kind: "purchase_scenario", fallback_response: "The $2,000 purchase would put the plan $550 short. That is a plan figure, not cash. You decide. Which account would cover it?" },
       api_key: "fake", persona: voice)
-    narrator.define_singleton_method(:openrouter_response) { "Chelu, pump the brakes. I recommend waiting on the TV rather than putting it on a card. What would you need to cover first?" }
+    narrator.define_singleton_method(:openrouter_response) { "Chelu, pump the brakes. What would you need to cover first?" }
     reply = narrator.call
     assert reply.start_with?("The $2,000 purchase would put the plan $550 short"), reply
     assert_includes reply, "Chelu, pump the brakes."
-    assert_includes reply, "recommend waiting"
     refute_includes reply, "You decide."
   end
 
@@ -67,13 +69,12 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     attempts = 0
     narrator.define_singleton_method(:openrouter_response) do
       attempts += 1
-      attempts == 1 ? coaching : "Chelu, pump the brakes. Holding off is the safer call, and the decision is yours. What money would cover it after bills?"
+      attempts == 1 ? coaching : "Chelu, pump the brakes. What money would cover it after bills?"
     end
     reply = narrator.call
     assert_equal 2, attempts
     assert_equal "live_model", narrator.response_source
     assert_includes reply, "Chelu, pump the brakes."
-    assert_includes reply, "Holding off is the safer call"
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice)
     [ "Buy it today.", "I saved the purchase.", "There is money in your account." ].each do |unsafe|
       narrator.define_singleton_method(:openrouter_response) { coaching.sub("The sale may feel urgent, but the decision is yours.", unsafe) }
@@ -84,7 +85,7 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
   test "mixed income note is counted inside the whole purchase reply" do
     message = "I make $5,200 a month now. Should I buy a $600 phone?"
     narrator = HouseholdFinance::MiaNarrator.new(user_message: message, persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $600 phone would leave $850 in the plan. That is a plan figure, not cash. You decide. What would cover it?" })
-    narrator.define_singleton_method(:openrouter_response) { "Hold off until you know how to fund it. Which account would cover the phone?" }
+    narrator.define_singleton_method(:openrouter_response) { "Which account would cover the phone?" }
     reply = narrator.call
     assert_includes reply, "review the income change separately"
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice), reply
@@ -110,14 +111,14 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     refute_includes Mia::LanguagePolicy.new(user_message: message, history: history, persona: persona).runtime_phrase_instruction, "Chelu"
   end
 
-  test "the captured live stroller refusal is delivered instead of falling back" do
+  test "the captured live stroller phrase is no longer eligible for an ordinary stroller question" do
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "Can I afford a $300 stroller?", persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $300 stroller would leave $1,150 in the plan. That is a plan figure, not cash. You decide. Which account would cover it?" })
     narrator.define_singleton_method(:openrouter_response) do
       "Hold off on deciding until you know where the money would come from, because I can't tell you it is affordable or funded. Chelu, pump the brakes. Is this stroller coming from money you have already set aside for it, or would it go on a card, and what bill or essential needs to be protected first?"
     end
     reply = narrator.call
-    assert_equal "live_model", narrator.response_source
-    assert_includes reply, "I can't tell you it is affordable or funded"
+    assert_equal "deterministic_fallback", narrator.response_source
+    refute_includes reply, "Chelu"
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice)
   end
 

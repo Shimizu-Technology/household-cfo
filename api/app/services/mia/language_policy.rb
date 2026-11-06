@@ -79,6 +79,36 @@ module Mia
         "#{JSON.generate(entries.map { |entry| entry.slice('text', 'meaning', 'allowed_contexts', 'frequency', 'caution') })}"
     end
 
+    # Validate raw text before sanitation can conceal an unauthorized phrase.
+    def phrase_rejection_reason(content)
+      value = content.to_s
+      entries = all_cultural_phrases
+      allowed = cultural_phrases.select { |entry| custom_phrase_allowed?(entry) }
+      used = 0
+      allowed.sort_by { |entry| -entry.fetch("text").length }.each do |entry|
+        pattern = custom_phrase_pattern(entry.fetch("text"))
+        used += value.scan(pattern).length
+        value = value.gsub(pattern, " ")
+      end
+      return :coach_phrase_repetition if used > 1
+
+      entries.each do |entry|
+        return :ineligible_coach_phrase if value.match?(custom_phrase_pattern(entry.fetch("text"))) && !allowed.include?(entry)
+      end
+      return :coach_phrase_variant if value.match?(CULTURAL_LANGUAGE_PATTERN)
+
+      distinctive = entries.flat_map { |entry| entry.fetch("text").downcase.scan(/[[:alpha:]å]+/) }
+        .select { |word| word.length >= 5 }.uniq - %w[money today before after there their would could should every about always together]
+      return :coach_phrase_variant if distinctive.any? { |word| value.match?(/\b#{Regexp.escape(word)}\b/i) }
+
+      nil
+    end
+
+    def sanitize_validated(content)
+      value = earned_moment? ? content.to_s : remove_generic_praise(content.to_s)
+      normalize(value)
+    end
+
     private
 
     attr_reader :user_message, :history, :persona
@@ -145,7 +175,17 @@ module Mia
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
       allowed = Array(entry["allowed_contexts"])
-      allowed.any? { |context| context_matches?(context) }
+      allowed.any? { |context| context_matches?(context) } ||
+        (allowed.any? { |context| normalized_context_id(context) == "general" } && meaning_matches?(entry["meaning"]))
+    end
+
+    def meaning_matches?(meaning)
+      text = meaning.to_s
+      return user_message.match?(REPEATED_PATTERN) || context_matches?("purchase_caution") if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab/i)
+      return earned_moment? if text.match?(/celebrat|milestone|achievement|win/i)
+      return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
+
+      false
     end
 
     def context_matches?(context)
@@ -155,7 +195,7 @@ module Mia
       when "emotional_support" then user_message.match?(EMOTIONAL_SUPPORT_PATTERN)
       when "repeated_pattern" then user_message.match?(REPEATED_PATTERN)
       when "routine" then routine_moment?
-      when "general" then true
+      when "general" then false
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
@@ -196,7 +236,7 @@ module Mia
       texts.any? do |text|
         ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text) ||
           HouseholdFinance::MoneyMovementText.food_insecurity?(text) || HouseholdFinance::MiaCoachAnswerer.essential_hardship?(text) ||
-          text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
+          ::Mia::SensitiveMoment.matches?(text) || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end
     end
 
@@ -208,6 +248,7 @@ module Mia
       lookback = case frequency.to_s
       when "as_needed" then 2
       when "very_rare" then 6
+      when "rare" then 6
       else 4
       end
       pattern = custom_phrase_pattern(phrase.sub(/[.!?]\z/, ""))

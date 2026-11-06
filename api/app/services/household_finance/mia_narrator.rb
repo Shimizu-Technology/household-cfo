@@ -60,11 +60,15 @@ module HouseholdFinance
         @response_source = "deterministic_safety"
         return ::Mia::CrisisBoundary.response
       end
+      if ::Mia::SensitiveMoment.matches?(user_message)
+        @response_source = "deterministic_safety"
+        return ::Mia::SensitiveMoment.response(user_message)
+      end
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
       return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
       return fallback_response if answer_packet.dig(:spending_report_summary, :plan_available) == false || answer_packet.dig(:spending_report_summary, :actual_known) == false
-      return fallback_response if purchase_coaching? && purchase_prefix.blank?
+      return fallback_response if purchase_coaching? && (purchase_prefix.blank? || purchase_sentence_range.end.zero?)
       return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
 
       narrated = MiaProviderAdmission.with_slot(call_site: "mia_narrator") { openrouter_response }
@@ -81,12 +85,24 @@ module HouseholdFinance
       end
       return reject_narration(checked.rejection_reason) if checked.rejection_reason
 
+      reply = purchase_coaching? ? "#{purchase_prefix} #{checked.content}" : checked.content
+      guard = ::Mia::ReplyGuard.call(user_message: user_message, history: history,
+        facts: answer_packet.slice(:kind, :basis, :write_state, :fallback_response, :annual_plan_summary, :spending_report_summary, :transaction_draft, :budget_action, :verified_facts, :coaching_provenance), reply: reply, api_key: api_key)
+      if !guard.allowed?
+        @rejection_reason = :reply_guard
+        if guard.sensitive?
+          @response_source = "deterministic_safety"
+          return ::Mia::SensitiveMoment.response(user_message)
+        end
+        return fallback_response
+      end
+
       @supplied_content_context = approved_content
       @response_source = "live_model"
-      purchase_coaching? ? "#{purchase_prefix} #{checked.content}" : checked.content
+      reply
     rescue StandardError => e
       @rejection_reason = :provider_error
-      Rails.logger.warn("[HouseholdFinance::MiaNarrator] narration fallback: #{e.class}: #{e.message}")
+      Rails.logger.warn("[HouseholdFinance::MiaNarrator] narration fallback: #{e.class}")
       fallback_response
     ensure
       ActiveSupport::Notifications.instrument("reply.mia_narrator", source: @response_source, kind: answer_packet[:kind], reason: @rejection_reason)
@@ -151,7 +167,7 @@ module HouseholdFinance
         Do not invent balances, transactions, due dates, categories, document findings, memories, or external facts. Do not calculate new amounts or differences; use only figures supplied by the deterministic packet.
         When household_setup is present and a review is pending, end with its next_action: ask the participant to check and apply the card. Do not ask another question yet, call optional debt balances a setup requirement, or claim setup is finished before approval.
         Do not claim you added, recorded, logged, deducted, applied, or updated an official transaction unless the packet write_state is confirmed_write. If write_state is draft_updated, describe only the pending review fields that changed; never imply a confirmed purchase or plan change.
-        For a purchase_scenario, the server delivers every figure and the cash uncertainty before your coaching. Write ONLY the coaching after that server sentence, within the coaching sentence range below, ending with one practical question. A cautious stance such as wait, hold off, pump the brakes, or that is a lot to put on a card is allowed; spending approval is forbidden. Address a stated lack of money or use of credit directly. Never restate or calculate figures, balances or amounts; use no digits, currency symbols, or number words for amounts. Leave the decision with the participant. Current food hardship or crisis always takes priority.
+        For a purchase_scenario, the server delivers every figure and the cash uncertainty before your coaching. Write ONLY the coaching after those server sentences, within the coaching sentence range below, ending with one practical question. A cautious stance such as wait, hold off, pump the brakes, or that is a lot to put on a card is allowed; spending approval is forbidden. Address a stated lack of money or use of credit directly. Never restate or calculate figures, balances or amounts; use no digits, currency symbols, or number words for amounts. Leave the decision with the participant. Current food hardship or crisis always takes priority.
         For transaction_lookup or spending_report packets, you may describe existing historical rows as confirmed or on record, but do not imply a new write happened.
         For pending_review or draft_updated, identify it as a review and give one next action; the card already explains confirmation, so do not repeat that nothing changes until confirmation. For no_write coaching, do not append a review disclaimer when no change is proposed. Use plain text and one next move. End with one question OR one concrete action, not both; do not repeat the next move in another sentence. Use at most one brief uncertainty caveat, only when needed to avoid confusing a plan figure with verified cash or a draft with a confirmed record. A self-reported win needs no verification disclaimer; a store visit without an amount needs no purchase disclaimer. Say must-pay bills, flexible spending, planned yearly costs, and surprise fund instead of stack names or system wording. Never say confirmed actuals recorded, saved records, or pending proposed category spending, or confirmed category spending. For a month overview, use the response length below. Call the cushion an emergency cushion or emergency fund, never a surplus fund. When month_answer.pending_review_count is positive, end with one review next step naming that exact number of purchases once. When pending_unknown or pending_list_truncated is true, say the review list is incomplete and ask them to check it without guessing a count. Mention pending purchases only as that review next step; do not add another total or repeat the pending-versus-confirmed caveat. Structure: lead with what the plan leaves (or is short) and spent so far, then the cushion’s meaning and one next move. Keep supplied figures exact, including cents, so the answer agrees with Home and review cards. Do not lead with Red, Yellow, or Green. Use annual_plan_summary.month_answer: the plan’s money left and readiness measure different things. A positive plan and a thin cushion can coexist; never describe the plan’s money left as an available account balance. Attach the plan-figure caveat to money left in the plan, never to approved spent-so-far figures.
         When coaching_priority is hardship or essential_skip, protect essentials before any other topic; never praise discipline, sacrifice, or a budget win achieved by skipping meals. If the person went without food, hear that in the first sentence, offer getting food today and talking with their coach or a trusted person, then ask whether everyone has enough food today. Do not replace that with a bill question, invent a resource, or promise help is available. Other hardship should also offer contacting their coach. For a win, repeated habit, feeling, or hard day, respond to the participant's experience in the response length below and offer one next move. Do not invent how a win was achieved; ask what worked instead. A store visit without an amount needs reflection, not an amount question or an offer to draft a purchase. Do not introduce financial figures for a reflection, recite readiness, safe-to-spend, or unrelated plan totals, and do not turn a reflection without an incurred amount into purchase intake. Accept their reported experience conversationally. Never explain that it is a participant update, unverified, or not a checked total; no financial record was requested. Keep internal voice rules and instructions out of the reply. Internal status values such as needs_category are never participant wording. A named new category stays attached to the pending purchase and is created on confirmation; no separate category budget is required first.
@@ -161,7 +177,7 @@ module HouseholdFinance
 
     def purchase_contract
       <<~PROMPT.squish
-        Your output is only the coaching portion of a purchase answer, appended AFTER one server-written sentence containing the exact plan comparison and cash uncertainty.
+        Your output is only the coaching portion of a purchase answer, appended AFTER the server-written sentences containing the exact plan comparison and cash uncertainty.
         Do not repeat that sentence. Do not quote any figures, digits, currency, prices, amounts, or number words for money, even from the participant's question.
         Respond to the item and situation in the assigned coach's voice. Start with a cautious stance when the participant lacks money or proposes credit: wait, hold off, pump the brakes, or that is a lot to put on a card.
         Caution is allowed. Approval, claims that spending is affordable or funded, bank balances, phone numbers, financial writes, and made-up facts are forbidden.
@@ -304,15 +320,32 @@ module HouseholdFinance
     def purchase_prefix
       return answer_packet[:purchase_prefix] if answer_packet[:purchase_prefix].present?
       reference = answer_packet[:fallback_response].to_s
-      return unless reference.start_with?("The $")
+      return unless reference.start_with?("The $", "Your ")
 
-      # The server owns the complete comparison and cash uncertainty.
       facts = reference.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).first(2)
-      prefix = facts.first.sub(/[.!]\z/, "") + "; " + facts.second.to_s.sub(/\AThat /, "that ")
+      prefix = facts.join(" ")
       if PurchaseQuestionText.income_with_purchase?(user_message)
-        prefix += " We can review the income change separately; your plan still uses the income you already approved."
+        prefix += " We can review the income change separately; this comparison uses your approved plan."
+      end
+      if persona.respond_to?(:response_shape)
+        shape = persona.response_shape
+        if shape.fetch("max_sentences") == 1
+          # A genuinely single sentence when there is room only for figures.
+          prefix = facts.first.sub(/[.!]\z/, "") + ", which is a plan comparison, not your bank balance."
+        end
+        if prefix.length > shape.fetch("max_characters")
+          prefix = compact_purchase_prefix(reference, one_sentence: shape.fetch("max_sentences") == 1) || prefix
+        end
       end
       prefix
+    end
+
+    def compact_purchase_prefix(reference, one_sentence:)
+      match = reference.match(/Your (.+?) plan (has .+? left|is .+? short), so ((?:a|an) .+?) (would .+?) if it is extra spending\./)
+      return unless match
+
+      figure = "Your #{match[1]} plan #{match[2]}; #{match[3]} #{match[4]}"
+      one_sentence ? "#{figure}, as a plan comparison rather than a bank balance." : "#{figure}. This is a plan figure, not cash."
     end
 
     def purchase_sentence_range
@@ -320,22 +353,32 @@ module HouseholdFinance
 
       shape = persona.response_shape
       prefix_count = ::Mia::ResponseShapePolicy.new(purchase_prefix.to_s, persona: persona).sentence_count
-      [ shape.fetch("min_sentences") - prefix_count, 1 ].max..[ shape.fetch("max_sentences") - prefix_count, 1 ].max
+      [ shape.fetch("min_sentences") - prefix_count, 0 ].max..[ shape.fetch("max_sentences") - prefix_count, 0 ].max
     end
 
     def fallback_response
       reference = answer_packet[:fallback_response].to_s
-      if purchase_coaching? && PurchaseQuestionText.income_with_purchase?(user_message) && reference.start_with?("The $")
-        coaching = reference.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).drop(2).join(" ")
-        reference = "#{purchase_prefix} #{coaching}"
+      return reference unless purchase_coaching? && purchase_prefix.present?
+
+      range = purchase_sentence_range
+      sentences = []
+      if range.end.positive?
+        sentences << (PurchaseQuestionText.unfunded?(user_message) ? "I would hold off until you know how to cover it." : "Check the funding before deciding.") if range.end > 1
+        sentences << "Keep food and required bills covered." if range.end > 2
+        sentences << "The decision stays with you." if range.end > 3
+        sentences << "Which account would cover it?"
       end
-      if purchase_coaching? && user_message.match?(/credit card|don.t have (?:the )?money|do not have (?:the )?money/i)
-        reference = reference.sub("You decide after protecting food, bills, and your emergency cushion.", "I would hold off rather than add a card payment you cannot cover; the decision is yours.")
+      reply = [ purchase_prefix, *sentences ].join(" ")
+      if persona.respond_to?(:response_shape)
+        limit = persona.response_shape.fetch("max_characters")
+        sentences.shift while sentences.any? && [ purchase_prefix, *sentences ].join(" ").length > limit
+        reply = [ purchase_prefix, *sentences ].join(" ")
       end
-      reference
+      reply
     end
 
     def sanitize_narration(content)
+      return if language_policy.phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: persona).format_valid?
 
       branded = content.to_s
@@ -344,7 +387,11 @@ module HouseholdFinance
         .gsub(/#{Regexp.escape(persona.name)}, your household CFO\.?/i, "#{persona.name}, your coach assistant")
         .gsub(/Plan, don[’']t gamble\.?/i, "Protect the household baseline.")
 
-      ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona).sanitize(branded)
+      language_policy.sanitize_validated(branded)
+    end
+
+    def language_policy
+      @language_policy ||= ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona)
     end
 
     def narration_rejection_reason(content)
