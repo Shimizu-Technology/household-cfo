@@ -25,9 +25,17 @@ module HouseholdFinance
       text.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
     end
 
+    def self.reading(message)
+      current = ParticipantMessageReader::Current
+      current.reading if current.message == message.to_s
+    end
+
     def self.item_label(message)
+      item = reading(message)&.purchase_question.to_h["item"]
+      return item if item.present?
       text = purchase_clause(message)
       tail = text[/\$\s*[\d,.]+(?:k\b)?\s+(?:for\s+)?(.+)/i, 1] || text[/\b(?:buy|purchase|afford|get|book|order)\s+(.+)/i, 1]
+      tail = tail.to_s.sub(/\A(?:a|an|the)?\s*\d[\d,.]*\s+/, "")
       label = clean_item(tail)
         .sub(/\A(?:a|an|the|this)\s+/i, "").sub(/\Apair of\s+/i, "").strip
       return "" if label.blank? || label.match?(/\A(?:on|for|it|this|that|help|smaller goal|my streak|help|less|credit card|loan)\b/i)
@@ -37,6 +45,11 @@ module HouseholdFinance
 
     def self.clean_item(value)
       value.to_s.split(/[?.!;,]|\s+(?:or|on|using|for|with|from|at|next|this month|today|tomorrow|but|because|and|to|paid|paying)\b/i).first.to_s
+    end
+
+    def self.merchant_label(value)
+      text = value.to_s.squish
+      text
     end
 
     def self.priced_item(label, amount_cents)
@@ -55,6 +68,7 @@ module HouseholdFinance
 
     def self.purchase_question?(message)
       text = message.to_s
+      return true if reading(message)&.purchase_question.to_h["item"].present? && !debt_question?(text)
       !debt_question?(text) && !text.match?(/\bspend less\b/i) &&
         MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) } && item_label(text).present?
     end
@@ -62,7 +76,7 @@ module HouseholdFinance
     def self.read_only_purchase_question?(message)
       # A funding description is not an instruction to reserve new money.
       text = message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
-      purchase_question?(text) && !MiaCoachAnswerer.explicit_write_request?(text)
+      purchase_question?(message) && !MiaCoachAnswerer.explicit_write_request?(text)
     end
 
     def self.unfunded?(text)

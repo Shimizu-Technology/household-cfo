@@ -19,6 +19,7 @@ module SavingsChallenge
 
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      @rejections = []
       @intakes = structured_inputs
       if @intakes.empty? && !@reading.available && @message.match?(/\A(?:(?:(?:i|we) )?spent \$\d+(?:\.\d{1,2})? at [\p{L} '-]+ (?:today|yesterday)|no[ -]spend (?:today|yesterday))[.!]?\z/i)
         report = DailyReportParser.new(@enrollment, message: @message).call
@@ -31,6 +32,10 @@ module SavingsChallenge
         @rejection = parsed.reason if parsed.status == :rejected && parsed.reason&.dig(:kind).in?(%i[before_start after_end future])
       end
       @intakes.first
+    end
+
+    def rejections
+      (Array(@rejections) + [ @rejection ]).compact.uniq
     end
 
     def intakes
@@ -52,23 +57,24 @@ module SavingsChallenge
     def structured_inputs
       inputs = @reading.facts.filter_map do |fact|
         next unless fact["kind"].in?(%w[set_aside withdrawal purchase])
+        next if fact["amount"].blank?
         cents = HouseholdFinance::ParticipantMessageReader.amount_cents(fact.fetch("amount"))
         next unless cents.positive?
-        day = HouseholdFinance::ParticipantReportDay.call(day: fact["day"], message: @message, today: @enrollment.local_today)
+        day = HouseholdFinance::ParticipantReportDay.call(day: fact["day"], message: fact["source_text"].presence || (@reading.facts.many? ? "" : @message), today: @enrollment.local_today)
         if day.state == :missing && fact["kind"] != "purchase"
-          @rejection = { question: "You mentioned $#{format('%0.2f', cents / 100.0)} set aside or taken out. Which day was that?" }
+          @rejections << { question: "You mentioned #{ActionController::Base.helpers.number_to_currency(cents / 100.0)} set aside or taken out. Which day was that?" }
           next
         end
         date = day.state == :missing ? @enrollment.local_today : day.date
         if date && !date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
-          @rejection = { kind: date < @enrollment.starts_on ? :before_start : date > @enrollment.ends_on ? :after_end : :future,
-            date: date, today: @enrollment.local_today, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on }
+          @rejections << { kind: date < @enrollment.starts_on ? :before_start : date > @enrollment.ends_on ? :after_end : :future,
+            date: date, today: @enrollment.local_today, starts_on: @enrollment.starts_on, ends_on: @enrollment.ends_on, movement: fact["kind"] }
           next
         end
         review_day = date&.iso8601 || ""
         if fact["kind"] == "purchase"
-          { kind: "daily_report", local_on: review_day, date_required: date.nil?, no_spend: false,
-            purchases: [ { amount_cents: cents, merchant: fact["merchant"], purchased_on: review_day } ],
+          { kind: "daily_report", local_on: review_day, date_required: date.nil?, day_phrase: day.phrase, no_spend: false,
+            purchases: [ { amount_cents: cents, merchant: HouseholdFinance::PurchaseQuestionText.merchant_label(fact["merchant"]), purchased_on: review_day } ],
             feelings: HouseholdFinance::PurchaseReportParser.feelings(@message), approval_state: "unreviewed_input", counted: false }
         else
           withdrawal = fact["kind"] == "withdrawal"
@@ -77,7 +83,10 @@ module SavingsChallenge
             approval_state: "unreviewed_input", counted: false, new_money_confirmation_required: !withdrawal }
         end
       end
-      inputs.each { |input| input.delete(:date_required) unless input[:date_required] }
+      @rejection = @rejections.first
+      inputs.each do |input|
+        input.except!(:date_required, :day_phrase) unless input[:date_required]
+      end
       savings, reports = inputs.partition { |input| input[:kind] != "daily_report" }
       @ambiguous_movement = savings.uniq.length != savings.length
       grouped = reports.group_by { |input| input[:local_on] }.values.map do |rows|

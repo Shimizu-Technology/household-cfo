@@ -346,7 +346,8 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
       json = household_say("I spent 12 at Shell on #{day}", reading(facts: [ fact("purchase", "12", merchant: "Shell", day: day) ]))
       assert_nil json["transaction_draft"]
       assert_nil json["mia_action_draft"]
-      assert_match(/purchase date.*today or earlier/i, json.dig("assistant_message", "content"))
+      assert_match(/which day.*purchase/i, json.dig("assistant_message", "content"))
+      assert_includes json.dig("assistant_message", "content"), day
     end
     assert_empty @household.household_transactions
   end

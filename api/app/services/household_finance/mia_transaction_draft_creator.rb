@@ -15,9 +15,10 @@ module HouseholdFinance
     end
 
     def call
-      movement = TransactionDraftBuilder.non_expense_movement?(raw_input)
-      purchase = TransactionDraftBuilder.explicit_purchase_details(raw_input) if movement
-      if movement && purchase.blank? && !TransactionDraftBuilder.mixed_spend_amount?(raw_input, command[:amount])
+      raise ArgumentError, "No purchase review was requested" if raw_input.match?(ParticipantMoneyIntent::NO_CARD) || ParticipantMoneyIntent.blocked?(purchase_source, kind: :purchase)
+      movement = TransactionDraftBuilder.non_expense_movement?(purchase_source)
+      purchase = TransactionDraftBuilder.explicit_purchase_details(purchase_source) if movement
+      if movement && purchase.blank? && !TransactionDraftBuilder.mixed_spend_amount?(purchase_source, command[:amount])
         raise ArgumentError, "Only already incurred purchases can become transaction reviews"
       end
 
@@ -53,6 +54,17 @@ module HouseholdFinance
     end
 
     private
+
+    def purchase_source
+      source = command[:source_text].to_s
+      amount = command[:amount].to_s
+      if source.present? && raw_input.include?(source) && command[:merchant].present? &&
+          source.downcase.include?(command[:merchant].downcase) && PurchaseReportText.normalize(source).include?(amount)
+        source
+      else
+        raw_input
+      end
+    end
 
     attr_reader :household, :command, :raw_input, :user, :idempotency_key
   end

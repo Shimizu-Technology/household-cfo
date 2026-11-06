@@ -101,10 +101,22 @@ module SavingsChallenge
       if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
         return self if review_continuation || pattern_turn || goal_turn || progress_turn
       end
-      correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
+      return self if purchase_date_continuation
+      correction = SavingsCorrection.new(@enrollment, message: @message, reading: @reading).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
       if correction
         @intake, @answer = correction.values_at(:intake, :answer)
-        @intakes = [ @intake ].compact
+        parser = ChatIntake.new(@enrollment, message: @message, reading: @reading)
+        parser.call
+        others = separate_from_correction(parser.intakes, Array(correction[:amounts]))
+        @intakes = [ @intake, *others ].compact
+        others.each do |input|
+          @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
+            message: @message, daily_report: input, savings_intake: input).call
+        end
+        parser.rejections.each do |reason|
+          @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
+            message: @message, daily_rejection: reason).call
+        end
         return self
       end
       parser = ChatIntake.new(@enrollment, message: @message, reading: @reading) if @attachments.empty?
@@ -136,10 +148,14 @@ module SavingsChallenge
         @answer = HouseholdFinance::ParticipantMessageReader::OFF_REPLY
         return self
       end
-      if @intakes.any? && parser&.rejection&.dig(:question)
+      if @intakes.any? && (parser&.rejection || @reading.unclear_amount)
         @answer = @intakes.map do |input|
           CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: input, savings_intake: input).call
-        end.join(" ") + " " + parser.rejection[:question]
+        end.join(" ")
+        parser&.rejections&.each do |reason|
+          @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_rejection: reason).call
+        end
+        @answer += " I couldn't tell one of the other amounts. Please send that amount again in dollars and cents." if @reading.unclear_amount
         return self
       end
       if @intakes.many?
@@ -147,6 +163,13 @@ module SavingsChallenge
           CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
             message: @message, daily_report: input, savings_intake: input).call
         end.join(" ")
+        return self
+      end
+      if @intakes.empty? && parser&.rejections&.any?
+        @answer = parser.rejections.map do |reason|
+          CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_rejection: reason).call
+        end.join(" ")
+        @answer += " I couldn't tell one of the other amounts. Please send it again in dollars and cents." if @reading.unclear_amount
         return self
       end
       if @intakes.empty? && @reading.facts.any? { |fact| fact["kind"] == "nothing_saved" }
@@ -182,6 +205,11 @@ module SavingsChallenge
     # Caller holds the household lock and has rechecked current challenge access.
     # The proposal is not a financial draft until the participant chooses Yes.
     def persist!(assistant_message)
+      if @continued_card_input
+        @continued_card.lock!
+        raise ActiveRecord::StaleObjectError.new(@continued_card, "update") unless @continued_card.status == "pending"
+        @continued_card.update!(input: @continued_card_input)
+      end
       if @goal_cents
         SavingsChatCard.where(savings_enrollment: @enrollment, kind: "goal", status: "pending")
           .for_picture(@household.financial_generation).update_all(status: "closed", state: {})
@@ -205,6 +233,35 @@ module SavingsChallenge
     end
 
     private
+
+    # The reader can also report a corrected amount as new savings. Only a further
+    # mention of that amount in the message makes it a separate event.
+    def separate_from_correction(intakes, amounts)
+      stated = @message.scan(/(?<![\d.,])\d[\d,]*(?:\.\d{1,2})?/).map { |value| HouseholdFinance::ParticipantMessageReader.amount_cents(value) }.tally
+      intakes.reject do |input|
+        input[:kind] == "contribution" && amounts.include?(input[:amount_cents]) && stated.fetch(input[:amount_cents], 0) <= 1
+      end
+    end
+
+    def purchase_date_continuation
+      return false unless @enrollment && @attachments.empty? && !@reading.care? && !self.class.protected_message?(@message)
+      card = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: @session.id }, kind: "daily_report", status: "pending")
+        .for_picture(@household.financial_generation).order(:id).last
+      return false unless card&.input&.dig("date_required")
+      day = HouseholdFinance::ParticipantReportDay.call(day: @message, message: "", today: @enrollment.local_today)
+      return false unless day.state == :resolved
+      unless day.date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
+        @answer = "That day is outside the days you can add to this challenge. Which day within your challenge was the purchase? Nothing has been saved."
+        return true
+      end
+      input = card.input.deep_symbolize_keys.except(:date_required, :day_phrase).merge(local_on: day.date.iso8601)
+      input[:purchases].each { |row| row[:purchased_on] = day.date.iso8601 }
+      @continued_card_input = input
+      @continued_card = card
+      @intake, @intakes = input, []
+      @answer = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: input).call
+      true
+    end
 
     def pending_intake_card(kind, input)
       # A second real purchase can have exactly the same amount and place. Only
@@ -295,14 +352,16 @@ module SavingsChallenge
     end
 
     def goal_turn
+      return false if HouseholdFinance::ParticipantMoneyIntent.blocked?(@message, kind: :goal)
       message = GoalAmount.normalize(@message)
+      goal_amount = @reading.goal_change["amount"].presence
       message = message.sub(/\A\s*actually[, ]*/i, "").sub(/\blet['’]?s just\b/i, "lets")
       suggestion = message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)
       return false if message.match?(/\b(?:household|paid|spent|saved|withdrew|card balance)\b/i) || (message.match?(/\bset aside\b/i) && !self.class.weekly_offer?(message))
       return false if message.match?(/\bdebt\b/i) && !message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
       standalone = self.class.amount_reply?(message, session: @session)
-      weekly = message.match?(/(?:#{AMOUNT_SOURCE})\s*(?:dollars?\s*)?(?:#{GoalAmount::WEEKLY})/i)
-      return false unless message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || standalone || suggestion || self.class.weekly_offer?(message)
+      weekly_amounts = message.scan(/(?<![\w.,])\$?\s*(#{AMOUNT_SOURCE})\s*(?:dollars?\s*)?(?:#{GoalAmount::WEEKLY})/i).flatten
+      return false unless message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || standalone || suggestion || goal_amount || self.class.weekly_offer?(message)
       malformed = message.match?(/(?:\$\s*|\b(?:to|at|be|save|set aside)\s+)[0-9][0-9,]*\.\d{3,}/i)
       amounts = message.scan(/\$\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/).flatten
       amounts = message.scan(/\b(?:to|at|of|be|is|save|do|set aside)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i).flatten if amounts.empty?
@@ -314,7 +373,8 @@ module SavingsChallenge
       # dollar sign. "Be $500 instead of $400" also names a destination.
       destination = message[/\b(?:goal|target)\s+(?:to\s+be|to|at|be|of|is)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
       replacement = destination || message[/\b(?:to|at|be|save|set aside|make it|let['’]?s (?:do|go with|make it)|go with)\s+\$?\s*(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
-      chosen = replacement || (amounts.first if amounts.one?)
+      chosen = goal_amount ? HouseholdFinance::ParticipantMessageReader.amount_text(goal_amount) : replacement || (amounts.first if amounts.one?)
+      chosen ||= message[/\b(?:goal|target)\s+(#{AMOUNT_SOURCE})#{AMOUNT_END}/i, 1]
       @goal_cents = if malformed
         nil
       elsif chosen
@@ -328,7 +388,8 @@ module SavingsChallenge
         @answer = "What comfortable amount would you like as your goal for the whole 90 days? Nothing has changed."
         return true
       end
-      if weekly && amounts.one?
+      weekly = weekly_amounts.any? { |amount| HouseholdFinance::Money.chat_cents(amount) == @goal_cents }
+      if weekly && (amounts.one? || goal_amount.present?)
         @weekly_cents = @goal_cents
         @goal_cents = (@weekly_cents * 90 + 3) / 7
         unless @goal_cents.between?(1, 2_147_483_647)

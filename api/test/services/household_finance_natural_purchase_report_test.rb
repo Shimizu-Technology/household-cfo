@@ -8,7 +8,9 @@ class HouseholdFinanceNaturalPurchaseReportTest < ActiveSupport::TestCase
         context: { calendar: { today: NaturalPurchasePhrases::TODAY.iso8601 } }, api_key: nil).call
       assert result&.actionable?, message
       actions = result.transaction_report_plan? ? result.write_plan[:actions].map { |entry| entry[:action] } : [ result.action ]
-      actual = actions.map { |action| [ HouseholdFinance::Money.chat_cents(action[:amount]), action[:merchant], Date.iso8601(action[:occurred_on]) ] }
+      actual = actions.map { |action| [ HouseholdFinance::Money.chat_cents(action[:amount]), action[:merchant].downcase, Date.iso8601(action[:occurred_on]) ] }
+      # Cards capitalize labels; source identity, figures and dates stay exact.
+      expected = expected.map { |amount, merchant, date| [ amount, merchant.downcase, date ] }
       assert_equal expected, actual, message
       if result.transaction_report_plan?
         result.write_plan[:actions].each { |entry| assert_includes message, entry[:source_text] }

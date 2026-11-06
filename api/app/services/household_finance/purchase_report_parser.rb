@@ -24,17 +24,21 @@ module HouseholdFinance
     MONTHS = { "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4, "may" => 5, "jun" => 6, "jul" => 7, "aug" => 8, "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12 }.freeze
     MONTH_SOURCE = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?".freeze
     WEEKDAYS = %w[sunday monday tuesday wednesday thursday friday saturday].freeze
-    WEEKDAY_SOURCE = "(?:sunday|monday|tuesday|wednesday|thursday|friday|saturday)".freeze
+    SHORT_WEEKDAY_SOURCE = WEEKDAYS.flat_map { |day| (3...day.length).map { |size| day[0, size] } }.sort_by { |day| -day.length }.join("|").freeze
+    # A shortened day must end a date clause, rather than begin a store name.
+    WEEKDAY_SOURCE = "(?:#{WEEKDAYS.join('|')}|(?:#{SHORT_WEEKDAY_SOURCE})(?=\\b(?:\\s*(?:[.,;!?]|\\z)|\\s+(?:morning|afternoon|evening|night|and|but|then|for|with|at|felt|feeling)\\b)))".freeze
 
     # A date phrase, captured so its digits are never read as money.
     DATE_PATTERN = Regexp.new(
       "\\b(?<iso>\\d{4}-\\d{2}-\\d{2})\\b" \
       "|\\b(?:on\\s+)?(?<month>#{MONTH_SOURCE})\\s+(?<day>\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(?<year>\\d{4}))?\\b" \
       "|\\b(?<today>today|tonight|this\\s+(?:morning|afternoon|evening)|earlier\\s+today)\\b" \
-      "|\\b(?<yesterday>yesterday|last\\s+night)\\b" \
+      "|\\b(?<yesterday>yest(?:erday)?|last\\s+night)\\b" \
+      "|\\b(on\\s+)(?<halloween>halloween)\\b" \
       "|\\b(?:on\\s+|last\\s+)?(?<weekday>#{WEEKDAY_SOURCE})\\b",
       Regexp::IGNORECASE
     ).freeze
+    DAY_PATTERN = Regexp.new("(?:#{DATE_PATTERN.source})(?:\\s+(?:in the\\s+)?(?:morning|afternoon|evening|night))?", Regexp::IGNORECASE).freeze
     # Day references this parser does not resolve; guessing would misdate money.
     UNCLEAR_DATE_PATTERN = /\b(?:january|february|march|april|june|july|august|september|october|november|december)\b(?!\.?\s*\d)|\b(?:in|during|since|last|this)\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)\b(?!\.?\s*\d)|\b(?:last|this|past)\s+(?:week|weekend|month)\b|\bthe\s+other\s+day\b|\b\d+\s+days?\s+ago\b|\bon\s+the\s+\d{1,2}(?:st|nd|rd|th)\b|\bover\s+the\s+weekend\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/i.freeze
     TIME_PATTERN = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)(?![a-z])|\b\d{1,2}:\d{2}\b|\b\d{1,2}\s*o['’]?clock\b/i.freeze
@@ -66,7 +70,7 @@ module HouseholdFinance
     LIST_ITEM = Regexp.new("\\A(?<place>[a-z][^$\\d\\n]{0,60}?)\\s*(?:[:\\-–—]\\s*)?(?<dollar>\\$)?\\s*(?<amount>#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)?(?:\\s+(?:for|with)\\s+[^$\\d]*)?\\s*\\z", Regexp::IGNORECASE).freeze
     # A store name ends at a date, a connector, or "for" plus a purpose or budget category
     # ("for Dining Out", "for the kids"). Other "for" words stay: "Ross Dress for Less".
-    MERCHANT_STOP = "(?=\\s+(?:again|today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
+    MERCHANT_STOP = "(?=\\s+(?:again|today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|halloween|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
       "|for\\s+(?:\\$|\\d+|my|the|a|an|some|our|lunch|dinner|breakfast|coffee|gas|fuel|food|groceries|snacks|kids?|me|us|dining(?:\\s+out)?|eating\\s+out|entertainment|household|personal|transport(?:ation)?|utilities|bills?|shopping|clothes|clothing|health|medical|school|work|church|gifts?|pets?|car|rent)\\b" \
       "|at|because|since|cause|cuz|when|while|but|so|with|and|felt|feel|feeling|which|that|after|before)\\b|\\s+\\$|[.,;!?\\n]|\\z)"
     MERCHANT_PATTERN = Regexp.new("(?:\\bwent to|\\bshopped at|\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
@@ -331,7 +335,7 @@ module HouseholdFinance
       @segment_sources = {}
       @segment_ranges = {}
       cursor = 0
-      text.split(/\n+|;|(?<=[.!])\s+|,(?!\d{3}(?!\d))\s*|\s+(?:and|then|plus|also)\s+(?=\S)/i).filter_map do |part|
+      text.split(/\n+|;|(?<=[.!])\s+|,(?!\s*\d{4}\b)(?!\d{3}(?!\d))\s*|\s+(?:and|then|plus|also)\s+(?=\S)/i).filter_map do |part|
         start = text.index(part, cursor)
         cursor = start + part.length
         segment = part.squish.sub(/\A(?:(?:and|then|also|plus)\s+)+/i, "").sub(/[.!]+\z/, "")
@@ -409,7 +413,7 @@ module HouseholdFinance
 
     def date_tokens(text)
       tokens = []
-      text.scan(DATE_PATTERN) do
+      text.scan(DAY_PATTERN) do
         match = Regexp.last_match
         tokens << { range: match.begin(0)...match.end(0), date: resolve(match) }
       end
@@ -418,6 +422,10 @@ module HouseholdFinance
 
     def resolve(match)
       return Date.iso8601(match[:iso]) if match[:iso]
+      if match[:halloween]
+        date = Date.new(today.year, 10, 31)
+        return date <= today ? date : Date.new(today.year - 1, 10, 31)
+      end
       return today if match[:today]
       return today - 1 if match[:yesterday]
       if match[:weekday]
