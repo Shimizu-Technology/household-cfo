@@ -9,8 +9,19 @@ module SpendingPatterns
     # makes them a request.
     ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
 
+    # Conservative read-only floor for an unavailable reader. The live reader
+    # handles meaning; this only recognizes clear requests to observe spending.
+    def self.observation_question?(message)
+      HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns") ||
+        (message.match?(/\b(?:what(?:s|['’]s)?|which|show|tell|notice|spot|see)\b/i) && message.match?(PATTERN)) ||
+        message.match?(/\b(?:notice|stands? out|unusual|weird)\b.{0,45}\b(?:spending|statement|purchases?)\b|\b(?:where|how)\b.{0,20}\b(?:cut back|trim spending)\b|\bsmall (?:buys|purchases)\b.{0,20}\badd(?:ing)? up\b/i)
+    end
+
     def self.matches?(message)
-      message.match?(QUESTION) && message.match?(PATTERN) && !message.match?(WRITE) && !message.match?(ACTION_REQUEST) &&
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
+
+      observation_question?(message) && !message.match?(WRITE) && !message.match?(ACTION_REQUEST) &&
         !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) &&
         !::Mia::CrisisBoundary.matches?(message) && !::Mia::CrisisBoundary.hopeless?(message) &&
         !HouseholdFinance::MoneyMovementText.food_insecurity?(message)

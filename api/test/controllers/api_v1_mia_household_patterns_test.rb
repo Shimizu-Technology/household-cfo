@@ -1,11 +1,36 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     @user = User.create!(clerk_id: "patterns-#{SecureRandom.hex(8)}", email: "patterns-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
     @headers = { "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Ana:Santos" }
+  end
+
+  test "clear observation questions still reach patterns with the model off" do
+    purchase(Date.new(2026, 10, 5), "Ross", 2000)
+    [ "whats my spending pattern", "what do you notice in my spending", "where can i cut back", "any small buys adding up" ].each do |message|
+      post "/api/v1/mia/messages", params: { message: message }, headers: @headers, as: :json
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Ross"
+      assert_nil response.parsed_body["mia_action_draft"]
+    end
+  end
+
+  test "semantic observation wording reaches reviewed patterns and does not write" do
+    purchase(Date.new(2026, 10, 5), "Ross", 2000)
+    before = financial_counts
+    [ "where could we trim things a bit", "anything little adding up lately", "whats my spending pattern" ].each do |message|
+      with_participant_reader_response({ care: "none", reply_intent: "spending_patterns", question: true, correction: false, facts: [], setup_answer: { field: "none", value: "" }, spending_preferences: [] }) do
+        post "/api/v1/mia/messages", params: { message: message }, headers: @headers, as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "Ross"
+        assert_equal before, financial_counts
+      end
+    end
   end
 
   test "household patterns read confirmed purchases without drafting or changing financial records and replay safely" do

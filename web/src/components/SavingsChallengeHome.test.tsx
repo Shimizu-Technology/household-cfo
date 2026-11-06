@@ -19,6 +19,16 @@ async function formReady(label: string) {
 function view(key = 'first') { return <SavingsChallengeHome key={key} onAskMia={vi.fn()} onReviewStatements={vi.fn()} /> }
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); fetchChallenge.mockResolvedValue(savingsFixture()); fetchPage.mockResolvedValue({ records: [], next_cursor: null }) })
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks(); if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView); else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') })
+it('uses the same overdue checkpoint for the day line and review button', async () => {
+  const fixture = savingsFixture()
+  fixture.calendar = { ...fixture.calendar!, local_today: '2026-11-29', day: 60 }
+  fixture.timeline = { days: [], checkpoints_due: [30, 60] }
+  fetchChallenge.mockResolvedValue(fixture)
+  render(view())
+  await screen.findByRole('button', { name: 'Day 30 ready to review' })
+  expect(screen.getByText(/Day 30 check-in is ready/)).toBeTruthy()
+  expect(screen.queryByText(/Day 60 check-in is today/)).toBeNull()
+})
 describe('participant savings Home', () => {
   it('keeps a chat date blank when Mia could not resolve the stated day', async () => {
     render(<SavingsChallengeHome onAskMia={vi.fn()} onReviewStatements={vi.fn()} initialSavingsIntake={{kind:'contribution',amount_cents:2000,effective_on:'',date_required:true,counted:false,approval_state:'unreviewed_input'}} />)

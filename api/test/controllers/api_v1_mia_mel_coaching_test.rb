@@ -12,6 +12,15 @@ class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  test "left this month uses the Home surplus and leaves unknown spending unknown" do
+    @household.household_transactions.destroy_all
+    post_message("how much do i have left this month")
+    facts = response.parsed_body.fetch("month_answer")
+    assert_equal facts.fetch("money_in_cents") - facts.fetch("planned_out_cents"), facts.fetch("plan_left_cents")
+    assert_nil facts["spent_so_far_cents"]
+    refute_includes reply, "actuals are $0"
+  end
+
   test "wins repeated habits and hard days coach without creating purchases" do
     {
       "I stayed under my grocery budget for the whole week!" => "You kept",

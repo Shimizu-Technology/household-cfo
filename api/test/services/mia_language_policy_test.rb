@@ -92,4 +92,22 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
       "Simply Gum is $4.\nYou are on par, ok."
     ].each { |text| assert_equal text.gsub("\n", " "), policy.sanitize(text) }
   end
+  test "model phrase removal preserves coaching and leaves eligibility to the server" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    [ "I paid off my card", "What is my plan?", "I cannot pay rent" ].each do |message|
+      policy = Mia::LanguagePolicy.new(user_message: message, persona: persona)
+      reply = policy.remove_model_phrases("That took real effort. Small wins count, chelu. What helped you keep going?")
+      assert_equal "That took real effort. What helped you keep going?", reply
+      assert_nil policy.model_phrase_rejection_reason(reply)
+    end
+  end
+  test "as needed differs from sparing and wins can use their own phrase" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    history = [ { role: "assistant", content: phrase["text"] } ]
+    assert_equal phrase["text"], Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
+    phrase["frequency"] = "sparing"
+    assert_nil Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
+  end
 end

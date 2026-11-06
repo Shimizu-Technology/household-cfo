@@ -36,7 +36,7 @@ module Api
       before_action :require_writable_household!, only: %i[create destroy]
 
       def scope_participant_reading
-        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil, guard_care: nil, recent_care: nil, care_topic: nil, scenario_current_only: false) { ::Mia::ReplyDeadline.within { yield } }
+        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil, guard_care: nil, reply_intent: nil, recent_care: nil, care_topic: nil, scenario_current_only: false) { ::Mia::ReplyDeadline.within { yield } }
       end
 
       def index
@@ -194,11 +194,11 @@ module Api
         end
 
         if !savings_program_selected? && attached_imports.empty? && SpendingPatterns::Answerer.matches?(content) &&
-           !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(content))
+           !(document_evidence_topic_present?(session) && HouseholdFinance::AttachedDocumentFollowupResolver.document_directed_reference?(content) && !(SpendingPatterns::Answerer.observation_question?(content) && reviewed_document_evidence?(conversation_context)))
           return render_household_patterns_response(session, content, message_request: message_request)
         end
 
-        if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
+        if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && !HouseholdFinance::MessageReplyIntent.matches?(content, "win") && !HouseholdFinance::MiaMonthAnswer.question?(content)
           saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
             message: content, year: budget_year_param, month: budget_month_param)
           saved_answer = saved_reader.call unless @participant_reading&.facts&.any? { |fact| fact["kind"] == "purchase" } || HouseholdFinance::MiaCoachAnswerer.spend_report_text?(content)
@@ -1215,6 +1215,11 @@ module Api
         evidence_segments.map { |segment| segment.strip.sub(/[?!.;]+\z/, "") }.join(" ").strip.presence
       end
 
+      def reviewed_document_evidence?(context)
+        imports = prior_document_evidence(context).fetch(:document_imports)
+        imports.any? && imports.all?(&:approved_values?)
+      end
+
       def prior_document_evidence(conversation_context)
         topics = [ conversation_context[:active_topic], *Array(conversation_context[:open_topics]) ].compact
         evidence = topics.filter_map { |topic| topic.to_h.deep_symbolize_keys[:document_evidence] }.first
@@ -1799,7 +1804,7 @@ module Api
         amount = money(first_draft.total_amount_cents)
         date = first_draft.occurred_on.strftime("%b %-d, %Y")
         merchant = first_draft.merchant.presence || evidence_label(document_import).titleize
-        category = first_draft.budget_category&.name || first_draft.transaction_draft_splits.first&.category_name || "Uncategorized"
+        category = first_draft.budget_category&.name || first_draft.transaction_draft_splits.first&.category_name || "Needs a category"
         intro = "I found #{merchant} for #{amount} on #{date} and drafted it in #{category}."
         extra = drafts.length > 1 ? " I also found #{drafts.length - 1} more transaction row#{'s' unless drafts.length == 2}." : ""
         "#{intro}#{extra} You stay the CFO here: review the card#{'s' if drafts.length > 1} below before anything touches actuals."
@@ -2638,7 +2643,7 @@ module Api
         return categories.first if categories.one?
         return "#{categories.length} categories" if categories.many?
 
-        "Uncategorized"
+        "Needs a category"
       end
 
       def drafted_transaction_impact_line(draft, annual_plan)
@@ -2660,6 +2665,8 @@ module Api
           "would have #{money(remaining_cents)} left in its #{money(impact.fetch(:planned_cents))} plan"
         end
         line = "If approved, #{draft.occurred_on.strftime('%B')}'s #{impact.fetch(:category_name)} category #{outcome}."
+        pending = impact.fetch(:other_pending_cents, 0)
+        line += " That includes #{money(pending)} in other purchases still waiting for your review." if pending.positive?
         line
       end
 

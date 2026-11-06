@@ -6,6 +6,14 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   setup { HouseholdFinance::ParticipantMessageReader::Current.reset }
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+  test "a quoted raise from participant history is grounded without certifying saved income" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month")
+    assert_nil responder.send(:generic_claim_rejection, "Your raise to $5,600 is not saved in the plan.", context: "{}", user_message: "how much is left")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Your income is $5,600.", context: "{}", user_message: "how much is left")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "You reported $9,900.", context: "{}", user_message: "how much is left")
+  end
+
   test "recorded coach preview asks whether the purchase fits without claiming it does" do
     reply = file_fixture("mia_preview_decision.txt").read.strip
     responder = stubbed_model_responder(reply)
@@ -814,7 +822,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "transaction review"
   end
 
-  test "ineligible cultural openers and recent repetitions are rejected before sanitation" do
+  test "exact cultural artifacts are removed while surrounding coaching survives" do
     responder = Demo::MiaResponder.new(api_key: nil)
     direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
     standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
@@ -826,10 +834,14 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
     )
 
-    assert_nil direct
-    assert_nil standalone
-    assert_nil recall
-    assert_nil restrained
+    [ direct, standalone, recall, restrained ].each do |reply|
+      assert reply.present?
+      refute_match(/chelu|håfa adai/i, reply)
+    end
+    assert_includes direct, "I drafted the July edit for review."
+    assert_includes standalone, "The category already exists."
+    assert_includes recall, "We were discussing the July edit."
+    assert_includes restrained, "Review it before applying."
   end
 
   test "demo mode does not tell users to confirm unavailable drafts" do

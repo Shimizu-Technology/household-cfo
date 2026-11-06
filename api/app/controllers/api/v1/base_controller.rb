@@ -325,6 +325,10 @@ module Api
       end
 
       def render_operation_error(error)
+        if error.message == "Transaction draft is not pending"
+          return render json: { errors: [ "This purchase was already reviewed. The latest version is ready to load." ], code: "stale_review" }, status: :conflict
+        end
+
         if error.is_a?(HouseholdFinance::Operations::Base::ConcurrentEdit)
           return render json: { errors: [ error.message ], code: "changed_elsewhere" }, status: :conflict
         end

@@ -189,7 +189,7 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
       .find { |item| item.fetch(:id) == transition_item.id }
     transition_field = review.fetch(:review_fields).sole
 
-    assert_equal "Transition goal", transition_field.fetch(:label)
+    assert_equal "Your goal", transition_field.fetch(:label)
     assert_equal expected_label, transition_field.fetch(:after)
     applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
     assert applied.success?, applied.errors.to_sentence

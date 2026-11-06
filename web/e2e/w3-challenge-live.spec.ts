@@ -207,9 +207,9 @@ test.describe('BOG UI W3 real challenge journey', () => {
     await shot('day30-checkpoint-intro')
     if (!checkpointAlreadySaved) {
       await today.getByRole('button', { name: /^Review Day 30/ }).click()
-      await today.getByRole('checkbox', { name: /Prepare this exact milestone/ }).check()
+      await today.getByRole('checkbox', { name: /I’m ready to review these numbers/ }).check()
       await today.getByRole('button', { name: 'Save Day 30 checkpoint preview', exact: true }).click()
-      await today.getByRole('checkbox', { name: /I reviewed this exact as-of date/ }).check()
+      await today.getByRole('checkbox', { name: /I checked the dates, savings, goal/ }).check()
       const committed = page.waitForResponse(response => response.url().endsWith('/daily/actions/checkpoint_approve') && response.request().method() === 'POST')
       await today.getByRole('button', { name: 'Approve Day 30 checkpoint', exact: true }).click()
       expect((await committed).ok()).toBe(true)

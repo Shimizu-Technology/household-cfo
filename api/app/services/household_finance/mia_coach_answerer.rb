@@ -102,7 +102,7 @@ module HouseholdFinance
       return :essential_skip if essential_skipped?(text)
       return :month if MiaMonthAnswer.question?(text)
       return :write if explicit_write_request?(text)
-      return :reflective if reflective_message?(text)
+      return :reflective if reflective_message?(text) || MessageReplyIntent.matches?(text, "win")
 
       :purchase
     end
@@ -254,6 +254,7 @@ module HouseholdFinance
     end
 
     def reflective_answer
+      return win_answer if MessageReplyIntent.matches?(message, "win")
       return unless self.class.reflective_message?(message)
       return if transaction_report?
       return "This budget feels frustrating. It is okay to pause and come back to one part at a time. Which part feels hardest right now?" if message.match?(BUDGET_FRUSTRATION_PATTERN) && !message.match?(/\b(?:stupid me|of me|myself|(?:i am|i was|im|i['’]m)\s+(?:(?:so|really|honestly|literally)\s+)*(?:stupid|dumb))\b/i)
@@ -269,7 +270,7 @@ module HouseholdFinance
     end
 
     def win_answer
-      "You kept your spending within the limit you set. Let’s look at what helped without adding another rule. What worked that you could repeat next time?"
+      "You kept at it, and that effort matters. Let’s look at what helped you keep going. What worked that you could repeat next time?"
     end
 
     def month_overview_answer

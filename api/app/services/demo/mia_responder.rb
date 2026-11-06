@@ -32,7 +32,7 @@ module Demo
     PERCENT_METRIC_LABELS = {
       "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
     }.freeze
-    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
+    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|said|reported|told me|asked\s+about)|your\s+raise)\b/i.freeze
     UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
     MONETARY_APPROVAL_PATTERN = /#{MONEY_AMOUNT_PATTERN.source}\s+(?:fits\b|(?:is|looks)\s+(?:fine|okay|ok|affordable|safe)\b)/i.freeze
     CONDITIONAL_ANSWER_PATTERN = /(?:\A|[.!?;,\n]|\b(?:and|but|because|so|then))\s*(?:yes\b(?!\s+or\s+no)|(?:it|that)\s+does\b|you\s+can\b|go\s+ahead\b|(?:(?:it|that|this|the\s+(?:purchase|expense|trip))(?:['’]s|\s+is)|is)\s+(?:fine|okay|ok|affordable|safe)\b)/i.freeze
@@ -93,6 +93,7 @@ module Demo
       @fallback_reason = nil
       @rejection_reason = nil
       @guard_care_kind = nil
+      @participant_history = Array(history).last(8).select { |turn| (turn[:role] || turn["role"]).to_s == "user" }.map { |turn| (turn[:content] || turn["content"]).to_s.first(600) }.join(" ")
       @concrete_model_identifier = nil
       @provider_request_id = nil
       @supplied_content_context = []
@@ -342,7 +343,9 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
-      return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).model_phrase_rejection_reason(content)
+      policy = ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona)
+      content = policy.remove_model_phrases(content)
+      return if policy.model_phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
 
       sanitized = content.to_s.strip
@@ -477,6 +480,12 @@ module Demo
 
       metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
       participant_values = currency_values(user_message)
+      history_values = currency_values(@participant_history)
+      @participant_history.to_s.scan(/\b(?:raise|income|salary|paycheck)\b[^.!?]{0,25}?\$?([\d,]+(?:\.\d{1,2})?)/i) do |amount|
+        history_values << HouseholdFinance::Money.chat_cents(amount.first)
+      rescue ArgumentError
+        next
+      end
       # Persona Studio previews carry no saved household facts, so the coach's
       # sample question is the only source of amounts. Repeating an amount the
       # question itself states is grounded there without a scenario label.
@@ -485,8 +494,14 @@ module Demo
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
         (participant_values.include?(mention.fetch(:value)) && (preview || participant_scenario_labeled?(content, mention))) ||
+          (history_values.include?(mention.fetch(:value)) && historical_amount_attributed?(content, mention)) ||
           (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
+    end
+
+    def historical_amount_attributed?(content, mention)
+      sentence = content.to_s[0...mention[:start]].split(/[.!?]/).last.to_s
+      sentence.match?(/\b(?:you (?:said|reported|mentioned|told me)|your raise)\b/i)
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)
@@ -687,6 +702,9 @@ module Demo
       return crisis_response if crisis_message?(message)
       return HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER if HouseholdFinance::ConversationFollowupResolver.acknowledgment?(message)
       return low_signal_response(message) if low_signal_message?(message)
+      if HouseholdFinance::MessageReplyIntent.matches?(message, "win") || message.match?(::Mia::LanguagePolicy::MILESTONE_PATTERN)
+        return "That took effort, and it matters. What helped you keep going, and what would you like to carry into next week?"
+      end
 
       hopeless = ::Mia::CrisisBoundary.hopeless?(message)
       purchase_question = !hopeless && (HouseholdFinance::PurchaseQuestionText.purchase_question?(message) || screenshot_spending_question?(message) || spending_decision_question?(message))

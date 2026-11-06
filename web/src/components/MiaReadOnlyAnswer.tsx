@@ -3,9 +3,9 @@ import { SafeMessageText } from './SafeMessageText'
 import { useBrand } from '../contexts/brandContextValue'
 
 const basisLabels: Record<MiaAnswerPresentation['basis'], string> = {
-  saved_household: 'Saved household records',
-  saved_household_plus_scenario: 'Saved household records + your scenario',
-  scenario_only: 'Your scenario only',
+  saved_household: 'Your saved numbers',
+  saved_household_plus_scenario: 'Your saved numbers and the amount you asked about',
+  scenario_only: 'The amount you asked about',
 }
 
 export function MiaReadOnlyAnswer({ presentation, idPrefix }: { presentation: MiaAnswerPresentation; idPrefix: string }) {
@@ -14,7 +14,7 @@ export function MiaReadOnlyAnswer({ presentation, idPrefix }: { presentation: Mi
 
   return (
     <div className="mia-read-only-answer" role="group" aria-label={`${assistantName} read-only answer`}>
-      <p className="mia-answer-basis"><span>Answer basis</span>{basisLabels[presentation.basis]}</p>
+      <p className="mia-answer-basis">{basisLabels[presentation.basis]}</p>
       <p className="mia-answer-lead">{presentation.lead}</p>
       <ol className="mia-answer-sections" aria-label={`${assistantName} answer sections`}>
         {presentation.sections.map((section, index) => {

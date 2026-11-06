@@ -1,14 +1,16 @@
 # frozen_string_literal: true
 
+require_relative "message_reply_intent"
+
 module HouseholdFinance
   # One month picture for chat and Home. Values are cents; unknown stays nil.
   # Planned out includes debt minimums. Spent so far is confirmed category
   # spending, so it is compared with category budgets, never with bank cash.
   class MiaMonthAnswer
-    QUESTION = /\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
+    QUESTION = /\bhow much (?:do (?:i|we) have|is) left (?:this|last) month\b|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
 
     def self.question?(message)
-      message.to_s.match?(QUESTION)
+      message.to_s.match?(QUESTION) || MessageReplyIntent.matches?(message, "month_balance")
     end
 
     def self.question_date(message, today: Date.current)

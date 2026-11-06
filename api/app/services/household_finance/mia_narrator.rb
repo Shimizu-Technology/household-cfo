@@ -429,6 +429,7 @@ module HouseholdFinance
     end
 
     def sanitize_narration(content)
+      content = language_policy.remove_model_phrases(content)
       return if language_policy.model_phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: persona).format_valid?
 

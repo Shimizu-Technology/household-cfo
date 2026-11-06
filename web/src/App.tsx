@@ -3087,8 +3087,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
-      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      await restoreSelectedBudgetPlan(workspace.budget)
+      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       const confirmedMonth = workspace.budget.annual_plan?.months[draftMonthIndex]
@@ -3100,6 +3100,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', 'confirm')
+      if (caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere'].includes(caught.code ?? '')) {
+        const isCurrent = captureWorkspaceReloadGuard()
+        try {
+          const latest = await fetchAppData(true)
+          if (isCurrent()) {
+            setData(latest)
+            replaceMiaHistory(latest.mia)
+            await restoreSelectedBudgetPlan(latest.budget)
+            void refreshDocumentImports({ quiet: true })
+          }
+        } catch { /* Keep the conflict message visible if the refresh is offline. */ }
+      }
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setBudgetError(message)
       setDocumentsError(message)
@@ -3122,8 +3134,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
-      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      await restoreSelectedBudgetPlan(workspace.budget)
+      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       setTransactionNotice(`Ignored ${draft.merchant}. It is not counted as spending.`)
@@ -3203,8 +3215,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
-      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      await restoreSelectedBudgetPlan(workspace.budget)
+      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_matched', {
@@ -3237,8 +3249,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
-      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      await restoreSelectedBudgetPlan(workspace.budget)
+      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       setTransactionNotice(`Reopened ${draft.merchant}. It is waiting for your review and is not counted as spending.`)
@@ -7266,7 +7278,7 @@ function MiaActionDraftReviewCard({
           })}
         </div>}
         {setupCoverage && !isStale && (
-          <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
+          <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Your household details after this review">
             <div>
               <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
               <span>This review includes {reviewValueCount} confirmed value{reviewValueCount === 1 ? '' : 's'}.</span>

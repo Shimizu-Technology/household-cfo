@@ -33,6 +33,22 @@ class ApiV1MiaMessagesBudgetImpactTest < ActiveSupport::TestCase
     assert_includes message, "Check the merchant, amount, and category on the card."
   end
 
+  test "the category remainder names other purchases still waiting for review" do
+    household = create_household
+    category = household.budget_categories.create!(name: "Everyday", stack_key: "discretionary", active: true, sort_order: 1)
+    draft = household.transaction_drafts.create!(occurred_on: Date.new(2026, 10, 13), merchant: "Cafe", total_amount_cents: 1000, source_type: "manual_chat", status: "pending", budget_category: category)
+    plan = { year: 2026, rows: [ { id: category.id, name: "Everyday", months: Array.new(12) { { planned: 100, actual: 0, remaining: 100 } } } ], pending_transaction_drafts: [
+      { id: draft.id, occurred_on: "2026-10-13", amount_cents: 1000, category_id: category.id, splits: [] },
+      { id: draft.id + 1, occurred_on: "2026-10-14", amount_cents: 2000, category_id: category.id, splits: [] } ] }
+    line = Api::V1::MiaMessagesController.new.send(:drafted_transaction_impact_line, draft, plan)
+    assert_includes line, "$70 left"
+    assert_includes line, "$20 in other purchases still waiting for your review"
+    plan[:pending_transaction_drafts].pop
+    line = Api::V1::MiaMessagesController.new.send(:drafted_transaction_impact_line, draft, plan)
+    assert_includes line, "$90 left"
+    refute_includes line, "other purchases"
+  end
+
   private
 
   def create_household

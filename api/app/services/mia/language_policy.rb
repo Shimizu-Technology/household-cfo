@@ -101,6 +101,15 @@ module Mia
       end
     end
 
+    # Strip exact artifacts before validating the remaining model coaching.
+    # Eligibility and frequency still belong exclusively to server_phrase.
+    def remove_model_phrases(content)
+      value = all_cultural_phrases.sort_by { |entry| -entry.fetch("text").length }.reduce(content.to_s) do |text, entry|
+        text.gsub(custom_phrase_pattern(entry.fetch("text")), " ")
+      end
+      value.gsub(/[ \t]+([.!?,;:])/, '\\1').gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip.presence
+    end
+
     def model_phrase_rejection_reason(content)
       return :server_owned_coach_phrase if all_cultural_phrases.any? { |entry| content.to_s.match?(custom_phrase_pattern(entry.fetch("text"))) }
 
@@ -228,7 +237,7 @@ module Mia
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
-      when "purchase_caution" then user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
+      when "purchase_caution" then HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
       else false
       end
     end
@@ -289,7 +298,7 @@ module Mia
 
     def custom_phrase_recently_used?(phrase, frequency)
       lookback = case frequency.to_s
-      when "as_needed" then 2
+      when "as_needed" then 0
       when "very_rare" then 6
       when "rare" then 6
       else 4
@@ -338,7 +347,7 @@ module Mia
     end
 
     def earned_moment?
-      user_message.match?(MILESTONE_PATTERN)
+      user_message.match?(MILESTONE_PATTERN) || HouseholdFinance::MessageReplyIntent.matches?(user_message, "win")
     end
 
     def cultural_language_recently_used?

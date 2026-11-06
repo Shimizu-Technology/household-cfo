@@ -31,15 +31,17 @@ class MiaReviewThreeRegressionsTest < ActiveSupport::TestCase
     assert_equal 1..2, narrator.send(:purchase_sentence_range)
   end
 
-  test "model cannot write an exact server phrase or a variant on either path" do
-    [ "Chelu, pump the brakes.", "Chelu, pump the brakes before the next one." ].each do |phrase|
-      narrator = narrator_for(message: "Can I buy $90 boots? I don't have the money.")
-      narrator.define_singleton_method(:openrouter_response) { "#{phrase} Which bill needs protecting?" }
-      narrator.call
-      assert_equal "deterministic_fallback", narrator.response_source
-      responder = Demo::MiaResponder.new(api_key: "fake", persona: voice)
-      assert_nil responder.send(:sanitize_assistant_content, "#{phrase} Which bill needs protecting?", user_message: "I keep buying things online with money I don't have.")
-    end
+  test "exact model phrases are replaced by the server while variants remain rejected" do
+    message = "Can I buy $90 boots? I don't have the money."
+    narrator = narrator_for(message: message)
+    narrator.define_singleton_method(:openrouter_response) { "Chelu, pump the brakes. Which bill needs protecting?" }
+    reply = narrator.call
+    assert_equal "live_model", narrator.response_source
+    assert_equal 1, reply.scan("Chelu, pump the brakes.").size
+    assert_includes reply, "Which bill needs protecting?"
+    responder = Demo::MiaResponder.new(api_key: "fake", persona: voice)
+    assert_equal "Which bill needs protecting?", responder.send(:sanitize_assistant_content, "Chelu, pump the brakes. Which bill needs protecting?", user_message: message)
+    assert_nil responder.send(:sanitize_assistant_content, "Chelu, pump the brakes before the next one. Which bill needs protecting?", user_message: message)
   end
 
   test "habit server phrase consumes its own sentence and respects sensitivity and frequency" do
@@ -53,7 +55,7 @@ class MiaReviewThreeRegressionsTest < ActiveSupport::TestCase
     policy = Mia::LanguagePolicy.new(user_message: "I keep buying things and I feel ashamed.", persona: voice)
     assert_nil policy.server_phrase
     policy = Mia::LanguagePolicy.new(user_message: message, history: [ { role: "assistant", content: "Chelu, pump the brakes." } ], persona: voice)
-    assert_nil policy.server_phrase
+    assert_equal "Chelu, pump the brakes.", policy.server_phrase
   end
 
   test "participant saved cash acknowledgment is not Mia claiming a write" do

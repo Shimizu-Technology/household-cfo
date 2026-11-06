@@ -46,6 +46,14 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     assert_equal "What matters most?", sentences.last
   end
 
+  test "fitting preserves the participant decision and concrete next step" do
+    long = "A sale adds urgency. Before ordering, remove your saved card. The decision is yours. What would help tonight?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "These are plan figures.") { long }
+    assert_nil result.rejection_reason
+    assert_includes result.content, "The decision is yours."
+    assert_includes result.content, "remove your saved card"
+  end
+
   test "a fitted rewrite still fails its validators" do
     max = @persona.response_shape.fetch("max_sentences")
     long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"
