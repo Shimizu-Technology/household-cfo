@@ -23,7 +23,7 @@ module Mia
     PROVIDER_UNAVAILABLE = "I can’t give you a full answer right now because I’m having trouble reaching my coaching service. Please try again in a few minutes.".freeze
     NOTHING_CHANGED = "Nothing in your household records changed.".freeze
     CHECKED_BASIS = "That comes from your approved household numbers, and I left out anything I could not check against them.".freeze
-    ASK_INSTEAD = "Ask me about your readiness, safe-to-spend, debt, or this month’s spending, and I’ll answer from your saved records.".freeze
+    ASK_INSTEAD = "What would you like to check before choosing your next step?".freeze
     NO_FACTS = "I would rather say that plainly than guess.".freeze
     HOPELESS_OPENING = "That sounds really heavy, and you do not have to fix all of it tonight.".freeze
     HOPELESS_DEBT_STEP = "One next step for this week: keep the minimum payments current, and tell me which bill feels heaviest so we can look at it together.".freeze

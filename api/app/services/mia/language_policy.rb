@@ -79,6 +79,26 @@ module Mia
         "#{JSON.generate(entries.map { |entry| entry.slice('text', 'meaning', 'allowed_contexts', 'frequency', 'caution') })}"
     end
 
+    # The server owns exact wording; the model supplies only the surrounding coaching.
+    def server_phrase
+      cultural_phrases.find { |entry| custom_phrase_allowed?(entry) }&.fetch("text")
+    end
+
+    def server_phrase_instruction(include_phrase: true)
+      if include_phrase && server_phrase
+        "The coach phrase will be said just before your reply; don't repeat or paraphrase it. " \
+          "Write no coach phrase or distinctive phrase words yourself. Exact wording data: #{JSON.generate(server_phrase)}."
+      else
+        "No coach phrase fits this turn. Write no coach phrase or distinctive phrase words yourself."
+      end
+    end
+
+    def model_phrase_rejection_reason(content)
+      return :server_owned_coach_phrase if all_cultural_phrases.any? { |entry| content.to_s.match?(custom_phrase_pattern(entry.fetch("text"))) }
+
+      phrase_rejection_reason(content)
+    end
+
     # Validate raw text before sanitation can conceal an unauthorized phrase.
     def phrase_rejection_reason(content)
       value = content.to_s
@@ -199,7 +219,7 @@ module Mia
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
-      when "purchase_caution" then user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|credit card|on (?:a|my|the) card)\b/i)
+      when "purchase_caution" then user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
       else false
       end
     end

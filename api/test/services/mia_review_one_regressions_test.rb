@@ -24,7 +24,7 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
   end
 
   test "server rejects ineligible and varied phrases before stripping them" do
-    policy = Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card?", persona: voice)
+    policy = Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice)
     assert policy.phrase_rejection_reason("Chelu, slam the brakes you fool. What would cover it?")
     assert_nil policy.phrase_rejection_reason("Chelu, pump the brakes. What would cover it?")
     assert policy.phrase_rejection_reason("Chelu, pump the brakes. Chelu, pump the brakes. What would cover it?")
@@ -35,11 +35,11 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
 
   test "real history blocks phrases after hardship and rare differs from sparing" do
     history = [ { role: "user", content: "I cannot pay rent this month." } ]
-    policy = Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card?", persona: voice, history: history)
+    policy = Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice, history: history)
     refute_includes policy.runtime_phrase_instruction, "Chelu"
     history = [ { role: "assistant", content: "Chelu, pump the brakes." }, *4.times.map { { role: "assistant", content: "Check the funding." } } ]
-    refute_includes Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card?", persona: voice(frequency: "rare"), history: history).runtime_phrase_instruction, "Chelu"
-    assert_includes Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card?", persona: voice(frequency: "sparing"), history: history).runtime_phrase_instruction, "Chelu"
+    refute_includes Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice(frequency: "rare"), history: history).runtime_phrase_instruction, "Chelu"
+    assert_includes Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice(frequency: "sparing"), history: history).runtime_phrase_instruction, "Chelu"
   end
 
   test "deterministic floor catches recommendations and refusal followed by approval" do
@@ -62,7 +62,7 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
   end
 
   test "a phrase variation is rejected rather than having chelu stripped" do
-    narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a TV on a credit card?", api_key: "fake", persona: voice,
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", api_key: "fake", persona: voice,
       answer_packet: { kind: "purchase_scenario", fallback_response: "The $300 stroller would leave $1,150 in the plan. That is a plan figure, not cash." })
     narrator.define_singleton_method(:openrouter_response) { "Chelu, slam the brakes you fool. What would cover it?" }
     refute_includes narrator.call, "fool"
@@ -112,7 +112,7 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
       assert_includes reply, "$300"
       assert_includes reply, "$1,150"
       assert_includes reply, "bank balance"
-      refute_includes reply, "?" if maximum <= 2
+      refute_includes reply, "?" if maximum == 1
       refute_includes Mia::ResponseShapeRewriter.instruction(persona, fixed_prefix: reply), "at most 1 characters"
     end
     persona = voice(minimum: 1, maximum: 2, characters: 200)

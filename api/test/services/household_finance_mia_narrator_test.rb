@@ -29,7 +29,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "review one purchase narration adds only short numberless coaching to fixed facts" do
     packet = { kind: "purchase_scenario", write_state: "no_write", fallback_response: "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Cash is unknown." }
     safe = "Protect food and bills first. Which category would cover it?"
-    assert_equal "#{packet[:fallback_response]} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
+    assert_equal "#{packet[:fallback_response].sub('. Cash is unknown.', ', as a plan figure with cash still unknown.')} #{safe}", narrate(safe, packet, "Can I afford a $300 stroller?")
     [ "The $300 purchase would leave $1,405 in the plan. Cash is unknown. Which category?", "It would leave one thousand dollars. What next?", "Protect bills first.", "Choose a category. Protect bills. Check food. Check the cushion. What next?" ].each do |unsafe|
       assert_equal expected_fallback(packet), narrate(unsafe, packet, "Can I afford a $300 stroller?"), unsafe
     end

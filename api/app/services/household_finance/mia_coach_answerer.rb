@@ -998,7 +998,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS) && !normalized_message.match?(REPEAT_LABEL_PATTERN)
 
       label = repeated_activity || "this spending"
-      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next trip. What was happening just before you decided to go again?"
+      "It sounds like #{label} is becoming a repeat stop, and you are noticing it. That does not make you bad with money, but it is worth pausing before the next purchase. What was happening just before you decided to buy?"
     end
 
     def repeated_activity

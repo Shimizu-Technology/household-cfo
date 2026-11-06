@@ -234,7 +234,7 @@ class MiaReviewTwoRegressionsTest < ActiveSupport::TestCase
     end
   end
   def voice = Mia::RuntimePersona.for_preview(config: config, persona_id: 1, draft_revision: 1)
-  def prefix = "Your plan has $1,450 left, so a $220 chair would leave $1,230. That's a plan figure, not your bank balance."
+  def prefix = "Your plan has $1,450 left, so a $220 chair would leave $1,230, and that's a plan figure, not your bank balance."
   def narrator_for
     HouseholdFinance::MiaNarrator.new(user_message: "Can I buy a $220 chair?", api_key: "fake", persona: voice, answer_packet: { kind: "purchase_scenario", purchase_prefix: prefix, fallback_response: prefix, packet_marker: true })
   end

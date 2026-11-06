@@ -20,7 +20,7 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a $2,000 TV on my credit card? I don't have the money.",
       answer_packet: { kind: "purchase_scenario", fallback_response: "The $2,000 purchase would put the plan $550 short. That is a plan figure, not cash. You decide. Which account would cover it?" },
       api_key: "fake", persona: voice)
-    narrator.define_singleton_method(:openrouter_response) { "Chelu, pump the brakes. What would you need to cover first?" }
+    narrator.define_singleton_method(:openrouter_response) { "What would you need to cover first?" }
     reply = narrator.call
     assert reply.start_with?("The $2,000 purchase would put the plan $550 short"), reply
     assert_includes reply, "Chelu, pump the brakes."
@@ -64,12 +64,12 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
   end
 
   test "safe four sentence coaching gets one rewrite inside the complete published range" do
-    coaching = "Chelu, pump the brakes. A TV is a want, so holding off is the safer call. The sale may feel urgent, but the decision is yours. What money would cover it after bills?"
-    narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a $2,000 TV on my credit card?", persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $2,000 purchase would put the plan $550 short. That is a plan figure, not cash. You decide. Which account would cover it?" })
+    coaching = "Wait for now. A TV is a want, so holding off is the safer call. The sale may feel urgent, but the decision is yours. What money would cover it after bills?"
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "Should I buy a $2,000 TV on my credit card? I don't have the money.", persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $2,000 purchase would put the plan $550 short. That is a plan figure, not cash. You decide. Which account would cover it?" })
     attempts = 0
     narrator.define_singleton_method(:openrouter_response) do
       attempts += 1
-      attempts == 1 ? coaching : "Chelu, pump the brakes. What money would cover it after bills?"
+      attempts == 1 ? coaching : "What money would cover it after bills?"
     end
     reply = narrator.call
     assert_equal 2, attempts
@@ -85,7 +85,7 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
   test "mixed income note is counted inside the whole purchase reply" do
     message = "I make $5,200 a month now. Should I buy a $600 phone?"
     narrator = HouseholdFinance::MiaNarrator.new(user_message: message, persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $600 phone would leave $850 in the plan. That is a plan figure, not cash. You decide. What would cover it?" })
-    narrator.define_singleton_method(:openrouter_response) { "Which account would cover the phone?" }
+    narrator.define_singleton_method(:openrouter_response) { "We can review the income change separately. Which account would cover the phone?" }
     reply = narrator.call
     assert_includes reply, "review the income change separately"
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice), reply

@@ -92,6 +92,13 @@ module Demo
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
+      @language_policy = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona)
+      @delivery_prefix = @language_policy.server_phrase.to_s
+      if @persona.respond_to?(:response_shape)
+        shape = @persona.response_shape
+        count = ::Mia::ResponseShapePolicy.new(@delivery_prefix, persona: @persona).sentence_count
+        @delivery_prefix = "" if count >= shape.fetch("max_sentences") || @delivery_prefix.length + 80 > shape.fetch("max_characters")
+      end
       return @persona.fallback_response(:low_signal_greeting) if clean_message.empty?
       if crisis_message?(clean_message)
         @response_source = "deterministic_safety"
@@ -118,9 +125,9 @@ module Demo
       return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
 
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
-        repairable_claims: [ "scenario_conclusion" ],
+        repairable_claims: [ "scenario_conclusion" ], fixed_prefix: @delivery_prefix,
         guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
-          facts: parsed_context(prompt_context).merge("coach_persona" => @persona.guard_facts), reply: content, api_key: @api_key) },
+          facts: parsed_context(prompt_context).merge("coach_persona" => @persona.guard_facts), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
         validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
@@ -129,13 +136,13 @@ module Demo
         end
       end
       unless checked.rejection_reason
-        phrase_reason = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona).phrase_rejection_reason(checked.content)
+        phrase_reason = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona).model_phrase_rejection_reason(checked.content)
         if phrase_reason
           @rejection_reason = phrase_reason
           return fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
         end
         @supplied_content_context = @approved_content if @response_source == "live_model"
-        return checked.content
+        return [ @delivery_prefix, checked.content ].compact_blank.join(" ")
       end
 
       if checked.guard_result&.sensitive?
@@ -181,11 +188,11 @@ module Demo
       payload = {
         model: @model,
         messages: [
-          { role: "system", content: @persona.system_prompt },
+          { role: "system", content: @delivery_prefix.present? ? @persona.system_prompt.sub(/^Response shape:[^\n]*$/, "") : @persona.system_prompt },
           *approved_content_messages,
           { role: "system", content: SAFETY_SYSTEM_PROMPT },
           *response_shape_messages(context),
-          { role: "system", content: ::Mia::LanguagePolicy.new(user_message: message, history: history, persona: @persona).runtime_phrase_instruction },
+          { role: "system", content: ::Mia::LanguagePolicy.new(user_message: message, history: history, persona: @persona).server_phrase_instruction(include_phrase: @delivery_prefix.present?) },
           *verified_conversation_resolution_messages(conversation_resolution),
           { role: "user", content: household_context_message(context) },
           *conversation_history(history),
@@ -236,7 +243,7 @@ module Demo
     end
 
     def response_shape_messages(context)
-      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona)
+      instruction = ::Mia::ResponseShapeRewriter.instruction(@persona, fixed_prefix: @delivery_prefix.to_s) + " Use short sentences, at most 30 words each. Ask one question, not several joined together. Never write coach phrases; the server owns them."
       if parsed_context(context)["preview_mode"] == true
         instruction += " This is a no-write voice sample; the screen already explains the assistant identity and unloaded household data. " \
           "Do not repeat those notices in the answer. Never invent household facts or claim a write; if a missing fact matters, use one short clause within the sentence range."
@@ -317,7 +324,7 @@ module Demo
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
-      return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).phrase_rejection_reason(content)
+      return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).model_phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
 
       sanitized = content.to_s.strip
@@ -409,7 +416,7 @@ module Demo
         next false if local_prefix.match?(/\b(?:cannot|can['’]t|could not|couldn['’]t|do not|don['’]t)\s+(?:honestly\s+|yet\s+)?(?:say|tell|confirm|verify|claim|assume)\s+(?:you\s+|that\s+(?:the\s+)?)?\z/i)
         conditional = preceding.match?(/\b(?:whether|if)\s+\z/i) && !preceding.match?(/\bas\s+if\s+\z/i)
         answer_window = content.to_s[match.end(0)..].split(/[.!?\n]/, 3).first(2).join(".")
-        next false if preview && conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)
+        next false if conditional && !answer_window.match?(CONDITIONAL_ANSWER_PATTERN)
 
         # A review habit is safe only when the same clause does not claim that
         # a purchase or spending decision works.
@@ -657,13 +664,12 @@ module Demo
       return low_signal_response(message) if low_signal_message?(message)
 
       hopeless = ::Mia::CrisisBoundary.hopeless?(message)
-      purchase_question = !hopeless && (screenshot_spending_question?(message) || spending_decision_question?(message))
-      # The persona's purchase lines answer a purchase question on their own.
-      # When the provider failed, say so first instead of sounding normal.
-      if purchase_question && reason != :provider_unavailable
-        return discretionary_spending_response if screenshot_spending_question?(message)
-
-        return spending_check_response
+      purchase_question = !hopeless && (HouseholdFinance::PurchaseQuestionText.purchase_question?(message) || screenshot_spending_question?(message) || spending_decision_question?(message))
+      if purchase_question
+        return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
+      end
+      if message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN)
+        return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"
       end
 
       ::Mia::FallbackReply.new(

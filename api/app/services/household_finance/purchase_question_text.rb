@@ -68,6 +68,13 @@ module HouseholdFinance
       income_with_purchase?(text) ? text[text.match(PURCHASE_QUESTION).begin(0)..] : text
     end
 
+    def self.price_reference_only?(segment, first)
+      first.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).one? &&
+        !segment.match?(Money::CHAT_DOLLAR_AMOUNT_PATTERN) &&
+        segment.match?(/\b(?:that|this|the same)\s+price\b|\bthat (?:is|was|['’]s) the price\b/i) &&
+        !segment.match?(/\b(?:instead|actually|changed|different|negotiable|another|new)\b/i)
+    end
+
     def self.for_comparison(message)
       text = purchase_clause(message)
       text = text.split(" Current follow-up: ", 2).last if text.start_with?("Follow-up to previous ")
@@ -75,7 +82,7 @@ module HouseholdFinance
       first = segments.first.to_s
       corrections = segments.drop(1).select { |segment| segment.match?(CORRECTION) }
       unparsed_price = (segments.drop(1) - corrections).any? do |segment|
-        !segment.end_with?("?") && (segment.match?(/\b(?:costs?|price|i meant)\b/i) ||
+        !segment.end_with?("?") && !price_reference_only?(segment, first) && (segment.match?(/\b(?:costs?|price|quoted|i meant)\b/i) ||
           (segment.match?(/\A\$\s*\d/) && !segment.match?(/\A\$\s*[\d,.]+(?:k)?\s+of\s+that\b/i)))
       end
       return Result.new(first, unparsed_price) if corrections.empty? || unparsed_price

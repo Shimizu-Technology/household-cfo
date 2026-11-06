@@ -15,6 +15,9 @@ module Mia
           next unless sentence.match?(/\b(?:saved|recorded|updated|logged)\b/i)
           new_write = sentence.match?(/\b(?:i|we|mia)(?:['’]ve| have)?\s+(?:just\s+|already\s+)?(?:saved|recorded|updated|logged)\b/i)
           return :false_write_claim if new_write
+          # A participant saving cash is not a write receipt from Mia. Keep
+          # assistant-subject writes above this exception; app records stay checked below.
+          next if sentence.match?(/\byou(?:['’]ve| have)?\s+(?:already\s+)?saved\b/i) && !sentence.match?(/\b(?:records?|logged|updated|app|system)\b/i)
           passive_write = sentence.match(/\b(?:is|are|was|were|has|have|been|being)\s+(?:[a-z]+\s+){0,3}(?:saved|recorded|updated|logged)\b/i)
           if passive_write
             prefix = sentence[0...passive_write.begin(0)].rstrip
