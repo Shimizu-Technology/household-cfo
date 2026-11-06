@@ -138,7 +138,7 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
       guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       guard.call
     end
-    facts = { metrics: { baseline_surplus_cents: 100_000 }, debts: { records: [ { label: "Card", balance_cents: 50_000 } ] }, documents: "会" * 30_000 }
+    facts = { metrics: { baseline_surplus_cents: 100_000 }, debts: { records: [ { label: "Card", balance_cents: 50_000 } ] }, personalization_memory: "会" * 30_000 }
     responder = Demo::MiaResponder.new(api_key: "fake", persona: voice)
     reply = "Check required bills first. What would you check before deciding?"
     responder.define_singleton_method(:openrouter_response) { |*, **_| @response_source = "live_model"; reply }
@@ -147,7 +147,7 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
     assert_equal facts[:metrics].stringify_keys, seen.last["metrics"]
     assert_equal facts[:debts].deep_stringify_keys, seen.last["debts"]
     assert_operator seen.last.to_json.bytesize, :<=, 12_000
-    refute seen.last.key?("documents")
+    refute seen.last.key?("personalization_memory")
   end
 
   private
