@@ -158,8 +158,8 @@ class MiaPersonaSetupRiskSplitTest < ActiveSupport::TestCase
     assert_equal "", result.dig(:after_state, "draft_config", "phrases").sole["caution"]
   end
 
-  test "the eight recorded first messages and followups retain their complete suggestions" do
-    JSON.parse(file_fixture("persona_setup/voice_risk_split_replay.json").read).each_slice(2) do |pair|
+  test "the sixteen recorded first messages and followups retain their complete suggestions" do
+    %w[voice_risk_split_replay voice_round_two_replay].flat_map { |name| JSON.parse(file_fixture("persona_setup/#{name}.json").read) }.each_slice(2) do |pair|
       pair.each do |recorded|
         result = run_turn(recorded.fetch("message"), recorded.fetch("operations"))
         assert_equal "ready", result.turn.status
@@ -170,6 +170,35 @@ class MiaPersonaSetupRiskSplitTest < ActiveSupport::TestCase
       @session = CoachPersonaSetupSession.create!(coach_persona: @persona, coach_workspace: @workspace,
         created_by_user: @coach, base_draft_revision: @persona.draft_revision,
         base_config_digest: Mia::PersonaSchema.digest(@persona.draft_config), last_activity_at: Time.current)
+    end
+  end
+
+  test "fifteen safety replays reject unsupported operations and preserve the draft" do
+    cases = [
+      [ "I never celebrate small wins.", "Celebrate small wins." ],
+      [ "I celebrate small wins only when invited.", "Celebrate small wins." ],
+      [ "Don't tell people to stop spending.", "Tell people to stop spending." ],
+      [ "Don't shame people for spending.", "Don't spend." ],
+      [ "Suggest waiting 30 days.", "Suggest waiting 60 days." ],
+      [ "Client: I celebrate small wins.", "Celebrate small wins." ]
+    ].map { |message, claim| [ message, op("coaching.do", [ claim ], message) ] }
+    cases += [
+      [ "Sound like a thoughtful teacher. Chamorros always waste money.", op("coaching.do", [ "Chamorros always waste money." ], "Sound like a thoughtful teacher. Chamorros always waste money.") ],
+      [ "My voice is warm. No humour.", op("voice.tone_traits", %w[warm direct respectful lighthearted], "My voice is warm.") ],
+      [ "I use humour only for celebrations.", op("voice.tone_traits", %w[warm direct respectful lighthearted], "I use humour only for celebrations.") ],
+      [ "My voice is warm and practical.", op("voice.tone_traits", [ "warm" ], "My voice is warm and practical.") ],
+      [ "Client: My voice is warm.", op("voice.tone_traits", %w[warm direct respectful candid], "My voice is warm.") ],
+      [ 'Do not say "You should have known better."', phrase("You should have known better.", "general", 'Do not say "You should have known better."') ],
+      [ 'Client: I say "I am hopeless with money."', phrase("I am hopeless with money.", "general", 'I say "I am hopeless with money."') ],
+      [ 'I say "Pause".', phrase("Pause", "crisis", 'I say "Pause".') ],
+      [ 'I say "Kill yourself".', phrase("Kill yourself", "crisis", 'I say "Kill yourself".') ]
+    ]
+    cases.each do |message, operation|
+      before = @persona.reload.draft_config.deep_dup
+      result = run_turn(message, [ operation ])
+      assert_equal "ready", result.turn.status, message
+      assert_nil result.proposal, message
+      assert_equal before, @persona.reload.draft_config, message
     end
   end
 

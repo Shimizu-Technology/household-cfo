@@ -75,10 +75,15 @@ module Mia
       def self.clauses(text)
         # Normalize phone punctuation before contraction matching. Polarity is
         # local: a prohibition in one clause cannot authorize another clause.
-        text.unicode_normalize(:nfkc).tr("‘’ʼ", "'").downcase
+        text.unicode_normalize(:nfkc).tr("‘’ʼ", "'").tr("“”", '""').downcase
           .gsub(/\b(i|we|you|they)'(?:m|re)\b/, "\\1 am")
           .gsub(/\bkeep\s+(?=(?:your|the|my|our)\s+(?:voice|tone|style)\b)/, "")
-          .gsub(/"[^"\n]*"/) { |phrase| phrase.tr(",.;:!?", " ") }
+          .gsub(/"[^"\n]*"/) do |phrase|
+            # Interior punctuation belongs to the example; a terminal mark
+            # before its closing quote still ends the surrounding sentence.
+            ending = phrase[/[.!?](?="\z)/]
+            phrase.tr(",.;:!?", " ") + ending.to_s
+          end
           .gsub(/\binstead of\b|\brefus(?:e|es|ed) to\b|\bused to\b|\bno longer\b/, "not ")
           .split(/(?<!\d)[,.]|[,.](?!\d)|[!?;:]|\b(?:but|and|then)\b/).reject(&:blank?)
       end
@@ -86,7 +91,9 @@ module Mia
       def self.tokens(text)
         words = text.scan(/\d+(?:,\d{3})*(?:\.\d+)?|[[:alpha:]]+(?:'[[:alpha:]]+)?/)
           .reject { |word| FILLER.include?(word) }
-          .map { |word| SYNONYMS.fetch(word, word.delete(",")) }
+          # Present third-person endings share English plural inflections. Keep
+          # past/progressive tense intact; polarity is bound below, after this.
+          .map { |word| SYNONYMS.fetch(word) { word.delete(",").singularize } }
         # Bind each prohibition to its object; two negatives in a sentence must
         # not cancel or move from "shame" to "spend" during word alignment.
         negative = 0

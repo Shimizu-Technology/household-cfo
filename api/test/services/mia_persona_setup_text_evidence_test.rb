@@ -159,6 +159,29 @@ class MiaPersonaSetupTextEvidenceTest < ActiveSupport::TestCase
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) { checker.build([ op ]) }
   end
 
+  test "present verb forms align without losing tense or polarity" do
+    [ [ "brings", "bring" ], [ "gets", "get" ], [ "offers", "offer" ], [ "notices", "notice" ], [ "tries", "try" ] ].each do |third, base|
+      assert Mia::PersonaSetup::TextEvidence.supports?("She #{third} support", "#{base} support")
+      assert Mia::PersonaSetup::TextEvidence.supports?("I #{base} support", "#{third} support")
+      refute Mia::PersonaSetup::TextEvidence.supports?("She never #{third} support", "#{base} support")
+      refute Mia::PersonaSetup::TextEvidence.supports?("She used to #{base} support", "#{base} support")
+    end
+    refute Mia::PersonaSetup::TextEvidence.supports?("She stopped bringing sparkle", "Bring sparkle")
+    refute Mia::PersonaSetup::TextEvidence.supports?("She brought sparkle", "Bring sparkle")
+  end
+
+  test "quoted sentence endings isolate negative and positive requests" do
+    [ [ '"', '"' ], [ "“", "”" ] ].each do |opening, closing|
+      %w[. ! ?].each do |ending|
+        quote = "Never say #{opening}give up#{ending}#{closing} Offer practical support."
+        assert Mia::PersonaSetup::TextEvidence.supports?(quote, "Offer practical support")
+        refute Mia::PersonaSetup::TextEvidence.supports?(quote, "Say give up")
+        refute Mia::PersonaSetup::TextEvidence.supports?(quote, "Never offer practical support")
+      end
+    end
+    assert Mia::PersonaSetup::TextEvidence.supports?('Say "Pause, breathe" before spending.', 'Say "Pause, breathe" before spending.')
+  end
+
   private
   def operation(path, value, evidence)
     { "op" => "set", "path" => path, "value" => value, "source_basis" => "coach_quote", "evidence_quote" => evidence }
