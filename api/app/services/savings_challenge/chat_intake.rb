@@ -35,7 +35,7 @@ module SavingsChallenge
     end
 
     def rejections
-      @rejections.presence || [ @rejection ].compact
+      (Array(@rejections) + [ @rejection ]).compact.uniq
     end
 
     def intakes

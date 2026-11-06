@@ -226,15 +226,16 @@ module HouseholdFinance
         pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
         context[:participant_reading] = ParticipantMessageReader.call(message: raw_user_message, setup_field: field, pending_field: pending)
       end
-      date_continuation = participant_purchase_day_continuation
-      return date_continuation if date_continuation
-      reader_result = participant_setup_result unless ::Mia::FinancialReadOnlyRequest.matches?(user_message) || MiaMonthAnswer.question?(user_message)
-      return reader_result if reader_result
-      money_result = participant_purchase_result
-      return money_result if money_result
-      goal_result = participant_goal_result
-      return goal_result if goal_result
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
+      participant_writes_allowed = !read_only_request && !MiaMonthAnswer.question?(user_message)
+      date_continuation = participant_purchase_day_continuation if participant_writes_allowed
+      return date_continuation if date_continuation
+      reader_result = participant_setup_result if participant_writes_allowed
+      return reader_result if reader_result
+      money_result = participant_purchase_result if participant_writes_allowed
+      return money_result if money_result
+      goal_result = participant_goal_result if participant_writes_allowed
+      return goal_result if goal_result
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
@@ -304,10 +305,10 @@ module HouseholdFinance
     def participant_goal_result
       reading = context[:participant_reading]
       amount = reading&.goal_change.to_h["amount"]
-      return unless amount.present? && !reading.care? && !ParticipantCare.required?(raw_user_message)
+      return unless amount.present? && !reading.question && !reading.care? && !ParticipantCare.required?(raw_user_message)
       return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.answer_field || ParticipantMoneyIntent.blocked?(raw_user_message, kind: :goal)
       goals = Array(context[:active_goals])
-      named = goals.select { |goal| user_message.downcase.include?(goal[:label].to_s.downcase) && goal[:label].present? }
+      named = goals.select { |goal| participant_mentions_label?(goal[:label]) }
       goal = named.sole if named.one?
       pending = context.dig(:conversation, :active_thread, :action).to_h
       goal ||= goals.find { |candidate| candidate[:id].to_i == pending[:goal_id].to_i } if pending[:type] == "update_goal"
@@ -336,7 +337,8 @@ module HouseholdFinance
       common = { confidence: 1.0, continuation: false, resolved_message: user_message,
         topic: { type: "transaction_draft", title: "Reported spending" }, read_only_plan: {}, source: "participant_reader" }
       actions = purchases.filter_map do |fact|
-        date = participant_purchase_date(fact["day"])
+        source = fact["source_text"].presence || (raw_user_message if reading.facts.one?)
+        date = participant_purchase_date(fact["day"], source: source)
         next unless date && fact["amount"].present? && fact["merchant"].present?
         { type: "create_transaction_draft", merchant: PurchaseQuestionText.merchant_label(fact["merchant"]), source_text: fact["source_text"],
           amount: ParticipantMessageReader.amount_text(fact["amount"]), occurred_on: date.iso8601, splits: [] }
@@ -481,8 +483,8 @@ module HouseholdFinance
         action: action.merge(occurred_on: day.date.iso8601), read_only_plan: {}, source: "participant_reader")
     end
 
-    def participant_purchase_date(day)
-      result = ParticipantReportDay.call(day: day, message: raw_user_message, today: Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601))
+    def participant_purchase_date(day, source:)
+      result = ParticipantReportDay.call(day: day, message: source.to_s, today: Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601))
       today = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
       date = result.state == :missing ? today : result.date
       date if date && date <= today

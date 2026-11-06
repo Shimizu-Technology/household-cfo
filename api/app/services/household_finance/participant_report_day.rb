@@ -9,6 +9,7 @@ module HouseholdFinance
     UNRESOLVED = /\b(?:(?:last|this) (?:week|weekend|month)|the other day|recently|a while ago)\b/i
 
     def self.call(day:, message:, today:)
+      day = "" if day.present? && message.present? && !message.include?(day)
       if day.to_s.casecmp?("halloween")
         day = message.match?(HOLIDAY) ? "on halloween" : ""
       end
@@ -59,7 +60,7 @@ module HouseholdFinance
     # The reader quotes a stated day. In this fallback scan a bare "sunday school"
     # or "monday was rough" is an ordinary word, not the day of the report.
     def self.ordinary_weekday_word?(match)
-      match[:weekday].present? && match[0].casecmp?(match[:weekday]) && !match.pre_match.match?(/\b(?:this|past)\s+\z/i)
+      match[:weekday].to_s.downcase.in?(PurchaseReportParser::WEEKDAYS) && match[0].casecmp?(match[:weekday]) && !match.pre_match.match?(/\b(?:this|past)\s+\z/i)
     end
     private_class_method :ordinary_weekday_word?
   end

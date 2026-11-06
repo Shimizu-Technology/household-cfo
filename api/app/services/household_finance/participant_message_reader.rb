@@ -174,9 +174,9 @@ module HouseholdFinance
       amount_clauses(amount).all? do |clause|
         lead = amount_lead(clause, amount).split(/\b(?:and|but|then)\b/i).last.to_s
         plan = lead.match(/\b(?:gonna|going to|planning|thinkin[g]? of|about to|will)\b/i)
-        completed = lead.match?(/\b(?:spent|paid|bought|purchased|saved|deposited|withdrew)\b/i)
+        completed = lead.match?(/\b(?:spent|paid|bought|purchased|ordered|saved|deposited|withdrew)\b/i)
         (plan && !completed) ||
-          (!completed_day && clause.match?(/\b(?:tomorrow|next week|next month)\b/i) && !clause.match?(/\b(?:spent|paid|bought|purchased|saved|deposited|withdrew)\b/i))
+          (!completed_day && clause.match?(/\b(?:tomorrow|next week|next month)\b/i) && !clause.match?(/\b(?:spent|paid|bought|purchased|ordered|saved|deposited|withdrew)\b/i))
       end
     end
 

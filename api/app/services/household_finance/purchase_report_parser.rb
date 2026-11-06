@@ -24,7 +24,9 @@ module HouseholdFinance
     MONTHS = { "jan" => 1, "feb" => 2, "mar" => 3, "apr" => 4, "may" => 5, "jun" => 6, "jul" => 7, "aug" => 8, "sep" => 9, "oct" => 10, "nov" => 11, "dec" => 12 }.freeze
     MONTH_SOURCE = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?".freeze
     WEEKDAYS = %w[sunday monday tuesday wednesday thursday friday saturday].freeze
-    WEEKDAY_SOURCE = "(?:#{WEEKDAYS.flat_map { |day| (3..day.length).map { |size| day[0, size] } }.sort_by { |day| -day.length }.join('|')})".freeze
+    SHORT_WEEKDAY_SOURCE = WEEKDAYS.flat_map { |day| (3...day.length).map { |size| day[0, size] } }.sort_by { |day| -day.length }.join("|").freeze
+    # A shortened day must end a date clause, rather than begin a store name.
+    WEEKDAY_SOURCE = "(?:#{WEEKDAYS.join('|')}|(?:#{SHORT_WEEKDAY_SOURCE})(?=\\b(?:\\s*(?:[.,;!?]|\\z)|\\s+(?:morning|afternoon|evening|night|and|but|then|for|with|at|felt|feeling)\\b)))".freeze
 
     # A date phrase, captured so its digits are never read as money.
     DATE_PATTERN = Regexp.new(
