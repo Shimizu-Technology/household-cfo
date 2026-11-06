@@ -17,6 +17,17 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "R2 purchase questions get funding coaching during a reader outage instead of savings instructions" do
+    [ "should i buy a $900 tv? also whats my spending pattern", "i paid off my card!! can i buy a $900 tv now" ].each_with_index do |message, index|
+      ask message, "r2-outage-purchase-#{index}"
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "no household plan"
+      assert_match(/(?:What|Which account) would cover it/, reply)
+      assert_nil response.parsed_body["challenge_chat_card"]
+      assert_equal 0, SavingsDailyPurchaseVersion.count
+    end
+  end
+
   test "R2 current month challenge observations do not project monthly savings" do
     category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
     year = @savings_household.budget_years.create!(year: 2026)

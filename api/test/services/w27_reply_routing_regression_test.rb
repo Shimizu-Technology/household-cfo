@@ -1,5 +1,12 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "a money amount before a named purchase month is not its year" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "my income is 2000 monthly, can i buy a $300 stroller in December?", context: {})
+    date, unavailable = resolver.send(:normalized_scenario_effective_on, "my income is 2000 monthly, can i buy a $300 stroller in December?", "", item: {}, amount: "300", continuation: false)
+    assert_equal Date.new(Date.current.year, 12, 1).iso8601, date
+    refute unavailable
+  end
+
   test "a completed category mention does not swallow the following whole month question" do
     assert HouseholdFinance::MiaMonthAnswer.question?("spent 20 on groceries, how much do i have left this month")
   end

@@ -1227,7 +1227,7 @@ module HouseholdFinance
         effective_on: ""
       }
       effective_on, timing_unavailable = normalized_scenario_effective_on(
-        scenario_text,
+        user_message,
         "",
         item: item,
         amount: raw_amount,
@@ -1911,7 +1911,7 @@ module HouseholdFinance
         end
         target.beginning_of_month
       elsif (month_index = calendar_month_index(source_text))
-        explicit_year = source_text.match(/\b(20\d{2})\b/)&.[](1)&.to_i
+        explicit_year = source_text[/\b(?:#{MonthTerms.pattern})\s+(20\d{2})\b/i, 1]&.to_i
         target_year = explicit_year || Date.current.year
         target_year += 1 if explicit_year.nil? && month_index + 1 < Date.current.month && !source_text.match?(/\b(?:could.*have|bought|last|previous)\b/i)
         Date.new(target_year, month_index + 1, 1)
