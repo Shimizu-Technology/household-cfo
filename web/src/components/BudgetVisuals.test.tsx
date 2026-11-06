@@ -2,7 +2,7 @@
 import { cleanup, render, fireEvent, screen, act } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, AnnualOutlookMonth } from '../api'
-import { AnnualCashFlowChart, CategoryPressureList } from './BudgetVisuals'
+import { AnnualCashFlowChart, CategoryPressureList, ExpenseStackOverview } from './BudgetVisuals'
 
 afterEach(cleanup)
 
@@ -77,5 +77,11 @@ it('shows pending uncategorized spending without invented zero plan or actual va
   const { container } = render(<CategoryPressureList title="Spending" eyebrow="November" positions={[{ id: 0, name: 'Uncategorized', stackKey: 'discretionary', stackLabel: 'Needs category', planned: 0, actual: 0, pending: 35, remaining: 0, active: true }]} />)
   expect(container.textContent).toContain('$35 pending')
   expect(container.textContent).toContain('Approved spending not known yet')
+  expect(container.textContent).not.toContain('$0')
+})
+
+it('shows an uncategorized purchase waiting for review instead of a zero category plan in spending groups', () => {
+  const { container } = render(<ExpenseStackOverview positions={[{ id: 0, name: 'Uncategorized', stackKey: 'discretionary', stackLabel: 'Needs category', planned: 0, actual: 0, pending: 35, remaining: 0, active: true }]} />)
+  expect(container.textContent).toContain('$35 pending review')
   expect(container.textContent).not.toContain('$0')
 })
