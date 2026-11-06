@@ -39,7 +39,7 @@ module HouseholdFinance
       return unless current || prior
 
       kind = prior && reading.care == "none" ? prior.fetch("care_kind") : (current || prior.fetch("care_kind"))
-      kind = :food if current.in?([ :hardship, :essentials ]) && message.match?(/\b(?:food|hungry|eat|grocer\w*)\b/i)
+      kind = :food if (current.in?([ :hardship, :essentials ]) || (prior && current.nil?)) && message.match?(/\b(?:food|hungry|eat|grocer\w*)\b/i)
       kind = :housing if current == :hardship && message.match?(/\brent\b/i)
       kind = :hardship if kind.to_s == "essentials"
       topic = prior || ParticipantCare.topic(kind, persona_context_id: @persona_context_id)

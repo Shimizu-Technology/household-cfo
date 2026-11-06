@@ -110,6 +110,16 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     assert_includes reply, "988"
   end
 
+  test "a food help question after grief changes the support topic for its next answer" do
+    ask("my mom died yesterday")
+    ask("do yall know anywhere that can help w food")
+    assert_match(/food.*coach/i, reply)
+    ask("no")
+    assert_match(/food.*coach/i, reply)
+    refute_match(/sorry for your loss/i, reply)
+    assert_equal "food", @household.chat_sessions.order(:id).last.active_topic.fetch("care_kind")
+  end
+
   test "expired grief cannot control a brief reply weeks later" do
     ask("my brother passed on monday")
     travel 20.days do
