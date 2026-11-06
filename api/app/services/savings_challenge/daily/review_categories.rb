@@ -31,9 +31,9 @@ module SavingsChallenge
       # detailed choice can still be suggested, with the participant asked first.
       def self.broad?(category)
         return false unless category
-        name = category.name.to_s.downcase.squish.sub(/ \(default(?: \d+)?\)\z/, "")
-        names = category.stack_key == "discretionary" ? [ "everyday spending", "flexible spending" ] : [ "bills & essentials", "fixed essentials" ]
-        names.include?(name)
+        words = category.name.to_s.downcase.gsub(/\(default(?: \d+)?\)/, "").scan(/[a-z]+/)
+        vocabulary = category.stack_key == "discretionary" ? %w[everyday flexible discretionary spending spend expenses] : %w[bills bill essentials essential fixed expenses expense must pay and]
+        words.any? && (words - vocabulary).empty?
       end
 
       # A single active choice in a stack can be suggested for review.
@@ -46,9 +46,8 @@ module SavingsChallenge
           text.match?(/\Amonthly (?:service fee|maintenance fee|service charge)\z/) ||
           text.match?(/\bbank\b/) && text.match?(/\bservice (?:fee|charge)\b/)
         return if (event_type == "fee" || text.match?(/\bfees?\b/)) && !bank_fee
-        # Groceries and fuel can belong to either broad group in her plan.
-        # A shop name cannot override her setup; ask unless she chose before.
-        stack = if event_type == "fee" || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|service fee)\b/)
+        return categories.find { |category| category.active? && category.stack_key == "discretionary" && broad?(category) }&.id if HouseholdFinance::EverydaySpendingPolicy.family(text)
+        stack = if event_type == "fee" || text.match?(/\bgas\s+(?:co|company|utility|services?)\b/) || text.match?(/\b(?:rent|mortgage|power|electric(?:ity)?|utilities|utility|gpa|water|gwa|waterworks|internet|phone|mobile|insurance|docomo|gta|service fee)\b/)
           "non_discretionary"
         elsif text.match?(/\b(?:restaurants?|grill|caf[eé]|coffee|pizza|juice|fast food|includes tip|netflix|streaming|subscription|department(?: store)?|discount(?: store)?|ross|kmart|k mart|jamba|mcdonald\w*|burger king|wendy s|kfc|taco bell|subway|popeyes|port of mocha|amazon|walmart|target|macy s)\b/)
           "discretionary"

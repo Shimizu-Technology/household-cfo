@@ -25,6 +25,26 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     assert_equal fixed, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", category_name: fixed.name).category
   end
 
+  test "review broad categories use a default and a single explicit answer covers similar shops" do
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    [ "Must-pay bills", "Bills & essentials", "Fixed essentials (default 2)" ].each do |label|
+      fixed = @household.budget_categories.create!(name: label, stack_key: "non_discretionary")
+      %w[Payless Shell Mobil].each do |merchant|
+        suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: label)
+        assert_equal everyday, suggestion.category, "#{label} #{merchant}"
+      end
+      gas = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Guam Gas Co", category_name: label)
+      assert_equal fixed, gas.category
+      station = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "76 Station", category_name: label)
+      assert_equal everyday, station.category
+    end
+    explicit = @household.budget_categories.create!(name: "Groceries for home", stack_key: "non_discretionary")
+    policy = HouseholdFinance::EverydaySpendingPolicy.new(@household)
+    assert_nil policy.suggestion(merchant: "Payless")[:category]
+    @household.merchant_category_rules.create!(merchant_pattern: "Payless", budget_category: explicit, confidence: 0.9, source: "user_confirmed", active: true)
+    assert_equal explicit, HouseholdFinance::EverydaySpendingPolicy.new(@household).suggestion(merchant: "Cost-U-Less")[:category]
+  end
+
   test "matches an exact active category even when extraction confidence is low" do
     suggestion = @suggester.suggest(
       merchant: "Tita's Demo Market",

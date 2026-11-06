@@ -22,9 +22,9 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     )
   end
 
-  test "statement groceries and fuel cannot silently confirm a broad fixed essentials label" do
+  test "statement groceries and fuel default to everyday spending instead of an extracted broad bill label" do
     @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
-    @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
     payloads = [ "Payless", "Cost-U-Less", "Shell", "Mobil" ].map do |merchant|
       { merchant: merchant, occurred_on: "2026-07-05", total_amount: "35", source_type: "statement",
         splits: [ { amount: "35", category_name: "Fixed essentials", stack_key: "non_discretionary", confidence: "high" } ] }
@@ -33,11 +33,11 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     assert_equal 4, result[:created_count]
     assert_empty result[:warnings]
     @document_import.transaction_drafts.each do |draft|
-      assert_nil draft.budget_category_id, draft.merchant
+      assert_equal everyday.id, draft.budget_category_id, draft.merchant
       split = draft.transaction_draft_splits.sole
-      assert_nil split.budget_category_id, draft.merchant
-      assert_equal "needs_review", split.metadata["category_match_status"]
-      assert_equal "check_everyday_spending_category", split.metadata["category_match_reason"]
+      assert_equal everyday.id, split.budget_category_id, draft.merchant
+      assert_equal "matched", split.metadata["category_match_status"]
+      assert_equal "everyday_spending_default", split.metadata["category_match_reason"]
     end
   end
 

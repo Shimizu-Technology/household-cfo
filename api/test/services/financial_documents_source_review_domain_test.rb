@@ -25,7 +25,21 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal @category.id, line.category_id
   end
 
-  test "grocery and fuel statement lines ask for a category after a contradictory extracted bills label" do
+  test "review one answer covers similar statement merchants after an explicit different split" do
+    @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
+    fresh = source([movement(-3500).merge(merchant: "Payless"), movement(-4100, row: 2).merge(merchant: "Cost-U-Less")])
+    identity = link(fresh)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    assert_equal 2, plan.attention.length
+    approve(stage(fresh[:events].first, identity: identity, amount: -3500, merchant: "Payless"))
+    after = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
+    other = after.line_for(fresh[:events].last.id)
+    assert other.ready?, other.kind.inspect
+    assert_equal @category.id, other.category_id
+    assert_equal 1, after.lines.count(&:done)
+  end
+
+  test "review grocery and fuel statement lines use the everyday default despite an extracted bills label" do
     @category.update!(name: "Fixed essentials")
     everyday = @household.budget_categories.create!(name: "Everyday spending", stack_key: "discretionary")
     merchants = [ "Payless", "Cost-U-Less", "Shell", "Mobil" ]
@@ -37,11 +51,11 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     assert_equal 4, result[:created_count]
     identity = link(fresh)
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, fresh[:revision])
-    assert_empty plan.ready_ids
-    assert_equal merchants, plan.attention.map(&:merchant)
+    assert_equal fresh[:events].map(&:id), plan.ready_ids
+    assert_empty plan.attention
     plan.lines.each do |line|
-      assert_equal :no_category, line.kind
-      assert_nil line.category_id
+      assert line.ready?
+      assert_equal everyday.id, line.category_id
     end
     assert_empty @household.household_transactions
 

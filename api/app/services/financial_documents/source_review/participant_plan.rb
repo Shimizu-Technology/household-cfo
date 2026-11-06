@@ -80,6 +80,10 @@ module FinancialDocuments
 
       attr_reader :household, :revision, :unlinked_account_ids
 
+      def everyday_policy
+        @everyday_policy ||= HouseholdFinance::EverydaySpendingPolicy.new(household)
+      end
+
       def review_categories
         @review_categories ||= household.budget_categories.active.ordered.to_a
       end
@@ -96,7 +100,14 @@ module FinancialDocuments
           guess = suggestions[event.id]
           guess = nil unless categories.include?(guess)
           default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant, event_type: event.event_type)
-          guess ||= default
+          guessed_category = review_categories.find { |category| category.id == guess }
+          policy = everyday_policy.suggestion(merchant: merchant) if guessed_category.nil? || SavingsChallenge::Daily::ReviewCategories.broad?(guessed_category)
+          if policy
+            guess = policy[:category]&.id
+            default = guess
+          else
+            guess ||= default
+          end
           chosen = earlier[event.id]
           chosen = nil unless categories.include?(chosen)
           # What she chose before for this merchant beats the reader's guess; if they disagree she is asked, not overruled.
@@ -104,7 +115,7 @@ module FinancialDocuments
           # Only spending carries a category; nothing else is shown or saved with one.
           category_id = nil unless self.class.expense?(event)
           overlaps = candidates.include?(event.id) ? overlaps_for(event, merchant, category_id) : []
-          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
+          kind = classify(event, merchant, category_id, overlaps, accounts[event.financial_source_account_id], disagrees: chosen && guess && chosen != guess, confirm_suggestion: !chosen && default && policy&.dig(:reason) != "confirmed_spending_purpose" && !SavingsChallenge::Daily::ReviewCategories.broad?(review_categories.find { |category| category.id == default }))
           Line.new(event: event, merchant: merchant, category_id: category_id, kind: kind, overlaps: overlaps, as_before: category_id.present? && (guess.nil? || (chosen.present? && guess == default)),
             expected_head: { approved_version_id: heads[event.id]&.approved_version_id, lock_version: heads[event.id]&.lock_version || 0, account_version_id: overlap_context.accounts[event.financial_source_account_id]&.approved_version_id },
             done: done?(heads[event.id]&.approved_version), without_category: without_category?(heads[event.id]&.approved_version))

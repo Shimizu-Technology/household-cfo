@@ -19,9 +19,9 @@ class SavingsReviewCategoriesTest < ActiveSupport::TestCase
     end
   end
 
-  test "groceries and fuel need a choice instead of a broad fixed default" do
+  test "groceries and fuel default to everyday spending without a stated split" do
     [ "Payless", "Payless Supermarket", "Cost-U-Less", "Shell", "Mobil", "Groceries", "Fuel", "Gasoline" ].each do |merchant|
-      assert_nil SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant), merchant
+      assert_equal 2, SavingsChallenge::Daily::ReviewCategories.suggestion(@categories, merchant), merchant
     end
   end
 
