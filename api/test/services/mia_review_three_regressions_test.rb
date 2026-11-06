@@ -81,11 +81,11 @@ class MiaReviewThreeRegressionsTest < ActiveSupport::TestCase
   test "unsupported personal routines have a floor without rejecting questions or stated routines" do
     message = "Can I afford a desk chair for working from home?"
     guard = Mia::ReplyGuard.new(user_message: message, history: [], facts: {}, reply: "A chair you sit in every workday is a real need.", api_key: "fake")
-    guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+    guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
     assert_includes guard.call.reasons, "invented_fact"
     [ [ message, "Would you use it every workday?" ], [ "I sit in this chair every workday.", "A chair you sit in every workday deserves thought." ] ].each do |user, reply|
       guard = Mia::ReplyGuard.new(user_message: user, history: [], facts: {}, reply: reply, api_key: "fake")
-      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       assert guard.call.allowed?
     end
   end

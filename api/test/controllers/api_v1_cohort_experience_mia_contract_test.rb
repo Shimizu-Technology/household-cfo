@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1CohortExperienceMiaContractTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
     @user, @household = HouseholdFinance::MiaEvalHousehold.create!

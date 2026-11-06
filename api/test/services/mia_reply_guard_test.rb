@@ -13,10 +13,10 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
   teardown { HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @admission) }
 
   test "strict booleans fail closed for every flag malformed timeout and unavailable provider" do
-    valid = Mia::ReplyGuard::FLAGS.index_with { false }
+    valid = Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false)
     cases = [ nil, "{}", "[]", "null", "```json\n#{valid.to_json}\n```", valid.merge("invented_fact" => "false").to_json,
       valid.except("shame").to_json, valid.merge("extra" => false).to_json ]
-    cases += Mia::ReplyGuard::FLAGS.map { |flag| valid.merge(flag => true).to_json }
+    cases += Mia::ReplyGuard::FLAGS.map { |flag| valid.merge(flag => true, "care" => flag == "sensitive_moment" ? "hardship" : "none").to_json }
     cases.each do |raw|
       guard = classifier
       guard.define_singleton_method(:classify) { raw }
@@ -33,7 +33,7 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
   test "guard uses independent configured model admission schema privacy and untrusted data" do
     requests = []
     connection = OpenRouterConnection.singleton_class.instance_method(:start)
-    flags = Mia::ReplyGuard::FLAGS.index_with { false }
+    flags = Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false)
     http = Object.new
     http.define_singleton_method(:request) do |request|
       requests << JSON.parse(request.body)
@@ -57,6 +57,9 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
   end
 
   test "both delivery paths fail closed after at most one guard rewrite with no phrase" do
+    # Isolate the generated-reply guard from the separately covered outage care gate.
+    care_guard = HouseholdFinance::ParticipantCare.method(:guard_when_unread)
+    HouseholdFinance::ParticipantCare.define_singleton_method(:guard_when_unread) { |*, **_| nil }
     dangerous = "This is the green light to bring it home; which account would you use?"
     original = Mia::ReplyGuard.singleton_class.instance_method(:call)
     seen = []
@@ -78,6 +81,7 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
     assert_equal :reply_guard, responder.rejection_reason
     assert_equal 4, seen.length
   ensure
+    HouseholdFinance::ParticipantCare.define_singleton_method(:guard_when_unread, care_guard)
     Mia::ReplyGuard.singleton_class.define_method(:call, original)
   end
 

@@ -36,7 +36,7 @@ module Api
       before_action :require_writable_household!, only: %i[create destroy]
 
       def scope_participant_reading
-        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil) { yield }
+        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil, guard_care: nil) { ::Mia::ReplyDeadline.within { yield } }
       end
 
       def index
@@ -156,6 +156,16 @@ module Api
           @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending)
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
+          unless @participant_reading.available
+            HouseholdFinance::ParticipantCare.guard_when_unread(content, history: history,
+              reply: "I couldn't read that safely just now. Please try again. Nothing changed.")
+          end
+          if HouseholdFinance::ParticipantCare.kind(content) == :crisis
+            return render_crisis_response(session, content, [], message_request: message_request)
+          end
+          if !savings_program_selected? && HouseholdFinance::ParticipantCare.answer(content).present? && @participant_reading.facts.empty?
+            return render_household_read_response(session, content, HouseholdFinance::ParticipantCare.answer(content), message_request: message_request)
+          end
         end
 
         # Challenge goal/pattern continuations must not fall through to household goal reads.
@@ -1416,6 +1426,10 @@ module Api
       end
 
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
+        if !HouseholdFinance::MoneyMovementText.food_insecurity?(content) && (care = HouseholdFinance::ParticipantCare.answer(content))
+          assistant_content = care unless assistant_content.to_s.start_with?(care)
+          assistant_presentation = {}
+        end
         # Replies to hopeless language always carry the safety check, as plain text
         # so no structured card can hide it. Other save paths use the same helper.
         if ::Mia::CrisisBoundary.hopeless?(content)
@@ -2248,7 +2262,15 @@ module Api
       end
 
       def clarification_answer(intent_result)
-        intent_result.clarification.presence || "I want to make sure I have the right request. Please name the category, amount, and month you want to change. Nothing changed yet."
+        fixed = "I want to make sure I have the right request. Please name the category, amount, and month you want to change. Nothing changed yet."
+        text = intent_result.clarification.presence
+        return fixed unless text
+        return text if intent_result.source.in?(%w[deterministic participant_reader])
+
+        guard = ::Mia::ReplyGuard.call(user_message: params[:message].to_s, history: @mia_conversation_messages,
+          facts: {}, reply: text)
+        return HouseholdFinance::ParticipantCare.answer(params[:message].to_s, care: guard.care || "hardship") if guard.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(params[:message].to_s)
+        guard.allowed? ? text : fixed
       end
 
       def pending_guardrail_answer(content)

@@ -713,6 +713,12 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       source: "model"
     )
 
+    original_guard = Mia::ReplyGuard.method(:call)
+    checked = []
+    Mia::ReplyGuard.define_singleton_method(:call) do |**options|
+      checked << options
+      Mia::ReplyGuard::Result.new([])
+    end
     with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
       post "/api/v1/mia/messages",
         params: { message: "Can I buy a $900 handbag?" },
@@ -723,6 +729,9 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_equal "Which category would this purchase fall under?", content
+    assert_equal content, checked.sole.fetch(:reply)
+  ensure
+    Mia::ReplyGuard.define_singleton_method(:call, original_guard) if original_guard
   end
 
   test "model resolved recall composes from verified resolution instead of rejected assistant history" do

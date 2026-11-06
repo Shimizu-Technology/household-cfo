@@ -9,12 +9,17 @@ module Mia
     def self.grief?(text) = text.to_s.match?(GRIEF)
 
     def self.matches?(text)
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      if current.message.to_s.squish == text.to_s.squish && current.reading&.available
+        return current.reading.care?
+      end
       grief?(text) || text.to_s.match?(STRAIN) || CrisisBoundary.matches?(text) || CrisisBoundary.hopeless?(text) ||
         HouseholdFinance::MoneyMovementText.food_insecurity?(text) || HouseholdFinance::MiaCoachAnswerer.essential_hardship?(text)
     end
 
     def self.response(text)
       return CrisisBoundary.response if CrisisBoundary.matches?(text)
+      return care if (care = HouseholdFinance::ParticipantCare.answer(text))
       if HouseholdFinance::MoneyMovementText.food_insecurity?(text) || text.to_s.match?(/\b(?:without meals|can['’]?t buy food|cannot buy food)\b/i)
         return "Going without food is hard, and you deserve to eat. Please talk with your coach or someone you trust about getting food today. Does everyone at home have enough to eat today?"
       end

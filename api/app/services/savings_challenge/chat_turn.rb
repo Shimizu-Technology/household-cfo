@@ -93,10 +93,15 @@ module SavingsChallenge
 
     def call
       @supplied_content_context = []
-      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message)
+      if ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
+        @answer = ::Mia::CrisisBoundary.response
+        @intakes = []
+        return self
+      end
+      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
         return self if review_continuation || pattern_turn || goal_turn || progress_turn
       end
-      correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      correction = SavingsCorrection.new(@enrollment, message: @message).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
       if correction
         @intake, @answer = correction.values_at(:intake, :answer)
         @intakes = [ @intake ].compact

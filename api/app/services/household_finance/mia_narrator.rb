@@ -53,6 +53,10 @@ module HouseholdFinance
     end
 
     def call
+      ::Mia::ReplyDeadline.within { deliver }
+    end
+
+    def deliver
       @supplied_content_context = []
       @response_source = "deterministic_fallback"
       @rejection_reason = nil
@@ -60,10 +64,20 @@ module HouseholdFinance
         @response_source = "deterministic_safety"
         return ::Mia::CrisisBoundary.response
       end
+      if (care = ParticipantCare.answer(user_message))
+        @response_source = "deterministic_safety"
+        return care
+      end
       if ::Mia::SensitiveMoment.matches?(user_message)
         @response_source = "deterministic_safety"
         return ::Mia::SensitiveMoment.response(user_message)
       end
+      care_guard = HouseholdFinance::ParticipantCare.guard_when_unread(user_message, history: history, reply: "I couldn't read that safely just now. Please try again. Nothing changed.", api_key: api_key)
+      if care_guard&.sensitive?
+        @response_source = "deterministic_safety"
+        return HouseholdFinance::ParticipantCare.answer(user_message, care: care_guard.care || "hardship")
+      end
+      return fallback_response if care_guard && !care_guard.allowed?
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
       return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
@@ -83,14 +97,15 @@ module HouseholdFinance
       ensure
         @response_shape_rewrite_messages = nil
       end
-      if checked.guard_result&.sensitive?
+      if checked.guard_result&.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(user_message)
         @rejection_reason = :reply_guard
         @response_source = "deterministic_safety"
-        return ::Mia::SensitiveMoment.response(user_message)
+        return ParticipantCare.answer(user_message, care: checked.guard_result.care || "hardship")
       end
       return reject_narration(checked.rejection_reason) if checked.rejection_reason
 
-      reply = [ delivery_prefix, checked.content ].compact_blank.join(" ")
+      prefix = checked.guard_result&.history_sensitive ? nil : delivery_prefix
+      reply = [ prefix, checked.content ].compact_blank.join(" ")
 
       @supplied_content_context = approved_content
       @response_source = "live_model"

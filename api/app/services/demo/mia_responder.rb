@@ -86,7 +86,11 @@ module Demo
       @supplied_content_context = []
     end
 
-    def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
+    def call(message, **options)
+      ::Mia::ReplyDeadline.within { deliver(message, **options) }
+    end
+
+    def deliver(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
       @fallback_reason = nil
       @rejection_reason = nil
@@ -108,10 +112,20 @@ module Demo
         return crisis_response
       end
       return fallback_response(clean_message, context: prompt_context, reason: :no_model) if ::Mia::CrisisBoundary.hopeless?(clean_message)
+      if (care = HouseholdFinance::ParticipantCare.answer(clean_message))
+        @response_source = "deterministic_safety"
+        return care
+      end
       if ::Mia::SensitiveMoment.matches?(clean_message)
         @response_source = "deterministic_safety"
         return ::Mia::SensitiveMoment.response(clean_message)
       end
+      care_guard = HouseholdFinance::ParticipantCare.guard_when_unread(clean_message, history: history, reply: "I couldn't read that safely just now. Please try again. Nothing changed.", api_key: @api_key)
+      if care_guard&.sensitive?
+        @response_source = "deterministic_safety"
+        return HouseholdFinance::ParticipantCare.answer(clean_message, care: care_guard.care || "hardship")
+      end
+      return fallback_response(clean_message, context: prompt_context, reason: :provider_unavailable) if care_guard && !care_guard.allowed?
       grounded_response = grounded_answer(clean_message, context: context)
       if grounded_response
         @response_source = "verified_deterministic"
@@ -145,13 +159,14 @@ module Demo
           return fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
         end
         @supplied_content_context = @approved_content if @response_source == "live_model"
-        return [ @delivery_prefix, checked.content ].compact_blank.join(" ")
+        prefix = checked.guard_result&.history_sensitive ? nil : @delivery_prefix
+        return [ prefix, checked.content ].compact_blank.join(" ")
       end
 
-      if checked.guard_result&.sensitive?
+      if checked.guard_result&.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(clean_message)
         @response_source = "deterministic_safety"
         @rejection_reason = :reply_guard
-        return ::Mia::SensitiveMoment.response(clean_message)
+        return HouseholdFinance::ParticipantCare.answer(clean_message, care: checked.guard_result.care || "hardship")
       end
       @rejection_reason = checked.rejection_reason
       Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=#{checked.rejection_reason}")

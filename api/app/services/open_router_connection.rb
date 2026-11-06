@@ -12,6 +12,13 @@ module OpenRouterConnection
   module_function
 
   def start(uri, read_timeout:, open_timeout:, report_account_failure: true, &block)
+    remaining = Mia::ReplyDeadline.remaining
+    return Timeout.timeout(remaining, Mia::ReplyDeadline::Exceeded) { connect(uri, read_timeout: [ read_timeout, remaining ].min, open_timeout: [ open_timeout, remaining ].min, report_account_failure: report_account_failure, &block) } if remaining
+
+    connect(uri, read_timeout: read_timeout, open_timeout: open_timeout, report_account_failure: report_account_failure, &block)
+  end
+
+  def connect(uri, read_timeout:, open_timeout:, report_account_failure:, &block)
     attempts = 0
     begin
       attempts += 1

@@ -4,7 +4,13 @@ module HouseholdFinance
 
     def kind(message)
       current = ParticipantMessageReader::Current
-      return current.reading.care.to_sym if current.message.to_s.squish == message.to_s.squish && current.reading&.care?
+      if current.message.to_s.squish == message.to_s.squish && current.reading&.available
+        return current.reading.care.to_sym if current.reading.care?
+        return
+      end
+      if current.message.to_s.squish == message.to_s.squish && current.guard_care.present?
+        return current.guard_care.to_sym unless current.guard_care == "none"
+      end
       # Exact subject/action forms only during an outage or outside chat. Idioms
       # such as dead set/dead tired and fired up never satisfy these forms.
       text = message.to_s.tr("’", "'").strip
@@ -15,10 +21,31 @@ module HouseholdFinance
       :essentials if MiaCoachAnswerer.essential_hardship?(text)
     end
 
+    def reading_available?(message)
+      current = ParticipantMessageReader::Current
+      current.message.to_s.squish == message.to_s.squish && current.reading&.available
+    end
+
+    # When the shared reader is unavailable (including demo/preview calls), the
+    # existing reply guard owns semantic care. No second reader is called.
+    def guard_when_unread(message, history:, reply:, api_key: ENV["OPENROUTER_API_KEY"])
+      current = ParticipantMessageReader::Current
+      return if current.message.to_s.squish == message.to_s.squish && (current.reading&.available || current.guard_care.present?)
+      return if api_key.to_s.strip.blank?
+
+      guard = ::Mia::ReplyGuard.call(user_message: message, history: history, facts: {}, reply: reply, api_key: api_key)
+      if current.message.to_s.squish == message.to_s.squish && guard.care
+        current.guard_care = guard.care
+      end
+      guard
+    end
+
     def required?(message) = kind(message).present?
 
-    def answer(message)
-      case kind(message)
+    def answer(message, care: nil)
+      case care&.to_sym || kind(message)
+      when :crisis
+        ::Mia::CrisisBoundary.response
       when :grief
         "I'm sorry for your loss. You don't have to work through money or setup right now. If it helps, reach out to your coach or someone you trust. We can pick this up when you're ready. What would feel most helpful today?"
       when :shame

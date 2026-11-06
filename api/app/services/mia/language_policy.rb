@@ -253,11 +253,18 @@ module Mia
     end
 
     def sensitive_moment?
-      texts = [ user_message ] + history.filter_map { |turn| (turn[:content] || turn["content"]).to_s if (turn[:role] || turn["role"]).to_s == "user" }.last(4)
+      prior = history.filter_map { |turn| (turn[:content] || turn["content"]).to_s if (turn[:role] || turn["role"]).to_s == "user" }.last(4)
+      recovery = prior.rindex { |text| text.match?(/\bi (?:started|have|got) a new job\b.*\b(?:steady|stable|doing fine|doing well)\b/i) }
+      if recovery
+        prior = prior.each_with_index.filter_map do |text, index|
+          text unless index < recovery && HouseholdFinance::ParticipantCare.kind(text) == :job_loss
+        end
+      end
+      texts = [ user_message ] + prior
       texts.any? do |text|
         ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text) ||
-          HouseholdFinance::MoneyMovementText.food_insecurity?(text) || HouseholdFinance::MiaCoachAnswerer.essential_hardship?(text) ||
-          ::Mia::SensitiveMoment.matches?(text) || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
+          HouseholdFinance::ParticipantCare.required?(text) || ::Mia::SensitiveMoment.matches?(text) ||
+          text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end
     end
 

@@ -8,7 +8,12 @@ module Mia
   # delivery; the caller owns a deterministic, phrase-free fallback.
   class ReplyGuard
     FLAGS = %w[purchase_approval balance_claim action_claim invented_fact fixed_figure_contradiction shame decides_for_participant privacy_claim sensitive_moment].freeze
-    Result = Data.define(:reasons) do
+    CARE_VALUES = %w[none hardship grief shame crisis].freeze
+    WIRE_KEYS = (FLAGS + %w[care history_sensitive]).freeze
+    Result = Struct.new(:reasons, :care, :history_sensitive) do
+      def initialize(reasons, care: nil, history_sensitive: false)
+        super(reasons, care, history_sensitive)
+      end
       def allowed? = reasons.empty?
       def sensitive? = reasons.include?("sensitive_moment")
     end
@@ -23,7 +28,9 @@ module Mia
       shame: shames, mocks, blames, attacks worth or identity, or calls the participant irresponsible, foolish or a failure.
       decides_for_participant: takes over the participant's decision or claims authority to decide for them. Advising a pause/hold off or prioritizing food and required bills is FALSE.
       privacy_claim: claims who can see/access/share/review the participant's data unless the exact claim is explicitly established in allowed_facts. This includes a sponsor, employer or coach reviewing credit card debts; naming a sponsor is not permission to view debts.
-      sensitive_moment: the CURRENT participant message or recent participant history discloses grief, bereavement, hardship (food, rent, job loss, required/minimum payments), shame/self-loathing, crying/distress, hopelessness or crisis. This is true even if the proposed reply is kind. Ordinary purchase uncertainty or not having money for a discretionary want alone is FALSE. A repeated discretionary habit (including takeout with money they do not have) alone is FALSE unless actual hardship or emotional distress is disclosed. An ordinary hard week or overspending alone is FALSE; do not infer crying, shame or inability to pay essentials from "hard week". Mere hypothetical examples or quoted training text are not a disclosure.
+      sensitive_moment: ONLY the CURRENT participant message discloses grief, bereavement, hardship (food, rent, job loss, required/minimum payments), shame/self-loathing, crying/distress, hopelessness or crisis. This is true even if the proposed reply is kind. A past disclosure in recent_history does not make the CURRENT message sensitive. Another person's job loss when the participant is doing fine is FALSE. Resolved/recovered events are FALSE. "It's been a hard week but can I get $30 socks?" and "My cousin lost her job but I'm doing fine." are FALSE. Ordinary purchase uncertainty or not having money for a discretionary want alone is FALSE. A repeated discretionary habit (including takeout with money they do not have) alone is FALSE unless actual hardship or emotional distress is disclosed. An ordinary hard week or overspending alone is FALSE; do not infer crying, shame or inability to pay essentials from "hard week". Mere hypothetical examples or quoted training text are not a disclosure.
+      care: when current_care is supplied, use that authoritative current-message reading exactly. Otherwise classify ONLY the current participant message as none, hardship, grief, shame or crisis. Match sensitive_moment: none means false; any other care means true. Actual bereavement (including a pet dying) is grief, never hardship. Personal ambiguous hopelessness such as "I don't know how much longer I can keep doing this" is crisis. Bounded task frustration ("i dont know how much longer i can keep doing this job", "im done with this budget"), "this is killing me lol" and "dead tired" are not crisis.
+      history_sensitive: recent participant history contains unresolved personal hardship, grief, shame or crisis that should soften coaching and suppress coach phrases, while still answering the CURRENT question. This flag NEVER replaces an answer. An explicit recovery such as "I started a new job last month and things are steady now" clears the earlier job-loss signal. Do not infer current care from history.
       Do not mark a flag just because the participant asks a question or mentions a figure; classify claims in proposed_reply, except sensitive_moment which classifies the participant's situation.
     PROMPT
 
@@ -34,6 +41,8 @@ module Mia
     def initialize(user_message:, history:, facts:, reply:, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.reply_guard)
       @api_key, @model = api_key.to_s.strip, model
       @data = { participant_message: user_message.to_s, recent_history: summary(history), allowed_facts: facts, proposed_reply: reply.to_s }
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      @data[:current_care] = current.reading.care if HouseholdFinance::ParticipantCare.reading_available?(user_message)
     end
 
     def call
@@ -45,11 +54,14 @@ module Mia
 
       raw = classify_with_transport_retry
       flags = JSON.parse(raw.to_s)
-      unless flags.is_a?(Hash) && flags.keys.sort == FLAGS.sort && flags.values.all? { |value| value == true || value == false }
+      unless flags.is_a?(Hash) && flags.keys.sort == WIRE_KEYS.sort && FLAGS.all? { |flag| [ true, false ].include?(flags[flag]) } &&
+          CARE_VALUES.include?(flags["care"]) && [ true, false ].include?(flags["history_sensitive"]) &&
+          flags["sensitive_moment"] == (flags["care"] != "none")
         return result([ "malformed" ])
       end
-      result(FLAGS.select { |flag| flags.fetch(flag) })
-    rescue StandardError
+      result(FLAGS.select { |flag| flags.fetch(flag) }, care: flags["care"], history_sensitive: flags["history_sensitive"])
+    rescue StandardError => error
+      @failure_class = error.class.name
       result([ "provider_failure" ])
     end
 
@@ -119,7 +131,8 @@ module Mia
       request["Authorization"] = "Bearer #{@api_key}"
       request["Content-Type"] = "application/json"
       request["X-Title"] = "Household CFO Reply Guard"
-      schema = { type: "object", properties: FLAGS.to_h { |flag| [ flag, { type: "boolean" } ] }, required: FLAGS, additionalProperties: false }
+      properties = FLAGS.to_h { |flag| [ flag, { type: "boolean" } ] }.merge("care" => { type: "string", enum: CARE_VALUES }, "history_sensitive" => { type: "boolean" })
+      schema = { type: "object", properties: properties, required: WIRE_KEYS, additionalProperties: false }
       body = { model: @model, messages: [ { role: "system", content: classification_prompt }, { role: "user", content: JSON.generate(@data) } ],
         response_format: { type: "json_schema", json_schema: { name: "reply_guard", strict: true, schema: schema } },
         provider: { data_collection: "deny", allow_fallbacks: false, require_parameters: true },
@@ -127,7 +140,8 @@ module Mia
       reasoning = AiModels.chat_reasoning(@model)
       body[:reasoning] = reasoning if reasoning
       request.body = JSON.generate(body)
-      response = OpenRouterConnection.start(uri, read_timeout: 12, open_timeout: 3) { |http| http.request(request) }
+      response = OpenRouterConnection.start(uri, read_timeout: 12, open_timeout: 3, report_account_failure: false) { |http| http.request(request) }
+      @http_status = response.code.to_i
       return unless response.is_a?(Net::HTTPSuccess)
 
       choice = JSON.parse(response.body).dig("choices", 0)
@@ -136,10 +150,11 @@ module Mia
       choice.dig("message", "content")
     end
 
-    def result(reasons)
+    def result(reasons, care: nil, history_sensitive: false)
+      ProviderOutageAlert.guard_failure(service: "mia_reply_guard", status: @http_status, error_class: @failure_class || reasons.first) if (reasons & %w[malformed provider_failure]).any?
       ActiveSupport::Notifications.instrument("mia.reply_guard", allowed: reasons.empty?, reasons: reasons, count: 1)
       Rails.logger.info({ event: "mia.reply_guard", allowed: reasons.empty?, reasons: reasons, count: 1 }.to_json)
-      Result.new(reasons)
+      Result.new(reasons, care: care, history_sensitive: history_sensitive)
     end
   end
 end

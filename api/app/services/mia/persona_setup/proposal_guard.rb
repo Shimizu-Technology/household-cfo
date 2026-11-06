@@ -58,7 +58,8 @@ module Mia
         result([ "malformed" ])
       rescue DeadlineExceeded
         result([ "deadline" ])
-      rescue StandardError
+      rescue StandardError => error
+        @failure_class = error.class.name
         result([ "provider_failure" ])
       end
 
@@ -91,7 +92,8 @@ module Mia
         reasoning = AiModels.chat_reasoning(@model)
         body[:reasoning] = reasoning if reasoning
         request.body = JSON.generate(body)
-        response = OpenRouterConnection.start(uri, read_timeout: 12, open_timeout: 3) { |http| http.request(request) }
+        response = OpenRouterConnection.start(uri, read_timeout: 12, open_timeout: 3, report_account_failure: false) { |http| http.request(request) }
+        @http_status = response.code.to_i
         raise Unavailable unless response.is_a?(Net::HTTPSuccess)
 
         json = JSON.parse(response.body)
@@ -104,6 +106,7 @@ module Mia
       end
 
       def result(reasons)
+        ProviderOutageAlert.guard_failure(service: "persona_setup_guard", status: @http_status, error_class: @failure_class || reasons.first) if (reasons & %w[malformed provider_failure deadline]).any?
         ActiveSupport::Notifications.instrument("mia.persona_setup.guard", allowed: reasons.empty?, reasons: reasons, count: 1)
         level = (reasons & UNAVAILABLE_REASONS).any? ? :warn : :info
         Rails.logger.public_send(level, { event: "mia.persona_setup.guard", allowed: reasons.empty?, reasons: reasons, count: 1 }.to_json)

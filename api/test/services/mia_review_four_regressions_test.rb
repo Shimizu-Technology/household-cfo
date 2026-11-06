@@ -49,7 +49,7 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
   test "routine questions do not become invented personal routines" do
     [ "You use this at work; would you use it every day?", "You work from home. Do you use the chair every workday?" ].each do |reply|
       guard = Mia::ReplyGuard.new(user_message: "I work from home and use a chair at work.", history: [], facts: {}, reply: reply, api_key: "fake")
-      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       assert guard.call.allowed?, reply
     end
   end
@@ -135,7 +135,7 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
     Mia::ReplyGuard.singleton_class.define_method(:call) do |**args|
       seen << args[:facts]
       guard = Mia::ReplyGuard.new(**args)
-      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       guard.call
     end
     facts = { metrics: { baseline_surplus_cents: 100_000 }, debts: { records: [ { label: "Card", balance_cents: 50_000 } ] }, documents: "会" * 30_000 }

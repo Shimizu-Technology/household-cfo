@@ -82,7 +82,7 @@ module AiModels
   end
 
   def log_configuration(logger: Rails.logger, env: ENV)
-    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)} participant_reader=#{participant_reader(env)}")
+    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)} participant_reader=#{participant_reader(env)} reply_guard=#{reply_guard(env)} proposal_guard=#{proposal_guard(env)}")
     retired = RETIRED_ENV_KEYS.select { |key| env[key].to_s.strip.present? }
     return if retired.empty?
 

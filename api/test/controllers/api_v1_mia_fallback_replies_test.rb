@@ -1,10 +1,12 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 # QA (2026-10-16): about one Mia reply in five was a canned fallback that quoted
 # the participant's message back, including a 7,000-character message, and the
 # same canned text sat under the 988 check for hopeless language. Provider
 # outages produced the same text with no hint that anything was wrong.
 class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
     @user, @household = HouseholdFinance::MiaEvalHousehold.create!

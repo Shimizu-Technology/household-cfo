@@ -78,12 +78,12 @@ class MiaReviewTwoRegressionsTest < ActiveSupport::TestCase
   test "privacy card assumptions and unsupported cost comparisons have deterministic floors" do
     [ [ "The sponsor can review your credit card debts.", "privacy_claim" ], [ "That is a lot to put on a card.", "invented_fact" ], [ "Borrowing for a purchase like headphones means you would pay more than the discount saves.", "invented_fact" ] ].each do |reply, reason|
       guard = guard_for(reply)
-      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       assert_includes guard.call.reasons, reason
     end
     [ "No purchase has been saved from this question.", "Which account or card would cover it?", "Card borrowing may cost interest." ].each do |reply|
       guard = guard_for(reply)
-      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+      guard.define_singleton_method(:classify) { Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
       assert guard.call.allowed?, reply
     end
   end
@@ -91,10 +91,10 @@ class MiaReviewTwoRegressionsTest < ActiveSupport::TestCase
   test "transport gets one retry while malformed and semantic results do not" do
     guard = guard_for("Check the funding first.")
     calls = 0
-    guard.define_singleton_method(:classify) { calls += 1; raise Net::ReadTimeout if calls == 1; Mia::ReplyGuard::FLAGS.index_with { false }.to_json }
+    guard.define_singleton_method(:classify) { calls += 1; raise Net::ReadTimeout if calls == 1; Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false).to_json }
     assert guard.call.allowed?
     assert_equal 2, calls
-    [ "{}", Mia::ReplyGuard::FLAGS.index_with { |flag| flag == "invented_fact" }.to_json ].each do |raw|
+    [ "{}", Mia::ReplyGuard::FLAGS.index_with { |flag| flag == "invented_fact" }.merge("care" => "none", "history_sensitive" => false).to_json ].each do |raw|
       calls = 0
       guard.define_singleton_method(:classify) { calls += 1; raw }
       refute guard.call.allowed?
