@@ -3,8 +3,6 @@ require "json"
 
 module Demo
   class MiaResponder
-    GUARD_FACTS_MAX_BYTES = 12_000
-    GUARD_FACT_PRIORITY = %w[coach_persona metrics household setup available_product_modules financial_accounts income_sources debts expense_stack_totals annual_budget tracked_goals pending_review].freeze
 
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
@@ -401,20 +399,11 @@ module Demo
       generic_claim_rejection(content, context: context, user_message: user_message).present?
     end
 
-    # Which check a model reply failed, for the log; nil when it passed.
-    # The guard's 48KB envelope also contains the participant, history and reply.
-    # Keep small contexts verbatim; in large contexts prioritize whole financial
-    # facts over bulky optional data. Omitted facts can only make the guard stricter.
+    # Required financial truth stays whole. An oversized required core reaches
+    # ReplyGuard intact so its input limit fails closed before any provider call.
     def reply_guard_facts(context)
       facts = parsed_context(context).merge("coach_persona" => @persona.guard_facts)
-      return facts if JSON.generate(facts).bytesize <= GUARD_FACTS_MAX_BYTES
-
-      (GUARD_FACT_PRIORITY + facts.keys).uniq.each_with_object({}) do |key, bounded|
-        next unless facts.key?(key)
-        next if JSON.generate(bounded.merge(key => facts[key])).bytesize > GUARD_FACTS_MAX_BYTES
-
-        bounded[key] = facts[key]
-      end
+      ::Mia::ReplyGuard.bounded_facts(facts) || facts
     end
 
     def generic_claim_rejection(content, context:, user_message: nil, guard_covered: false)

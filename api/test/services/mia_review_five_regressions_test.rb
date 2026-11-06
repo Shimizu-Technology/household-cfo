@@ -146,6 +146,36 @@ class MiaReviewFiveRegressionsTest < ActiveSupport::TestCase
     assert_equal [ "input_limit" ], too_large.call.reasons
   end
 
+  test "R5 CR demo guard projection retains oversized required debts for fail closed checking" do
+    debts = { "records" => Array.new(400) { |i| { "label" => "Card #{i}", "balance_cents" => 100000, "minimum_payment_cents" => 2500 } } }
+    responder = Demo::MiaResponder.new(api_key: "fake")
+    projected = responder.send(:reply_guard_facts, { "debts" => debts, "metrics" => { "plan_left_cents" => 145000 } }.to_json)
+    assert_equal debts, projected["debts"]
+    guard = Mia::ReplyGuard.new(user_message: "Can we review the plan?", history: [], facts: projected, reply: "Which bill comes next?", api_key: "fake")
+    guard.define_singleton_method(:classify) { raise "oversized required truth must not reach the provider" }
+    assert_equal [ "input_limit" ], guard.call.reasons
+  end
+
+  test "R5 CR demo uses its fixed fallback when required financial context cannot fit" do
+    message = "Can we review the plan?"
+    read_care(message, "none")
+    context = { debts: { records: Array.new(400) { |i| { label: "Card #{i}", balance_cents: 100000, minimum_payment_cents: 2500 } } } }.to_json
+    responder = Demo::MiaResponder.new(api_key: "fake")
+    responder.define_singleton_method(:openrouter_response) { |*, **_| "Keep the next step simple. Check your priorities first. Which goal comes next?" }
+    flags = Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false)
+    original = Mia::ReplyGuard.method(:new)
+    classifications = 0
+    with_method(Mia::ReplyGuard, :new, ->(**options) {
+      original.call(**options).tap { |guard| guard.define_singleton_method(:classify) { classifications += 1; flags.to_json } }
+    }) do
+      with_method(HouseholdFinance::MiaProviderAdmission, :with_slot, ->(**_, &block) { block.call }) do
+        refute_equal "Keep the next step simple. Check your priorities first. Which goal comes next?", responder.call(message, context: context)
+        assert_equal "deterministic_fallback", responder.response_source
+        assert_equal 0, classifications
+      end
+    end
+  end
+
   test "R5 CR current none never suppresses certain household food insecurity" do
     message = "We have no food this week. Can I buy a $300 TV?"
     read_care(message, "none")
