@@ -1,6 +1,13 @@
 require "test_helper"
 
 class HouseholdFinanceMiaSetupGuideTest < ActiveSupport::TestCase
+  test "a non-setup clarification pauses setup answer collection" do
+    guide = HouseholdFinance::MiaSetupGuide
+    history = [ { role: "assistant", content: guide.question_message("primary_income") } ]
+    refute guide.server_question_asked?("primary_income", active_thread: { type: "coaching", status: "needs_clarification" }, recent_messages: history)
+    assert guide.server_question_asked?("primary_income", active_thread: { type: "household_setup", status: "needs_clarification" }, recent_messages: history)
+  end
+
   test "resumed questions vary wording and retain server context" do
     guide = HouseholdFinance::MiaSetupGuide
     first = guide.question_message("primary_income")

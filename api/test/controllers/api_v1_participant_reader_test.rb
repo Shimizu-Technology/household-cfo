@@ -53,6 +53,15 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "a question after skipping income returns to the currently asked fixed question" do
+    begin_setup
+    household_say("skip", reading.merge(defer_setup: true))
+    json = household_say("What is a sinking fund?", reading.merge(question: true))
+    assert_nil json["mia_action_draft"]
+    assert_includes json.dig("assistant_message", "content"), HouseholdFinance::MiaSetupGuide.question_message("fixed_expenses", resume: true)
+    refute_includes json.dig("assistant_message", "content"), HouseholdFinance::MiaSetupGuide.question_message("primary_income", resume: true)
+  end
+
   test "reader preserves care and independent mixed cards through replay without saving" do
     text = "they cut my hours but i saved 20 today and 10 yesterday, bought lunch 12 today"
     data = reading(care: "hardship", facts: [ fact("set_aside", "20"), fact("set_aside", "10", day: "yesterday"), fact("purchase", "12", item: "lunch") ])
