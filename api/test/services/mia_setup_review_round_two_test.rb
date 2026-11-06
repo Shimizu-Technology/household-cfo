@@ -49,6 +49,43 @@ class MiaSetupReviewRoundTwoTest < ActiveSupport::TestCase
     assert_nil calculate("2 kids, i make 1400", field: "primary_income", components: [ { source: "i make 1400", amount: "1400" } ])
   end
 
+  test "a due-on date misread never becomes an extra bill" do
+    text = "rent 1200 due on nov 20"
+    parts = [ { source: "rent 1200", amount: "1200" }, { source: "nov 20", amount: "20" } ]
+    service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed(text, components: parts), field: "fixed_expenses")
+    assert_nil service.call
+    assert service.clarification.present?
+  end
+
+  test "a word range misread never becomes two bills" do
+    text = "rent 1200 to 1300"
+    parts = [ { source: "rent 1200", amount: "1200" }, { source: "to 1300", amount: "1300" } ]
+    service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed(text, components: parts), field: "fixed_expenses")
+    assert_nil service.call
+    assert service.clarification.present?
+  end
+
+  test "an explicitly stated whole total never appends to prior parts" do
+    text = "the whole monthly total is 1450"
+    service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed(text), prior: prior, field: "fixed_expenses")
+    result = service.call
+    assert result.nil? || result[:value] == "1450.0", result.inspect
+    assert service.clarification.present? if result.nil?
+  end
+
+  test "a named balance in summary mode asks instead of losing name and balance" do
+    text = "visa balance is 3000 min 60"
+    reading = parsed(text, field: "debt_payment", components: [], setup_answer: { field: "debt", value: "60" })
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
+      participant_reading: reading, setup_status: { complete: false, missing_fields: [ { key: "debt_payment" } ] }, debt_tracking: { mode: "summary" }, active_debts: [],
+      conversation: { active_thread: {}, recent_messages: [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("debt_payment") } ] }
+    }).call
+    assert result.clarification?, result.to_h.inspect
+    assert_includes result.clarification, "3,000"
+    assert_includes result.clarification, "Visa"
+    refute result.actionable?
+  end
+
   test "one partial named debt updates and ambiguous partial names ask which" do
     text = "just the visa, min is 60"
     reading = parsed(text, field: "debt_payment", components: [], setup_answer: { field: "debt", value: "60" })
