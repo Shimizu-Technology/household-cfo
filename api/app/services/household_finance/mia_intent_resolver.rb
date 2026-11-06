@@ -210,6 +210,7 @@ module HouseholdFinance
       @raw_user_message = user_message.to_s
       @user_message = @raw_user_message.squish
       @context = context.deep_symbolize_keys
+      @scenario_current_only = ParticipantCare.scenario_current_only?(context: @context)
       @api_key = api_key.to_s.strip
       @model = model.to_s.strip.presence || AiModels.text
       @transport = transport
@@ -540,6 +541,7 @@ module HouseholdFinance
     end
 
     def deterministic_purchase_continuation_result
+      return if @scenario_current_only
       return unless user_message.match?(/\A(?:it was |that was |at |\$)/i)
       recent = Array(context.dig(:conversation, :recent_messages)).last(6)
       assistant = recent.reverse.find { |entry| entry[:role].to_s == "assistant" }
@@ -1632,7 +1634,7 @@ module HouseholdFinance
         intent: intent,
         confidence: confidence,
         continuation: continuation,
-        resolved_message: bounded(parsed.fetch(:resolved_message), 1_200),
+        resolved_message: @scenario_current_only ? raw_user_message : bounded(parsed.fetch(:resolved_message), 1_200),
         needs_clarification: needs_clarification,
         clarification: clarification,
         topic: normalize_topic(parsed.fetch(:topic)),
@@ -1826,8 +1828,10 @@ module HouseholdFinance
       return "" unless item.fetch(:kind).to_s == "scenario"
 
       label = bounded(item.fetch(:scenario_label), 120)
+      source_text = raw_user_message if @scenario_current_only
       return "" if label.blank?
       return label if normalized_text(source_text).downcase.include?(normalized_text(label).downcase)
+      return "" if @scenario_current_only
       return "" unless continuation && user_message.match?(CORRECTION_PATTERN)
 
       prior = prior_plan_items.find do |prior_item|
@@ -1839,6 +1843,7 @@ module HouseholdFinance
 
     def validate_plan_amounts!(item, source_text:, resolved_question:, amount:, continuation:)
       source_cents = money_cents_from_participant_text(source_text) - rejected_money_cents(source_text)
+      source_cents &= money_cents_from_participant_text(raw_user_message) if @scenario_current_only
       allowed = source_cents.dup
       allowed << cents_or_nil(amount) if amount.present? && prior_scenario_amount_allowed?(item, amount, continuation: continuation)
       proposed = money_cents_from_participant_text(resolved_question)
@@ -1849,6 +1854,7 @@ module HouseholdFinance
     end
 
     def prior_scenario_amount_allowed?(item, amount, continuation:)
+      return false if @scenario_current_only
       return false unless continuation && user_message.match?(CORRECTION_PATTERN)
       return false unless item.fetch(:source_text).to_s.match?(SAME_AMOUNT_PATTERN)
 

@@ -4,6 +4,55 @@ require_relative "../support/reply_guard_test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
+  teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+
+  test "care writer inputs omit disclosed amounts but keep current ordinal dates" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "the 15th", answer_packet: { kind: "coaching", care_context: { disclosure: "burial costs 5200" }, fallback_response: "Talk with someone you trust." }, api_key: "")
+    assert_includes narrator.send(:narration_request), "the 15th"
+    refute_includes narrator.send(:narration_request), "5200"
+  end
+
+  test "phrase suppression never rereads a historical soft crisis message" do
+    current = HouseholdFinance::ParticipantMessageReader::Current
+    result = HouseholdFinance::ParticipantMessageReader.call(message: "how are we doing", api_key: "")
+    current.message, current.reading = "how are we doing", result
+    policy = Mia::LanguagePolicy.new(user_message: "how are we doing", history: [ { role: "user", content: "i wish i was never born" } ], persona: Mia::Persona.default)
+    original = HouseholdFinance::ParticipantMessageReader.method(:read_once)
+    HouseholdFinance::ParticipantMessageReader.define_singleton_method(:read_once) { |**_| raise "historical read" }
+    assert policy.send(:sensitive_moment?)
+    assert_equal "how are we doing", current.message
+    assert_same result, current.reading
+  ensure
+    HouseholdFinance::ParticipantMessageReader.define_singleton_method(:read_once, original) if original
+  end
+
+  test "care narration permits guarded help while retaining every substantive guard" do
+    topic = HouseholdFinance::ParticipantCare.topic(:hardship).merge("disclosure" => "they cut my hours")
+    packet = { kind: "coaching", care_context: topic, fallback_response: "Talk with your coach or someone you trust. What is most urgent?", write_state: "no_write" }
+    safe = "Start with food and housing, then ask your employer whether other shifts are available. Your coach can help you compare the next steps. What feels most urgent today?"
+    Mia::ReplyGuard.define_singleton_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "sensitive_moment" ], care: "hardship") }
+    assert_equal safe, narrate(safe, packet, "what should i do")
+    [ "invented_phone", "shaming", "action_claim", "purchase_approval" ].each do |reason|
+      Mia::ReplyGuard.define_singleton_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "sensitive_moment", reason ], care: "hardship") }
+      assert_equal packet[:fallback_response], narrate(safe, packet, "what should i do"), reason
+    end
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "what should i do", answer_packet: packet, api_key: "")
+    assert_equal :unverified_amount, narrator.send(:narration_rejection_reason, "You have $400 left.")
+    assert_equal :care_data_gap, narrator.send(:narration_rejection_reason, "I do not have the copay amount. What is it?")
+    assert_equal "", narrator.send(:delivery_prefix)
+  end
+
+  test "narrator source refuses a historical purchase prefix after care" do
+    history = [ { role: "user", content: "my mom died and funeral was 2500" } ]
+    [ HouseholdFinance::MiaNarrator, SavingsChallenge::Narrator ].each do |klass|
+      [ "how", "what?", "why", "?" ].each do |text|
+        narrator = klass.new(user_message: text, history: history, api_key: "", answer_packet: { kind: "purchase_scenario", fallback_response: "So a $2,500 funeral would leave $20" })
+        refute_match(/2,500|would leave/, narrator.call)
+        assert_nil narrator.send(:purchase_prefix)
+      end
+    end
+  end
+
   test "review one all narration paths reject invented balances verdicts phones and false writes" do
     Mia::ReplyGuard.singleton_class.define_method(:call) { |**_| Mia::ReplyGuard::Result.new([ "purchase_approval", "action_claim" ]) }
     [ "purchase_scenario", "coaching", "budget_action", "transaction_draft" ].each do |kind|

@@ -68,11 +68,11 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     end
   end
 
-  test "reader shame needs the participant's own words about herself" do
-    [ "i spent too much at ross again", "I keep ordering shoes online at night even though I can't really pay for them.", "so frustrated, i keep messing up this budget" ].each do |text|
+  test "reader shame is trusted except insults clearly aimed at things" do
+    [ "this stupid budget", "dumb app", "my useless phone" ].each do |text|
       assert_equal "none", read(text, object(care: "shame")).care, text
     end
-    [ "im so stupid with money", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
+    [ "im so stupid with money", "i am really stupid", "im such a complete failure", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
       assert_equal "shame", read(text, object(care: "shame")).care, text
     end
   end
@@ -87,6 +87,18 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_equal [ "1,200,000" ], read("saved 1,200,000 today", object(facts: [ fact("set_aside", "1,200,000") ])).facts.pluck("amount")
     assert_equal [ "20" ], read("put away 20, not much", object(facts: [ fact("set_aside", "20", day: "") ])).facts.pluck("amount")
     assert_empty read("saved 1,20 today", object(field: "income", value: "1,20"), setup_field: "primary_income").setup_answer["value"]
+  end
+
+  test "a disclosed grief cost is not purchase intake but explicit spending is retained" do
+    text = "we buried my husband and the funeral cost 3200"
+    assert_empty read(text, object(care: "grief", facts: [ fact("purchase", "3200", day: "") ])).facts
+    text = "my husband died and i paid 3200 for his funeral"
+    assert_equal 1, read(text, object(care: "grief", facts: [ fact("purchase", "3200", day: "") ])).facts.size
+  end
+
+  test "shame must describe the person rather than her budget" do
+    assert_equal "none", read("im so done w this stupid budget lol", object(care: "shame")).care
+    assert_equal "shame", read("im so stupid", object(care: "shame")).care
   end
 
   test "care keeps every reported amount and ordinary idioms do not become care" do

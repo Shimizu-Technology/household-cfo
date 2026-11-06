@@ -6,12 +6,15 @@ require_relative "../support/reply_guard_test_helper"
 
 class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
+  teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+
   SAMPLE = "I want to spend $100 this weekend. How can I decide?"
   LONG_REPLY = "Wanting something is normal. Pause before deciding. Check your basics first. Keep required payments covered. What is the purchase for?"
   VALID_REPLY = "Wanting something is normal. Protect your basics and required payments first. What is the purchase for?"
   FALLBACK = "Use the approved reference answer."
 
   setup do
+    HouseholdFinance::ParticipantMessageReader::Current.reset
     Mia::ReplyGuard.singleton_class.define_method(:call) do |**args|
       flags = case args[:reply]
       when /That purchase works|You can (?:comfortably )?afford/ then [ "purchase_approval" ]
@@ -195,13 +198,16 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     assert_equal "deterministic_safety", responder.response_source
   end
 
-  test "hardship and wellbeing narration do not rewrite safety length" do
-    { "I cannot afford food this week" => "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?",
-      "I feel hopeless" => "Protect food and housing first. Talk with your coach about food today. Does everyone have enough to eat today?" }.each do |message, reply|
-      narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
-      assert_equal Mia::SensitiveMoment.response(message), narrator.call
-      assert_equal 0, attempts.length
-    end
+  test "guarded hardship uses the writer while an unavailable crisis read is immediate" do
+    message = "I cannot afford food this week"
+    reply = "You need food too; going without meals is not something you should have to do. Please talk with your coach about getting food today. Does everyone have enough to eat today?"
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ reply ], message: message)
+    assert_equal reply, narrator.call
+    assert_equal 1, attempts.length
+
+    narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [], message: "I feel hopeless")
+    assert_equal Mia::CrisisBoundary.response, narrator.call
+    assert_empty attempts
   end
 
   test "crisis narration retains its safety reply even outside the coach sentence range" do

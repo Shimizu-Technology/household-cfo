@@ -6,6 +6,19 @@ class CasualMoneyReadingTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_) { data.to_json })
   end
 
+  test "care status and every shared money field survive the combined result and outage" do
+    result = read("change the 25 to 20 and lower my goal to 100", care_status: "ongoing",
+      purchase_question: { amount: "25", item: "" }, goal_change: { amount: "100" },
+      savings_correction: { old_amount: "25", new_amount: "20", day: "" })
+    assert_equal "ongoing", result.care_status
+    assert_equal "25", result.purchase_question["amount"]
+    assert_equal "100", result.goal_change["amount"]
+    assert_equal "20", result.savings_correction["new_amount"]
+    off = HouseholdFinance::ParticipantMessageReader.call(message: "hello", api_key: "")
+    assert_equal "none", off.care_status
+    [ off.purchase_question, off.goal_change, off.savings_correction ].each { |field| assert_equal({}, field) }
+  end
+
   test "purchase decisions retain exact price and item without becoming expenses" do
     text = "thinkin of gettin a 1500 tv on my card"
     reading = read(text, purchase_question: { amount: "1500", item: "tv" })

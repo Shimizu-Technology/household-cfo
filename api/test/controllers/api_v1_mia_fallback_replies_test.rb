@@ -46,13 +46,13 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
     refute_includes content, "hours cut at the hotel"
   end
 
-  test "hopeless language gets kind money help under one safety check" do
+  test "ambiguous hopeless language fails safe during a provider outage" do
     message = "whats the point, we're never gonna get out of this debt. i feel hopeless"
     content = with_provider_down { post_message(message) }
 
     assert_response :created
     assert_equal 1, content.scan("988").length, content
-    assert_includes content, Mia::CrisisBoundary::WELLBEING_CHECK
+    assert_equal Mia::CrisisBoundary.response, content
     refute_includes content.downcase, "i feel hopeless"
     refute_includes content, "protecting the household baseline"
     answer = content.sub(Mia::CrisisBoundary::WELLBEING_CHECK, "").sub(Mia::CrisisBoundary::WELLBEING_OPENING, "").strip

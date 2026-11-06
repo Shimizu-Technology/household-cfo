@@ -94,11 +94,18 @@ module Api
         # Crisis guidance reads and changes no financial picture. Keep its existing
         # independent boundary available when an earlier tab has a stale epoch.
         crisis_content = params[:message].to_s
-        if controller_name == "mia_messages" && action_name == "create" && crisis_content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.matches?(crisis_content)
+        if controller_name == "mia_messages" && action_name == "create" && crisis_content.length <= ChatMessage::MAX_CONTENT_LENGTH && ::Mia::CrisisBoundary.explicit?(crisis_content)
           return yield
         end
         authenticate_user! unless current_user
         return if performed?
+        # Soft semantic checks are paid work: authentication must finish first.
+        # Let authenticated crisis care bypass a stale financial epoch, using
+        # the controller's context-rich, shared first read.
+        if controller_name == "mia_messages" && action_name == "create" &&
+            crisis_content.length <= ChatMessage::MAX_CONTENT_LENGTH && crisis_message?
+          return yield
+        end
         household = current_household
         generation = household.reload.financial_generation
         candidate = request.headers["X-Financial-Generation"].to_s
