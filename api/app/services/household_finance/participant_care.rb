@@ -5,12 +5,15 @@ module HouseholdFinance
     # A care topic contains no amount or financial scenario. Explicit questions
     # leave it; brief uncertainty and acknowledgements remain with the person.
     def followup?(message)
+      return true if ConversationFollowupResolver.acknowledgment?(message)
+
       message.to_s.strip.match?(/\A(?:(?:ok(?:ay)?|yeah|yes|yep|thanks|thank you|ok thanks)[.! ,]*|i(?: just)? (?:don['’]?t|dont|dunno|do not)(?: know)?|idk|i (?:can['’]?t|cant) think straight|(?:ok thanks[.! ]*)?what (?:do i do|should i do|now)(?: first| next)?)[.!? ]*\z/i)
     end
 
     def reader_context(message, care)
       # New money questions/reports stand on their own. Passing the old label
       # here made even a direct month question look like another disclosure.
+      return if message.to_s.match?(/\?|\A\s*(?:how|what|when|where|which|who|why|do|does|can|could|should|would|is|are)\b/i)
       return if message.to_s.match?(/\b(?:how much|how many|afford|buy|purchase|spend|spent|balance|total|income|saved|savings)\b/i)
 
       care
@@ -38,6 +41,7 @@ module HouseholdFinance
       return :housing if text.match?(/\Awe are about to be evicted[.!]?\z/i)
       return :housing if text.match?(/\b(?:can['’]?t|cant|cannot|won['’]?t|wont|unable to) (?:make|pay|cover|afford) (?:my |our |the )?rent\b/i)
       return :food if text.match?(/\b(?:help (?:with|w) food|food (?:help|support))\b/i)
+      return :food if text.match?(/(?:\A|[,;.!]\s*)(?:we|i) (?:are |am )?(?:out of|have no|got no) food(?: money)?\b/i)
       return :food if MoneyMovementText.food_insecurity?(text)
       :essentials if MiaCoachAnswerer.essential_hardship?(text)
     end
@@ -84,8 +88,8 @@ module HouseholdFinance
 
     def answer(message, care: nil)
       selected = care&.to_sym || kind(message)
-      if selected.in?([ :hardship, :food, :essentials, :housing, :job_loss ])
-        if message.to_s.match?(/\b(?:food|eat|hungry|meal)\b/i)
+      if selected.in?([ :hardship, :food, :housing, :job_loss ])
+        if selected == :food || message.to_s.match?(/\b(?:food|eat|hungry|meals?|grocer\w*)\b/i)
           return "Going without food is hard, and you deserve to eat. Food comes first for you and your family; saving and setup can wait. Ask your coach or someone you trust to help with getting food today and finding support nearby. I don't have verified local contacts to give you. Do you have enough food for everyone, including you, today?"
         end
         if message.to_s.match?(/\b(?:what|how|can|cant|cannot|can't)\b/i) && message.to_s.match?(/\brent\b/i)

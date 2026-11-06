@@ -33,7 +33,7 @@ module Mia
       /\b(?:it['’]?s|its|life|life is|life['’]s)\s+(?:not|isn['’]?t|isnt|aint)\s+worth (?:living|it)#{SENTENCE_END}/i,
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+exist(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+do life(?:\s+any\s?more)?#{PHRASE_END}/i,
-      /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss\s+me|(?:notice|care)\s+if\s+i\s+(?:(?:was|were) gone|(?:wasn['’]?t|wasnt|weren['’]?t) here))\b/i,
+      /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss\s+me|(?:notice|care)\s+if\s+i\s+(?:(?:was|were) gone|(?:wasn['’]?t|wasnt|weren['’]?t) here))\b#{TIME_WORDS}#{PHRASE_END}/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i,
       # Death wishes and texting forms.
       /\bi(?:['’]?d| would)\s+be\s+better\s+off\s+dead\b|\b(?:i\s+am|i['’]?m|im)\s+better\s+off\s+dead\b/i,

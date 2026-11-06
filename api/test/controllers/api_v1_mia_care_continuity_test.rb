@@ -42,7 +42,8 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
 
   test "budget frustration is not personal shame or crisis" do
     ask("im so done w this stupid budget lol")
-    refute_match(/You are not stupid|988|readiness is Setup incomplete/, reply)
+    refute_match(/You are not stupid|988|readiness|approved data/i, reply)
+    assert_match(/frustrat|hardest/, reply)
   end
 
   test "indirect crisis families reach 988 on household setup and challenge with models off" do

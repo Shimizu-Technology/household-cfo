@@ -5,7 +5,7 @@ class MiaCrisisBoundaryTest < ActiveSupport::TestCase
     [ "nobody would notice if i was gone", "no one would care if i wasnt here", "everyone would be better off without me", "i have no reason to keep going", "im a burden" ].each do |text|
       assert Mia::CrisisBoundary.matches?(text), text
     end
-    [ "no reason to keep going with this budget", "im so done w this stupid budget lol", "i cant think straight", "i wont be here for the sale" ].each do |text|
+    [ "no reason to keep going with this budget", "im so done w this stupid budget lol", "i cant think straight", "i wont be here for the sale", "nobody would notice if i was gone from this meeting", "nobody would miss me at the office" ].each do |text|
       refute Mia::CrisisBoundary.matches?(text), text
     end
   end

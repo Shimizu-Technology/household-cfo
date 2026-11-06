@@ -1,15 +1,23 @@
 require "test_helper"
 
 class ParticipantCareTest < ActiveSupport::TestCase
+  test "outage food loss in casual grammar keeps food help without guessing contacts" do
+    text = "kids didnt eat today, we out of food money"
+    assert_equal :food, HouseholdFinance::ParticipantCare.kind(text)
+    assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer(text))
+    assert_match(/getting food today/, HouseholdFinance::ParticipantCare.answer("we have no grocery money", care: :food))
+    refute HouseholdFinance::ParticipantCare.kind("what if we out of food money")
+  end
+
   test "explicit financial questions do not carry the reader's prior care label" do
-    [ "how much is left", "can i buy shoes", "what is my balance", "how much have i saved" ].each do |text|
+    [ "how much is left", "can i buy shoes", "what is my balance", "how much have i saved", "hows my plan looking?", "which bill comes next" ].each do |text|
       assert_nil HouseholdFinance::ParticipantCare.reader_context(text, "grief"), text
     end
-    assert_equal "grief", HouseholdFinance::ParticipantCare.reader_context("where do i even start", "grief")
+    assert_equal "grief", HouseholdFinance::ParticipantCare.reader_context("i feel completely lost", "grief")
   end
 
   test "care continuity keeps uncertainty but releases explicit money questions" do
-    %w[idk yeah ok].push("i just dunno", "ok thanks. what do i do first", "i cant think straight").each do |text|
+    %w[idk yeah ok].push("thanks mia", "sounds good", "i just dunno", "ok thanks. what do i do first", "i cant think straight").each do |text|
       assert HouseholdFinance::ParticipantCare.followup?(text), text
     end
     [ "how much is left", "can i buy 40 shoes", "what did i spend" ].each do |text|

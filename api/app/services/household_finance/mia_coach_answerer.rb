@@ -43,6 +43,7 @@ module HouseholdFinance
     JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
     EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:so )?stupid|spouse|fighting about money)\b/i.freeze
+    BUDGET_FRUSTRATION_PATTERN = /\b(?:stupid|annoying|frustrat\w*|hate|done (?:with|w))\b.{0,35}\b(?:budget|challenge)\b|\b(?:budget|challenge)\b.{0,35}\b(?:annoying|frustrat\w*)\b/i.freeze
     BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
@@ -159,7 +160,7 @@ module HouseholdFinance
       return false if explicit_write_request?(text)
       return false if text.match?(/\b(?:how much|how many|show me|list|when did)\b/i)
 
-      [ WIN_PATTERN, HABIT_PATTERN, OVERWHELMED_PATTERN, EMOTIONAL_STRESS_PATTERN ].any? { |pattern| text.match?(pattern) } ||
+      [ WIN_PATTERN, HABIT_PATTERN, OVERWHELMED_PATTERN, EMOTIONAL_STRESS_PATTERN, BUDGET_FRUSTRATION_PATTERN ].any? { |pattern| text.match?(pattern) } ||
         (text.match?(REPEAT_MARKER_PATTERN) && text.match?(REPEAT_SPENDING_PATTERN))
     end
 
@@ -255,6 +256,7 @@ module HouseholdFinance
     def reflective_answer
       return unless self.class.reflective_message?(message)
       return if transaction_report?
+      return "This budget feels frustrating. It is okay to pause and come back to one part at a time. Which part feels hardest right now?" if message.match?(BUDGET_FRUSTRATION_PATTERN) && !message.match?(ParticipantMessageReader::SELF_JUDGEMENT)
       return win_answer if message.match?(WIN_PATTERN)
       if normalized_message.match?(/\b(?:embarrassed|ashamed|shame)\b/) && normalized_message.match?(REPEAT_MARKER_PATTERN)
         activity = repeated_activity
