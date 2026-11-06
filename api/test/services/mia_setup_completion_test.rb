@@ -2,9 +2,8 @@ require "test_helper"
 
 class MiaSetupCompletionTest < ActiveSupport::TestCase
   def reading(text, **details)
-    HouseholdFinance::ParticipantMessageReader.call(message: text, setup_field: details[:field], transport: ->(_) {
-      { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], setup_details: details }.to_json
-    })
+    payload = { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], setup_details: details }
+    HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: details[:field]).send(:validate, payload.deep_stringify_keys)
   end
 
   test "bill facts still produce a review when the reader omits optional list details" do

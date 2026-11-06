@@ -2,9 +2,8 @@ require "test_helper"
 
 class MiaSetupFlowTest < ActiveSupport::TestCase
   def resolve(text, field: "debt_payment", data: {}, complete: false)
-    parsed = HouseholdFinance::ParticipantMessageReader.call(message: text, setup_field: field, transport: ->(_) {
-      { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [] }.merge(data).to_json
-    })
+    payload = { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [] }.merge(data)
+    parsed = HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: field).send(:validate, payload.deep_stringify_keys)
     HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
       participant_reading: parsed, setup_status: { complete: complete, missing_fields: HouseholdFinance::MiaSetupGuide::NEXT_QUESTIONS.keys.drop(HouseholdFinance::MiaSetupGuide::NEXT_QUESTIONS.keys.index(field)).map { |key| { key: key } } },
       active_debts: [], debt_tracking: { mode: "individual" },
