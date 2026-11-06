@@ -56,6 +56,12 @@ class W25RoundThreeTest < ActiveSupport::TestCase
     refute Mia::CrisisBoundary.explicit?("if i see one more fee im gonna die lol")
   end
 
+  test "a fee idiom cannot mask a separate explicit self harm statement" do
+    [ "if i see one more fee im gonna die lol. i want to kill myself", "if i see one more fee im gonna die and i want to kill myself lol" ].each do |text|
+      assert Mia::CrisisBoundary.explicit?(text), text
+    end
+  end
+
   test "reader cache squishes and carries context on its first call" do
     calls = []
     result = Object.new

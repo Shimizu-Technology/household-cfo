@@ -153,7 +153,7 @@ module Mia
 
     def self.explicit?(message)
       text = normalized(message).gsub(/k[1!]ll/i, "kill")
-      return false if text.match?(/\Aif\b.*\b(?:fee|bill|tax|budget)\b.*\b(?:gonna|going to) die\b.*\b(?:lol|lmao|haha)\b/i)
+      return false if text.match?(/\Aif i (?:see|get) (?:one more|another) (?:fee|bill|tax) (?:im|i['’]m|i am) (?:gonna|going to) die (?:lol|lmao|haha)[.!?]*\z/i)
       return true if EXTRA_EXPLICIT.any? { |pattern| text.match?(pattern) }
       EXPLICIT_PATTERNS.any? { |pattern| text.match?(pattern) } || text.delete(" ").match?(COMPACT_EXPLICIT)
     end
