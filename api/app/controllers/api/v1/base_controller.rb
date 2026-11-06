@@ -325,7 +325,7 @@ module Api
       end
 
       def render_operation_error(error)
-        if error.message == "Transaction draft is not pending"
+        if error.message.in?([ "Transaction draft is not pending", "Transaction draft is already pending" ])
           return render json: { errors: [ "This purchase was already reviewed. The latest version is ready to load." ], code: "stale_review" }, status: :conflict
         end
 

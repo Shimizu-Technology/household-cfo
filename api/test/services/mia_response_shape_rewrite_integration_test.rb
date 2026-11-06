@@ -35,6 +35,12 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @original_admission)
   end
 
+  test "R2 fitting preserves the cautious stance" do
+    long = "Hold off for now. Before ordering, remove your saved card. The decision is yours. What would help tonight?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "These are plan figures.") { long }
+    assert_includes result.content, "Hold off for now."
+  end
+
   test "a rewrite that stays too long after server figures is fitted from the middle" do
     max = @persona.response_shape.fetch("max_sentences")
     long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"

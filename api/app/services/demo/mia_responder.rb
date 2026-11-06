@@ -481,7 +481,7 @@ module Demo
       metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
       participant_values = currency_values(user_message)
       history_values = currency_values(@participant_history)
-      @participant_history.to_s.scan(/\b(?:raise|income|salary|paycheck)\b[^.!?]{0,25}?\$?([\d,]+(?:\.\d{1,2})?)/i) do |amount|
+      @participant_history.to_s.scan(/\b(?:raise|income|salary|paycheck)\s+(?:to|is|of|at)\s+([\d,]+(?:\.\d{1,2})?)\s+(?:a|per)\s+month\b/i) do |amount|
         history_values << HouseholdFinance::Money.chat_cents(amount.first)
       rescue ArgumentError
         next
@@ -501,7 +501,11 @@ module Demo
 
     def historical_amount_attributed?(content, mention)
       sentence = content.to_s[0...mention[:start]].split(/[.!?]/).last.to_s
-      sentence.match?(/\b(?:you (?:said|reported|mentioned|told me)|your raise)\b/i)
+      # Recalled amounts may be repeated as past participant reports, never
+      # promoted to a current bill, balance or funding conclusion.
+      past_report = sentence.match?(/\byou (?:said|reported|mentioned) (?:your|you)\b.*\b(?:was|were|used to be|previously)\b/i)
+      unsaved_raise = sentence.match?(/\byour raise to\s*\z/i) && content.to_s.match?(/\bis not saved in the plan\b/i)
+      (past_report || unsaved_raise) && !content.to_s.match?(/\b(?:covered|afford|enough|available|funded|room|spare|left to spend)\b/i)
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)
@@ -702,14 +706,13 @@ module Demo
       return crisis_response if crisis_message?(message)
       return HouseholdFinance::ConversationFollowupResolver::ACKNOWLEDGMENT_ANSWER if HouseholdFinance::ConversationFollowupResolver.acknowledgment?(message)
       return low_signal_response(message) if low_signal_message?(message)
-      if HouseholdFinance::MessageReplyIntent.matches?(message, "win") || message.match?(::Mia::LanguagePolicy::MILESTONE_PATTERN)
-        return "That took effort, and it matters. What helped you keep going, and what would you like to carry into next week?"
-      end
-
       hopeless = ::Mia::CrisisBoundary.hopeless?(message)
-      purchase_question = !hopeless && (HouseholdFinance::PurchaseQuestionText.purchase_question?(message) || screenshot_spending_question?(message) || spending_decision_question?(message))
+      purchase_question = !hopeless && (HouseholdFinance::MessageReplyIntent.purchase_question?(message) || screenshot_spending_question?(message) || spending_decision_question?(message))
       if purchase_question
         return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
+      end
+      if !hopeless && !HouseholdFinance::ParticipantCare.required?(message) && HouseholdFinance::MessageReplyIntent.matches?(message, "win")
+        return "That took effort, and it matters. What helped you keep going, and what would you like to carry into next week?"
       end
       if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN) && message.match?(SPENDING_WORD)
         return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"

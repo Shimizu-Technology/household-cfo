@@ -10,6 +10,8 @@ module HouseholdFinance
     QUESTION = /\bhow much (?:do (?:i|we) have|is) left (?:this|last) month\b|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
 
     def self.question?(message)
+      return false if MessageReplyIntent.purchase_question?(message) || message.to_s.match?(/\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i)
+
       message.to_s.match?(QUESTION) || MessageReplyIntent.matches?(message, "month_balance")
     end
 
@@ -24,7 +26,7 @@ module HouseholdFinance
       return relative if relative
 
       month = MonthTerms.detect_number(message) || today.month
-      year = message.to_s[/\b(20\d{2})\b/, 1]&.to_i || today.year
+      year = message.to_s[/\b(?:#{MonthTerms.pattern})\s+(20\d{2})\b/i, 1]&.to_i || today.year
       Date.new(year, month, 1)
     end
 

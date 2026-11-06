@@ -3,6 +3,18 @@ require "test_helper"
 class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
+  test "R2 stale reopen returns refreshable plain conflict" do
+    user = create_user(email: "r2-stale-reopen@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "R2", stack_key: "discretionary", monthly_amount: 100)
+    draft = create_pending_draft(household, category, merchant: "Already reopened", amount_cents: 1000)
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(user), as: :json
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    refute_includes response.parsed_body.to_s, "Transaction draft"
+    assert_equal "pending", draft.reload.status
+  end
+
   test "a second tab confirmation returns a plain stale review conflict without a duplicate" do
     user = create_user(email: "w27-stale@example.invalid")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

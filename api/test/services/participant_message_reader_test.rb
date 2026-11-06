@@ -13,6 +13,15 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "R2 imperative analysis retains intent without changing a habit disclosure" do
+    [ "look at my spending patterns", "analyze my spending habits" ].each do |message|
+      assert read(message, object.merge(reply_intent: "spending_patterns")).available
+      assert HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "an unasked habit disclosure cannot become a spending records question" do
     message = "i keep ordering gadgets when im tired"
     result = read(message, object.merge(reply_intent: "spending_patterns", question: false))

@@ -16,8 +16,8 @@ module SpendingPatterns
         .includes(:budget_category, source_account_identity_version: :source_tracked_account).to_a
       actuals_scope = @household.household_transactions.where(status: %w[confirmed reconciled], financial_source_event_id: nil)
       dates = source.filter_map(&:posted_on) + actuals_scope.pluck(:occurred_on)
-      last = dates.select { |date| date < @today.beginning_of_month }.max
-      finish = @to ? Date.iso8601(@to.to_s) : (last || @today.prev_month).end_of_month
+      last = dates.select { |date| date <= @today }.max
+      finish = @to ? Date.iso8601(@to.to_s) : [ (last || @today.prev_month).end_of_month, @today ].min
       start = @from ? Date.iso8601(@from.to_s) : finish.beginning_of_month - 2.months
       raise ArgumentError, "Choose a past spending window of up to one year" unless start <= finish && finish <= @today && (finish - start).to_i <= 366
       selected_source = source.select { |row| row.posted_on&.between?(start, finish) }

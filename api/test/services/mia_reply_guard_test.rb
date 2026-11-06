@@ -12,6 +12,11 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
   end
   teardown { HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @admission) }
 
+  test "R2 prompt explicitly requires evidence for zero spending and current use of historical figures" do
+    assert_includes Mia::ReplyGuard::SYSTEM_PROMPT, "Nothing's been spent yet"
+    assert_includes Mia::ReplyGuard::SYSTEM_PROMPT, "historical amount"
+  end
+
   test "strict booleans fail closed for every flag malformed timeout and unavailable provider" do
     valid = Mia::ReplyGuard::FLAGS.index_with { false }.merge("care" => "none", "history_sensitive" => false)
     cases = [ nil, "{}", "[]", "null", "```json\n#{valid.to_json}\n```", valid.merge("invented_fact" => "false").to_json,

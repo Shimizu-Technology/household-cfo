@@ -6,6 +6,31 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   setup { HouseholdFinance::ParticipantMessageReader::Current.reset }
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+  test "R2 fallback never infers wins from milestone words with model on or off" do
+    messages = [ "they said no raise this year", "i saved $200 but my kids didnt eat today", "i got a bonus but my lights are getting shut off friday", "my landlord is gonna raise my rent and idk what to do", "i never paid off my card and collectors keep calling", "my bonus didnt come and i dont know how im gonna pay rent", "i paid off my card and honestly whats the point anymore" ]
+    [ nil, "test-key" ].each do |key|
+      messages.each do |message|
+        HouseholdFinance::ParticipantMessageReader::Current.reset
+        responder = Demo::MiaResponder.new(api_key: key)
+        responder.define_singleton_method(:openrouter_response) { |*, **_| nil }
+        answer = responder.call(message, context: "{}")
+        refute_match(/took effort|kept at it|what helped you keep going/i, answer, message)
+      end
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
+  test "R2 history requires explicit past participant money rather than present fact or calendar numbers" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    { "my old rent was $900 but i moved" => "You said your rent is $900, so that bill is covered. Which bill comes next?", "i got a raise in 2024" => "You said your raise was $2,024.", "my paycheck comes on the 15" => "You said your paycheck was $15." }.each do |history, reply|
+      responder.instance_variable_set(:@participant_history, history)
+      assert_equal "unverified_amount", responder.send(:generic_claim_rejection, reply, context: "{}", user_message: "what next"), reply
+    end
+    responder.instance_variable_set(:@participant_history, "my old rent was $900 but i moved")
+    assert_nil responder.send(:generic_claim_rejection, "You said your old rent was $900. That does not establish your current bill.", context: "{}", user_message: "what next")
+  end
+
   test "a quoted raise from participant history is grounded without certifying saved income" do
     responder = Demo::MiaResponder.new(api_key: nil)
     responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month")

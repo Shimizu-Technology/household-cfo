@@ -115,8 +115,12 @@ module Mia
           prefix.present? && !prefix.match?(/[.!?]\z/) && matched.match?(/[.!?]\z/) ? "." : " "
         end
       end
-      value.gsub(/,\s*and\s*\./i, ".").gsub(/[ \t]+([.!?,;:])/, '\\1')
-        .gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip.presence
+      cleaned = value.gsub(/,\s*and\s*\./i, ".").gsub(/[ \t]+([.!?,;:])/, '\\1')
+        .gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip
+      # Removing a phrase must not leave a broken clause in a delivered reply.
+      cleaned.split(/(?<=[.!?])\s+(?=[[:upper:]])/).reject do |sentence|
+        sentence.match?(/[.!?],|,\s*(?:and|but|so)\s*,|\A(?:I['’]d say|and|but|so)[.!?]\z/i)
+      end.join(" ").strip.presence
     end
 
     def model_phrase_rejection_reason(content)
@@ -142,10 +146,6 @@ module Mia
         return :ineligible_coach_phrase if value.match?(custom_phrase_pattern(entry.fetch("text"))) && !allowed.include?(entry)
       end
       return :coach_phrase_variant if value.match?(CULTURAL_LANGUAGE_PATTERN)
-
-      distinctive = entries.flat_map { |entry| entry.fetch("text").downcase.scan(/[[:alpha:]å]+/) }
-        .select { |word| word.length >= 5 }.uniq - %w[money today before after there their would could should every about always together]
-      return :coach_phrase_variant if distinctive.any? { |word| value.match?(/\b#{Regexp.escape(word)}\b/i) }
 
       nil
     end

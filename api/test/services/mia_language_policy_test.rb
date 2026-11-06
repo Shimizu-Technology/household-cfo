@@ -1,6 +1,14 @@
 require "test_helper"
 
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
+  test "R2 ordinary shared phrase words are not variants and broken stripped clauses disappear" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Win", "allowed_contexts" => [ "win" ], "prohibited_contexts" => [], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    policy = Mia::LanguagePolicy.new(user_message: "what counts", persona: persona)
+    assert_nil policy.model_phrase_rejection_reason("That doesn't count as savings.")
+    assert_equal "What will you try?", policy.remove_model_phrases("That's a real win, and Small wins count, chelu., so keep going. What will you try?")
+  end
+
   test "CR3 legacy crisis-allowed phrases never reach a crisis reply" do
     phrase = { "text" => "One small step", "meaning" => "A phrase", "allowed_contexts" => [ "crisis" ], "prohibited_contexts" => [], "frequency" => "rare" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])

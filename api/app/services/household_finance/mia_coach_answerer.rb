@@ -102,6 +102,7 @@ module HouseholdFinance
       return :essential_skip if essential_skipped?(text)
       return :month if MiaMonthAnswer.question?(text)
       return :write if explicit_write_request?(text)
+      return :purchase if MessageReplyIntent.purchase_question?(text)
       return :reflective if reflective_message?(text) || MessageReplyIntent.matches?(text, "win")
 
       :purchase
@@ -258,7 +259,6 @@ module HouseholdFinance
       return unless self.class.reflective_message?(message)
       return if transaction_report?
       return "This budget feels frustrating. It is okay to pause and come back to one part at a time. Which part feels hardest right now?" if message.match?(BUDGET_FRUSTRATION_PATTERN) && !message.match?(/\b(?:stupid me|of me|myself|(?:i am|i was|im|i['’]m)\s+(?:(?:so|really|honestly|literally)\s+)*(?:stupid|dumb))\b/i)
-      return win_answer if message.match?(WIN_PATTERN)
       if normalized_message.match?(/\b(?:embarrassed|ashamed|shame)\b/) && normalized_message.match?(REPEAT_MARKER_PATTERN)
         activity = repeated_activity
         return "#{activity ? "Repeating #{activity}" : "That choice"} does not make you a failure. It sounds like that choice is weighing on you. What was happening just before you decided to do it again?"

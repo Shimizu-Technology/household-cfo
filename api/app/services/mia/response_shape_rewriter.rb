@@ -80,7 +80,7 @@ module Mia
 
       # Keep the participant's choice and practical actions. If every sentence
       # carries a boundary or an action, decline the fit and use the validated fallback.
-      protected = /\b(?:yours?|you decide|you choose|your (?:call|choice|decision)|cannot|can['’]t|unknown|not known|before|remove|wait|check|protect|cover|set aside)\b/i
+      protected = /\b(?:hold off|pause|do not|don['’]t|until|yours?|you decide|you choose|your (?:call|choice|decision)|cannot|can['’]t|unknown|not known|before|remove|wait|check|protect|cover|set aside)\b/i
       index = ((1...(sentences.length - 1)).to_a + [ 0 ]).find { |position| !sentences[position].match?(protected) }
       return unless index
 
