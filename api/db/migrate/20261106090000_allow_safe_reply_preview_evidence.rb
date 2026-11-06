@@ -2,7 +2,7 @@
 
 class AllowSafeReplyPreviewEvidence < ActiveRecord::Migration[8.0]
   def up
-    replace_source_constraint("response_source IN ('live_model', 'deterministic_fallback')")
+    replace_source_constraint("response_source IN ('live_model', 'deterministic_fallback', 'deterministic_safety')")
   end
 
   def down

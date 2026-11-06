@@ -224,8 +224,8 @@ it('shows when a preview did not use a coach phrase', async () => {
   expect(api.previewAdminPersona.mock.calls[0][2]).toContain('credit card')
 })
 
-it('labels safe fallback samples honestly and still reaches go-live review',async()=>{
- const evidence={...ready.behavioral_preview_evidence,source:'deterministic_fallback',output:'Pause and check the funding.'}
+it.each(['deterministic_fallback','deterministic_safety'])('labels %s samples honestly and still reaches go-live review',async(source)=>{
+ const evidence={...ready.behavioral_preview_evidence,source,output:'Pause and check the funding.'}
  const notice='Participants would receive this safe reply. Review the method in Teaching.'
  api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',source:'deterministic_fallback',notice},behavioral_preview_evidence:evidence})
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})

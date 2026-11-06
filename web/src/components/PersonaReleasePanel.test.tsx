@@ -91,8 +91,8 @@ describe('PersonaReleasePanel', () => {
     expect(onPublish).toHaveBeenCalledWith({ release_candidate_digest: 'candidate-digest', evaluation_run_digest: 'run-digest', evaluation_approval_digest: 'approval-digest', behavioral_preview_digest: 'behavioral-preview-digest' })
   })
 
-  it('shows saved fallback evidence as a safe reply with no model or provider attribution', async () => {
-    const evidence = { ...previewEvidence, source: 'deterministic_fallback' as const, model: 'household-cfo/safe-reply-v1', provider_request_id: 'safe-reply:digest' }
+  it.each(['deterministic_fallback','deterministic_safety'] as const)('shows saved %s evidence as a safe reply with no model or provider attribution', async (source) => {
+    const evidence = { ...previewEvidence, source, model: 'household-cfo/safe-reply-v1', provider_request_id: 'safe-reply:digest' }
     apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(makeReadiness({ behavioral_preview_evidence: evidence }))
     renderPanel({ previewEvidence: evidence })
     expect(await screen.findByText('Saved safe reply preview')).toBeTruthy()

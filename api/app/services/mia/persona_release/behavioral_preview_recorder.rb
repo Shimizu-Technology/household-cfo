@@ -11,7 +11,7 @@ module Mia
       end
 
       def call!(candidate:, preview:)
-        unless preview.fetch(:status) == "ready" && preview.fetch(:source).in?(%w[live_model deterministic_fallback])
+        unless preview.fetch(:status) == "ready" && preview.fetch(:source).in?(%w[live_model deterministic_fallback deterministic_safety])
           raise Error, "Only a reviewed model answer or safe reply preview can authorize publication"
         end
         unless valid_provider_identifier?(preview[:model_identifier]) && valid_provider_identifier?(preview[:provider_request_id])

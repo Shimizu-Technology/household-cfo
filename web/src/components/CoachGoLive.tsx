@@ -63,7 +63,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
           if (!result.behavioral_preview_evidence?.valid) throw new Error(result.preview?.notice && previewRejectionNotices.has(result.preview.notice) ? result.preview.notice : previewUnavailableNotice)
           if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
           lastEvidence = result.behavioral_preview_evidence
-          results.push({ question, answer: result.behavioral_preview_evidence.output, phraseNotice: result.preview?.phrase_notice, safeReply: result.behavioral_preview_evidence.source === 'deterministic_fallback', notice: result.preview?.notice })
+          results.push({ question, answer: result.behavioral_preview_evidence.output, phraseNotice: result.preview?.phrase_notice, safeReply: result.behavioral_preview_evidence.source !== 'live_model', notice: result.preview?.notice })
           setAnswers([...results])
         }
         setStatus('Checking safety…')

@@ -50,7 +50,8 @@ module Mia
           model_identifier: model_identifier,
           provider_request_id: provider_request_id
         )
-      elsif source == "deterministic_fallback" && reply.present?
+      elsif source.in?(%w[deterministic_fallback deterministic_safety]) && reply.present? &&
+          !(source == "deterministic_safety" && (CrisisBoundary.matches?(sample_prompt) || CrisisBoundary.hopeless?(sample_prompt)))
         result(status: "ready", source: source, reply: reply,
           notice: "Participants would receive this safe reply because the model answer was unavailable or did not pass the reply checks. #{rejection_notice(active_responder)} You may review this safe reply and continue going live.",
           model_identifier: CoachPersonaBehavioralPreviewEvidence::SAFE_REPLY_IDENTIFIER,

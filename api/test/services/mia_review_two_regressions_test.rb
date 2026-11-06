@@ -210,6 +210,21 @@ class MiaReviewTwoRegressionsTest < ActiveSupport::TestCase
     refute analyzer.send(:bank_charge?, { merchant: "Late Fee Cafe" })
   end
 
+  test "non crisis care preview seals the actual safe reply and keeps publication review moving" do
+    persona = create_persona(config: config)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: persona.created_by_user).call!
+    responder = Object.new
+    responder.define_singleton_method(:call) { |*, **_| "This sounds hard. What feels most urgent right now?" }
+    responder.define_singleton_method(:response_source) { "deterministic_safety" }
+    preview = Mia::PersonaPreviewer.new(persona: persona, sample_prompt: "I had a hard week and spent more than I planned. What can I do next?", candidate: candidate, responder: responder).call
+    assert_equal "ready", preview[:status]
+    assert_equal "deterministic_safety", preview[:source]
+    evidence = Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: persona.created_by_user).call!(candidate: candidate, preview: preview)
+    assert evidence.reload.integrity_valid?
+    assert_equal "deterministic_safety", evidence.response_source
+    assert_equal "This sounds hard. What feels most urgent right now?", evidence.output
+  end
+
   private
   def config
     @config ||= persona_configuration.tap do |value|

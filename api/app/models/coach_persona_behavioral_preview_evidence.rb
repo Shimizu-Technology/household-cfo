@@ -14,7 +14,7 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
 
   validates :prompt, presence: true, length: { maximum: 2_000 }
   validates :output, presence: true, length: { maximum: 4_000 }
-  validates :response_source, inclusion: { in: [ "live_model", "deterministic_fallback" ] }
+  validates :response_source, inclusion: { in: [ "live_model", "deterministic_fallback", "deterministic_safety" ] }
   validates :model_identifier, :provider_request_id, presence: true, length: { maximum: 200 },
     format: { with: /\A[^\s[:cntrl:]]+\z/ }
   validates :privacy_scope, inclusion: { in: [ PRIVACY_SCOPE ] }
@@ -56,7 +56,7 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
   end
 
   def provider_provenance_valid?
-    if response_source == "deterministic_fallback"
+    if response_source.in?(%w[deterministic_fallback deterministic_safety])
       return model_identifier == SAFE_REPLY_IDENTIFIER && provider_request_id == "safe-reply:#{Digest::SHA256.hexdigest(output.to_s)}"
     end
     return false unless response_source == "live_model"
