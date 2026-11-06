@@ -3,7 +3,6 @@ require "json"
 
 module Demo
   class MiaResponder
-
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
