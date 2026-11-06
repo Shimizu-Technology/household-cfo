@@ -45,3 +45,12 @@ describe('chat daily report card input', () => {
     expect(checkedDailyReport(null)).toBeNull()
   })
 })
+
+it('keeps an explicitly unresolved review date blank while rejecting an unmarked missing date', () => {
+  const savings = {kind:'contribution' as const,amount_cents:2000,effective_on:'',date_required:true,approval_state:'unreviewed_input' as const,counted:false as const}
+  expect(checkedSavingsIntake(savings)).toEqual(savings)
+  expect(checkedSavingsIntake({...savings,date_required:undefined})).toBeNull()
+  const report = {kind:'daily_report' as const,local_on:'',date_required:true,purchases:[{amount_cents:2000,merchant:'Ross',purchased_on:''}],no_spend:false,feelings:null,approval_state:'unreviewed_input' as const,counted:false as const}
+  expect(checkedDailyReport(report)).toEqual(report)
+  expect(checkedDailyReport({...report,date_required:undefined})).toBeNull()
+})

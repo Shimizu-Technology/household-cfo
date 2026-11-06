@@ -90,9 +90,9 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
                 <strong>{label}</strong>
                 <span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span>
               </div>
-              <b>{categories.length < 2 ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
+              <b>{categories.length < 2 || categories.some(category => category.id === 0) ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
             </div>
-            {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+            {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
         ))}
@@ -133,6 +133,7 @@ export function CategoryPressureList({
         {rankedPositions.length === 0 ? (
           <p className="category-pressure-empty">{planKnown ? 'Add categories to see monthly plan pressure here.' : 'Approved spending is not known yet.'}</p>
         ) : rankedPositions.map((position) => {
+          const positionPlanKnown = planKnown && position.id !== 0
           const projected = addMoney(position.actual, position.pending)
           const projectedDifference = subtractMoney(position.planned, projected)
           return (
@@ -144,7 +145,7 @@ export function CategoryPressureList({
                 </div>
                 <div className="category-pressure-status">
                   {position.pending > 0 && <span>{formatReviewMoney(Math.round((position.pending) * 100))} pending</span>}
-                  {planKnown && <b className={projectedDifference < 0 ? 'negative' : ''}>
+                  {positionPlanKnown && <b className={projectedDifference < 0 ? 'negative' : ''}>
                     {position.planned <= 0
                       ? `${formatReviewMoney(Math.round((position.actual) * 100))} unplanned`
                       : projectedDifference < 0
@@ -153,10 +154,10 @@ export function CategoryPressureList({
                   </b>}
                 </div>
               </div>
-              {planKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
+              {positionPlanKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{planKnown || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
-                {planKnown && <>
+                <span>{positionPlanKnown || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                {positionPlanKnown && <>
                   <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
                   <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
                 </>}

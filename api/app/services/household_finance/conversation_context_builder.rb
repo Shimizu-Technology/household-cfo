@@ -102,6 +102,7 @@ module HouseholdFinance
         resolved_message: sanitized_text(topic["resolved_message"], max_length: MAX_TOPIC_TEXT_LENGTH),
         next_move: sanitized_text(topic["next_move"], max_length: MAX_TOPIC_TEXT_LENGTH),
         action: action_payload(topic["action"]),
+        spending_preferences: topic["spending_preferences"],
         read_only_plan: read_only_plan,
         document_evidence: document_evidence&.deep_symbolize_keys,
         action_plan: action_plan,

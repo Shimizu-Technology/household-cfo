@@ -11,6 +11,7 @@
 module AiModels
   DEFAULT_TEXT_MODEL = "anthropic/claude-sonnet-5.5"
   DEFAULT_TRANSCRIPTION_MODEL = "openai/whisper-large-v3"
+  DEFAULT_PARTICIPANT_READER_MODEL = "google/gemini-3-flash-preview"
   DEFAULT_PROPOSAL_GUARD_MODEL = "google/gemini-2.5-flash"
   TEXT_ENV_KEYS = %w[AI_MODEL OPENROUTER_MODEL].freeze
   TRANSCRIPTION_ENV_KEYS = %w[AI_TRANSCRIPTION_MODEL OPENROUTER_TRANSCRIPTION_MODEL].freeze
@@ -25,6 +26,10 @@ module AiModels
 
   def text(env = ENV)
     first_present(env, TEXT_ENV_KEYS) || DEFAULT_TEXT_MODEL
+  end
+
+  def participant_reader(env = ENV)
+    first_present(env, %w[AI_PARTICIPANT_READER_MODEL]) || DEFAULT_PARTICIPANT_READER_MODEL
   end
 
   def transcription(env = ENV)
@@ -72,7 +77,7 @@ module AiModels
   end
 
   def log_configuration(logger: Rails.logger, env: ENV)
-    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)}")
+    logger.info("[AiModels] text=#{text(env)} transcription=#{transcription(env)} participant_reader=#{participant_reader(env)}")
     retired = RETIRED_ENV_KEYS.select { |key| env[key].to_s.strip.present? }
     return if retired.empty?
 

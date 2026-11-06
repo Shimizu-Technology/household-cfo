@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     travel_to Time.zone.local(2026, 11, 5, 12)
     @user = User.create!(clerk_id: "review_#{SecureRandom.hex(8)}", email: "#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
@@ -16,6 +18,7 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     [ "My husband left me last night", "I need to talk to someone", "How do I contact my coach?", "How can I reach my coach?", "What is a sinking fund?", "Can I afford a $300 stroller?" ].each do |message|
       ask(message)
       refute_match(/\ANext setup question:/, reply, message)
+      refute_match(/I haven't added that to your setup/, reply, message)
       assert_nil response.parsed_body["mia_action_draft"], message
     end
   end
@@ -105,7 +108,9 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     ask("none")
     assert response.parsed_body["mia_action_draft"], reply
     ask("I don't know")
-    assert_match(/unknown|Debt|debt/i, reply)
+    assert_match(/couldn.t read.*try again/i, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute_match(/Next setup question/i, reply)
     @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10000, minimum_payment_cents: 5000)
     @household.household_profile.update!(debt_tracking_mode: "individual")
     ask("No debt payments")

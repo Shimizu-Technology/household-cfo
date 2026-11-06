@@ -4856,7 +4856,7 @@ test('profile save sends only the fields the participant changed and guards unsa
   expect(await unloadBlocked()).toBe(false)
 })
 
-test('first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page }) => {
+test('first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page, browserName }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
   let setupRequests = 0
   page.on('request', (request) => { if (request.url().endsWith('/api/v1/workspace/setup')) setupRequests += 1 })
@@ -4876,8 +4876,9 @@ test('first-run setup leaves blank money unknown, accepts cents, and explains pr
 
   await income.fill('1234.56')
   // Save follows the last field in keyboard order.
+  // Safari's Option-Tab includes native buttons when ordinary Tab skips them.
   await page.getByLabel('Flexible spending').focus()
-  await page.keyboard.press('Tab')
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
   await expect(form.getByRole('button', { name: 'Save and talk to Mia' })).toBeFocused()
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.keyboard.press('Enter')
@@ -7905,7 +7906,7 @@ test('mobile Ask Mia 320px category-create link preserves and submits exact mont
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
   const form = page.locator('.annual-category-form')
   await expect(form.getByLabel('New category', { exact: true })).toHaveValue('School supplies')
-  await expect(form.getByLabel('Expense Stack group')).toHaveValue('sinking_expected')
+  await expect(form.getByLabel('Spending group')).toHaveValue('sinking_expected')
   await expect(form.getByLabel('Monthly plan')).toHaveValue('120')
   await expect(form.getByLabel('Category month scope')).toHaveValue('selected')
   await expect(form.getByLabel('New category', { exact: true })).toBeFocused()
@@ -10551,6 +10552,35 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await expect(page.getByText(/call or text 988/)).toBeVisible();await expect(prompt).toHaveCount(0);await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toHaveCount(0)
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
+})
+test('BOG UI explicit check-in reopens today after a chat question and on the next day', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-28T02:00:00Z') })
+  await openDaily(page, { active: true })
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(prompt).toBeVisible()
+  await sendMiaDailyReport(page, {
+    user_message: { id: 8251, role: 'user', author: 'You', content: 'I saved nothing today' },
+    assistant_message: { id: 8252, role: 'assistant', author: 'Mia', content: 'Would you like to talk about today?' },
+  })
+  await expect(prompt).toHaveCount(0)
+  await openSection(page, 'Savings')
+  await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).press('Enter')
+  await expect(prompt).toBeVisible()
+  await page.clock.setFixedTime(new Date('2026-09-29T02:00:00Z'))
+  const tomorrow = structuredClone(dailyContext)
+  tomorrow.calendar = { ...tomorrow.calendar, phase: 'active', local_today: '2026-09-29' }
+  tomorrow.day = { ...tomorrow.day!, local_on: '2026-09-29', spending_state: 'unknown', check_in_id: null, check_in_version_id: null }
+  await page.route(/^http:\/\/api\.test\/api\/v1\/savings_challenge\/daily(?:\?.*)?$/, route => route.fulfill({ json: { ...tomorrow, cohort_id: 41, enrollment_id: 1 } }))
+  const freshDay = page.waitForResponse(response => /^http:\/\/api\.test\/api\/v1\/savings_challenge\/daily(?:\?.*)?$/.test(response.url()))
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  expect((await (await freshDay).json()).calendar.local_today).toBe('2026-09-29')
+  await expect(prompt).toHaveCount(0)
+  await openSection(page, 'Savings')
+  await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await expect(prompt.getByRole('button', { name: 'No spending today' })).toBeEnabled()
 })
 test('BOG UI daily Mia waits for the current question before offering today', async ({ page }) => {
   await openDaily(page, { active: true })
@@ -13748,6 +13778,24 @@ test('Coach Studio review two restores history for staff who also have a partici
   await expect(page.getByLabel('Assistant name')).toHaveValue('Keep this participant-seat edit')
 })
 
+test('BOG UI one message immediately shows separate purchase and savings reviews while restoration is unavailable', async ({ page }) => {
+  let sent = false
+  await openDaily(page, { active: true })
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => sent ? route.abort() : route.fulfill({ json: { records: [], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  const savings = { id: 9001, kind: 'savings', status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 8002, state: {}, input: { kind: 'contribution', amount_cents: 700, signed_cents: 700, effective_on: '2026-09-28', counted: false, approval_state: 'unreviewed_input', new_money_confirmation_required: true } }
+  const spending = { ...savings, id: 9002, kind: 'daily_report', input: miaDailyReport }
+  await page.route('http://api.test/api/v1/mia/messages', route => {
+    sent = true
+    return route.fulfill({ json: { user_message: { id: 8001, role: 'user', author: 'You', content: 'I saved $7 and spent $8 today' }, assistant_message: { id: 8002, role: 'assistant', author: 'Mia', content: 'Both are below for your review.' }, savings_intake: savings.input, challenge_chat_card: savings, challenge_chat_cards: [savings, spending] } })
+  })
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('I saved $7 and spent $8 today')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Savings to check', exact: true })).toHaveCount(1)
+  const purchases = page.getByRole('region', { name: 'Your check-in', exact: true })
+  await expect(purchases).toHaveCount(1)
+  await expect(purchases.getByLabel('Amount for Fictional fuel', { exact: true })).toHaveValue('8.00')
+})
+
 test('Coach Studio phrase frequency stays readable and reachable by touch', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await page.getByRole('navigation', { name: 'Coach Studio areas' }).getByRole('button', { name: 'Your assistant', exact: true }).click()
@@ -13763,4 +13811,15 @@ test('Coach Studio phrase frequency stays readable and reachable by touch', asyn
   expect(bounds?.height).toBeGreaterThanOrEqual(44)
   expect(await frequency.evaluate(element => parseFloat(getComputedStyle(element).fontSize))).toBeGreaterThanOrEqual(16)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI a goal card does not hide a separate daily report fallback', async ({page}) => {
+  await openDaily(page, {active:true})
+  await sendMiaDailyReport(page, {
+    user_message:{id:8801,role:'user',author:'You',content:'I spent $8 today'},
+    assistant_message:{id:8802,role:'assistant',author:'Mia',content:'Check the purchase below.'},
+    savings_intake:miaDailyReport,
+    challenge_chat_cards:[{id:9901,kind:'goal',status:'pending',lock_version:0,enrollment_id:1,message_id:8802,state:{},input:{target_cents:50000,expected_plan_version_id:null}}],
+  })
+  await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toBeVisible()
 })

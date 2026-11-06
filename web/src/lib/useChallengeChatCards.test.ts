@@ -69,3 +69,24 @@ it('restores set-aside and withdrawal review cards and removes closed cards on a
   await waitFor(() => expect(hook.result.current.savings).toEqual([]))
   expect(hook.result.current.reports).toEqual([])
 })
+
+it('keeps both independently reviewed facts from one message through a delayed restore', async () => {
+  let finish!: (result: ChallengeChatCards) => void
+  vi.mocked(fetchChallengeChatCards).mockReturnValue(new Promise(resolve => { finish = resolve }))
+  const hook = renderHook(() => useChallengeChatCards(true, scope, actor, 3))
+  const savings: ChallengeChatCard = { ...card, id: 31, kind: 'savings', input: { kind: 'contribution', amount_cents: 700, signed_cents: 700, effective_on: '2026-11-02', counted: false, approval_state: 'unreviewed_input' } }
+  act(() => { hook.result.current.accept(savings); hook.result.current.accept(card) })
+  expect(hook.result.current.savings).toEqual([savings])
+  expect(hook.result.current.reports.map(report => report.nonce)).toEqual(['server-card-30'])
+  await act(async () => { finish(response([])) })
+  expect(hook.result.current.savings).toEqual([savings])
+  expect(hook.result.current.reports).toHaveLength(1)
+})
+
+it('reports whether a received card was stored so fallback reviews remain available', () => {
+  const missing = renderHook(() => useChallengeChatCards(false, scope, undefined, undefined))
+  expect(missing.result.current.accept(card)).toBe(false)
+  const valid = renderHook(() => useChallengeChatCards(false, scope, actor, 3))
+  act(() => expect(valid.result.current.accept(card)).toBe(true))
+  expect(valid.result.current.reports).toHaveLength(1)
+})

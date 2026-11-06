@@ -28,11 +28,16 @@ module Api
         render json: { errors: [ error.message ], code: "savings_challenge_unavailable" }, status: :forbidden
       end
 
+      around_action :scope_participant_reading, only: :create
       before_action :authenticate_user!
       # Crisis messages are never throttled: emergency guidance must always answer.
       participant_rate_limit to: 20, within: 1.minute, name: "mia-minute", only: :create, unless: :crisis_message?
       participant_rate_limit to: 200, within: 1.hour, name: "mia-hour", only: :create, unless: :crisis_message?
       before_action :require_writable_household!, only: %i[create destroy]
+
+      def scope_participant_reading
+        HouseholdFinance::ParticipantMessageReader::Current.set(message: nil, reading: nil) { yield }
+      end
 
       def index
         response.set_header("Cache-Control", "private, no-store")
@@ -123,6 +128,36 @@ module Api
           return render_acknowledgment_response(session, content, message_request: message_request)
         end
 
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
+          session,
+          persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id,
+          cohort_release_id: current_participant_runtime.release_id
+        ).call
+        transcript = transcript_for_current_persona(transcript)
+        transcript = intent_transcript_without_memory_commands(transcript)
+        history = transcript.map { |message| message.slice(:role, :content) }
+        @mia_conversation_messages = history
+
+        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
+          session,
+          household: current_household,
+          persona_context_id: current_participant_runtime.continuity_id
+        ).call
+
+        if attached_imports.empty?
+          field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
+          field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
+          field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
+          thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
+          action = thread[:action].to_h
+          pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
+          pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending)
+          HouseholdFinance::ParticipantMessageReader::Current.message = content
+          HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
+        end
+
         # Challenge goal/pattern continuations must not fall through to household goal reads.
         if savings_program_selected? && attached_imports.empty? && SavingsChallenge::ChatTurn.special?(content, session: session)
           return render_savings_response(session, content, attached_imports, message_request: message_request)
@@ -166,25 +201,9 @@ module Api
           @savings_household_read = household_request == :household_read
         end
 
-        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
-          session,
-          persona_version_id: current_persona.version_id,
-          cohort_id: current_participant_runtime.cohort_id,
-          cohort_release_id: current_participant_runtime.release_id
-        ).call
-        transcript = transcript_for_current_persona(transcript)
-        transcript = intent_transcript_without_memory_commands(transcript)
-        history = transcript.map { |message| message.slice(:role, :content) }
-        @mia_conversation_messages = history
-
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
         global_read_only_request = @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
-        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
-          session,
-          household: current_household,
-          persona_context_id: current_participant_runtime.continuity_id
-        ).call
         prior_evidence = prior_document_evidence(conversation_context)
         prior_evidence_imports = prior_evidence.fetch(:document_imports)
         if attached_imports.empty? && prior_evidence_imports.any?
@@ -219,6 +238,7 @@ module Api
           selected_month: budget_month_param
         ).call
         intent_context[:available_product_modules] = module_guidance.context
+        intent_context[:participant_reading] = @participant_reading
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -553,7 +573,7 @@ module Api
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         turn = SavingsChallenge::ChatTurn.new(household: current_household, user: current_user, enrollment: enrollment,
           session: session, message: content, attachments: attached_imports, persona: module_guidance.persona(current_persona),
-          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context).call
+          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context, reading: @participant_reading).call
         @used_coach_content = turn.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
@@ -563,7 +583,7 @@ module Api
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil, transaction_draft: nil,
             budget: nil, spending_report: nil,
-            savings_intake: turn.intake, challenge_chat_card: card, spending_patterns: turn.patterns }
+            savings_intake: turn.intake, challenge_chat_card: card, challenge_chat_cards: Array(turn.cards).map(&:as_api_json), spending_patterns: turn.patterns }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
           render json: payload, status: :created
@@ -2150,7 +2170,11 @@ module Api
         command = topic[:action].to_h.deep_symbolize_keys
         if topic[:status] == "pending_review" && topic[:mia_action_draft_id].to_i.positive?
           command = command.merge(type: "review_pending_action", draft_id: topic[:mia_action_draft_id])
-        elsif command[:type].blank?
+        elsif content.to_s.squish.match?(/\A(?:please )?draft that[.!]?\z/i) && topic[:mia_action_draft_id].blank? && topic[:status].to_s.in?(%w[needs_clarification recalled])
+          # Explicit review request for this still-undrafted structured action.
+          # Applied or previously drafted topics never enter this branch.
+        else
+          command = {}
           pending_reviews = annual_budget_manager.plan_data.fetch(:pending_mia_action_drafts)
           if pending_reviews.one? && topic[:type].to_s.in?(%w[budget_edit budget_report])
             command = { type: "review_pending_action", draft_id: pending_reviews.first.fetch(:id), year: annual_budget_manager.year }
@@ -2168,7 +2192,11 @@ module Api
           ).call
         end
         direct_answer = if action_result.nil?
-          "I lost the exact request, and I do not want to guess. Please restate the category, amount, and month you want changed. Nothing changed."
+          if content.to_s.squish.match?(/\A(?:yes|yeah|yep|yup|ok(?:ay)?)[.!]?\z/i)
+            "Okay. What would you like to work on next?"
+          else
+            "I lost the exact request, and I do not want to guess. Please restate the category, amount, and month you want changed. Nothing changed."
+          end
         end
 
         {
@@ -2472,6 +2500,10 @@ module Api
       def drafted_transaction_message(draft, annual_plan)
         category = drafted_transaction_category_label(draft)
         impact = drafted_transaction_impact_line(draft, annual_plan)
+        if draft.household.budget_categories.active.none?
+          question = HouseholdFinance::MiaSetupGuide.new(draft.household).after_apply_message
+          return "I kept #{draft.merchant} for #{money(draft.total_amount_cents)} on a review card. You can choose its spending group and save it after setup. Nothing is saved yet. #{question}"
+        end
         "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."
       end
 

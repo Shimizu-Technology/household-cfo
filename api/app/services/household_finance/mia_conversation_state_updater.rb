@@ -119,6 +119,7 @@ module HouseholdFinance
         "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
         "intent" => intent_result.intent,
         "confidence" => intent_result.confidence.to_f.round(3),
+        "spending_preferences" => topic[:spending_preferences],
         "action" => action[:type].to_s == "none" ? nil : action,
         "mia_action_draft_id" => mia_action_draft&.id,
         "transaction_draft_id" => transaction_draft&.id,

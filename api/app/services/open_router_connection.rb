@@ -11,12 +11,12 @@ module OpenRouterConnection
 
   module_function
 
-  def start(uri, read_timeout:, open_timeout:, &block)
+  def start(uri, read_timeout:, open_timeout:, report_account_failure: true, &block)
     attempts = 0
     begin
       attempts += 1
       response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: read_timeout, open_timeout: open_timeout, &block)
-      ProviderOutageAlert.check(response, service: "mia_chat")
+      ProviderOutageAlert.check(response, service: "mia_chat") if report_account_failure
       response
     rescue Net::OpenTimeout
       retry if attempts < OPEN_ATTEMPTS

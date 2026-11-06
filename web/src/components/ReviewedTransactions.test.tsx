@@ -41,7 +41,7 @@ describe('ReviewedTransactionsPanel', () => {
     expect(restore.textContent).toBe('Restore')
     fireEvent.click(restore)
     expect(onReopen).toHaveBeenLastCalledWith(expect.objectContaining({ id: 221, status: 'ignored' }))
-    expect(screen.getByText(/removes it from this month’s actuals and puts it back in review/)).toBeTruthy()
+    expect(screen.getByText(/removes it from this month’s confirmed spending and puts it back in review/)).toBeTruthy()
   })
 
   it('locks every reversal while another review action is running and shows progress on the active row', () => {

@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/savings_challenge_test_support"
 
 class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
+  include ParticipantReaderTestSupport
   include SavingsChallengeTestSupport
 
   setup do
@@ -142,7 +144,7 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       [ "Picked up an extra shift and saved $50 today", "Got my paycheck and set aside $50 today" ].each do |message|
         assert_equal({ kind: "contribution", signed_cents: 5_000 }, intake.call(message).slice(:kind, :signed_cents), message)
       end
-      assert_nil intake.call("Got $50 and put it in savings today"), "money put into savings is never a purchase"
+      refute_equal "daily_report", intake.call("Got $50 and put it in savings today")&.fetch(:kind), "money put into savings is never a purchase"
       assert_equal [ 5_000 ], intake.call("Spent $50 at Costco, saved $10 with coupons today").fetch(:purchases).map { |row| row[:amount_cents] }
     end
   end

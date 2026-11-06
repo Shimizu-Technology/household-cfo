@@ -1,8 +1,10 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 # End-to-end regressions from the October 2026 Mia chat QA pass. The provider is
 # stubbed (or absent) so every reply comes from Rails-owned routing and facts.
 class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   include ActiveSupport::Testing::TimeHelpers
 
   setup { travel_to Time.zone.local(2026, 10, 16, 12) }

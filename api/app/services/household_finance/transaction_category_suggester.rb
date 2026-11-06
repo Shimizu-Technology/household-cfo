@@ -36,9 +36,21 @@ module HouseholdFinance
       categories = active_categories
       return no_match("no_active_categories") if categories.empty?
 
-      if (category = exact_category(categories, category_name))
-        return matched(category, "exact_category")
+      exact = exact_category(categories, category_name)
+      # A detailed receipt split keeps its purpose. Broad extracted groups defer
+      # to participant choices and the everyday default, regardless of the label.
+      if (exact && SavingsChallenge::Daily::ReviewCategories.broad?(exact)) || (category_name.blank? && merchant_fallback)
+        policy = (@everyday_policy ||= EverydaySpendingPolicy.new(household)).suggestion(merchant: merchant, text: text)
+        if policy
+          history = merchant_rule_suggestion(merchant, categories)
+          return history if history
+          return policy[:category] ? matched(policy[:category], policy[:reason]) : no_match(policy[:reason])
+        end
+        if exact && SavingsChallenge::Daily::ReviewCategories.broad?(exact) && EverydaySpendingPolicy.family([ merchant, text ].compact.join(" "))
+          return merchant_rule_suggestion(merchant, categories) || no_match("check_everyday_spending_category")
+        end
       end
+      return matched(exact, "exact_category") if exact
 
       if heuristic_confident?(confidence) && (category = heuristic_category(categories, [ category_name, text ].compact.join(" ")))
         return matched(category, "item_text")
@@ -118,7 +130,9 @@ module HouseholdFinance
 
     def heuristic_category(categories, text)
       normalized_text = normalized(text)
-      if normalized_text.match?(TOBACCO_TERMS)
+      if normalized_text.match?(/\bgas\s+(?:co|company|utility|services?)\b/)
+        category_named(categories, /utilities|fixed|essential|bills/)
+      elsif normalized_text.match?(TOBACCO_TERMS)
         category_named(categories, /cigarette|tobacco|smoking|vape/)
       elsif normalized_text.match?(HOUSEHOLD_TERMS)
         category_named(categories, /household|supplies|cleaning|home goods/)

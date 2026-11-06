@@ -7,13 +7,13 @@ module HouseholdFinance
       "primary_goal" => "What is the main money goal you want this household to work toward?",
       "primary_income" => "What is this household’s primary monthly take-home income? Enter 0 if there is none.",
       "fixed_expenses" => "About how much are this household’s fixed essentials each month? Enter 0 if there are none.",
-      "flexible_spend" => "About how much does this household spend flexibly each month? Enter 0 if there is none.",
+      "flexible_spend" => "About how much is your household’s everyday spending each month? Enter 0 if there is none.",
       "debt_payment" => "How much are your household’s debt minimum payments each month? Say ‘no debt payments’ if there are none."
     }.freeze
 
     class << self
       def setup_request?(value)
-        normalized(value).casecmp?(SETUP_REQUEST)
+        normalized(value).casecmp?(SETUP_REQUEST) || normalized(value).match?(/\A(?:please\s+)?(?:help\s+me\s+(?:to\s+)?|let['’]?s\s+)?(?:set\s*up|start\s+setting\s+up)\s+(?:my|our)\s+household[.!]?\z/i)
       end
 
       def question_message(field)
@@ -26,9 +26,13 @@ module HouseholdFinance
       def server_question_asked?(field, active_thread:, recent_messages:)
         # Recover after a clarification or unrelated answer replaces the active
         # topic. Only a server-authored setup question establishes this context.
+        questions = [ question_message(field) ].compact
+        if field.to_s == "flexible_spend"
+          questions << "Next setup question: About how much does this household spend flexibly each month? Enter 0 if there is none. #{REVIEW_BOUNDARY}"
+        end
         Array(recent_messages).reverse.any? do |message|
           turn = message.to_h.deep_symbolize_keys
-          turn[:role] == "assistant" && question_message(field).present? && turn[:content].to_s.end_with?(question_message(field))
+          turn[:role] == "assistant" && questions.any? { |question| turn[:content].to_s.end_with?(question) }
         end
       end
 
