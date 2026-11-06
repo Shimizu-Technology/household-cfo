@@ -167,6 +167,26 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_empty @household.income_sources
   end
 
+  test "an old financial picture question cannot open a setup field for the reader" do
+    session = @household.chat_sessions.create!(user: @user)
+    session.chat_messages.create!(role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("household_name"))
+    @household.update_column(:financial_generation, 1)
+    fields = []
+    klass = HouseholdFinance::ParticipantMessageReader
+    original = klass.method(:call)
+    data = reading
+    klass.define_singleton_method(:call) do |**options|
+      fields << options[:setup_field]
+      new(**options.merge(transport: ->(_payload) { JSON.generate(data) })).call
+    end
+    post "/api/v1/mia/messages", params: { message: "not sure yet" }, headers: { "Authorization" => "Bearer test_token_#{@user.id}", "X-Financial-Generation" => "1" }, as: :json
+    assert_response :created
+    assert_equal [ nil ], fields
+    assert_nil response.parsed_body["mia_action_draft"]
+  ensure
+    klass&.define_singleton_method(:call, original) if original
+  end
+
   test "a reader purchase preserves its stated past date and rejects future or invalid dates" do
     begin_setup
     text = "I spent 12 at Shell on 2026-11-25"

@@ -128,12 +128,28 @@ module Api
           return render_acknowledgment_response(session, content, message_request: message_request)
         end
 
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
+          session,
+          persona_version_id: current_persona.version_id,
+          cohort_id: current_participant_runtime.cohort_id,
+          cohort_release_id: current_participant_runtime.release_id
+        ).call
+        transcript = transcript_for_current_persona(transcript)
+        transcript = intent_transcript_without_memory_commands(transcript)
+        history = transcript.map { |message| message.slice(:role, :content) }
+        @mia_conversation_messages = history
+
+        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
+          session,
+          household: current_household,
+          persona_context_id: current_participant_runtime.continuity_id
+        ).call
+
         if attached_imports.empty?
           field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
-          recent_setup = session.chat_messages.order(:id).last(40).map { |turn| { role: turn.role, content: turn.content } }
-          field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: session.active_topic, recent_messages: recent_setup)
+          field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
           field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
-          thread = session.active_topic.to_h.deep_symbolize_keys
+          thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
@@ -185,25 +201,9 @@ module Api
           @savings_household_read = household_request == :household_read
         end
 
-        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
-          session,
-          persona_version_id: current_persona.version_id,
-          cohort_id: current_participant_runtime.cohort_id,
-          cohort_release_id: current_participant_runtime.release_id
-        ).call
-        transcript = transcript_for_current_persona(transcript)
-        transcript = intent_transcript_without_memory_commands(transcript)
-        history = transcript.map { |message| message.slice(:role, :content) }
-        @mia_conversation_messages = history
-
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
         global_read_only_request = @savings_household_read || ::Mia::FinancialReadOnlyRequest.matches?(content)
-        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
-          session,
-          household: current_household,
-          persona_context_id: current_participant_runtime.continuity_id
-        ).call
         prior_evidence = prior_document_evidence(conversation_context)
         prior_evidence_imports = prior_evidence.fetch(:document_imports)
         if attached_imports.empty? && prior_evidence_imports.any?
