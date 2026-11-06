@@ -56,7 +56,7 @@ module SavingsChallenge
         next unless cents.positive?
         day = HouseholdFinance::ParticipantReportDay.call(day: fact["day"], message: @message, today: @enrollment.local_today)
         if day.state == :missing && fact["kind"] != "purchase"
-          @rejection = { question: "You mentioned $#{format('%0.2f', cents / 100.0)} set aside or taken out. Which day was that? Nothing has been saved." }
+          @rejection = { question: "You mentioned $#{format('%0.2f', cents / 100.0)} set aside or taken out. Which day was that?" }
           next
         end
         date = day.state == :missing ? @enrollment.local_today : day.date

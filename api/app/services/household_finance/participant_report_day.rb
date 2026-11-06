@@ -9,7 +9,10 @@ module HouseholdFinance
     def self.call(day:, message:, today:)
       phrases = day.present? ? [ day ] : []
       if day.blank?
-        message.scan(Regexp.union(PurchaseReportParser::DATE_PATTERN, AGO, UNRESOLVED)) { phrases << Regexp.last_match[0] }
+        message.scan(Regexp.union(PurchaseReportParser::DATE_PATTERN, AGO, UNRESOLVED)) do
+          match = Regexp.last_match
+          phrases << match[0] unless ordinary_weekday_word?(match)
+        end
       end
       return Result.new(:missing, nil, "") if phrases.empty?
       return Result.new(:unresolved, nil, phrases.join(" / ")) unless phrases.uniq.one?
@@ -25,5 +28,12 @@ module HouseholdFinance
       end
       Result.new(date ? :resolved : :unresolved, date, phrase)
     end
+
+    # The reader quotes a stated day. In this fallback scan a bare "sunday school"
+    # or "monday was rough" is an ordinary word, not the day of the report.
+    def self.ordinary_weekday_word?(match)
+      match[:weekday].present? && match[0].casecmp?(match[:weekday]) && !match.pre_match.match?(/\b(?:this|past)\s+\z/i)
+    end
+    private_class_method :ordinary_weekday_word?
   end
 end

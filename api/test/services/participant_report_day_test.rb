@@ -19,6 +19,14 @@ class ParticipantReportDayTest < ActiveSupport::TestCase
     end
   end
 
+  test "ordinary weekday words in the fallback scan do not date a report" do
+    [ "paid 20 for sunday school", "put 20 away, monday was rough" ].each do |text|
+      assert_equal :missing, HouseholdFinance::ParticipantReportDay.call(day: "", message: text, today: Date.new(2026, 11, 6)).state, text
+    end
+    assert_equal Date.new(2026, 11, 2), HouseholdFinance::ParticipantReportDay.call(day: "", message: "paid 20 on monday", today: Date.new(2026, 11, 6)).date
+    assert_equal Date.new(2026, 11, 2), HouseholdFinance::ParticipantReportDay.call(day: "monday", message: "paid 20 monday", today: Date.new(2026, 11, 6)).date
+  end
+
   test "an unresolved stated day leaves a review date empty instead of guessing" do
     parser=intake("saved 20 last week", kind: "set_aside", day: "last week")
     assert_equal "", parser.intakes.sole[:effective_on]

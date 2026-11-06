@@ -8,6 +8,8 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 12
     MAX_OUTPUT_TOKENS = 8_000
+    # One paycheck or week is not the monthly income the setup question asks for.
+    PER_PAY_INCOME = /\b(?:\d+|two|three|four)\s+(?:pay\s?)?checks\b|\b(?:pay\s?)?checks?\s+(?:is|are|of)\b|\b(?:each|every|per)\s+(?:pay\s?)?(?:check|day)\b|\b(?:twice|two times) a month\b|\bsemi-?monthly\b|\bbi-?weekly\b|\bweekly\b|\b(?:a|per|each|every)\s+week\b|\bevery\s+(?:other|two|2)\s+weeks?\b/i.freeze
     MIN_ACTION_CONFIDENCE = 0.72
 
     INTENTS = %w[
@@ -323,6 +325,10 @@ module HouseholdFinance
           clarification: "What is the one monthly total for #{SetupStatus::FIELD_LABELS.fetch(field.to_sym).downcase}? Please give the total you want to use; I won't add the separate amounts or save anything for you.")
         result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
         return result
+      end
+      if reading.answer_field == "primary_income" && raw_user_message.match?(PER_PAY_INCOME)
+        return deterministic_setup_clarification("primary_income",
+          clarification: "What is your one monthly income total? Please give the total you want to use; I won't work out a monthly amount from your paychecks or save anything for you.")
       end
       explicit_intake = MiaSetupIntake.new(raw_user_message, context: context).call
       return explicit_intake if explicit_intake && reading.facts.count { |fact| fact["kind"] == "purchase" } <= 1

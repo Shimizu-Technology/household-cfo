@@ -244,7 +244,7 @@ module SavingsChallenge
       purchases = report[:purchases]
       items = purchases.map { |row| row[:merchant].present? ? "#{money(row[:amount_cents])} at #{row[:merchant]}" : money(row[:amount_cents]) }
       missing = purchases.count { |row| row[:merchant].blank? }
-      date_note = report[:date_required] ? " Choose the date on the card." : (report[:local_on] != @enrollment.local_today.iso8601 ? " The card is for #{label_day(report[:local_on])}." : "")
+      date_note = report[:date_required] ? " Choose the date on the card." : (report[:local_on] != @enrollment.local_today.iso8601 ? " The card is for #{label_day(report[:local_on]).delete_prefix('on ')}." : "")
       place = missing.zero? ? date_note : " Add where you spent #{missing == 1 ? 'it' : 'each one'} on the card.#{date_note}"
       feelings = report[:feelings] ? " How you felt is on the card too; it stays private." : ""
       # Respond only to feelings the participant actually stated: "Busy Bee Cafe"

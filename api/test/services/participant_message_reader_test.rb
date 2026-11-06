@@ -27,6 +27,40 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert intake.intakes.all? { |input| input[:counted] == false && input[:approval_state] == "unreviewed_input" }
   end
 
+  test "a condition after a completed report keeps the amount" do
+    [ "saved 20 today even if it isnt much", "saved 20 if that counts", "even if i only saved 20 today thats something" ].each do |text|
+      result = read(text, object(facts: [ fact("set_aside", "20", day: "") ]))
+      assert_equal [ "20" ], result.facts.pluck("amount"), text
+      assert_not result.hypothetical_movement, text
+    end
+    text = "saved 12 today would you count that"
+    result = read(text, object(facts: [ fact("set_aside", "12") ]).merge(question: true))
+    assert_equal [ "12" ], result.facts.pluck("amount")
+    assert_equal [ "25" ], read("i saved 25 today and if i get overtime ill add more", object(facts: [ fact("set_aside", "25") ])).facts.pluck("amount")
+  end
+
+  test "a condition ahead of the amount stays hypothetical" do
+    [ "if i put 100 away today would that be enough", "what if i saved 100" ].each do |text|
+      result = read(text, object(facts: [ fact("set_aside", "100", day: "") ]).merge(question: true))
+      assert_empty result.facts, text
+      assert result.hypothetical_movement, text
+    end
+    result = read("would 100 be enough", object(facts: [ fact("set_aside", "100", day: "") ]).merge(question: true))
+    assert_empty result.facts
+  end
+
+  test "misplaced commas are never read as larger amounts" do
+    { "saved 1,20 today" => "1,20", "saved 20,30 today" => "20,30", "saved 2,5000 today" => "2,5000", "saved 1200,50 today" => "1200,50" }.each do |text, amount|
+      result = read(text, object(facts: [ fact("set_aside", amount) ]))
+      assert_empty result.facts, text
+      assert result.unclear_amount, text
+    end
+    assert_equal [ "$1,200" ], read("saved $1,200 today", object(facts: [ fact("set_aside", "$1,200") ])).facts.pluck("amount")
+    assert_equal [ "1,200,000" ], read("saved 1,200,000 today", object(facts: [ fact("set_aside", "1,200,000") ])).facts.pluck("amount")
+    assert_equal [ "20" ], read("put away 20, not much", object(facts: [ fact("set_aside", "20", day: "") ])).facts.pluck("amount")
+    assert_empty read("saved 1,20 today", object(field: "income", value: "1,20"), setup_field: "primary_income").setup_answer["value"]
+  end
+
   test "care keeps every reported amount and ordinary idioms do not become care" do
     text = "i lost my job but i still saved $20 today"
     reading = read(text, object(care: "hardship", facts: [ fact("set_aside", "$20") ]))

@@ -213,6 +213,40 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_match(/one.*total/i, json.dig("assistant_message", "content"))
   end
 
+  test "per-paycheck income asks for the monthly total instead of using one paycheck" do
+    begin_setup
+    [ [ "2 paychecks of 1400", "1400" ], [ "my check is 900 twice a month", "900" ], [ "i get 1000 a week", "1000" ] ].each do |message, amount|
+      json = household_say(message, reading(field: "income", value: amount))
+      assert_nil json["mia_action_draft"], message
+      assert_match(/one monthly income total/i, json.dig("assistant_message", "content"), message)
+    end
+    assert_not_nil household_say("we bring in 4650 monthly", reading(field: "income", value: "4650"))["mia_action_draft"]
+  end
+
+  test "an unclear amount asks again instead of saying nothing was reported" do
+    with_reading(reading(facts: [ fact("set_aside", "1,20") ])) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "saved 1,20 today" }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_empty json.fetch("challenge_chat_cards")
+        assert_match(/couldn't tell the amount/i, json.dig("assistant_message", "content"))
+      end
+    end
+  end
+
+  test "a small report with a condition after it still reaches its card" do
+    with_reading(reading(facts: [ fact("set_aside", "20") ])) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "saved 20 today even if it isnt much" }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_equal 1, json.fetch("challenge_chat_cards").length
+        assert_match(/Got it: \$20\.00 set aside today/, json.dig("assistant_message", "content"))
+      end
+    end
+  end
+
   test "an unavailable setup reader does not press the next question or name an absent Savings screen" do
     household_say("Help me set up my household", reading)
     klass = HouseholdFinance::ParticipantMessageReader
