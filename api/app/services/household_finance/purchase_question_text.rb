@@ -74,9 +74,13 @@ module HouseholdFinance
     end
 
     def self.read_only_purchase_question?(message)
-      # A funding description is not an instruction to reserve new money.
-      text = message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
+      text = read_only_question_text(message)
       purchase_question?(message) && !MiaCoachAnswerer.explicit_write_request?(text)
+    end
+
+    # A funding description is not an instruction to reserve new money.
+    def self.read_only_question_text(message)
+      message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
     end
 
     def self.unfunded?(text)
@@ -103,7 +107,12 @@ module HouseholdFinance
 
     def self.purchase_clause(message)
       text = message.to_s
-      income_with_purchase?(text) || proposed_purchase_only?(text) ? text[text.match(PURCHASE_QUESTION).begin(0)..] : text
+      return text unless income_with_purchase?(text) || proposed_purchase_only?(text)
+
+      question = text.match(PURCHASE_QUESTION)
+      prefix = text[0...question.begin(0)]
+      timing = /\A\s*(?:(?:next|this|last) (?:month|week|year)|today|tomorrow|in \d+ (?:days?|weeks?|months?|years?)|(?:(?:in|on|during|for)\s+)?(?:#{MonthTerms.pattern})(?:\s+20\d{2})?|\d{4}-\d{2}-\d{2})\s*[,;:]?\s*\z/i
+      prefix.match?(timing) ? text : text[question.begin(0)..]
     end
 
     def self.price_reference_only?(segment, first)

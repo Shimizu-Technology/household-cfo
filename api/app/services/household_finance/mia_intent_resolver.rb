@@ -1227,7 +1227,7 @@ module HouseholdFinance
         effective_on: ""
       }
       effective_on, timing_unavailable = normalized_scenario_effective_on(
-        user_message,
+        scenario_text,
         "",
         item: item,
         amount: raw_amount,

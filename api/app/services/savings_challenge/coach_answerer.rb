@@ -82,7 +82,7 @@ module SavingsChallenge
     private
 
     def purchase_question?
-      text = HouseholdFinance::PurchaseQuestionText.purchase_clause(@message)
+      text = HouseholdFinance::PurchaseQuestionText.read_only_question_text(HouseholdFinance::PurchaseQuestionText.purchase_clause(@message))
       HouseholdFinance::MessageReplyIntent.purchase_question?(@message) && !HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(text)
     end
 

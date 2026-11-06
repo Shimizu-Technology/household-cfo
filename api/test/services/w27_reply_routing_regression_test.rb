@@ -1,5 +1,11 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "a past payoff date is not the proposed purchase date" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "I paid off my card last May, can I buy a $300 stroller?", context: {})
+    result = resolver.send(:deterministic_scenario_fallback)
+    assert_equal "", result.read_only_plan.dig(:items, 0, :effective_on)
+  end
+
   test "a money amount before a named purchase month is not its year" do
     resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "my income is 2000 monthly, can i buy a $300 stroller in December?", context: {})
     date, unavailable = resolver.send(:normalized_scenario_effective_on, "my income is 2000 monthly, can i buy a $300 stroller in December?", "", item: {}, amount: "300", continuation: false)

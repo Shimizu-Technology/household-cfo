@@ -1133,9 +1133,7 @@ module HouseholdFinance
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
-      # Price scoping must not erase participant-authored timing before it.
-      # Prior assistant prose in a legacy continuation is not date evidence.
-      text = message.start_with?("Follow-up to previous ") ? message.split(" Current follow-up: ", 2).last.to_s : message
+      text = PurchaseQuestionText.for_comparison(message).text
       amount_cents = purchase_comparison_amount_cents
       return unless purchase_question? && amount_cents&.positive?
       return incomplete_setup_answer unless SetupStatus.new(household).complete?
