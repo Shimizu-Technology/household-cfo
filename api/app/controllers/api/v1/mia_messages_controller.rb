@@ -168,8 +168,7 @@ module Api
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending,
-            goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
@@ -491,7 +490,7 @@ module Api
         pending = action["setup_updates"].to_h.keys.sole if action["setup_updates"].to_h.keys.one? && session.active_topic["status"] == "pending_review"
         pending = "primary_income" if action["type"] == "schedule_income_change" && session.active_topic["status"] == "pending_review"
         { recent_care: topic, setup_field: field, pending_field: pending,
-          goal_conversation: savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session) }
+          goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action["type"].in?(%w[create_goal update_goal]) }
       rescue SavingsChallenge::AccessPolicy::Unavailable
         { recent_care: nil, setup_field: nil, pending_field: nil, goal_conversation: false }
       end

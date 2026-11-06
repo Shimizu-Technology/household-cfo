@@ -135,7 +135,39 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     refute_match(/I saved|I recorded|I logged/i, reply)
   end
 
+  test "shared goal and savings correction readings cannot bypass hardship care" do
+    [ false, true ].each do |challenge|
+      if challenge
+        setup_savings_context
+        with_savings_runtime { savings_enroll; savings_plan }
+        @user, @household = @savings_user, @savings_household
+      end
+      [
+        [ "lower my goal to 100, they cut my hours", { goal_change: { amount: "100" } } ],
+        [ "change the 25 to 20, they cut my hours", { savings_correction: { old_amount: "25", new_amount: "20", day: "" } } ]
+      ].each do |text, money|
+        reading = HouseholdFinance::ParticipantMessageReader.call(message: text,
+          transport: ->(_) { { care: "hardship", care_status: "ongoing" }.merge(money).to_json })
+        assert reading.available
+        with_reader(reading) { ask(text) }
+        assert_match(/coach|trust|hours|hard/i, reply)
+        refute_match(/goal.*(?:updated|changed)|corrected|confirm.*goal/i, reply)
+        assert_equal "care", @household.chat_sessions.order(:id).last.active_topic.fetch("type")
+        assert_empty response.parsed_body.fetch("challenge_chat_cards", [])
+      end
+    end
+  end
+
   private
+
+  def with_reader(reading)
+    reader = HouseholdFinance::ParticipantMessageReader
+    original = reader.method(:call)
+    reader.define_singleton_method(:call) { |**_| reading }
+    yield
+  ensure
+    reader.define_singleton_method(:call, original)
+  end
 
   def journey(disclosure, first, second, question)
     ask(disclosure)
