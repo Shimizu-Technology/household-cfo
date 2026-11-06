@@ -78,8 +78,7 @@ module SavingsChallenge
     private
 
     def purchase_question?
-      !HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(@message) &&
-        HouseholdFinance::PurchaseQuestionText.purchase_question?(@message)
+      HouseholdFinance::PurchaseQuestionText.read_only_purchase_question?(@message)
     end
 
     def purchase_answer

@@ -65,9 +65,12 @@ module HouseholdFinance
       remaining = left - amount_cents
       comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
       item = label == TITLES.fetch("purchase") ? "purchase" : (label == label.upcase ? label : label.downcase)
-      article = amount_cents.div(100).to_s.match?(/\A(?:8|11|18)/) ? "an" : "a"
+      digits = amount_cents.div(100).to_s
+      leading = digits[0, ((digits.length - 1) % 3) + 1].to_i
+      article = ([ 8, 11, 18 ].include?(leading) || (80..89).cover?(leading) || (800..899).cover?(leading)) ? "an" : "a"
+      priced_item = item.singularize != item ? "#{money(amount_cents)} #{item}" : "#{article} #{money(amount_cents)} #{item}"
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
-      "Your #{facts[:period_label]} plan #{before}, so #{article} #{money(amount_cents)} #{item} #{comparison} if it is extra spending. That's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      "Your #{facts[:period_label]} plan #{before}, so #{priced_item} #{comparison} if it is extra spending. That's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the

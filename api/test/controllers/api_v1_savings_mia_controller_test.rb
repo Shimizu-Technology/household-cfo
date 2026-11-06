@@ -35,6 +35,16 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     assert_equal count, ChatMessage.count
   end
 
+  test "an unfunded purchase question keeps challenge coaching instead of treating set aside as a write" do
+    assert_no_difference [ "MiaActionDraft.count", "TransactionDraft.count", "SavingsEntryVersion.count" ] do
+      post "/api/v1/mia/messages", params: { message: "Should I purchase a $400 game console on a credit card? I don't have money set aside for it." }, headers: auth, as: :json
+      assert_response :created
+    end
+    answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes answer, "no household plan"
+    refute_includes answer, "Do you mean your household plan"
+  end
+
   test "card, loan and hard-day questions get final answers without calling the model" do
     ENV["OPENROUTER_API_KEY"] = "fictional-key"
     with_savings_runtime { debt_approve(debt_stage(debt_terms(label: "Visa", balance_cents: 30_000))) }
@@ -133,7 +143,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "debt free and optional feelings need no setup while hold blocks ordinary chat" do
-    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "without judging yourself" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
+    [ [ "I do not have credit cards", "without credit cards or debt" ], [ "I feel guilty", "does not make you a failure" ], [ "I bought lunch yesterday", "amount, where and date" ] ].each_with_index do |(message, expected), index|
       post "/api/v1/mia/messages", params: { message: message, request_id: "savings-topic-#{index}" }, headers: auth, as: :json
       assert_response :created
       assert_includes response.parsed_body.dig("assistant_message", "content"), expected

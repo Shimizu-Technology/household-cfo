@@ -121,7 +121,7 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
   end
 
   test "labels preserve the item without repayment alternatives articles or pair of" do
-    { "Should I buy a $150 pair of shoes?" => "shoes", "Can I buy a $300 stroller?" => "stroller", "Should I buy a $300 TV or pay off my credit card?" => "TV" }.each do |message, label|
+    { "Should I buy $90 boots using my credit card?" => "boots", "Can I afford a $220 desk chair for working from home?" => "desk chair", "Should I buy a $150 pair of shoes?" => "shoes", "Can I buy a $300 stroller?" => "stroller", "Should I buy a $300 TV or pay off my credit card?" => "TV" }.each do |message, label|
       resolver = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: {}, api_key: "")
       assert_equal label, resolver.send(:deterministic_scenario_label, "purchase")
     end

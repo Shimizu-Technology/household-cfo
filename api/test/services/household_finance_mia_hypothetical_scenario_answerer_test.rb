@@ -48,6 +48,12 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
     assert_includes result.body, "$1,000"
   end
 
+  test "purchase subjects use natural articles and plural items" do
+    { [ 1800, "sofa" ] => "a $1,800 sofa", [ 800, "laptop" ] => "an $800 laptop", [ 90, "boots" ] => "$90 boots", [ 300, "stroller" ] => "a $300 stroller" }.each do |(amount, label), expected|
+      assert_includes answer("purchase", amount, label).body, "so #{expected} would"
+    end
+  end
+
   test "unresolved timing is declined instead of using the selected month" do
     result = HouseholdFinance::MiaHypotheticalScenarioAnswerer.new(
       @household,

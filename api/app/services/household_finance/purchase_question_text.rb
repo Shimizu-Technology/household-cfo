@@ -21,7 +21,7 @@ module HouseholdFinance
     def self.item_label(message)
       text = purchase_clause(message)
       tail = text[/\$\s*[\d,.]+(?:k\b)?\s+(?:for\s+)?(.+)/i, 1] || text[/\b(?:buy|purchase|afford|get|book|order)\s+(.+)/i, 1]
-      label = tail.to_s.split(/[?.!;,]|\s+(?:or|on|with|from|at|next|this month|today|tomorrow|but|because|and)\b/i).first.to_s
+      label = tail.to_s.split(/[?.!;,]|\s+(?:or|on|using|for|with|from|at|next|this month|today|tomorrow|but|because|and)\b/i).first.to_s
         .sub(/\A(?:a|an|the|this)\s+/i, "").sub(/\Apair of\s+/i, "").strip
       return "" if label.blank? || label.match?(/\A(?:on|for|it|this|that|help|smaller goal|my streak|help|less|credit card|loan)\b/i)
 
@@ -32,6 +32,12 @@ module HouseholdFinance
       text = message.to_s
       !debt_question?(text) && !text.match?(/\bspend less\b/i) &&
         MiaCoachAnswerer::PURCHASE_INTENT_PATTERNS.any? { |pattern| text.match?(pattern) } && item_label(text).present?
+    end
+
+    def self.read_only_purchase_question?(message)
+      # A funding description is not an instruction to reserve new money.
+      text = message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
+      purchase_question?(text) && !MiaCoachAnswerer.explicit_write_request?(text)
     end
 
     def self.unfunded?(text)

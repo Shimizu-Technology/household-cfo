@@ -341,7 +341,7 @@ module HouseholdFinance
     end
 
     def compact_purchase_prefix(reference, one_sentence:)
-      match = reference.match(/Your (.+?) plan (has .+? left|is .+? short), so ((?:a|an) .+?) (would .+?) if it is extra spending\./)
+      match = reference.match(/Your (.+?) plan (has .+? left|is .+? short), so ((?:(?:a|an) )?\$.+?) (would .+?) if it is extra spending\./)
       return unless match
 
       figure = "Your #{match[1]} plan #{match[2]}; #{match[3]} #{match[4]}"
