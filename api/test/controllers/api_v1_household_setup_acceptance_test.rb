@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   NUMBERS = "We bring home $5,200 each month. Rent is $1,800, utilities $250, groceries $700, and the car loan minimum is $350.".freeze
 
   setup do
@@ -194,7 +196,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "natural setup start and minimum payment sentences prepare reviews without a model" do
+  test "natural setup start and minimum payment sentences prepare reviews with a structured reader fixture" do
     post_message("Help me set up my household")
     assert_includes reply, "What would you like to call this household?"
     post_message("Call it the Reyes Family.")
@@ -264,7 +266,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 390000, @household.income_sources.sole.amount_cents
   end
 
-  test "an open monthly income review accepts a natural correction without a model" do
+  test "an open monthly income review accepts a natural correction with a structured reader fixture" do
     HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
       attributes: { household_name: "Reyes Family", primary_goal: "Save for a house" }).call
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)

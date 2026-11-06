@@ -1,9 +1,11 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 # Regressions from the October 2026 Mia chat QA pass (findings F5, F6, F8, F9,
 # F10, F11). Provider responses are stubbed with the shapes the QA transcripts
 # imply; Rails stays the authority on what becomes a review card.
 class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
+  include ParticipantReaderTestSupport
   include ActiveSupport::Testing::TimeHelpers
 
   QA_SETUP_PARAGRAPH = "ok so me and my husband we make like 4800 a month together after taxes, rent is 1650 power and water like 280 car note 390, groceries and gas and stuff maybe 900, we wanna save up for emergencies cuz last year the car broke down and we had to borrow from my mom".freeze
@@ -69,7 +71,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
   test "guided name replies drop chat filler" do
     result = resolve("the cruz ohana lol", context: setup_zero_context("household_name"))
     assert result.actionable?
-    assert_equal({ household_name: "The Cruz Ohana" }, result.action.fetch(:setup_updates))
+    assert_equal({ household_name: "the cruz ohana" }, result.action.fetch(:setup_updates))
     clarification = resolve("lol", context: setup_zero_context("household_name"))
     assert clarification.clarification?
     assert_includes clarification.clarification, "What would you like to call this household?"
@@ -170,7 +172,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
       result.action.slice(:type, :debt_tracking_mode, :amount, :minimum_payment))
   end
 
-  test "the exact QA no-debt message with a car-note aside drafts the summary without a model call" do
+  test "the exact QA no-debt message with a car-note aside drafts the summary with a structured reader fixture call" do
     provider_called = false
     result = resolve("we dont have any debt, no credit cards nothing. the car note is in the fixed essentials already", context: debt_context,
       transport: ->(_) { provider_called = true; nil })
@@ -420,7 +422,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
   end
 
   [ "A reliable used truck", "Pay down the store card", "Tuition for my daughter", "Have a cushion before December", "Take the children to visit grandma", "Saving for a washing machine" ].each_with_index do |sentence, index|
-    test "review goal answer is accepted by exclusion #{index}" do
+    test "review goal answer is accepted by the reader #{index}" do
       result = resolve(sentence, context: setup_zero_context("primary_goal"))
       assert result&.actionable?, result.to_h.inspect
       assert_equal sentence, result.action.dig(:setup_updates, :primary_goal)

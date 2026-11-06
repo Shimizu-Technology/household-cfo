@@ -130,7 +130,7 @@ module Api
 
         if attached_imports.empty?
           field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
-          field ||= "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary|money) )?goal to /i)
+          field = "primary_goal" if content.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
           thread = session.active_topic.to_h.deep_symbolize_keys
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"

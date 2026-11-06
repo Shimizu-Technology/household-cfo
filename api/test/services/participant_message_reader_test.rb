@@ -78,6 +78,15 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_includes reader::OFF_REPLY, "try again"
   end
 
+  test "zero savings never fabricates a no spend check in" do
+    text = "I put aside $0 today"
+    result = read(text, object(facts: [ fact("nothing_saved", "") ]))
+    calendar = HouseholdFinance::PurchaseReportParser::Calendar.new(Date.current - 30, Date.current + 30, Date.current)
+    parser = SavingsChallenge::ChatIntake.new(calendar, message: text, reading: result)
+    parser.call
+    assert_empty parser.intakes
+  end
+
   test "provider failure and denial follow the same outage contract without retries" do
     count = 0
     result = HouseholdFinance::ParticipantMessageReader.call(message: "saved 20 today", transport: ->(_payload) { count += 1; raise Net::ReadTimeout })

@@ -27,7 +27,7 @@ module AiModels
   end
 
   def participant_reader(env = ENV)
-    first_present(env, %w[AI_PARTICIPANT_READER_MODEL]) || "google/gemini-2.5-flash"
+    first_present(env, %w[AI_PARTICIPANT_READER_MODEL]) || "google/gemini-3-flash-preview"
   end
 
   def transcription(env = ENV)

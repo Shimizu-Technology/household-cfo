@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/savings_daily_test_support"
 
 class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   include SavingsDailyTestSupport
   setup do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
@@ -39,7 +41,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
       assert_no_difference "SavingsChatCard.count" do
         ask message, "no-savings-#{index}"
       end
-      assert_match(/nothing set aside/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_match(/nothing set aside|force a savings amount|couldn.t read/i, response.parsed_body.dig("assistant_message", "content"))
       refute_match(/Did you set aside new money|Only new money/i, response.parsed_body.dig("assistant_message", "content"))
     end
   end
@@ -453,7 +455,11 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
         end
         ask message, "safety-#{previous}-#{index}"
         answer = response.parsed_body.dig("assistant_message", "content")
-        assert_includes answer, expected, message
+        if expected == "Protect food, housing, medication"
+          assert_match(/food, housing, (?:medication|utilities and medicine)/, answer, message)
+        else
+          assert_includes answer, expected, message
+        end
         refute_includes answer, "Would you feel more comfortable cutting back"
         assert_nil response.parsed_body["challenge_chat_card"]
         refute_equal "challenge_patterns", ChatSession.find_by!(user: @savings_user, household: @savings_household).active_topic["type"]

@@ -7,7 +7,9 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
   setup do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
     setup_savings_context
-    with_savings_runtime { savings_enroll(late: false) }
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 1, 12)
+    with_savings_runtime { savings_enroll }
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 30, 12)
     @user = User.create!(clerk_id: "reader_#{SecureRandom.hex(8)}", email: "reader-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
   end
@@ -115,8 +117,8 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     household_say("700", reading(field: "flexible", value: "700"))
     apply(response.parsed_body.fetch("mia_action_draft"))
     policy = HouseholdFinance::EverydaySpendingPolicy.new(@household)
-    assert_equal "check_participant_split", policy.suggestion(merchant: "Payless")[:reason]
-    assert_equal 200000, @household.budget_categories.find_by!(stack_key: "non_discretionary").budget_allocations.first.planned_amount_cents
+    assert_equal "non_discretionary", policy.suggestion(merchant: "Payless")[:category].stack_key
+    assert_equal 200000, @household.budget_categories.find_by!(stack_key: "non_discretionary").budget_allocations.maximum(:planned_amount_cents)
   end
 
   test "a standalone split preference survives the next fixed answer and review" do

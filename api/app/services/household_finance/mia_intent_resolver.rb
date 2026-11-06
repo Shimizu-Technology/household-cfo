@@ -213,7 +213,17 @@ module HouseholdFinance
 
     def call
       return nil if user_message.blank?
-      reader_result = participant_setup_result
+      unless context[:participant_reading]
+        field = next_missing_setup_field
+        field = "primary_goal" if user_message.match?(/\A(?:please )?(?:change|update|set) (?:my|our) (?:(?:main|primary) (?:money )?|money )?goal to /i)
+        thread = context.dig(:conversation, :active_thread).to_h
+        action = thread[:action].to_h
+        fields = action[:setup_updates].to_h.keys
+        pending = fields.sole.to_s if fields.one? && thread[:status] == "pending_review"
+        pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
+        context[:participant_reading] = ParticipantMessageReader.call(message: raw_user_message, setup_field: field, pending_field: pending)
+      end
+      reader_result = participant_setup_result unless ::Mia::FinancialReadOnlyRequest.matches?(user_message) || MiaMonthAnswer.question?(user_message)
       return reader_result if reader_result
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       coaching = deterministic_coaching_result
@@ -282,14 +292,19 @@ module HouseholdFinance
       fields = action[:setup_updates].to_h.keys
       pending_field = fields.sole.to_s if fields.one? && thread[:status] == "pending_review"
       pending_field = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
-      return unless asked || pending_field || context[:participant_reading]&.care?
+      return unless asked || pending_field || context[:participant_reading]&.care? || context[:participant_reading]&.answer_field
       return if ::Mia::CrisisBoundary.matches?(user_message) || ::Mia::CrisisBoundary.hopeless?(user_message) || MiaCoachAnswerer.prompt_injection?(user_message)
 
       reading = context[:participant_reading] || ParticipantMessageReader.call(message: raw_user_message, setup_field: asked ? field : nil, pending_field: pending_field)
       if reading.care?
-        text = ParticipantMessageReader::Current.set(message: raw_user_message, reading: reading) { ParticipantCare.answer(raw_user_message) }
-        return deterministic_setup_clarification(field || pending_field || "primary_goal", clarification: text)
+        return Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: user_message,
+          needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Household coaching" },
+          action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
       end
+      explicit_intake = MiaSetupIntake.new(raw_user_message, context: context).call
+      return explicit_intake if explicit_intake
+      income_change = deterministic_current_salary_result if reading.facts.any? { |fact| fact["kind"] == "income" }
+      return income_change if income_change
       answer_field = reading.answer_field
       if answer_field && (!reading.correction || pending_field == answer_field)
         value = reading.setup_answer.fetch("value")

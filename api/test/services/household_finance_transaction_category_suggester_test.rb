@@ -56,8 +56,8 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     proposal.update!(status: "applied", metadata: { spending_preferences: %w[groceries fuel].map { |family| { family: family, group: "fixed", evidence: "Our fixed essentials include groceries and gas" } } })
     %w[Payless Mobil].each do |merchant|
       suggestion = HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: merchant, category_name: fixed.name)
-      assert_nil suggestion.category
-      assert_equal "check_participant_split", suggestion.match_reason
+      assert_equal fixed, suggestion.category
+      assert_equal "confirmed_setup_spending_purpose", suggestion.match_reason
     end
   end
 

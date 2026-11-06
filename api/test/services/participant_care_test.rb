@@ -2,7 +2,7 @@ require "test_helper"
 
 class ParticipantCareTest < ActiveSupport::TestCase
   test "outage care floor accepts only exact events without broad inference" do
-    { "My sister died this weekend" => :grief, 
+    { "My sister died this weekend" => :grief,
       "My employer fired me today" => :job_loss, "I lost my job last week" => :job_loss,
       "We are about to be evicted" => :housing }.each do |text, expected|
       assert_equal expected, HouseholdFinance::ParticipantCare.kind(text), text

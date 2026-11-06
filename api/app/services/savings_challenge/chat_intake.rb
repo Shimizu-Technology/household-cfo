@@ -17,7 +17,7 @@ module SavingsChallenge
     end
 
     # Why a clearly reported day could not become a card (outside the window), or nil.
-    attr_reader :rejection
+    attr_reader :rejection, :ambiguous_movement
 
     def call
       return unless @enrollment && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
@@ -25,6 +25,10 @@ module SavingsChallenge
       if @intakes.empty? && !@reading.available && @message.match?(/\A(?:(?:i|we) spent \$\d+(?:\.\d{1,2})? at [\p{L} '-]+ (?:today|yesterday)|no[ -]spend (?:today|yesterday))[.!]?\z/i)
         report = DailyReportParser.new(@enrollment, message: @message).call
         @intakes << report.report if report.found?
+      end
+      if @intakes.empty? && @message.match?(/\b(?:spend|spending|spent|buy|purchases)\b/i)
+        parsed = DailyReportParser.new(@enrollment, message: @message).call
+        @intakes << parsed.report if parsed.found? && parsed.report[:no_spend]
       end
       @intakes.first
     end
@@ -36,7 +40,7 @@ module SavingsChallenge
     private
 
     def structured_inputs
-      @reading.facts.filter_map do |fact|
+      inputs = @reading.facts.filter_map do |fact|
         next unless fact["kind"].in?(%w[set_aside withdrawal purchase])
         date = fact["day"].blank? ? @enrollment.local_today : requested_date(fact["day"])
         unless date && date.between?(@enrollment.starts_on, [ @enrollment.ends_on, @enrollment.local_today ].min)
@@ -48,7 +52,7 @@ module SavingsChallenge
         if fact["kind"] == "purchase"
           { kind: "daily_report", local_on: date.iso8601, no_spend: false,
             purchases: [ { amount_cents: cents, merchant: fact["merchant"].presence || fact["item"], purchased_on: date.iso8601 } ],
-            feelings: nil, approval_state: "unreviewed_input", counted: false }
+            feelings: HouseholdFinance::PurchaseReportParser.feelings(@message), approval_state: "unreviewed_input", counted: false }
         else
           withdrawal = fact["kind"] == "withdrawal"
           { kind: withdrawal ? "withdrawal" : "contribution", amount_cents: cents,
@@ -56,6 +60,12 @@ module SavingsChallenge
             approval_state: "unreviewed_input", counted: false, new_money_confirmation_required: !withdrawal }
         end
       end
+      savings, reports = inputs.partition { |input| input[:kind] != "daily_report" }
+      @ambiguous_movement = savings.uniq.length != savings.length
+      grouped = reports.group_by { |input| input[:local_on] }.values.map do |rows|
+        rows.first.merge(purchases: rows.flat_map { |input| input[:purchases] })
+      end
+      savings.uniq + grouped
     end
 
     def requested_date(message)

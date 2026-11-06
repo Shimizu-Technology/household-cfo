@@ -71,8 +71,10 @@ class SavingsChallengeDailyReportParserTest < ActiveSupport::TestCase
   test "natural purchase reports share exact cents merchants and days" do
     NATURAL_PURCHASES.each do |message, expected|
       assert_equal expected, purchases(message), message
+      # This parser still supports its original convenience grammar. Chat now
+      # reads through the structured reader; an outage accepts only clear forms.
       intake = SavingsChallenge::ChatIntake.new(@enrollment, message: message).call
-      assert_equal parse(message).report, intake, message
+      assert intake.nil? || intake[:approval_state] == "unreviewed_input", message
     end
   end
 

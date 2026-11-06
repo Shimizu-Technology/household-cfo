@@ -34,7 +34,7 @@ module HouseholdFinance
 
     def goal?(message)
       current = ParticipantMessageReader::Current
-      current.message == message.to_s && current.reading&.answer_field == "primary_goal"
+      current.reading&.answer_field == "primary_goal" && (current.message == message.to_s || current.reading.setup_answer["value"] == message.to_s)
     end
 
     def question?(message)

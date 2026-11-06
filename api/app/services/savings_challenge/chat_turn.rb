@@ -105,7 +105,11 @@ module SavingsChallenge
       parser = ChatIntake.new(@enrollment, message: @message, reading: @reading) if @attachments.empty?
       @intake = parser&.call
       @intakes = parser&.intakes || []
-      if @reading.facts.any? { |fact| fact["kind"] == "nothing_saved" } && @intakes.empty? && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+      if parser&.ambiguous_movement
+        @answer = "Did you mean one savings movement or two separate ones? I kept one card for you to check; nothing has been saved."
+        return self
+      end
+      if SavingsReportText.plain_nothing_set_aside?(@message) && @intakes.empty? && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
         if @intake&.dig(:kind) == "daily_report"
           coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: @intake)
           @answer = "Nothing set aside; that’s okay. #{coach.call}"
@@ -115,7 +119,11 @@ module SavingsChallenge
         return self
       end
       if @reading.care?
-        @answer = HouseholdFinance::ParticipantCare.answer(@message) || "That sounds hard. Your essentials come first, and setup can wait."
+        @answer = if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
+          CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message).call
+        else
+          HouseholdFinance::ParticipantCare.answer(@message) || "That sounds hard. Your essentials come first, and setup can wait."
+        end
         @answer += " Your reported amounts are still below for you to review when you're ready; nothing has been saved." if @intakes.any?
         return self
       end
@@ -128,6 +136,10 @@ module SavingsChallenge
           CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
             message: @message, daily_report: input, savings_intake: input).call
         end.join(" ")
+        return self
+      end
+      if @intakes.empty? && @reading.facts.any? { |fact| fact["kind"] == "nothing_saved" }
+        @answer = "You don't have to force a savings amount today. Your essentials come first, and we can talk through what got in the way without changing your records. What would help most right now?"
         return self
       end
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,

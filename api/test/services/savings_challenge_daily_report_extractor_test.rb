@@ -107,16 +107,16 @@ class SavingsChallengeDailyReportExtractorTest < ActiveSupport::TestCase
     assert_nil SavingsChallenge::DailyReportExtractor.new(@enrollment, message: "grabbed stuff at Payless for 20", api_key: "").call
   end
 
-  test "chat intake asks the extractor only when it could make a card" do
+  test "chat intake uses the message reader and never invokes a second extractor" do
     calls = []
     extractor = Struct.new(:calls) { def call = (calls << :called; nil) }.new(calls)
     intake = ->(message) { SavingsChallenge::ChatIntake.new(@enrollment, message: message, extractor: extractor).call }
-    assert_equal "daily_report", intake.call("$8 at Shell")[:kind]
+    assert_equal "contribution", intake.call("$8 set aside today")[:kind]
     [ "should I spend 20 at Ross?", "I have 2 kids", "spent $9 last week at Shell", "paid 300 on my credit card", "I bought lunch with my cousins",
       "felt kind of guilty about lunch", "My car payment is $450", "Got 2 for 1 at Jamba", "My daughter turned 5 today" ].each { |message| intake.call(message) }
     assert_empty calls
     intake.call("bought lunch with my 3 cousins")
     intake.call("lunch w my cousins came to 12 at Kings")
-    assert_equal 2, calls.length
+    assert_empty calls
   end
 end

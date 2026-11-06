@@ -34,7 +34,13 @@ module HouseholdFinance
       reviewed = @reviewed_choices.reverse.find { |name, id| self.class.family(name) == family && categories.any? { |category| category.id == id && similar_purpose?(category, family) } }
       return { category: categories.find { |category| category.id == reviewed[1] }, reason: "confirmed_spending_purpose" } if reviewed
       return { category: choices.sole, reason: "confirmed_spending_purpose" } if choices.one?
-      return { category: nil, reason: "check_participant_split" } if choices.many? || stated_different_split?(family, categories)
+      return { category: nil, reason: "check_participant_split" } if choices.many?
+      if (preference = applied_preference(family))
+        stack = preference["group"] == "fixed" ? "non_discretionary" : "discretionary"
+        matching = categories.select { |category| category.stack_key == stack && SavingsChallenge::Daily::ReviewCategories.broad?(category) }
+        return { category: matching.one? ? matching.sole : nil, reason: matching.one? ? "confirmed_setup_spending_purpose" : "check_participant_split" }
+      end
+      return { category: nil, reason: "check_participant_split" } if stated_different_split?(family, categories)
       everyday = categories.select { |category| category.stack_key == "discretionary" && SavingsChallenge::Daily::ReviewCategories.broad?(category) }
       return unless everyday.one?
       { category: everyday.sole, reason: "everyday_spending_default" }
@@ -49,11 +55,15 @@ module HouseholdFinance
     def stated_different_split?(family, categories)
       return true if categories.any? { |category| category.stack_key != "discretionary" && self.class.families(category.name).include?(family) &&
         !category.name.downcase.match?(TransactionCategorySuggester::NON_TRIP_VEHICLE_NAMES) }
+      false
+    end
+
+    def applied_preference(family)
       # Only reviewed, applied structured preferences establish an exception.
       # Never reinterpret a source prompt with language-pattern rules.
       @setup_preferences ||= @household.mia_action_drafts.where(status: "applied", draft_type: %w[household_setup action_plan])
         .order(:id).pluck(:metadata).flat_map { |metadata| Array(metadata["spending_preferences"]) }
-      @setup_preferences.reverse.find { |preference| preference["family"] == family.to_s }&.fetch("group") == "fixed"
+      @setup_preferences.reverse.find { |preference| preference["family"] == family.to_s }
     end
   end
 end
