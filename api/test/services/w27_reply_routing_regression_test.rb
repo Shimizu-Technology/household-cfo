@@ -1,5 +1,11 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "cutback requests about work do not become spending analysis during an outage" do
+    [ "how could i cut back hours at work", "where can we cut back weekend shifts", "how do i cut back on overtime" ].each do |message|
+      refute SpendingPatterns::Answerer.matches?(message), message
+    end
+  end
+
   test "completed purchases after a proposed question remain separate" do
     [ "can i buy a $900 tv, i paid $20 for lunch today", "can i buy a $900 tv after i spent $20 on lunch" ].each do |message|
       refute HouseholdFinance::PurchaseQuestionText.proposed_purchase_only?(message), message
