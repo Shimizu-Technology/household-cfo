@@ -110,6 +110,17 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     refute_includes Mia::LanguagePolicy.new(user_message: message, history: history, persona: persona).runtime_phrase_instruction, "Chelu"
   end
 
+  test "the captured live stroller refusal is delivered instead of falling back" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "Can I afford a $300 stroller?", persona: voice, api_key: "fake", answer_packet: { kind: "purchase_scenario", fallback_response: "The $300 stroller would leave $1,150 in the plan. That is a plan figure, not cash. You decide. Which account would cover it?" })
+    narrator.define_singleton_method(:openrouter_response) do
+      "Hold off on deciding until you know where the money would come from, because I can't tell you it is affordable or funded. Chelu, pump the brakes. Is this stroller coming from money you have already set aside for it, or would it go on a card, and what bill or essential needs to be protected first?"
+    end
+    reply = narrator.call
+    assert_equal "live_model", narrator.response_source
+    assert_includes reply, "I can't tell you it is affordable or funded"
+    assert Mia::ResponseShapePolicy.valid?(reply, persona: voice)
+  end
+
   test "month packet preserves cents in coaching figures" do
     packet = HouseholdFinance::MiaAnswerPacketBuilder.new(kind: "budget_question", fallback_response: "Spent $82.50", write_state: "no_write", month_answer: { spent_so_far_cents: 8250 }).call
     assert_equal 8250, packet.dig(:annual_plan_summary, :month_answer, :coaching_figures, :spent_so_far_cents)
