@@ -196,7 +196,7 @@ module Mia
       texts.any? do |text|
         ::Mia::CrisisBoundary.matches?(text) || ::Mia::CrisisBoundary.hopeless?(text) ||
           HouseholdFinance::MoneyMovementText.food_insecurity?(text) || HouseholdFinance::MiaCoachAnswerer.essential_hardship?(text) ||
-          text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless)\b/i)
+          text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end
     end
 

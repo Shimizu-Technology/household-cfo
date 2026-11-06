@@ -40,7 +40,7 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     message = "I keep ordering takeout with money I don't have."
     policy = Mia::LanguagePolicy.new(user_message: message, persona: voice)
     assert_includes policy.runtime_phrase_instruction, "Chelu, pump the brakes."
-    [ "I cannot pay rent. Should I buy a TV?", "I feel ashamed about ordering takeout", "Everyone would be better off without me" ].each do |text|
+    [ "I cannot pay rent. Should I buy a TV?", "I feel ashamed about ordering takeout", "I feel stupid with money. Should I buy a TV?", "Everyone would be better off without me" ].each do |text|
       refute_includes Mia::LanguagePolicy.new(user_message: text, persona: voice).sanitize("Chelu, pump the brakes. Let's pause."), "Chelu"
     end
     refute_includes Mia::LanguagePolicy.new(user_message: message, history: [ { role: "assistant", content: "Chelu, pump the brakes." } ], persona: voice).runtime_phrase_instruction, "Chelu"
