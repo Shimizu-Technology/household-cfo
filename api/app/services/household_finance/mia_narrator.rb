@@ -359,7 +359,7 @@ module HouseholdFinance
     end
 
     def fallback_response
-      reference = answer_packet[:fallback_response].to_s
+      reference = ParticipantCare.fallback(user_message, answer_packet[:fallback_response].to_s)
       return reference unless purchase_coaching? && purchase_prefix.present?
 
       range = purchase_sentence_range(include_phrase: false)

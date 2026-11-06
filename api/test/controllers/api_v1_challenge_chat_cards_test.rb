@@ -440,7 +440,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
   test "essential hardship and crisis interrupt patterns and goal cards without financial proposals" do
     [ "patterns", "goal" ].each do |previous|
       {
-        "I can't afford rent this month, what should I do?" => "Protect food, housing, medication",
+        "I can't afford rent this month, what should I do?" => "landlord",
         "I can't afford food this month, what should I do?" => "Food comes first",
         "I can't afford medicine this month, what should I do?" => "Protect food, housing, medication",
         "I want to kill myself. What should I do about my goal?" => "988"

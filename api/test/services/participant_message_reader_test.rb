@@ -89,6 +89,18 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_empty read("saved 1,20 today", object(field: "income", value: "1,20"), setup_field: "primary_income").setup_answer["value"]
   end
 
+  test "a disclosed grief cost is not purchase intake but explicit spending is retained" do
+    text = "we buried my husband and the funeral cost 3200"
+    assert_empty read(text, object(care: "grief", facts: [ fact("purchase", "3200", day: "") ])).facts
+    text = "my husband died and i paid 3200 for his funeral"
+    assert_equal 1, read(text, object(care: "grief", facts: [ fact("purchase", "3200", day: "") ])).facts.size
+  end
+
+  test "shame must describe the person rather than her budget" do
+    assert_equal "none", read("im so done w this stupid budget lol", object(care: "shame")).care
+    assert_equal "shame", read("im so stupid", object(care: "shame")).care
+  end
+
   test "care keeps every reported amount and ordinary idioms do not become care" do
     text = "i lost my job but i still saved $20 today"
     reading = read(text, object(care: "hardship", facts: [ fact("set_aside", "$20") ]))

@@ -6,7 +6,7 @@ module HouseholdFinance
   # span; callers convert it to typed, unreviewed input for the existing cards.
   class ParticipantMessageReader
     class Current < ActiveSupport::CurrentAttributes
-      attribute :message, :reading, :guard_care
+      attribute :message, :reading, :guard_care, :recent_care
     end
 
     ProviderFailure = Class.new(StandardError)
@@ -92,6 +92,11 @@ module HouseholdFinance
       @hypothetical_movement = false
       @unclear_amount = value["unclear_amount"] == true
       facts = Array(value["facts"]).first(20).filter_map { |fact| validated_fact(fact) }
+      # Naming a funeral cost is context for care, not a purchase report. Keep
+      # explicit completed spending available for review without evaluating it.
+      if care == "grief" && !@message.match?(/\b(?:spent|paid|bought|purchased)\b/i)
+        facts.reject! { |fact| fact["kind"] == "purchase" }
+      end
       answer = validated_answer(value["setup_answer"], correction: value["correction"] == true)
       preferences = Array(value["spending_preferences"]).first(2).select do |preference|
         preference.is_a?(Hash) && preference.keys.sort == %w[evidence family group] &&

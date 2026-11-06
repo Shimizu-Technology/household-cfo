@@ -1,6 +1,15 @@
 require "test_helper"
 
 class MiaCrisisBoundaryTest < ActiveSupport::TestCase
+  test "indirect absence families reach the outage floor but money idioms do not" do
+    [ "nobody would notice if i was gone", "no one would care if i wasnt here", "everyone would be better off without me", "i have no reason to keep going", "im a burden" ].each do |text|
+      assert Mia::CrisisBoundary.matches?(text), text
+    end
+    [ "no reason to keep going with this budget", "im so done w this stupid budget lol", "i cant think straight", "i wont be here for the sale" ].each do |text|
+      refute Mia::CrisisBoundary.matches?(text), text
+    end
+  end
+
   test "hopeless language is recognized in everyday spellings" do
     [
       "I can't do this anymore. Every month I fall behind on bills.",

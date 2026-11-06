@@ -42,7 +42,7 @@ module HouseholdFinance
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
     JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
-    EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|stupid|spouse|fighting about money)\b/i.freeze
+    EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|(?:i am|im|i['’]m) (?:so )?stupid|spouse|fighting about money)\b/i.freeze
     BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
     EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
@@ -238,7 +238,7 @@ module HouseholdFinance
 
     def priority_answer
       case self.class.routing_priority(message)
-      when :hardship then ParticipantCare.answer(message) || food_insecurity_answer || essential_hardship_answer
+      when :hardship then food_insecurity_answer || ParticipantCare.answer(message) || essential_hardship_answer
       when :essential_skip then essential_skip_answer
       when :month
         month_overview_answer unless self.class.explicit_write_request?(message)

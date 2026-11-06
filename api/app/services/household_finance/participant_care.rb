@@ -2,6 +2,25 @@ module HouseholdFinance
   module ParticipantCare
     module_function
 
+    # A care topic contains no amount or financial scenario. Explicit questions
+    # leave it; brief uncertainty and acknowledgements remain with the person.
+    def followup?(message)
+      message.to_s.strip.match?(/\A(?:(?:ok(?:ay)?|yeah|yes|yep|thanks|thank you|ok thanks)[.! ,]*|i(?: just)? (?:don['’]?t|dont|dunno|do not)(?: know)?|idk|i (?:can['’]?t|cant) think straight|(?:ok thanks[.! ]*)?what (?:do i do|should i do|now)(?: first| next)?)[.!? ]*\z/i)
+    end
+
+    def reader_context(message, care)
+      # New money questions/reports stand on their own. Passing the old label
+      # here made even a direct month question look like another disclosure.
+      return if message.to_s.match?(/\b(?:how much|how many|afford|buy|purchase|spend|spent|balance|total|income|saved|savings)\b/i)
+
+      care
+    end
+
+    def topic(care, persona_context_id: nil)
+      { type: "care", title: "Personal support", care_kind: (care.to_sym == :essentials ? "hardship" : care.to_s),
+        persona_context_id: persona_context_id }
+    end
+
     def kind(message)
       current = ParticipantMessageReader::Current
       if current.message.to_s.squish == message.to_s.squish && current.reading&.available
@@ -14,8 +33,11 @@ module HouseholdFinance
       # as dead set/dead tired and fired up never satisfy these forms.
       text = message.to_s.tr("’", "'").strip
       return :grief if text.match?(/\A(?:my|our) (?:mom|dad|mother|father|husband|wife|sister|brother|grandfather|grandmother|nana) (?:just )?(?:died|passed away|passed)(?: (?:today|yesterday|this week|this weekend))?[.!]?\z/i)
+      return :grief if text.match?(/\A(?:i|we) (?:just )?buried (?:my|our) (?:husband|wife|mom|dad|mother|father|child|son|daughter)\b/i)
       return :job_loss if text.match?(/\A(?:i lost my job|my employer (?:fired me|let me go))(?: (?:today|yesterday|last week))?[.!]?\z/i)
       return :housing if text.match?(/\Awe are about to be evicted[.!]?\z/i)
+      return :housing if text.match?(/\b(?:can['’]?t|cant|cannot|won['’]?t|wont|unable to) (?:make|pay|cover|afford) (?:my |our |the )?rent\b/i)
+      return :food if text.match?(/\b(?:help (?:with|w) food|food (?:help|support))\b/i)
       return :food if MoneyMovementText.food_insecurity?(text)
       :essentials if MiaCoachAnswerer.essential_hardship?(text)
     end
@@ -50,17 +72,34 @@ module HouseholdFinance
       ::Mia::CrisisBoundary.safety_reply?(reply) || reply.to_s.match?(/\b(?:call|dial|contact)\s+(?:the\s+)?911\b/i)
     end
 
+    def fallback(message, reference)
+      care = ParticipantMessageReader::Current.recent_care
+      return reference unless care.present?
+      return reference unless reference.to_s.match?(/not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
+
+      answer(message, care: care)
+    end
+
     def required?(message) = kind(message).present?
 
     def answer(message, care: nil)
-      case care&.to_sym || kind(message)
+      selected = care&.to_sym || kind(message)
+      if selected.in?([ :hardship, :food, :essentials, :housing, :job_loss ])
+        if message.to_s.match?(/\b(?:food|eat|hungry|meal)\b/i)
+          return "Going without food is hard, and you deserve to eat. Food comes first for you and your family; saving and setup can wait. Ask your coach or someone you trust to help with getting food today and finding support nearby. I don't have verified local contacts to give you. Do you have enough food for everyone, including you, today?"
+        end
+        if message.to_s.match?(/\b(?:what|how|can|cant|cannot|can't)\b/i) && message.to_s.match?(/\brent\b/i)
+          return "Protect food, housing, utilities and medicine. If rent may be short, contact your landlord before it is due and ask about a payment arrangement; they may or may not agree. Ask your coach or someone you trust to help you work through the options. What is the rent due date?"
+        end
+      end
+      case selected
       when :crisis
         ::Mia::CrisisBoundary.response
       when :grief
         "I'm sorry for your loss. You don't have to work through money or setup right now. If it helps, reach out to your coach or someone you trust. We can pick this up when you're ready. What would feel most helpful today?"
       when :shame
         "This doesn't define your worth. We can take this one step at a time, when you're ready. What would feel most helpful today?"
-      when :hardship, :job_loss, :housing
+      when :hardship, :job_loss, :housing, :food
         "That sounds hard. Your safety, food, housing, utilities and medicine come first; savings and setup can wait. Reach out to your coach or someone you trust if that would help. We can pick this up when you're ready. What feels most urgent today?"
       end
     end

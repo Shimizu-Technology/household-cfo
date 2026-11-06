@@ -33,7 +33,7 @@ module Mia
       /\b(?:it['’]?s|its|life|life is|life['’]s)\s+(?:not|isn['’]?t|isnt|aint)\s+worth (?:living|it)#{SENTENCE_END}/i,
       /\b(?:don['’]?t|dont|do not)\s+(?:wanna|want to)\s+exist(?:\s+any\s?more)?#{PHRASE_END}/i,
       /\b(?:can['’]?t|cant|cannot|can not)\s+do life(?:\s+any\s?more)?#{PHRASE_END}/i,
-      /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss|notice|care if)\s+(?:me|i (?:was|were) gone)\b/i,
+      /\b(?:nobody|no one|noone)\s+would\s+(?:even\s+)?(?:miss\s+me|(?:notice|care)\s+if\s+i\s+(?:(?:was|were) gone|(?:wasn['’]?t|wasnt|weren['’]?t) here))\b/i,
       /\b(?:want|wanna|wish i could)\s+(?:to\s+)?(?:go to\s+)?sleep and (?:never|not) wake up\b/i,
       # Death wishes and texting forms.
       /\bi(?:['’]?d| would)\s+be\s+better\s+off\s+dead\b|\b(?:i\s+am|i['’]?m|im)\s+better\s+off\s+dead\b/i,
@@ -46,7 +46,9 @@ module Mia
       /(?:\A\s*|[.!?]\s+)kys#{PHRASE_END}/i,
       # Stating that they are not safe, or that they have a plan to die.
       /\b(?:i\s*am|i['’]?m|im)\s+not\s+saf(?:e)?(?:\s+(?:here|at home|with myself))?#{TIME_WORDS}#{PHRASE_END}/i,
-      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:(?:kill(?:ing)?|hurt(?:ing)?|harm(?:ing)?)\s+myself|end(?:ing)?\s+my\s+life|suicide\b|(?:end(?:ing)?\s+it(?:\s+all)?|die|dying)#{TIME_WORDS}#{PHRASE_END})/i
+      /\bi\s+(?:have|got|made)\s+a\s+plan\s+(?:to|for)\s+(?:(?:kill(?:ing)?|hurt(?:ing)?|harm(?:ing)?)\s+myself|end(?:ing)?\s+my\s+life|suicide\b|(?:end(?:ing)?\s+it(?:\s+all)?|die|dying)#{TIME_WORDS}#{PHRASE_END})/i,
+      /\b(?:i (?:have|see) )?no reason to keep (?:going|living)#{PHRASE_END}/i,
+      /\b(?:i['’]?m|im|i am|i feel like) (?:just |such )?a burden#{PHRASE_END}/i
     ].freeze
     # Hopeless language that is not a stated plan to self-harm. Mia keeps helping
     # with the money question but always adds a gentle safety check. Each phrase
