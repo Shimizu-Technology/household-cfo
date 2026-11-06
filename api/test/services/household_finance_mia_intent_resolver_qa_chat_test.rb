@@ -433,6 +433,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     test "review purchases cannot become setup goals #{index}" do
       result = resolve(sentence, context: setup_zero_context("primary_goal"), transport: provider(intent: "household_action", action: action(type: "update_household_setup", setup_updates: setup(primary_goal: sentence))))
       refute result&.action.to_h.dig(:setup_updates, :primary_goal).present?, result.to_h.inspect
+      refute_equal "create_transaction_draft", result&.action.to_h[:type], result.to_h.inspect if sentence == "Buy fuel $37"
     end
   end
 

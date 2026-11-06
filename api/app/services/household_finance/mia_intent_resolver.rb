@@ -325,12 +325,15 @@ module HouseholdFinance
         return result
       end
       explicit_intake = MiaSetupIntake.new(raw_user_message, context: context).call
-      return explicit_intake if explicit_intake
+      return explicit_intake if explicit_intake && reading.facts.count { |fact| fact["kind"] == "purchase" } <= 1
       income_change = deterministic_current_salary_result if reading.facts.any? { |fact| fact["kind"] == "income" }
       return income_change if income_change
       answer_field = reading.answer_field
       if answer_field && (!reading.correction || pending_field == answer_field)
         value = reading.setup_answer.fetch("value")
+        if answer_field.in?(%w[household_name primary_goal]) && normalized_bounded_text(value).length > setup_text_limit(answer_field)
+          return deterministic_setup_clarification(answer_field, clarification: "Please shorten the #{MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(answer_field.to_sym).downcase} to #{setup_text_limit(answer_field)} characters or fewer so I can prepare it without truncating your words.")
+        end
         if answer_field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
           value = ParticipantMessageReader.zero_answer?(value, field: answer_field) ? "0" : ParticipantMessageReader.amount_text(value)
         end
@@ -353,7 +356,24 @@ module HouseholdFinance
       end
       named_debt = setup_named_minimum_result if field == "debt_payment"
       return named_debt if named_debt
-      purchase = reading.facts.find { |fact| fact["kind"] == "purchase" }
+      purchases = reading.facts.select { |fact| fact["kind"] == "purchase" }
+      if purchases.many?
+        actions = purchases.filter_map do |fact|
+          day = participant_purchase_date(fact["day"])
+          next unless day && fact["merchant"].present? && fact["amount"].present?
+          { source_text: raw_user_message, depends_on: [], action: { type: "create_transaction_draft", merchant: fact["merchant"],
+            amount: ParticipantMessageReader.amount_text(fact["amount"]), occurred_on: day.iso8601, splits: [] } }
+        end
+        if actions.length != purchases.length || actions.length > MAX_TRANSACTION_REPORTS
+          return deterministic_setup_clarification(field || pending_field,
+            clarification: "I heard more than one purchase. Please send each purchase with its amount, place and date, one at a time. Nothing has been saved.")
+        end
+        return Result.new(intent: "action_plan", confidence: 1.0, continuation: false, resolved_message: user_message,
+          needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported purchases" },
+          action: { type: "none" }, read_only_plan: {}, source: "participant_reader",
+          write_plan: { title: "Reported purchases", kind: "transaction_reports", actions: actions })
+      end
+      purchase = purchases.first
       if purchase
         occurred_on = participant_purchase_date(purchase["day"])
         unless occurred_on

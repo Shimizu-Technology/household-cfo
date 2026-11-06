@@ -30,7 +30,7 @@ module HouseholdFinance
       spending_preferences: explicit participant choices only. family groceries/fuel, group fixed/everyday, evidence an exact quote. 'Groceries are essentials', 'groceries go in bills', 'we count groceries as fixed', '$2000 including groceries' at the fixed question mean groceries=fixed. 'groceries arent part of my bills' means everyday. Do not infer preferences from merchant names alone.
     TEXT
 
-    Result = Data.define(:care, :facts, :question, :setup_answer, :correction, :spending_preferences, :available) do
+    Result = Data.define(:care, :facts, :question, :setup_answer, :correction, :spending_preferences, :available, :hypothetical_movement) do
       def care? = care != "none"
       def answer_field = ParticipantMessageReader::SETUP_FIELDS[setup_answer["field"]]
     end
@@ -72,6 +72,7 @@ module HouseholdFinance
       raise ArgumentError unless value.is_a?(Hash) && (value.keys & keys).any?
       care = value["care"].presence_in(%w[none hardship grief shame]) || "none"
       @question = value["question"] == true
+      @hypothetical_movement = false
       facts = Array(value["facts"]).first(20).filter_map { |fact| validated_fact(fact) }
       answer = validated_answer(value["setup_answer"], correction: value["correction"] == true)
       preferences = Array(value["spending_preferences"]).first(2).select do |preference|
@@ -79,7 +80,7 @@ module HouseholdFinance
           %w[groceries fuel].include?(preference["family"]) && %w[fixed everyday].include?(preference["group"]) &&
           preference["evidence"].is_a?(String) && preference["evidence"].present? && @message.include?(preference["evidence"])
       end
-      Result.new(care, facts, value["question"] == true, answer, value["correction"] == true, preferences, true)
+      Result.new(care, facts, value["question"] == true, answer, value["correction"] == true, preferences, true, @hypothetical_movement)
     end
 
     def validated_fact(fact)
@@ -89,7 +90,10 @@ module HouseholdFinance
         return unless fact["amount"].empty?
       elsif fact["amount"].present?
         return unless valid_money?(fact["amount"]) && quoted_money?(fact["amount"])
-        return if hypothetical_amount?(fact["amount"])
+        if hypothetical_amount?(fact["amount"])
+          @hypothetical_movement = true if fact["kind"].in?(%w[set_aside withdrawal])
+          return
+        end
       end
       fact
     rescue ArgumentError
@@ -154,7 +158,7 @@ module HouseholdFinance
       else
         { "field" => "none", "value" => "" }
       end
-      Result.new("none", facts, false, answer, false, [], false)
+      Result.new("none", facts, false, answer, false, [], false, false)
     end
 
     def payload

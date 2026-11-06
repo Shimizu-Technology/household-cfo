@@ -483,3 +483,26 @@ it('shows an unresolved purchase date for the participant to choose', async () =
   expect(within(card).getByLabelText('Date for Shell')).toHaveProperty('value','')
   expect(mutateDaily).not.toHaveBeenCalled()
 })
+
+it('requires an unresolved date before staging any purchase and preserves the chosen day', async () => {
+  const value = {...todayOnly,local_on:'',date_required:true,purchases:[{amount_cents:800,merchant:'Shell',purchased_on:''}]}
+  const {card} = renderCard(value)
+  await ready(card)
+  fireEvent.click(within(card).getByRole('button', {name:'Save'}))
+  expect(within(card).getByText('Choose a date.')).toBeTruthy()
+  expect(mutateDaily).not.toHaveBeenCalled()
+  fireEvent.change(within(card).getByLabelText('Date for Shell'), {target:{value:'2026-10-19'}})
+  fireEvent.click(within(card).getByRole('button', {name:'Save'}))
+  await waitFor(() => expect(actions()).toContain('purchase_approve'))
+  expect(calls()[0].input.purchased_on).toBe('2026-10-19')
+})
+
+it('keeps an unresolved purchase on its card instead of defaulting to Today in another view', async () => {
+  const value = {...todayOnly,local_on:'',date_required:true,purchases:[{amount_cents:800,merchant:'Shell',purchased_on:''}]}
+  const {card,onEditInToday} = renderCard(value)
+  await ready(card)
+  fireEvent.click(within(card).getByRole('button', {name:'Edit in Today'}))
+  expect(within(card).getByText('Choose a date.')).toBeTruthy()
+  expect(onEditInToday).not.toHaveBeenCalled()
+  expect(mutateDaily).not.toHaveBeenCalled()
+})

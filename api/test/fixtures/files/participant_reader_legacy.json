@@ -211,15 +211,7 @@
   },
   "Let's do $300 instead of $500 for my goal": {
     "care": "none",
-    "facts": [
-      {
-        "kind": "purchase",
-        "amount": "$300",
-        "merchant": "Let's do",
-        "item": "",
-        "day": ""
-      }
-    ],
+    "facts": [],
     "question": false,
     "setup_answer": {
       "field": "none",
@@ -285,15 +277,7 @@
   },
   "Let's do $400": {
     "care": "none",
-    "facts": [
-      {
-        "kind": "purchase",
-        "amount": "$400",
-        "merchant": "Let's do",
-        "item": "",
-        "day": ""
-      }
-    ],
+    "facts": [],
     "question": false,
     "setup_answer": {
       "field": "none",
@@ -1202,15 +1186,7 @@
   },
   "Buy fuel $37": {
     "care": "none",
-    "facts": [
-      {
-        "kind": "purchase",
-        "amount": "$37",
-        "merchant": "Buy fuel",
-        "item": "",
-        "day": ""
-      }
-    ],
+    "facts": [],
     "question": false,
     "setup_answer": {
       "field": "none",

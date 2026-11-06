@@ -64,4 +64,16 @@ class ParticipantMessageReaderOutageTest < ActiveSupport::TestCase
     assert_equal "grief", result.care
     assert_empty @events
   end
+
+  test "a transient reader outage does not suppress a later account alert" do
+    original = ProviderOutageAlert.method(:email_ops)
+    emails = []
+    ProviderOutageAlert.define_singleton_method(:email_ops) { |status, *_args| emails << status }
+    ProviderOutageAlert.reader_failure(status: 500, error_class: "ProviderFailure")
+    ProviderOutageAlert.reader_failure(status: 402, error_class: "ProviderFailure")
+    assert_equal [ 402 ], emails
+    assert_equal 1, @events.length
+  ensure
+    ProviderOutageAlert.define_singleton_method(:email_ops, original) if original
+  end
 end

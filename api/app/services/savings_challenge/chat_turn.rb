@@ -148,6 +148,10 @@ module SavingsChallenge
         @answer = "You don't have to force a savings amount today. Your essentials come first, and we can talk through what got in the way without changing your records. What would help most right now?"
         return self
       end
+      if @intakes.empty? && @reading.question && @reading.hypothetical_movement
+        @answer = "Whether that amount is enough depends on your goal and what you can comfortably spare after food, housing, utilities, medicine and required payments. A smaller amount or a pause is okay. This was a question, so I haven't recorded any savings."
+        return self
+      end
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
         message: @message, attachments: @attachments, daily_report: @intake, daily_rejection: parser&.rejection, savings_intake: @intake)
       reference = coach.call

@@ -75,6 +75,46 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an unknown purchase amount during setup asks instead of creating a failing draft" do
+    begin_setup(primary_income: 4800)
+    json = household_say("bought bread at Payless today", reading(facts: [ fact("purchase", "", merchant: "Payless", item: "bread") ]))
+    assert_nil json["transaction_draft"]
+    assert_nil json["mia_action_draft"]
+    assert_match(/amount|how much/i, json.dig("assistant_message", "content"))
+  end
+
+  test "a hypothetical movement question receives guidance about enough without a report card" do
+    with_reading(reading(facts: [ fact("set_aside", "100") ]).merge(question: true)) do
+      with_savings_runtime do
+        post "/api/v1/mia/messages", params: { message: "if i put 100 away today would that be enough" }, headers: { "Authorization" => "Bearer test_token_#{@savings_user.id}" }, as: :json
+        assert_response :created
+        json = response.parsed_body
+        assert_empty json.fetch("challenge_chat_cards")
+        assert_match(/goal.*comfortably|comfortably.*goal/i, json.dig("assistant_message", "content"))
+        refute_match(/Got it|set aside today/i, json.dig("assistant_message", "content"))
+      end
+    end
+  end
+
+  test "every quoted purchase in a setup turn reaches its pending review" do
+    begin_setup(primary_income: 4800)
+    json = household_say("I spent $12 at Target and $30 at Shell today", reading(facts: [ fact("purchase", "$12", merchant: "Target"), fact("purchase", "$30", merchant: "Shell") ]))
+    drafts = @household.transaction_drafts.order(:id)
+    assert_equal [ "Target", "Shell" ], drafts.pluck(:merchant)
+    assert_equal [ 1200, 3000 ], drafts.pluck(:total_amount_cents)
+    assert_includes json.dig("assistant_message", "content"), "2 expense reviews"
+    assert_equal 0, HouseholdTransaction.count
+  end
+
+  test "reader text exceeding the field limit asks for shortening without truncation" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid, attributes: { household_name: "Reader household" }).call
+    household_say("Help me set up my household", reading)
+    goal = "A little breathing room " * 24
+    json = household_say(goal, reading(field: "goal", value: goal.strip))
+    assert_nil json["mia_action_draft"]
+    assert_match(/shorten|500 characters/i, json.dig("assistant_message", "content"))
+  end
+
   test "care comes before an ambiguous repeated movement while one card remains pending" do
     text = "they cut my hours but i moved $15 to savings and saved $15 today"
     with_reading(reading(care: "hardship", facts: [ fact("set_aside", "$15"), fact("set_aside", "$15") ])) do
