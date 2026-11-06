@@ -15,7 +15,7 @@ class ApiV1MiaReviewTwoTest < ActionDispatch::IntegrationTest
     "I skipped lunch to save. How am I doing this month?" => [ :essential_skip, "Please do not skip food" ],
     "I feel stressed about money. How am I doing this month?" => [ :month, "July 2026" ],
     "I stayed under my budget. How am I doing this month?" => [ :month, "July 2026" ],
-    "I stayed under my budget. Should I buy a purse?" => [ :reflective, "You kept" ],
+    "I stayed under my budget. Should I buy a purse?" => [ :purchase, "purse" ],
     "I skipped lunch to save. Should I order takeout?" => [ :essential_skip, "Please do not skip food" ],
     "I feel stressed. Rename Dining Out category to Meals." => [ :write, nil ],
     "I'm embarrassed I went to Ross again" => [ :reflective, "Ross" ],

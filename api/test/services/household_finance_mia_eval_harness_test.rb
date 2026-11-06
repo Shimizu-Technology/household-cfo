@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
+  include ParticipantReaderTestSupport
 
   test "curated real-world Mia eval cases pass through deterministic Rails routes" do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time do
@@ -63,10 +65,12 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
     final_content = nil
 
     messages.each do |message|
-      post "/api/v1/mia/messages",
-        params: { message: message, year: 2026, month: 7 },
-        headers: auth_headers(user),
-        as: :json
+      request = -> { post "/api/v1/mia/messages", params: { message: message, year: 2026, month: 7 }, headers: auth_headers(user), as: :json }
+      if eval_case["id"].in?(%w[mel_weekly_grocery_win mel_stuck_to_budget])
+        with_participant_reader_response({ care: "none", facts: [], question: false, reply_intent: "win", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }, &request)
+      else
+        request.call
+      end
       assert_response :created
       final_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     end

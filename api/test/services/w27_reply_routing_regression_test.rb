@@ -1,5 +1,11 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "completed purchases after a proposed question remain separate" do
+    [ "can i buy a $900 tv, i paid $20 for lunch today", "can i buy a $900 tv after i spent $20 on lunch" ].each do |message|
+      refute HouseholdFinance::PurchaseQuestionText.proposed_purchase_only?(message), message
+    end
+  end
+
   test "amount writes do not change the requested year and unrelated balances stay out of month intent" do
     assert_equal Date.new(2026, 11, 1), HouseholdFinance::MiaMonthAnswer.question_date("change my rent to 2000, how much do i have left", today: Date.new(2026, 11, 7))
     [ "how much do i have in my bank account", "how much is left in my groceries", "how much can i spend on food this week", "do i have enough left this month for a $900 tv" ].each do |message|

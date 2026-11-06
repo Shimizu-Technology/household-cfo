@@ -242,7 +242,7 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
-      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message)) && !PurchaseQuestionText.debt_question?(user_message)
+      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end
@@ -633,6 +633,7 @@ module HouseholdFinance
     # Use the challenge reader when no structured provider is configured.
     # This path only proposes reviews. Corrections keep the existing draft router.
     def deterministic_purchase_result(report_message: raw_user_message)
+      return if PurchaseQuestionText.proposed_purchase_only?(report_message)
       return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i)
       return if TransactionDraftBuilder.non_expense_movement?(user_message)
       return if one_purchase_in_parts?(user_message)

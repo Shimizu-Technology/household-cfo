@@ -2149,7 +2149,7 @@ module Api
           )
         end
 
-        routed_content = followup.message
+        routed_content = HouseholdFinance::MiaMonthAnswer.question?(content) ? content : followup.message
         pending_draft_answer = pending_guardrail_answer(routed_content)
         support_answer = pending_draft_answer ? nil : support_coach_answer(content, annual_budget_manager: annual_budget_manager)
         transaction_lookup_answer = if pending_draft_answer.nil? && support_answer.nil? && HouseholdFinance::TransactionLookupAnswerer.bank_activity_question?(routed_content)

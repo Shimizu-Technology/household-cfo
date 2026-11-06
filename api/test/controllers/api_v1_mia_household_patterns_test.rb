@@ -10,6 +10,26 @@ class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
     @headers = { "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Ana:Santos" }
   end
 
+  test "R2 current month observations say so far and do not project a full month" do
+    travel_to Time.zone.local(2026, 11, 7, 12) do
+      purchase(Date.new(2026, 11, 3), "Ross", 6000)
+      post "/api/v1/mia/messages", params: { message: "what stands out on the statement i just did" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "$60"
+      assert_includes answer, "so far this month"
+      refute_match(/could free|enough reviewed purchases|\$0/, answer)
+    end
+  end
+
+  test "R2 a payoff mention cannot turn a future purchase question into spending" do
+    post "/api/v1/mia/messages", params: { message: "i paid off my card!! can i buy a $900 tv now" }, headers: @headers, as: :json
+    assert_response :created
+    assert_nil response.parsed_body["transaction_draft"]
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute_includes response.parsed_body.dig("assistant_message", "content"), "I drafted"
+  end
+
   test "clear observation questions still reach patterns with the model off" do
     purchase(Date.new(2026, 10, 5), "Ross", 2000)
     [ "whats my spending pattern", "what do you notice in my spending", "where can i cut back", "any small buys adding up" ].each do |message|

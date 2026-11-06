@@ -1218,6 +1218,7 @@ module HouseholdFinance
     # Savings-deposit and investment clauses are set aside first, so a spend reported
     # beside them still takes the draft path and the deposit alone never does.
     def transaction_report?
+      return false if PurchaseQuestionText.proposed_purchase_only?(message)
       return false if MoneyMovementText.non_expense?(message) && !MoneyMovementText.separate_spend?(message)
 
       text = MoneyMovementText.without_non_expense(message)
