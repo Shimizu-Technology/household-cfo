@@ -9,18 +9,17 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
 
   test "guard owns ambiguous verdict and write wording on delivered purchase coaching" do
-    [ "No problem waiting while you check the timing. Which bill needs protecting?",
+    outcomes = [ "No problem waiting while you check the timing. Which bill needs protecting?",
       "Before I recommend buying anything, check the funding. Which money would cover it?",
       "Nothing is saved or updated from asking. Which bill needs protecting?",
-      "If the cash is saved for it, check required bills. Which bill needs protecting?" ].each do |reply|
+      "If the cash is saved for it, check required bills. Which bill needs protecting?" ].map do |reply|
       seen = []
       Mia::ReplyGuard.singleton_class.define_method(:call) { |**args| seen << args[:reply]; Mia::ReplyGuard::Result.new([]) }
       narrator = narrator_for(reply)
       delivered = narrator.call
-      assert_equal "live_model", narrator.response_source, narrator.rejection_reason.to_s
-      assert_includes delivered, reply
-      assert_equal delivered, seen.last
+      { source: narrator.response_source, reason: narrator.rejection_reason, includes_coaching: delivered.include?(reply), guarded_complete_reply: seen.last == delivered }
     end
+    assert outcomes.all? { |row| row[:source] == "live_model" && row[:includes_coaching] && row[:guarded_complete_reply] }, outcomes.inspect
   end
 
   test "guard still blocks approval and write claims including rewrites and outages" do
@@ -64,11 +63,18 @@ class MiaReviewFourRegressionsTest < ActiveSupport::TestCase
     assert_equal :false_write_claim, Mia::NarrationClaims.rejection_reason("You've saved the purchase to your budget.")
   end
 
-  test "hopeless habits keep the care reply and cannot authorize a voice preview" do
+  test "hopeless habits keep the care reply" do
     message = "I keep spending money I don't have and I feel hopeless."
     responder = Demo::MiaResponder.new(api_key: "", persona: voice)
     reply = responder.call(message, context: "{}")
     refute_includes reply, "Pause before the next purchase"
+  end
+
+  test "hopeless fallback previews cannot authorize publication or carry a phrase notice" do
+    message = "I keep spending money I don't have and I feel hopeless."
+    responder = Object.new
+    responder.define_singleton_method(:call) { |*, **_| "Talk with someone you trust." }
+    responder.define_singleton_method(:response_source) { "deterministic_fallback" }
     persona = create_persona(config: persona_configuration)
     preview = Mia::PersonaPreviewer.new(persona: persona, sample_prompt: message, responder: responder).call
     assert_equal "safety_only", preview[:status]
