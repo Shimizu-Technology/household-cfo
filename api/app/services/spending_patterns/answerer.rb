@@ -29,6 +29,17 @@ module SpendingPatterns
         !HouseholdFinance::MoneyMovementText.food_insecurity?(message)
     end
 
+    def self.partial_month_summary(patterns, today:)
+      recorded = patterns[:coverage][:months].select { |row| row[:spending_cents] }
+      return unless recorded.any? && recorded.all? { |row| row[:month] == today.strftime("%Y-%m") }
+
+      count = patterns[:purchase_count]
+      cents = patterns[:observed_spending_cents]
+      amount = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents.modulo(100).zero? ? 0 : 2)
+      stores = patterns[:merchants].first(2).pluck(:label).to_sentence
+      "From purchases you’ve reviewed so far this month, I see #{count} #{'purchase'.pluralize(count)} totaling #{amount}, including #{stores}. This may not include everything you’ve spent. Review more purchases or a full statement before drawing a longer-term pattern."
+    end
+
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
       @household, @message, @persona, @history, @approved_content = household, message, persona, history, approved_content
       @available_product_modules = available_product_modules
@@ -44,13 +55,8 @@ module SpendingPatterns
         label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
         return "I don’t have reviewed purchases for #{label}, so I can’t tell what you spent then. You can review a statement or tell me about purchases from that period."
       end
-      current_month = Time.current.in_time_zone("Pacific/Guam").strftime("%Y-%m")
-      recorded = @patterns[:coverage][:months].select { |row| row[:spending_cents] }
-      if period.empty? && recorded.any? && recorded.all? { |row| row[:month] == current_month }
-        count = @patterns[:purchase_count]
-        stores = @patterns[:merchants].first(2).pluck(:label).to_sentence
-        return "From purchases you’ve reviewed so far this month, I see #{count} #{'purchase'.pluralize(count)} totaling #{money(@patterns[:observed_spending_cents])}, including #{stores}. This may not include everything you’ve spent. Review more purchases or a full statement before drawing a longer-term pattern."
-      end
+      partial = self.class.partial_month_summary(@patterns, today: Time.current.in_time_zone("Pacific/Guam").to_date) if period.empty?
+      return partial if partial
       choices = @patterns[:candidate_changes].first(2)
       coverage = @patterns[:coverage]
       present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }

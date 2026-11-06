@@ -19,6 +19,7 @@ module SavingsChallenge
     PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
 
     def self.patterns_question?(message)
+      return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
       current = HouseholdFinance::ParticipantMessageReader::Current
       return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
 
@@ -26,6 +27,7 @@ module SavingsChallenge
     end
 
     def self.special?(message, session:)
+      return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
       patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
         amount_reply?(message, session: session) ||
@@ -68,7 +70,7 @@ module SavingsChallenge
     end
 
     def self.pattern_continuation?(message, choices: [])
-      return false if protected_message?(message)
+      return false if protected_message?(message) || HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       normalized = message.downcase.squish.sub(/[.!]\z/, "")
       return true if Array(choices).any? do |choice|
         merchant = Regexp.escape(choice["merchant"].to_s.downcase)
@@ -322,6 +324,11 @@ module SavingsChallenge
       end
       return false unless self.class.patterns_question?(@message)
       @patterns = SpendingPatterns::Analyzer.new(@household, today: @enrollment.local_today).call
+      if (partial = SpendingPatterns::Answerer.partial_month_summary(@patterns, today: @enrollment.local_today))
+        @answer = partial
+        @topic = { type: "challenge_patterns", choices: [] }
+        return true
+      end
       choices = @patterns[:candidate_changes].first(2)
       @topic = { type: "challenge_patterns", choices: choices }
       coverage = @patterns[:coverage]

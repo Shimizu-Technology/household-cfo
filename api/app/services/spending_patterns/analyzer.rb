@@ -42,6 +42,7 @@ module SpendingPatterns
           monthly_impact_cents: (row[:monthly_average_cents] / 2.0).floor,
           description: "Try spending half as much at #{row[:label]}", assumption: "Half of the average in months with recorded purchases; an estimate, not saved money" }
       end.select { |row| row[:monthly_impact_cents].positive? }
+      choices = [] unless months.any? { |row| row[:spending_cents] && row[:month] < @today.strftime("%Y-%m") }
       { window: { start_on: start.iso8601, end_on: finish.iso8601 },
         coverage: { status: "partial", months: months, accounts: selected_source.map { |row| row.source_tracked_account.label }.uniq.sort,
           account_completeness: "unknown", note: "Only confirmed purchases and reviewed statement rows are included. Reviewed linked and same-merchant refunds are deducted; missing months, accounts and unreviewed uploads may change these patterns." },

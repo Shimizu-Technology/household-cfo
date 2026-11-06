@@ -1,5 +1,16 @@
 require "test_helper"
 class W27ReplyRoutingRegressionTest < ActiveSupport::TestCase
+  test "a goal amount is not a proposed purchase" do
+    refute HouseholdFinance::MessageReplyIntent.purchase_question?("set my target for $400 please")
+  end
+
+  test "challenge legacy patterns and continuations yield to purchase questions" do
+    [ "where can i cut back so i can get a $900 tv on my card", "should i buy a $900 tv? also whats my spending pattern" ].each do |message|
+      refute SavingsChallenge::ChatTurn.patterns_question?(message), message
+      refute SavingsChallenge::ChatTurn.pattern_continuation?(message, choices: [ { "merchant" => "Ross" } ]), message
+    end
+  end
+
   test "cutback requests about work do not become spending analysis during an outage" do
     [ "how could i cut back hours at work", "where can we cut back weekend shifts", "how do i cut back on overtime" ].each do |message|
       refute SpendingPatterns::Answerer.matches?(message), message

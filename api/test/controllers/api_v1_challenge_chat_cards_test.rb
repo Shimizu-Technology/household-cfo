@@ -17,6 +17,20 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "R2 current month challenge observations do not project monthly savings" do
+    category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
+    year = @savings_household.budget_years.create!(year: 2026)
+    period = year.budget_periods.create!(starts_on: Date.new(2026, 11, 1), ends_on: Date.new(2026, 11, 30))
+    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 11, 3), merchant: "Ross", total_amount_cents: 6000, source_type: "statement", status: "confirmed")
+    row.transaction_splits.create!(budget_category: category, amount_cents: 6000)
+    ask "look at my spending patterns", "r2-current-patterns"
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "so far this month"
+    assert_includes reply, "$60"
+    refute_match(/could free|90 days/, reply)
+    assert_empty response.parsed_body.dig("spending_patterns", "candidate_changes")
+  end
+
   test "a patterns question never drops a completed purchase reported in the same turn" do
     message = "spent 10 at Payless today, what spending patterns do you see?"
     @participant_reader_fixtures[message] = { "care" => "none", "reply_intent" => "spending_patterns", "question" => true, "correction" => false,
