@@ -490,10 +490,10 @@ module HouseholdFinance
     end
 
     def setup_impact(before_values, normalized)
-      # Setup presenter totals include empty categories; until the required
-      # fields are confirmed they do not establish a household-wide income.
+      # Empty starting-picture records do not establish income or spending.
+      # Debt minimums already preserve their own unknown state below.
       confirmed = SetupStatus.new(household).confirmed_field_keys
-      return unless confirmed.include?("primary_income") && %w[fixed_expenses flexible_spend debt_payment].all? { |field| confirmed.include?(field) }
+      return unless %w[primary_income fixed_expenses flexible_spend].all? { |field| confirmed.include?(field) }
 
       after_values = before_values.merge(normalized)
       before_income = setup_money_total(before_values, :primary_income, :business_income)
