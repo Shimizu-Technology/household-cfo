@@ -2688,6 +2688,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
   test "mia chat does not persist orphaned user message if assistant message fails" do
     user = create_user(email: "atomic-mia@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::WorkspaceSetupSaver.new(household, user: user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Atomic household", primary_goal: "A cushion", primary_income: "3000", fixed_expenses: "1500", flexible_spend: "500" }).call
 
     failing_responder = Class.new do
       def call(*)
