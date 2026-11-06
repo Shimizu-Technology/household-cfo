@@ -50,6 +50,11 @@ module Mia
           model_identifier: model_identifier,
           provider_request_id: provider_request_id
         )
+      elsif source == "deterministic_fallback" && reply.present?
+        result(status: "ready", source: source, reply: reply,
+          notice: "Participants would receive this safe reply because the model answer was unavailable or did not pass the reply checks. #{rejection_notice(active_responder)} You may review this safe reply and continue going live.",
+          model_identifier: CoachPersonaBehavioralPreviewEvidence::SAFE_REPLY_IDENTIFIER,
+          provider_request_id: "safe-reply:#{Digest::SHA256.hexdigest(reply)}")
       elsif source == "deterministic_safety"
         result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
       else
@@ -78,6 +83,8 @@ module Mia
       reason = active_responder.rejection_reason if active_responder.respond_to?(:rejection_reason)
       return "The sample answer was outside the response length you chose, even after one rewrite. Adjust the response length in Teaching, then preview again." if reason == :persona_response_shape
       return "The sample answer did not use the response format you chose. Check the format in Teaching, then preview again." if reason == :persona_response_format
+
+      return "Review the method, response length and safety guidance in Teaching to improve the model answer." if reason == :reply_guard
 
       REJECTED_NOTICE
     end

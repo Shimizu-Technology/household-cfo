@@ -11,8 +11,8 @@ module Mia
       end
 
       def call!(candidate:, preview:)
-        unless preview.fetch(:status) == "ready" && preview.fetch(:source) == "live_model"
-          raise Error, "Only a live model preview can authorize publication"
+        unless preview.fetch(:status) == "ready" && preview.fetch(:source).in?(%w[live_model deterministic_fallback])
+          raise Error, "Only a reviewed model answer or safe reply preview can authorize publication"
         end
         unless valid_provider_identifier?(preview[:model_identifier]) && valid_provider_identifier?(preview[:provider_request_id])
           raise Error, "A concrete model identifier and provider request ID are required for publication evidence"

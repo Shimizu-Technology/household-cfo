@@ -63,14 +63,12 @@ module HouseholdFinance
       return "I cannot compare the #{money(amount_cents)} purchase for #{facts[:period_label]} with your plan yet. Still to add: #{facts[:missing_plan_inputs].map { |input| input[:label] }.to_sentence}. Can you add those in My Money before we work through this purchase?" if left.nil?
 
       remaining = left - amount_cents
-      comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)} in the plan"
-      item = label == TITLES.fetch("purchase") ? "purchase" : (label == label.upcase ? label : label.downcase)
-      digits = amount_cents.div(100).to_s
-      leading = digits[0, ((digits.length - 1) % 3) + 1].to_i
-      article = ([ 8, 11, 18 ].include?(leading) || (80..89).cover?(leading) || (800..899).cover?(leading)) ? "an" : "a"
-      priced_item = item.singularize != item ? "#{money(amount_cents)} #{item}" : "#{article} #{money(amount_cents)} #{item}"
+      comparison = remaining.negative? ? "would put the plan #{money(remaining.abs)} short" : "would leave #{money(remaining)}"
+      item = label == TITLES.fetch("purchase") ? "purchase" : label
+      priced_item = PurchaseQuestionText.priced_item(item, amount_cents)
       before = left.negative? ? "is #{money(left.abs)} short" : "has #{money(left)} left"
-      "Your #{facts[:period_label]} plan #{before}, so #{priced_item} #{comparison} if it is extra spending. That's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
+      period = date.beginning_of_month == Date.current.beginning_of_month ? "This month’s" : "Your #{facts[:period_label]}"
+      "#{period} plan #{before}, so #{priced_item} #{comparison}. That's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
     # "a $300 purchase" reads better than "Purchase scenario at $300" when the

@@ -144,6 +144,10 @@ module Mia
       config.fetch("phrases")
     end
 
+    def guard_facts
+      scoped_config.slice("identity", "coaching", "voice", "phrases").merge("product_method" => "Household CFO Method")
+    end
+
     def response_shape
       config.fetch("response_shape")
     end

@@ -1470,7 +1470,7 @@ export type AdminPersonaBehavioralPreviewEvidence = {
   phrase_manifest_digest: string
   prompt: string
   output: string
-  source: 'live_model'
+  source: 'live_model' | 'deterministic_fallback'
   model: string
   provider_request_id?: string | null
   privacy_scope: 'no_saved_participant_or_household_data'

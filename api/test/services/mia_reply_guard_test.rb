@@ -56,7 +56,7 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
     OpenRouterConnection.singleton_class.define_method(:start, connection)
   end
 
-  test "both delivery paths block after generation and rewrite with no guard rewrite or phrase" do
+  test "both delivery paths fail closed after at most one guard rewrite with no phrase" do
     dangerous = "This is the green light to bring it home; which account would you use?"
     original = Mia::ReplyGuard.singleton_class.instance_method(:call)
     seen = []
@@ -69,14 +69,14 @@ class MiaReplyGuardTest < ActiveSupport::TestCase
     calls = 0
     narrator.define_singleton_method(:openrouter_response) { calls += 1; dangerous }
     refute_includes narrator.call, "green light"
-    assert_equal 1, calls
+    assert_equal 2, calls
     assert_equal :reply_guard, narrator.rejection_reason
     assert_includes seen.first[:reply], "$1,150"
     responder = Demo::MiaResponder.new(api_key: "fake")
     responder.define_singleton_method(:openrouter_response) { |*| dangerous }
     refute_includes responder.call("Can I buy a stroller?", context: "{}"), "green light"
     assert_equal :reply_guard, responder.rejection_reason
-    assert_equal 2, seen.length
+    assert_equal 4, seen.length
   ensure
     Mia::ReplyGuard.singleton_class.define_method(:call, original)
   end

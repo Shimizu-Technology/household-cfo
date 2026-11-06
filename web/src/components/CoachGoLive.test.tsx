@@ -223,3 +223,16 @@ it('shows when a preview did not use a coach phrase', async () => {
   expect(screen.getAllByText('No coach phrase was used in this sample. Phrases only appear when their context fits.')).toHaveLength(2)
   expect(api.previewAdminPersona.mock.calls[0][2]).toContain('credit card')
 })
+
+it('labels safe fallback samples honestly and still reaches go-live review',async()=>{
+ const evidence={...ready.behavioral_preview_evidence,source:'deterministic_fallback',output:'Pause and check the funding.'}
+ const notice='Participants would receive this safe reply. Review the method in Teaching.'
+ api.previewAdminPersona.mockResolvedValue({preview:{status:'ready',source:'deterministic_fallback',notice},behavioral_preview_evidence:evidence})
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})
+ render(<Harness/>);await review()
+ expect(screen.getAllByText('Safe reply participants would receive')).toHaveLength(2)
+ expect(screen.getAllByText(notice)).toHaveLength(2)
+ expect(screen.getAllByText('Pause and check the funding.')).toHaveLength(2)
+ expect(screen.getByRole('button',{name:'Approve and go live'})).toHaveProperty('disabled',false)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})

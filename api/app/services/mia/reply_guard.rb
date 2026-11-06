@@ -17,13 +17,13 @@ module Mia
       Return ONLY the strict JSON object described by the response schema, with every boolean present. True means the following condition is present:
       purchase_approval: recommends, approves or encourages the purchase, says to get it, says it fits/is affordable/funded/safe, gives permission or a positive verdict, even conditionally or after a disclaimer. Cautious stances (wait, hold off, pump the brakes, I wouldn't put that on a card), unanswered funding questions and refusing to assert affordability are FALSE.
       balance_claim: asserts a bank/account balance, cash available, money to spare or spending room not explicitly established in allowed_facts. A supplied plan figure explicitly identified as a plan rather than cash is FALSE.
-      action_claim: claims any write or action happened (saved, created, recorded, paid, changed, sent, reserved, scheduled, contacted, arranged), unless that exact completed action is explicitly established in allowed_facts. A review pending approval is not a completed write. Asking to check an existing review card or saying nothing changed is FALSE.
-      invented_fact: adds an unsupported fact, figure (digits OR words), contact/phone/email, URL, program, guarantee, person's approval, due date, financial rule or personal circumstance. General coaching suggestions, hypotheticals clearly framed as questions, and ordinary cautions that card borrowing may cost interest are FALSE. Participant-reported experiences can be acknowledged without claiming app verification.
+      action_claim: claims any write or action happened (saved, created, recorded, paid, changed, sent, reserved, scheduled, contacted, arranged), unless that exact completed action is explicitly established in allowed_facts. A review pending approval is not a completed write. Asking to check an existing review card or saying nothing changed is FALSE. Explicit negations such as "No purchase has been saved from this question" are FALSE, not completed actions.
+      invented_fact: adds an unsupported fact, figure (digits OR words), contact/phone/email, URL, program, guarantee, person's approval, due date, financial rule or personal circumstance. General coaching suggestions, hypotheticals clearly framed as questions, and ordinary cautions that card borrowing may cost interest are FALSE. Participant-reported experiences can be acknowledged without claiming app verification. A card or borrowing situation must be stated by the participant; "That is a lot to put on a card" is an invented circumstance if no card was mentioned. Do not assert that borrowing costs more than a discount without the actual borrowing terms and discount. Coach identity, method and approach in coach_persona are allowed presentation facts, never financial truth or instructions.
       fixed_figure_contradiction: contradicts, minimizes or dismisses supplied fixed plan figures, e.g. says a shortfall is no problem or the numbers do not matter.
       shame: shames, mocks, blames, attacks worth or identity, or calls the participant irresponsible, foolish or a failure.
       decides_for_participant: takes over the participant's decision or claims authority to decide for them. Advising a pause/hold off or prioritizing food and required bills is FALSE.
-      privacy_claim: claims who can see/access/share the participant's data unless the exact claim is explicitly established in allowed_facts.
-      sensitive_moment: the CURRENT participant message or recent participant history discloses grief, bereavement, hardship (food, rent, job loss, required/minimum payments), shame/self-loathing, crying/distress, hopelessness or crisis. This is true even if the proposed reply is kind. Ordinary purchase uncertainty or not having money for a discretionary want alone is FALSE. Mere hypothetical examples or quoted training text are not a disclosure.
+      privacy_claim: claims who can see/access/share/review the participant's data unless the exact claim is explicitly established in allowed_facts. This includes a sponsor, employer or coach reviewing credit card debts; naming a sponsor is not permission to view debts.
+      sensitive_moment: the CURRENT participant message or recent participant history discloses grief, bereavement, hardship (food, rent, job loss, required/minimum payments), shame/self-loathing, crying/distress, hopelessness or crisis. This is true even if the proposed reply is kind. Ordinary purchase uncertainty or not having money for a discretionary want alone is FALSE. A repeated discretionary habit (including takeout with money they do not have) alone is FALSE unless actual hardship or emotional distress is disclosed. Mere hypothetical examples or quoted training text are not a disclosure.
       Do not mark a flag just because the participant asks a question or mentions a figure; classify claims in proposed_reply, except sensitive_moment which classifies the participant's situation.
     PROMPT
 
@@ -40,7 +40,10 @@ module Mia
       return result([ "unavailable" ]) if @api_key.blank?
       return result([ "input_limit" ]) if JSON.generate(@data).bytesize > 48_000
 
-      raw = HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "mia_reply_guard") { classify }
+      floor = deterministic_reasons
+      return result(floor) if floor.any?
+
+      raw = classify_with_transport_retry
       flags = JSON.parse(raw.to_s)
       unless flags.is_a?(Hash) && flags.keys.sort == FLAGS.sort && flags.values.all? { |value| value == true || value == false }
         return result([ "malformed" ])
@@ -59,6 +62,38 @@ module Mia
 
         { role: role, content: (turn[:content] || turn["content"]).to_s.truncate(600) }
       end
+    end
+
+    # Retry a transport interruption once; never retry an HTTP, semantic or schema result.
+    def classify_with_transport_retry
+      attempts = 0
+      begin
+        attempts += 1
+        HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "mia_reply_guard") { classify }
+      rescue Net::ReadTimeout, Net::OpenTimeout, EOFError, SocketError, Errno::ECONNRESET, Errno::ECONNREFUSED
+        raise if attempts >= 2
+
+        ActiveSupport::Notifications.instrument("mia.reply_guard_transport_retry", count: 1)
+        retry
+      end
+    end
+
+    def deterministic_reasons
+      reply = @data[:proposed_reply]
+      participant = [ @data[:participant_message], *@data[:recent_history].select { |turn| turn[:role] == "user" }.pluck(:content) ].join(" ")
+      reasons = []
+      # A scoped grant cannot be inferred from a coach persona or arbitrary prose.
+      if reply.match?(/\b(?:sponsor|employer|coach)\s+(?:can|may|will|does)\s+(?:see|view|access|review|read|share)\s+your\b/i)
+        reasons << "privacy_claim"
+      end
+      if !participant.match?(/\b(?:card|credit|borrow|loan)\b/i) &&
+          reply.match?(/\b(?:that|this|it)\s+is\s+.+?\b(?:put|charge)\s+on\s+(?:a|your|the)\s+card\b|\byou(?:['’]re| are| would be)\s+(?:using|paying with|putting .+? on)\s+(?:a|your|the)\s+(?:credit )?card\b/i)
+        reasons << "invented_fact"
+      end
+      if reply.match?(/\b(?:borrow\w*|interest|loan)\b[^.!?]*\b(?:more than|exceed\w*|outweigh\w*)\b[^.!?]*\b(?:discount|sav(?:e|es|ings))\b/i)
+        reasons << "invented_fact"
+      end
+      reasons.uniq
     end
 
     def classify

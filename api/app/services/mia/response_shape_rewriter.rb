@@ -4,10 +4,10 @@ module Mia
   # A length correction is still a new, untrusted model reply. Callers supply
   # their complete safety/grounding validator and sanitize each attempt.
   class ResponseShapeRewriter
-    Result = Struct.new(:content, :rejection_reason, keyword_init: true)
+    Result = Struct.new(:content, :rejection_reason, :guard_result, keyword_init: true)
 
-    def self.call(content, persona:, user_message:, validator:, repairable_claims: [], fixed_prefix: "", &rewrite)
-      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite, repairable_claims: repairable_claims, fixed_prefix: fixed_prefix).call(content)
+    def self.call(content, persona:, user_message:, validator:, repairable_claims: [], fixed_prefix: "", guard: nil, &rewrite)
+      new(persona: persona, user_message: user_message, validator: validator, rewrite: rewrite, repairable_claims: repairable_claims, fixed_prefix: fixed_prefix, guard: guard).call(content)
     end
 
     def self.instruction(persona, fixed_prefix: "")
@@ -26,7 +26,8 @@ module Mia
         "Safety and hardship instructions take precedence over this length."
     end
 
-    def initialize(persona:, user_message:, validator:, rewrite:, repairable_claims: [], fixed_prefix: "")
+    def initialize(persona:, user_message:, validator:, rewrite:, repairable_claims: [], fixed_prefix: "", guard: nil)
+      @guard = guard
       @persona, @user_message, @validator, @rewrite = persona, user_message, validator, rewrite
       @repairable_claims = repairable_claims.map(&:to_s)
       @fixed_prefix = fixed_prefix.to_s
@@ -35,7 +36,8 @@ module Mia
     def call(content)
       reason = rejection_reason(content)
       claim_repair = @repairable_claims.include?(reason.to_s)
-      return Result.new(content: content, rejection_reason: reason) unless reason == :persona_response_shape || claim_repair
+      guard_repair = reason == :reply_guard && @guard_result.reasons.all? { |flag| ReplyGuard::FLAGS.include?(flag) && flag != "sensitive_moment" }
+      return Result.new(content: content, rejection_reason: reason, guard_result: @guard_result) unless reason == :persona_response_shape || claim_repair || guard_repair
 
       log_counts(content, reason: reason)
       instruction = "Rewrite the previous answer. #{self.class.instruction(persona, fixed_prefix: @fixed_prefix)} " \
@@ -46,10 +48,14 @@ module Mia
           "Avoid the words afford, affordable, fits, works, and safe-to-spend, including in negative statements and questions. " \
           "Start with what can be established from the supplied facts, state what is unknown, then ask one practical question. The participant decides."
       end
+      if guard_repair
+        instruction += " The previous answer failed the reply guard categories: #{@guard_result.reasons.join(', ')}. Remove those unsupported claims. " \
+          "Use only supplied facts and the participant's stated situation. Do not invent payment methods, borrowing costs, data access or completed actions."
+      end
       rewritten = rewrite.call(instruction)
       reason = rejection_reason(rewritten)
       log_counts(rewritten) if reason == :persona_response_shape
-      Result.new(content: rewritten, rejection_reason: reason)
+      Result.new(content: rewritten, rejection_reason: reason, guard_result: @guard_result)
     end
 
     private
@@ -65,6 +71,9 @@ module Mia
       policy = ResponseShapePolicy.new([ @fixed_prefix, content ].compact_blank.join(" "), persona: persona)
       return :persona_response_format unless policy.format_valid?
       return :persona_response_shape unless safety_length_exempt? || policy.length_valid?
+
+      @guard_result = @guard.call(content) if @guard
+      return :reply_guard if @guard_result && !@guard_result.allowed?
 
       nil
     end

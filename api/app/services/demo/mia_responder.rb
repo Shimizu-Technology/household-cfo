@@ -119,6 +119,8 @@ module Demo
 
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
         repairable_claims: [ "scenario_conclusion" ],
+        guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
+          facts: parsed_context(prompt_context).merge("coach_persona" => @persona.guard_facts), reply: content, api_key: @api_key) },
         validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message) }) do |instruction|
         HouseholdFinance::MiaProviderAdmission.with_slot(call_site: "demo_responder_shape_rewrite") do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable,
@@ -128,22 +130,19 @@ module Demo
       end
       unless checked.rejection_reason
         phrase_reason = ::Mia::LanguagePolicy.new(user_message: clean_message, history: history, persona: @persona).phrase_rejection_reason(checked.content)
-        guard = ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
-          facts: JSON.parse(prompt_context), reply: checked.content, api_key: @api_key) unless phrase_reason
-        if phrase_reason || !guard.allowed?
-          @rejection_reason = phrase_reason || :reply_guard
-          if guard&.sensitive?
-            @response_source = "deterministic_safety"
-            return ::Mia::SensitiveMoment.response(clean_message)
-          end
-          @response_source = "deterministic_fallback"
-          @fallback_reason = :reply_rejected
-          return ::Mia::FallbackReply.new(reason: :reply_rejected, message: clean_message, context: prompt_context, persona: ::Mia::Persona.default).call
+        if phrase_reason
+          @rejection_reason = phrase_reason
+          return fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
         end
         @supplied_content_context = @approved_content if @response_source == "live_model"
         return checked.content
       end
 
+      if checked.guard_result&.sensitive?
+        @response_source = "deterministic_safety"
+        @rejection_reason = :reply_guard
+        return ::Mia::SensitiveMoment.response(clean_message)
+      end
       @rejection_reason = checked.rejection_reason
       Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=#{checked.rejection_reason}")
       fallback_response(clean_message, context: prompt_context, reason: :reply_rejected)
@@ -193,7 +192,8 @@ module Demo
           { role: "user", content: message },
           *rewrite_messages
         ],
-        max_tokens: AiModels.output_budget(@model, 512)
+        provider: { data_collection: "deny", allow_fallbacks: false, require_parameters: true },
+        max_tokens: AiModels.output_budget(@model, 1_024)
       }
       reasoning = AiModels.chat_reasoning(@model)
       payload[:reasoning] = reasoning if reasoning
@@ -320,7 +320,7 @@ module Demo
       return if ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: @persona).phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: @persona).format_valid?
 
-      sanitized = content.to_s
+      sanitized = content.to_s.strip
         .sub(/\A#{Regexp.escape(@persona.name)}:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
         .then { |value| remove_banned_branding(value) }
@@ -612,7 +612,8 @@ module Demo
     end
 
     def parsed_context(context)
-      JSON.parse(context.to_s)
+      value = JSON.parse(context.to_s)
+      value.is_a?(Hash) ? value : {}
     rescue JSON::ParserError, TypeError
       {}
     end

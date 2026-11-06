@@ -67,7 +67,7 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     assert_equal "The preview didn't come through. Try again in a minute.", result.fetch(:notice)
   end
 
-  test "does not present a deterministic fallback as the answer to the coach test message" do
+  test "presents a deterministic fallback with its actual source and safe reply label" do
     responder = fake_responder(
       source: "deterministic_fallback",
       reply: "This generic fallback did not evaluate the requested persona behavior."
@@ -79,10 +79,10 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
       responder: responder
     ).call
 
-    assert_equal "unavailable", result.fetch(:status)
+    assert_equal "ready", result.fetch(:status)
     assert_equal "deterministic_fallback", result.fetch(:source)
-    assert_nil result.fetch(:sample_reply)
-    assert_equal "The preview didn't come through. Try again in a minute.", result.fetch(:notice)
+    assert_includes result.fetch(:sample_reply), "generic fallback"
+    assert_includes result.fetch(:notice), "safe reply"
   end
 
   test "shows the deterministic crisis boundary without authorizing publication" do

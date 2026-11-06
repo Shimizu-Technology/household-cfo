@@ -15,6 +15,8 @@ module Mia
     def self.classify(message, household: nil)
       text = message.to_s.unicode_normalize(:nfkc).gsub(/\p{Cf}/, "").squish
       if HouseholdFinance::PurchaseQuestionText.read_only_purchase_question?(text)
+        return :household_read if text.match?(/\bhousehold\b/i) && !text.match?(CHALLENGE)
+
         return :challenge
       end
       # Reporting a purchase/reservation keeps the challenge intake even when a

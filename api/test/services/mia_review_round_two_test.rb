@@ -121,7 +121,7 @@ class MiaReviewRoundTwoTest < ActiveSupport::TestCase
     assert_equal answerer("Can I buy a $200 stroller?").call, answerer(followup.message).call
   end
 
-  { "tomorrow" => "May 2026", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
+  { "tomorrow" => "This month’s", "next week" => "June 2026", "next year" => "May 2027" }.each do |timing, label|
     test "purchase timing resolves #{timing} before the selected period default" do
       assert_includes answerer("Can I buy a $300 stroller #{timing}?", reference_month: 8).send(:purchase_plan_answer), label
     end

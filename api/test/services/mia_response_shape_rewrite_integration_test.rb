@@ -72,13 +72,13 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     end
   end
 
-  test "participant purchase narration rejects figures and approval without a second attempt" do
+  test "participant purchase narration rejects figures and shares one approval rewrite" do
     unsafe = "You can afford it. Protect your bills first. Which account would you use?"
     narrator, attempts = narrator_with_replies(HouseholdFinance::MiaNarrator, [ unsafe ], message: "Can I afford a $300 stroller?")
     fallback = "The $300 purchase would leave $1,105 in the plan; your November plan leaves $1,405 before it. Your account balances are unknown. Which account would you use?"
     narrator.instance_variable_get(:@answer_packet).merge!(kind: "purchase_scenario", fallback_response: fallback)
     assert_equal narrator.send(:fallback_response), narrator.call
-    assert_equal 1, attempts.length
+    assert_equal 2, attempts.length
   end
 
   test "preview rewrite still outside range falls back after exactly two requests" do

@@ -112,6 +112,10 @@ module Mia
       end
     end
 
+    def guard_facts
+      data.slice("name", "role", "coaching_method", "voice").merge("product_method" => "Household CFO Method", "phrases" => cultural_phrases)
+    end
+
     private
 
     # The built-in persona data is sealed into cohort releases, so its stored

@@ -15,17 +15,36 @@ module HouseholdFinance
     end
 
     def self.debt_question?(text)
-      text.to_s.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
+      text.to_s.match?(/\b(?:credit card|loan|debt)\s+(?:minimum\s+)?payments?\b|\bpayments?\s+(?:on|towards?|for)\s+(?:(?:my|our|the)\s+)?(?:credit card|loan|debt)\b/i) ||
+        text.to_s.match?(/\bpay(?:ing)?\s+(?:off|down)\b|\b(?:get|take|borrow|apply for)\b[^.!?]{0,25}\b(?:loan|credit card)\b/i)
     end
 
     def self.item_label(message)
       text = purchase_clause(message)
       tail = text[/\$\s*[\d,.]+(?:k\b)?\s+(?:for\s+)?(.+)/i, 1] || text[/\b(?:buy|purchase|afford|get|book|order)\s+(.+)/i, 1]
-      label = tail.to_s.split(/[?.!;,]|\s+(?:or|on|using|for|with|from|at|next|this month|today|tomorrow|but|because|and)\b/i).first.to_s
+      label = clean_item(tail)
         .sub(/\A(?:a|an|the|this)\s+/i, "").sub(/\Apair of\s+/i, "").strip
       return "" if label.blank? || label.match?(/\A(?:on|for|it|this|that|help|smaller goal|my streak|help|less|credit card|loan)\b/i)
 
       label.casecmp?("tv") ? "TV" : label.downcase
+    end
+
+    def self.clean_item(value)
+      value.to_s.split(/[?.!;,]|\s+(?:or|on|using|for|with|from|at|next|this month|today|tomorrow|but|because|and|to|paid|paying)\b/i).first.to_s
+    end
+
+    def self.priced_item(label, amount_cents)
+      item = clean_item(label).strip.sub(/\A(?:a|an|the|this|pair of)\s+/i, "")
+      item = "purchase" if item.blank?
+      item = item.downcase unless item == item.upcase
+      # Inflect the head noun, not a trailing purpose/payment clause.
+      head = item.split.last.to_s
+      plural = head.singularize != head
+      digits = amount_cents.div(100).to_s
+      leading = digits[0, ((digits.length - 1) % 3) + 1].to_i
+      article = ([ 8, 11, 18 ].include?(leading) || (80..89).cover?(leading) || (800..899).cover?(leading)) ? "an" : "a"
+      price = ActionController::Base.helpers.number_to_currency(Money.dollars(amount_cents), precision: amount_cents % 100 == 0 ? 0 : 2)
+      plural ? "#{price} #{item}" : "#{article} #{price} #{item}"
     end
 
     def self.purchase_question?(message)

@@ -908,10 +908,10 @@ module HouseholdFinance
     def deterministic_scenario_type(value = user_message)
       text = normalized_text(value)
       return unless text.match?(HYPOTHETICAL_PATTERN) || text.match?(PURCHASE_SCENARIO_PATTERN)
-      return if PurchaseQuestionText.debt_question?(text)
       # Lending to or helping family is a family-support decision, not a purchase.
       return if text.match?(FAMILY_LENDING_PATTERN)
       return "extra_debt_payment" if text.match?(/\b(?:extra|additional)\b.{0,50}\b(?:debt|credit card|loan|principal|payment)\b|\b(?:debt|credit card|loan)\b.{0,50}\b(?:extra|additional)\b/i)
+      return if PurchaseQuestionText.debt_question?(text)
       return "one_time_income" if text.match?(/\b(?:bonus|refund|windfall|one[- ]time income|receive|received)\b/i)
       return "essential_expense" if text.match?(/\b(?:medical|doctor|dental|essential|repair|bill|expense)\b/i)
       return if text.match?(/\b(?:a month|per month|monthly|rent|car payment|car lease|quit|save|saving)\b/i)
