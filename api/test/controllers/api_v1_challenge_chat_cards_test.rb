@@ -15,6 +15,52 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "no savings statements keep purchases separate and repeats reuse their pending review" do
+    [ "I spent $18 on lunch at Port of Mocha and I saved nothing today",
+      "I spent $18 on lunch at Port of Mocha today and I didn't set aside anything",
+      "I didn't save any money today but I spent $18 at Port of Mocha",
+      "I spent $18 at Port of Mocha today. I wanted to set aside $50 but I could not" ].each_with_index do |message, index|
+      ask message, "mixed-negative-#{index}"
+      card = response.parsed_body.fetch("challenge_chat_card")
+      assert_equal "daily_report", card["kind"], message
+      assert_equal [ 1800 ], card.dig("input", "purchases").map { |row| row["amount_cents"] }
+      refute_match(/\$18.00 set aside|Did you set aside new money/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_match(/nothing set aside/i, response.parsed_body.dig("assistant_message", "content"))
+    end
+    before = SavingsChatCard.where(status: "pending").count
+    2.times { |index| ask "I spent $18 on lunch at Port of Mocha and I saved nothing today", "repeat-negative-#{index}" }
+    assert_equal before, SavingsChatCard.where(status: "pending").count
+    assert_equal 0, SavingsEntryVersion.count
+  end
+
+  test "a day without money set aside gets a brief acknowledgement without a savings card" do
+    [ "I saved nothing today", "I didn't set aside anything today", "I wanted to set aside $50 but I could not",
+      "No money saved today", "I could not save $20 today", "I put aside $0 today", "I saved zero dollars today", "Nothing saved today", "We did not save a cent today" ].each_with_index do |message, index|
+      assert_no_difference "SavingsChatCard.count" do
+        ask message, "no-savings-#{index}"
+      end
+      assert_match(/nothing set aside/i, response.parsed_body.dig("assistant_message", "content"))
+      refute_match(/Did you set aside new money|Only new money/i, response.parsed_body.dig("assistant_message", "content"))
+    end
+  end
+
+  test "a later completed reserve stays distinct from an earlier negative statement even for cents" do
+    ask "I saved nothing today but I set aside $0.25 later", "small-later-reserve"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    assert_equal "savings", card["kind"]
+    assert_equal 25, card.dig("input", "amount_cents")
+    refute_match(/Nothing set aside/i, response.parsed_body.dig("assistant_message", "content"))
+  end
+
+  test "the savings amount must belong to a completed savings verb" do
+    ask "I spent $18 at Port of Mocha and thought about saving today", "unbound-savings"
+    refute_equal "savings", response.parsed_body.dig("challenge_chat_card", "kind")
+    ask "I set aside $25 today", "repeat-positive-a"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    ask "I set aside $25 today", "repeat-positive-b"
+    assert_equal card["id"], response.parsed_body.dig("challenge_chat_card", "id")
+  end
+
   test "weekly check in frequency does not multiply a whole challenge goal" do
     [ "I check in once a week. Set my goal to $500.", "Set my goal to $500; I will check in weekly." ].each_with_index do |message, index|
       ask message, "check-in-frequency-#{index}"

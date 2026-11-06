@@ -14,6 +14,17 @@ class HouseholdFinanceTransactionCategorySuggesterTest < ActiveSupport::TestCase
     @suggester = HouseholdFinance::TransactionCategorySuggester.new(@household)
   end
 
+  test "broad statement labels never silently put groceries and gas in fixed essentials" do
+    fixed = @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary")
+    [ "Payless", "Cost-U-Less", "Shell", "Mobil" ].each do |merchant|
+      suggestion = @suggester.suggest(merchant: merchant, category_name: fixed.name, confidence: 0.9)
+      refute suggestion.matched?, merchant
+      assert_equal "check_everyday_spending_category", suggestion.match_reason
+    end
+    @household.merchant_category_rules.create!(merchant_pattern: "Shell", budget_category: fixed, confidence: 0.9, source: "user_confirmed", active: true)
+    assert_equal fixed, HouseholdFinance::TransactionCategorySuggester.new(@household).suggest(merchant: "Shell", category_name: fixed.name).category
+  end
+
   test "matches an exact active category even when extraction confidence is low" do
     suggestion = @suggester.suggest(
       merchant: "Tita's Demo Market",

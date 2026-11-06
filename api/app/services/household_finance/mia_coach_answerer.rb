@@ -127,7 +127,7 @@ module HouseholdFinance
       return true if value.match?(/\b(?:(?:my|our) (?:husband|wife|partner) left|(?:i|we) need to talk to someone)\b/i)
       # Food has its own tested household, timing, and discretionary exclusions.
       # This extension covers present household housing/medical/utility hardship.
-      value.match?(/\b(?:i|we)\s+(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
+      value.match?(/\b(?:i|we)\s+(?:(?:just\s+)?(?:lost\s+(?:my|our)\s+jobs?|got\s+laid\s+off|(?:am|are)\s+out\s+of\s+work)\s+and\s+)?(?:can['’]?t|cannot|couldn['’]?t|am unable to|are unable to)\s+(?:pay|afford|cover|buy|get)\b[^.!?]{0,55}\b(?:rent|housing|mortgage|medicine|medication|power|water|utilities)\b/i)
     end
 
     def self.eviction_hardship?(text)

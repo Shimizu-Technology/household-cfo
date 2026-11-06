@@ -40,7 +40,12 @@ module SavingsChallenge
     end
 
     def savings_input
+      return if SavingsReportText.nothing_set_aside?(@message)
       return if @message.match?(/\?|\b(?:if|would|could|might|plan|planning|want to|will|should|haven.t|didn.t|did not|not yet|refund|borrowed|cash advance|credit card payment)\b/i)
+      # A completed savings verb must own the amount. Purchase dollars elsewhere
+      # in the sentence cannot supply it.
+      statement = @message[/\b(?:set aside|reserved|saved|put aside|withdrew|took)\s+\$\s*[\d,.]+(?:\s*(?:k|thousand))?/i]
+      return unless statement || HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
       amounts = @message.scan(MONEY).flatten
       return unless amounts.length == 1
       cents = HouseholdFinance::Money.chat_cents(amounts.sole)
@@ -60,13 +65,15 @@ module SavingsChallenge
     end
 
     def daily_report
-      parsed = DailyReportParser.new(@enrollment, message: @message).call
+      purchase_message = SavingsReportText.purchase_text(@message)
+      return if purchase_message.blank?
+      parsed = DailyReportParser.new(@enrollment, message: purchase_message).call
       return parsed.report if parsed.found?
       # Without an amount or a store this is conversation, not an incomplete report.
       @rejection = parsed.reason if HouseholdFinance::PurchaseReportText.purchase_details?(@message)
-      return unless parsed.none? && HouseholdFinance::PurchaseReportText.normalize(@message).match?(/\d/) && (@message.match?(DailyReportParser::SPEND_VERB) || @message.match?(PLACE))
+      return unless parsed.none? && HouseholdFinance::PurchaseReportText.normalize(purchase_message).match?(/\d/) && (purchase_message.match?(DailyReportParser::SPEND_VERB) || purchase_message.match?(PLACE))
 
-      (@extractor || DailyReportExtractor.new(@enrollment, message: @message)).call
+      (@extractor || DailyReportExtractor.new(@enrollment, message: purchase_message)).call
     end
 
     def requested_date

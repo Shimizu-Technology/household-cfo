@@ -1,6 +1,30 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "yes confirms only setup facts the participant supplied before Mia asked" do
+    context = setup_zero_context("household_name")
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "Our household is called The Reyes Family. Our monthly income is $3,900." },
+      { role: "assistant", content: "Is your household name 'The Reyes Family', and is $3,900 your monthly take-home income?" }
+    ]
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Yes", context: context, api_key: nil).call
+    assert result.actionable?
+    assert_equal({ household_name: "The Reyes Family", primary_income: "3900" }, result.action[:setup_updates])
+    context[:conversation][:recent_messages][0][:content] = "I need help"
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "Yes", context: context, api_key: nil).call
+    refute result&.actionable?
+  end
+
+  test "a provider cannot turn a bill or purchase at the goal question into a goal" do
+    [ "I just spent $45 at Payless on groceries", "My rent is $1,500 a month", "My paycheck is $1,200" ].each do |message|
+      action = default_action.merge(type: "update_household_setup", setup_updates: { primary_goal: message })
+      transport = ->(_) { resolution_json(intent: "household_action", continuation: true, resolved_message: message,
+        topic: { type: "household_setup", title: "Setup", subject: "Primary goal" }, action: action) }
+      result = HouseholdFinance::MiaIntentResolver.new(user_message: message, context: setup_zero_context("primary_goal"), api_key: "synthetic", transport: transport).call
+      refute result&.action&.dig(:setup_updates, :primary_goal), message
+    end
+  end
+
   test "a merchant beginning with New is not a request to create a category" do
     result = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12 at New York today", context: intent_context, api_key: nil

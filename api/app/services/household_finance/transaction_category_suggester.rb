@@ -37,6 +37,11 @@ module HouseholdFinance
       return no_match("no_active_categories") if categories.empty?
 
       if (category = exact_category(categories, category_name))
+        # A broad extracted label is not evidence that groceries or fuel belong
+        # to fixed bills. Ask for a category unless confirmed history says so.
+        if category.stack_key == "non_discretionary" && normalized(category.name).match?(/\A(?:fixed essentials|fixed expenses|essential bills)\z/) && normalized([ merchant, text ].compact.join(" ")).match?(Regexp.union(GROCERY_TERMS, TRANSPORT_TERMS))
+          return merchant_rule_suggestion(merchant, categories) || no_match("check_everyday_spending_category")
+        end
         return matched(category, "exact_category")
       end
 

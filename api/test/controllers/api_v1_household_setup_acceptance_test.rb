@@ -179,6 +179,113 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_equal 1, @household.goals.tracked.count
   end
 
+  test "everyday interruptions never become a primary goal and hardship wins without a provider" do
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    original_goal = @household.reload.primary_goal
+    [ "I just spent $45 at Payless on groceries", "My rent is $1,500 a month", "We pay $1,600 rent each month", "Our power bill runs about $180 monthly", "I lost my job and cannot pay rent" ].each do |message|
+      post_message(message)
+      draft = response.parsed_body["mia_action_draft"]
+      refute draft && draft.fetch("items").any? { |item| item.dig("payload", "primary_goal") == message || item.dig("payload", "value") == message }, message
+      assert_nil draft, "A rent bill cannot establish a total for all fixed essentials" if message.match?(/(?:rent|power)/) && !message.include?("lost my job")
+      assert_match(/housing|rent|food|essentials/i, reply) if message.include?("lost my job")
+      refute_match(/approved data|readiness, safe-to-spend/i, reply)
+      assert_equal original_goal, @household.reload.primary_goal
+    end
+  end
+
+  test "natural setup start and minimum payment sentences prepare reviews without a model" do
+    post_message("Help me set up my household")
+    assert_includes reply, "What would you like to call this household?"
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("Save for a house")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("I take home $4,800 a month")
+    first = response.parsed_body.fetch("mia_action_draft")
+    post_message("Actually make that $4,500 a month")
+    second = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first.fetch("id")).status
+    apply(second)
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+    post_message("$2,000")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("We spend around $900 a month on groceries, gas and everything else")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("$350 minimum on the Visa")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    apply(draft)
+    assert @applied.dig("workspace", "setup_complete")
+    assert_includes reply, "Your household setup is complete."
+    assert_equal 35000, @household.debts.sole.minimum_payment_cents
+    refute @household.debts.sole.balance_known?
+    post_message("I got a raise to $5,200 a month")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+    apply(draft)
+    post_message("Change my main money goal to save for a house")
+    refute_match(/approved data/i, reply)
+    assert_match(/already|review/i, reply)
+  end
+
+  test "goal reviews do not display unknown monthly income as zero" do
+    post_message("Call it the Reyes Family.")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    post_message("Save for a house")
+    impact = response.parsed_body.fetch("mia_action_draft")["impact"]
+    assert_nil impact && impact["before_monthly_income"]
+    assert_nil impact && impact["after_monthly_income"]
+  end
+
+  test "yes to the setup confirmation uses participant words and stays a review" do
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    session.chat_messages.create!(role: "user", content: "Our household is called The Reyes Family. Our monthly income is $3,900.")
+    session.chat_messages.create!(role: "assistant", content: "Is your household name 'The Reyes Family', and is $3,900 your monthly take-home income?")
+    post_message("Yes")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 0, @household.income_sources.count
+    apply(draft)
+    assert_equal "The Reyes Family", @household.reload.name
+    assert_equal 390000, @household.income_sources.sole.amount_cents
+  end
+
+  test "an open monthly income review accepts a natural correction without a model" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for a house" }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("I take home $4,800 a month")
+    first = response.parsed_body.fetch("mia_action_draft")
+    post_message("Actually make that $4,500 a month")
+    corrected = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first["id"]).status
+    apply(corrected)
+    assert_equal 450000, @household.income_sources.sole.amount_cents
+  end
+
+  test "a named minimum after the debt question keeps the balance unknown and finishes setup" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for a house", primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900 }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    post_message("$350 minimum on the Visa")
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    assert_equal 35000, @household.debts.sole.minimum_payment_cents
+    refute @household.debts.sole.balance_known?
+    assert_includes reply, "Your household setup is complete."
+  end
+
+  test "a raise and a main money goal change work as separate reviews without a provider" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Reyes Family", primary_goal: "Save for emergencies", primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900 }).call
+    post_message("I got a raise to $5,200 a month")
+    income = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "income_schedule", income["draft_type"]
+    post_message("Change my main money goal to save for a house")
+    goal = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "household_setup", goal["draft_type"]
+    assert_equal 480000, @household.income_sources.sole.amount_cents
+    refute_equal "save for a house", @household.reload.primary_goal
+  end
+
   private
 
   def headers

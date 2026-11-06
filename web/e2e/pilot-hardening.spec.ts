@@ -7905,7 +7905,7 @@ test('mobile Ask Mia 320px category-create link preserves and submits exact mont
   await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
   const form = page.locator('.annual-category-form')
   await expect(form.getByLabel('New category', { exact: true })).toHaveValue('School supplies')
-  await expect(form.getByLabel('Expense Stack group')).toHaveValue('sinking_expected')
+  await expect(form.getByLabel('Spending group')).toHaveValue('sinking_expected')
   await expect(form.getByLabel('Monthly plan')).toHaveValue('120')
   await expect(form.getByLabel('Category month scope')).toHaveValue('selected')
   await expect(form.getByLabel('New category', { exact: true })).toBeFocused()
@@ -10551,6 +10551,29 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await expect(page.getByText(/call or text 988/)).toBeVisible();await expect(prompt).toHaveCount(0);await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toHaveCount(0)
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
+})
+test('BOG UI explicit check-in reopens today after a chat question and on the next day', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-09-28T02:00:00Z') })
+  await openDaily(page, { active: true })
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(prompt).toBeVisible()
+  await sendMiaDailyReport(page, {
+    user_message: { id: 8251, role: 'user', author: 'You', content: 'I saved nothing today' },
+    assistant_message: { id: 8252, role: 'assistant', author: 'Mia', content: 'Would you like to talk about today?' },
+  })
+  await expect(prompt).toHaveCount(0)
+  await openSection(page, 'Savings')
+  await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await openSection(page, 'Savings')
+  await page.clock.setFixedTime(new Date('2026-09-29T02:00:00Z'))
+  const tomorrow = structuredClone(dailyContext)
+  tomorrow.calendar = { ...tomorrow.calendar, phase: 'active', local_today: '2026-09-29' }
+  tomorrow.day = { ...tomorrow.day!, local_on: '2026-09-29', spending_state: 'unknown', check_in_id: null, check_in_version_id: null }
+  await page.route('http://api.test/api/v1/savings_challenge/daily/context**', route => route.fulfill({ json: { context: { ...tomorrow, cohort_id: 41, enrollment_id: 1 } } }))
+  await page.getByRole('button', { name: 'Check in for today', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await expect(prompt.getByRole('button', { name: 'No spending today' })).toBeEnabled()
 })
 test('BOG UI daily Mia waits for the current question before offering today', async ({ page }) => {
   await openDaily(page, { active: true })

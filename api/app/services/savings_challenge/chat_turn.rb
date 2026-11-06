@@ -99,6 +99,15 @@ module SavingsChallenge
       end
       parser = ChatIntake.new(@enrollment, message: @message) if @attachments.empty?
       @intake = parser&.call
+      if SavingsReportText.nothing_set_aside?(@message) && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+        if @intake&.dig(:kind) == "daily_report"
+          coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: @intake)
+          @answer = "Nothing set aside; that’s okay. #{coach.call}"
+        else
+          @answer = "Nothing set aside; that’s okay. Nothing has been added to your savings."
+        end
+        return self
+      end
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
         message: @message, attachments: @attachments, daily_report: @intake, daily_rejection: parser&.rejection, savings_intake: @intake)
       reference = coach.call
@@ -131,15 +140,20 @@ module SavingsChallenge
             financial_baseline_version_id: plan&.financial_baseline_version_id, baseline_digest: plan&.baseline_digest,
             spending_changes: plan&.spending_changes || [] })
       elsif @intake&.dig(:kind) == "daily_report"
-        @card = SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "daily_report", input: @intake)
+        @card = pending_intake_card("daily_report") || SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "daily_report", input: @intake)
       elsif @intake&.dig(:kind).in?(%w[contribution withdrawal])
-        @card = SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "savings", input: @intake)
+        @card = pending_intake_card("savings") || SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "savings", input: @intake)
       end
       @session.update!(active_topic: @topic)
       (@card || @continued_card&.reload)&.as_api_json
     end
 
     private
+
+    def pending_intake_card(kind)
+      SavingsChatCard.where(savings_enrollment: @enrollment, kind: kind, status: "pending", input: @intake)
+        .for_picture(@household.financial_generation).order(:id).last
+    end
 
     def review_continuation
       return false unless @message.match?(/\A\s*(?:yes|yeah|yep|ok(?:ay)?)(?:[, ]+(?:please|save it|save|do it))?[.!]?\s*\z/i)
@@ -195,7 +209,7 @@ module SavingsChallenge
       end
       flexible = @patterns[:discretionary_merchants].first(2).map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
       observed = if flexible.any?
-        "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spend' : 'were your biggest flexible spends'}."
+        "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest everyday spending item' : 'were your biggest everyday spending items'}."
       else
         "I don't have enough purchases in flexible categories to suggest a cut yet. A store name alone doesn't tell me what you needed."
       end

@@ -2,7 +2,7 @@
 import { cleanup, render, fireEvent, screen, act } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, AnnualOutlookMonth } from '../api'
-import { AnnualCashFlowChart } from './BudgetVisuals'
+import { AnnualCashFlowChart, CategoryPressureList } from './BudgetVisuals'
 
 afterEach(cleanup)
 
@@ -70,4 +70,12 @@ it('keeps a known shortfall visible while another month is unknown', () => {
  render(<AnnualCashFlowChart plan={planWith([unknown, month(12, 'Dec', -200)])} />)
  expect(screen.getByText('1 planned month needs attention.')).toBeTruthy()
  expect(screen.queryByText('Every planned month has money left over.')).toBeNull()
+})
+
+
+it('shows pending uncategorized spending without invented zero plan or actual values', () => {
+  const { container } = render(<CategoryPressureList title="Spending" eyebrow="November" positions={[{ id: 0, name: 'Uncategorized', stackKey: 'discretionary', stackLabel: 'Needs category', planned: 0, actual: 0, pending: 35, remaining: 0, active: true }]} />)
+  expect(container.textContent).toContain('$35 pending')
+  expect(container.textContent).toContain('Approved spending not known yet')
+  expect(container.textContent).not.toContain('$0')
 })

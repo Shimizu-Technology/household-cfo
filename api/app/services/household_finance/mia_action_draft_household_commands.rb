@@ -346,7 +346,7 @@ module HouseholdFinance
       confirmation = MiaActionDraftBuilder::Item.new(
         action_type: "confirm_household_setup",
         label: fields.one? ? "Confirm #{SETUP_LABELS.fetch(fields.first.to_sym)}" : "Confirm #{fields.length} starting-picture fields",
-        description: "Record only these reviewed fields as confirmed after their typed household changes succeed.",
+        description: "Save these details as part of your household setup after you apply this card.",
         target_record_type: "Household", target_record_id: household.id,
         payload: { confirmed_fields: fields, confirm_only_fields: fields, expected_values: expected_values },
         before_snapshot: { confirmed_fields: SetupStatus.new(household).confirmed_field_keys & fields },
@@ -381,8 +381,8 @@ module HouseholdFinance
       if key == :primary_goal
         items << MiaActionDraftBuilder::Item.new(
           action_type: "update_transition_policy",
-          label: "Align the transition goal",
-          description: after.to_s.present? ? "Keep the transition goal aligned with the reviewed primary goal." : "Remove the transition goal after clearing the reviewed primary goal.",
+          label: "Use your main money goal",
+          description: after.to_s.present? ? "Use this as your main money goal throughout your plan." : "Clear this main money goal from your plan.",
           target_record_type: "Goal",
           target_record_id: household.goals.policy.find_by(goal_type: "transition")&.id,
           payload: { label: after },
@@ -490,6 +490,11 @@ module HouseholdFinance
     end
 
     def setup_impact(before_values, normalized)
+      # Setup presenter totals include empty categories; until the required
+      # fields are confirmed they do not establish a household-wide income.
+      confirmed = SetupStatus.new(household).confirmed_field_keys
+      return unless confirmed.include?("primary_income") && %w[fixed_expenses flexible_spend debt_payment].all? { |field| confirmed.include?(field) }
+
       after_values = before_values.merge(normalized)
       before_income = setup_money_total(before_values, :primary_income, :business_income)
       after_income = setup_money_total(after_values, :primary_income, :business_income)

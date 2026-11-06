@@ -235,7 +235,7 @@ module HouseholdFinance
         return purchase if purchase
       end
 
-      setup_result = setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
+      setup_result = setup_goal_interruption_result || setup_confirmation_result || setup_correction_result || setup_primary_goal_change_result || setup_named_minimum_result || setup_goal_result || deterministic_current_salary_result || deterministic_debt_result || deterministic_debt_free_result || deterministic_setup_result || guided_setup_reply_result unless read_only_request
       return setup_result if setup_result
       if context.dig(:setup_status, :complete) == true && !MiaCoachAnswerer.explicit_write_request?(user_message) &&
           user_message.match?(PURCHASE_SCENARIO_PATTERN) &&
@@ -244,10 +244,14 @@ module HouseholdFinance
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan? && scenario.read_only_plan.dig(:items, 0, :scenario_type) == "purchase"
       end
-      return read_only_request ? explicit_read_only_result : deterministic_purchase_result if api_key.blank? && transport.nil?
+      return read_only_request ? explicit_read_only_result : (deterministic_purchase_result || setup_unrecognized_reply_result) if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
+      if next_missing_setup_field == "primary_goal" && guided_setup_question_asked?("primary_goal") &&
+          ([ result.action, *Array(result.write_plan.to_h[:actions]).map { |item| item[:action] } ].any? { |action| action.to_h.dig(:setup_updates, :primary_goal).present? || action.to_h[:type] == "create_goal" }) && !MiaSetupReply.goal?(user_message)
+        return deterministic_purchase_result || setup_unrecognized_reply_result
+      end
       if result.action.to_h[:type] == "create_goal" && context.dig(:conversation, :active_thread, :type) == "household_setup" &&
           Array(context.dig(:setup_status, :missing_fields)).any? { |field| field[:key].to_s == "primary_goal" }
         result.action[:setup_primary_goal] = true
@@ -257,15 +261,15 @@ module HouseholdFinance
       end
       provider_supplied_plan = Array(parsed.dig(:read_only_plan, :items)).any?
       preserve_provider_result = result.read_only_plan? || provider_supplied_plan || result.actionable? || result.clarification?
-      preserve_provider_result ? result : deterministic_scenario_fallback || result
+      preserve_provider_result ? result : deterministic_scenario_fallback || setup_unrecognized_reply_result || result
     rescue JSON::ParserError, KeyError, TypeError, ArgumentError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] invalid intent response: #{e.class}: #{e.message}")
       return explicit_read_only_result if read_only_request
-      deterministic_scenario_fallback
+      deterministic_scenario_fallback || setup_unrecognized_reply_result
     rescue StandardError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] intent fallback: #{e.class}: #{e.message}")
       return explicit_read_only_result if read_only_request
-      deterministic_scenario_fallback
+      deterministic_scenario_fallback || setup_unrecognized_reply_result
     end
 
     def deterministic_scenario_result
@@ -362,6 +366,7 @@ module HouseholdFinance
     def deterministic_current_salary_result
       match = user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:my|our)\s+(?:salary|take[ -]home pay)\s+is\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?\s*(?:now|starting (?:this month|now))?[.!]?\z/i) ||
         user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:(?:please|can you|could you|would you)\s+)?(?:change|set|update)\s+(?:my|our)\s+(?:salary|take[ -]home pay)\s+to\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?[.!]?\z/i)
+      match ||= user_message.match(/\A(?:i|we)\s+(?:(?:just\s+)?got\s+a\s+raise\s+to|(?:now\s+)?(?:make|earn))\s+\$?([\d,]+(?:\.\d{1,2})?)\s+(?:(?:a|per|each)\s+month|monthly)(?:\s+now)?[.!]?\z/i)
       return unless match
 
       sources = Array(context[:income_sources]).select { |source| source[:source_type] == "job" && source[:active] }
@@ -708,6 +713,79 @@ module HouseholdFinance
       )
     end
 
+    def setup_goal_interruption_result
+      return unless next_missing_setup_field == "primary_goal" && guided_setup_question_asked?("primary_goal")
+      return if MiaSetupReply.goal?(user_message)
+      purchase = deterministic_purchase_result
+      return purchase if purchase
+      return unless MiaSetupReply.bill_statement?(user_message)
+
+      deterministic_setup_clarification("primary_goal", clarification: "That sounds like a household bill. We can add your monthly costs after your goal; I haven't used it as your goal or your total bills. #{MiaSetupGuide.question_message("primary_goal")}")
+    end
+
+    def setup_confirmation_result
+      return unless user_message.match?(DEBT_FREE_AFFIRMATION_PATTERN)
+      return if Array(context[:pending_budget_reviews]).any?
+      messages = Array(context.dig(:conversation, :recent_messages))
+      assistant = messages.reverse.find { |turn| turn[:role] == "assistant" }
+      return unless assistant && assistant[:content].to_s.match?(/\?|\bconfirm\b/i)
+      prior = messages.reverse.find { |turn| turn[:role] == "user" }
+      return unless prior && prior[:content].present?
+
+      prior_context = context.deep_dup
+      prior_context[:conversation] = {}
+      result = self.class.new(user_message: prior[:content], context: prior_context, api_key: "").call
+      return unless result&.actionable? && result.action[:type] == "update_household_setup"
+
+      result.continuation = true
+      result
+    end
+
+    def setup_correction_result
+      return unless user_message.match?(/\A(?:actually[, ]+)?(?:make (?:that|it)|i mean|use)\s+/i)
+      thread = context.dig(:conversation, :active_thread).to_h
+      action = thread[:action].to_h
+      return unless thread[:schema_version].to_i >= 2 && action[:type] == "update_household_setup"
+      fields = action[:setup_updates].to_h.select { |key, value| MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key.to_sym) && value.present? }.keys
+      return unless fields.one?
+      field = fields.sole.to_s
+      amount_text = user_message.sub(/\A(?:actually[, ]+)?(?:make (?:that|it)|i mean|use)\s+/i, "")
+      match = amount_text.match(GUIDED_MONEY_REPLY_PATTERN)
+      return unless match
+      value = normalized_setup_money(match[1])
+      return unless value
+
+      setup_reply_result(field, value)
+    end
+
+    def setup_primary_goal_change_result
+      match = user_message.match(/\A(?:please\s+)?(?:change|update|set)\s+(?:my|our)\s+(?:(?:main|primary)\s+(?:money\s+)?|money\s+)goal\s+to\s+(.+?)[.!]?\z/i)
+      return unless match && MiaSetupReply.goal?(user_message)
+      setup_reply_result("primary_goal", match[1])
+    end
+
+    def setup_named_minimum_result
+      return unless next_missing_setup_field == "debt_payment" && guided_setup_question_asked?("debt_payment")
+      match = user_message.match(/\A\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:(?:a|per)\s+month\s+)?minimum(?:\s+payment)?\s+(?:on|for)\s+(?:the|my|our)?\s*([\p{L}][\p{L} '-]{0,79})[.!]?\z/i)
+      return unless match
+      amount = normalized_setup_money(match[1])
+      return unless amount
+      name = match[2].squish
+      debts = Array(context[:active_debts]).select { |debt| debt[:label].to_s.casecmp?(name) }
+      return if debts.many? || context.dig(:debt_tracking, :mode).to_s == "summary"
+      Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
+        needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimum", subject: name },
+        action: { type: debts.one? ? "update_debt" : "create_debt", debt_id: debts.first&.dig(:id), debt_name: name,
+          debt_type: name.match?(/visa|mastercard|amex|card/i) ? "credit_card" : "other", minimum_payment: amount },
+        read_only_plan: {}, source: "deterministic")
+    end
+
+    def setup_unrecognized_reply_result
+      field = next_missing_setup_field
+      return unless field && guided_setup_question_asked?(field)
+      deterministic_setup_clarification(field, clarification: "I haven't added that to your setup. #{MiaSetupGuide.question_message(field)}")
+    end
+
     def guided_setup_reply_result
       return @guided_setup_reply_result if defined?(@guided_setup_reply_result)
 
@@ -751,6 +829,9 @@ module HouseholdFinance
       return "0" if field == "debt_payment" && user_message.squish.match?(/\A(?:(?:i|we)\s+have\s+)?(?:no debt payments|none|no debts?)[.!]?\z/i)
       return if guided_setup_non_answer?
 
+      natural = MiaSetupReply.monthly_amount(user_message, field: field)
+      return natural if natural
+
       match = user_message.match(GUIDED_MONEY_REPLY_PATTERN)
       if !match && field == "primary_income" && !ambiguous_setup_statement?
         match = user_message.match(/\A(?:i|we)\s+(?:take|bring)\s+home\s+(?:about\s+)?\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:a|per|each)\s+month(?:\s+from\s+(?:my|our)\s+(?:job|work)(?:\s+at\s+[^.!?]+)?)?[.!]?\z/i)
@@ -779,7 +860,8 @@ module HouseholdFinance
       return if values.any? || conflicts.any? || user_message.match?(/[.;]\s*\S/)
       return if field == "household_name" && user_message.match?(/,\s*(?:(?:my|our)\s+|(?:i|we)\s+(?:have|bring|make|take|want|need|pay|spent)\b|(?:please|also)\b)/i)
       return if field == "household_name" && user_message.include?("$")
-      return user_message unless field == "household_name"
+      return user_message if field == "primary_goal" && MiaSetupReply.goal?(user_message)
+      return unless field == "household_name"
 
       name = cleaned_household_name(user_message)
       name if name.present? && household_name_shape?(name) && !name.match?(HOUSEHOLD_NAME_SENTENCE_START_PATTERN)
@@ -799,7 +881,7 @@ module HouseholdFinance
     end
 
     def setup_reply_result(field, value)
-      label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
+      label = SetupStatus::FIELD_LABELS[field.to_sym] || MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field.to_sym)
       if field == "debt_payment"
         if value.to_s == "0" && Array(context[:active_debts]).any? { |debt| debt[:minimum_payment].to_f.positive? }
           return deterministic_setup_clarification(field, clarification: "A debt on file has a monthly minimum. Review your debts in My Money before confirming no debt payments. Nothing changed.")

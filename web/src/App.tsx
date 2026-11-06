@@ -830,6 +830,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [dailyIntake,setDailyIntake] = useState<{scope:string;intake:SavingsIntake;handoff?:{nonce:string;rowId:number}}|null>(null)
   const [miaDailyReports,setMiaDailyReports] = useState<{scope:string;report:DailyReportIntake;nonce:string}[]>([])
   const [dailyRefreshKey,setDailyRefreshKey] = useState(0)
+  const [checkInPromptScope, setCheckInPromptScope] = useState<string | null>(null)
   const [composerHint,setComposerHint] = useState<string|null>(null)
   const [evidenceReview, setEvidenceReview] = useState<{scope:string;entryVersionId:number}|null>(null)
   const [evidenceRefreshToken, setEvidenceRefreshToken] = useState(0)
@@ -1984,6 +1985,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   // touch screens the keyboard would cover the prompt's buttons, so no focus.
   function openDailyCheckIn() {
     if (!switchSection('Ask Mia', { focusHeading: false })) return
+    setCheckInPromptScope(challengeIntakeScope)
+    setDailyRefreshKey(value => value + 1)
     if (window.matchMedia?.('(pointer: coarse)').matches) return
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
   }
@@ -2202,6 +2205,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     : undefined
 
   async function handleAskMia(prompt = question) {
+    setCheckInPromptScope(null)
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading || budgetActionRef.current) return
@@ -3827,7 +3831,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && !visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?') && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && (checkInPromptScope === challengeIntakeScope || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
@@ -8749,7 +8753,7 @@ export function AnnualBudgetPlanner({
             <div className="budget-manual-tool">
               <div className="budget-manual-tool-intro">
                 <strong>Add one spending category</strong>
-                <span>Give it a household-friendly name, choose its Expense Stack group, and set the amount you expect each month.</span>
+                <span>Give it a household-friendly name, choose its spending group, and set the amount you expect each month.</span>
               </div>
               <form className="annual-category-form" onSubmit={onCreateCategory}>
                 <label>
@@ -8757,7 +8761,7 @@ export function AnnualBudgetPlanner({
                   <input ref={newCategoryInputRef} value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={action === 'create-category'} />
                 </label>
                 <label>
-                  <span>Expense Stack group</span>
+                  <span>Spending group</span>
                   <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
                     <option value="non_discretionary">Must-pay bills</option>
                     <option value="discretionary">Flexible spending</option>
