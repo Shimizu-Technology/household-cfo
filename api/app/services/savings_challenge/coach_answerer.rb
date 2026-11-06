@@ -120,8 +120,7 @@ module SavingsChallenge
     end
 
     def money(cents)
-      value = cents.to_i
-      "#{value.negative? ? '-' : ''}$#{value.abs.div(100)}.#{value.abs.modulo(100).to_s.rjust(2, '0')}"
+      ActionController::Base.helpers.number_to_currency(cents.to_i / 100.0)
     end
 
     def privacy_answer
@@ -281,7 +280,8 @@ module SavingsChallenge
       return "#{reason[:question]} Nothing was saved." if reason[:question]
       date, today = reason[:date], reason[:today]
       label = ->(day) { day.strftime("%a, %b %-d") }
-      spending = date == today - 1 ? "yesterday's spending" : "spending from #{label.call(date)}"
+      activity = reason[:movement].in?(%w[set_aside withdrawal]) ? "savings" : "spending"
+      spending = date == today - 1 ? "yesterday's #{activity}" : "#{activity} from #{label.call(date)}"
       case reason[:kind]
       when :before_start
         "Your challenge started on #{label.call(reason[:starts_on])}, so I can't add #{spending} to it. Nothing was saved. You can tell me about today instead."

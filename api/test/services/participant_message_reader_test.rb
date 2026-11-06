@@ -23,7 +23,8 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_equal [ 2000, 1000 ], intake.intakes.filter_map { |input| input[:amount_cents] }
     assert_equal [ Date.current.iso8601, Date.current.yesterday.iso8601 ], intake.intakes.first(2).pluck(:effective_on)
     assert_equal 1800, intake.intakes.last.dig(:purchases, 0, :amount_cents)
-    assert_equal "shell", intake.intakes.last.dig(:purchases, 0, :merchant)
+    assert_equal "Shell", intake.intakes.last.dig(:purchases, 0, :merchant)
+    assert_equal "shell", result.facts.last["merchant"]
     assert intake.intakes.all? { |input| input[:counted] == false && input[:approval_state] == "unreviewed_input" }
   end
 

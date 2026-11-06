@@ -3,7 +3,7 @@ module HouseholdFinance
     AMOUNT_PATTERN = /\$\s*(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)/.freeze
     BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+(#{Money::CHAT_NUMBER_SOURCE}(?![\d,])#{Money::CHAT_THOUSANDS_SOURCE}?)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\b/i.freeze
-    NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b|\b(?:got|get|gets|received|receive)\s+(?:\$?\s*\d[\d,.]*k?\s*(?:dollars?|bucks)?\s+)?back\b|\b\d[\d,.]*\s*(?:dollars?|bucks)?\s+back\s+from\b|\b(?:paid|gave|sent)\s+me\s+(?:back\b|\$?\d)/i.freeze
+    NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b|\b(?:got|get|gets|received|receive)\s+(?:\$?\s*\d[\d,.]*k?\s*(?:dollars?|bucks)?\s+)?back\b(?!\s+from\b)|\b\d[\d,.]*\s*(?:dollars?|bucks)?\s+back\s+from\b|\b(?:paid|gave|sent)\s+me\s+(?:back\b|\$?\d)/i.freeze
     EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|\s+(?:and|then|&)\s+(?:(?:i|we)\s+)?(?:put|paid|transferred|moved|deposited|added|sent|saved|withdrew|invested)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
@@ -50,7 +50,7 @@ module HouseholdFinance
 
     def call
       return nil unless transaction_like?
-      return nil unless amount_cents.positive?
+      return nil unless amount_cents.positive? && occurred_on && occurred_on <= Date.current
 
       Operations::Runner.new(household, user: @user).run(
         operation_key: "transaction.draft.create",
@@ -129,10 +129,9 @@ module HouseholdFinance
     end
 
     def occurred_on
-      @occurred_on ||= if draft_text.match?(/\byesterday\b/i)
-        Date.yesterday
-      else
-        Date.current
+      @occurred_on ||= begin
+        result = ParticipantReportDay.call(day: "", message: draft_text, today: Date.current)
+        result.state == :missing ? Date.current : result.date
       end
     end
 

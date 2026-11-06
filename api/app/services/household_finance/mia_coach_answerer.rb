@@ -1271,6 +1271,8 @@ module HouseholdFinance
     end
 
     def purchase_comparison_amount_cents
+      amount = PurchaseQuestionText.reading(message)&.purchase_question.to_h["amount"]
+      return ParticipantMessageReader.amount_cents(amount) if amount.present?
       return if PurchaseQuestionText.for_comparison(message).needs_clarification
 
       text = purchase_comparison_text

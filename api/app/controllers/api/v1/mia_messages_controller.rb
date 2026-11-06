@@ -153,7 +153,8 @@ module Api
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending)
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, setup_field: field, pending_field: pending,
+            goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
@@ -181,7 +182,7 @@ module Api
         if attached_imports.empty? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content)
           saved_reader = HouseholdFinance::SavedFinancialRecordsAnswerer.new(current_household,
             message: content, year: budget_year_param, month: budget_month_param)
-          saved_answer = saved_reader.call
+          saved_answer = saved_reader.call unless @participant_reading&.facts&.any? { |fact| fact["kind"] == "purchase" } || HouseholdFinance::MiaCoachAnswerer.spend_report_text?(content)
           if saved_reader.decline_reason == :ambiguous_period
             return render_household_read_response(session, content,
               "I could not identify one valid month for that saved-record question. Use a month and year, such as October 2026 or 2026-10. No financial records or plans changed.",
@@ -1759,6 +1760,10 @@ module Api
             coaching_guardrail_answer(resolved_content, annual_budget_manager: annual_budget_manager).presence || clarification_answer(intent_result)
           end
         end
+        if direct_answer.present? && @participant_reading&.purchase_question.to_h["item"].present? &&
+            @participant_reading.facts.any? { |fact| fact["kind"] == "income" }
+          direct_answer = "I heard your income update too. It hasn't changed your plan; send the new monthly income on its own so we can prepare it for review. #{direct_answer}"
+        end
         pending_draft_answer = pending_guardrail_answer(content)
         action_result = nil
         coach_answer = nil
@@ -1852,7 +1857,7 @@ module Api
               if creation.success?
                 transaction_draft = creation.draft
               else
-                direct_answer = "I understood the expense, but I could not create its review card: #{creation.errors.to_sentence}. Nothing changed."
+                direct_answer = "I couldn’t prepare that purchase for review. Please send its amount, place and past day again. Nothing has been saved."
               end
             else
               transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
@@ -2527,7 +2532,7 @@ module Api
           question = HouseholdFinance::MiaSetupGuide.new(draft.household).after_apply_message
           return "I kept #{draft.merchant} for #{money(draft.total_amount_cents)} on a review card. You can choose its spending group and save it after setup. Nothing is saved yet. #{question}"
         end
-        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Check the merchant, amount, and category on the card."
+        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} on #{draft.occurred_on.strftime("%A, %B %-d, %Y")} in #{category}. #{impact} Check the merchant, amount, and category on the card."
       end
 
       def drafted_transaction_category_label(draft)

@@ -32,6 +32,7 @@ module HouseholdFinance
       "|\\b(?:on\\s+)?(?<month>#{MONTH_SOURCE})\\s+(?<day>\\d{1,2})(?:st|nd|rd|th)?(?:,?\\s+(?<year>\\d{4}))?\\b" \
       "|\\b(?<today>today|tonight|this\\s+(?:morning|afternoon|evening)|earlier\\s+today)\\b" \
       "|\\b(?<yesterday>yesterday|last\\s+night)\\b" \
+      "|\\b(?:on\\s+)?(?<halloween>halloween)\\b" \
       "|\\b(?:on\\s+|last\\s+)?(?<weekday>#{WEEKDAY_SOURCE})\\b",
       Regexp::IGNORECASE
     ).freeze
@@ -66,7 +67,7 @@ module HouseholdFinance
     LIST_ITEM = Regexp.new("\\A(?<place>[a-z][^$\\d\\n]{0,60}?)\\s*(?:[:\\-–—]\\s*)?(?<dollar>\\$)?\\s*(?<amount>#{NUMBER_SOURCE})\\s*(?:dollars?|bucks)?(?:\\s+(?:for|with)\\s+[^$\\d]*)?\\s*\\z", Regexp::IGNORECASE).freeze
     # A store name ends at a date, a connector, or "for" plus a purpose or budget category
     # ("for Dining Out", "for the kids"). Other "for" words stay: "Ross Dress for Less".
-    MERCHANT_STOP = "(?=\\s+(?:again|today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
+    MERCHANT_STOP = "(?=\\s+(?:again|today|tonight|yesterday|this\\s+(?:morning|afternoon|evening)|last\\s+(?:night|#{WEEKDAY_SOURCE})|#{WEEKDAY_SOURCE}|earlier|on\\s+(?:#{MONTH_SOURCE}|#{WEEKDAY_SOURCE}|halloween|\\d+|my|the|a|an|gas|food|groceries|lunch|dinner|breakfast|coffee|snacks)\\b" \
       "|for\\s+(?:\\$|\\d+|my|the|a|an|some|our|lunch|dinner|breakfast|coffee|gas|fuel|food|groceries|snacks|kids?|me|us|dining(?:\\s+out)?|eating\\s+out|entertainment|household|personal|transport(?:ation)?|utilities|bills?|shopping|clothes|clothing|health|medical|school|work|church|gifts?|pets?|car|rent)\\b" \
       "|at|because|since|cause|cuz|when|while|but|so|with|and|felt|feel|feeling|which|that|after|before)\\b|\\s+\\$|[.,;!?\\n]|\\z)"
     MERCHANT_PATTERN = Regexp.new("(?:\\bwent to|\\bshopped at|\\bat|\\bfrom|@)\\s+(?:the\\s+)?(?<merchant>[a-z0-9][^\\n]*?)#{MERCHANT_STOP}", Regexp::IGNORECASE).freeze
@@ -418,6 +419,10 @@ module HouseholdFinance
 
     def resolve(match)
       return Date.iso8601(match[:iso]) if match[:iso]
+      if match[:halloween]
+        date = Date.new(today.year, 10, 31)
+        return date <= today ? date : Date.new(today.year - 1, 10, 31)
+      end
       return today if match[:today]
       return today - 1 if match[:yesterday]
       if match[:weekday]

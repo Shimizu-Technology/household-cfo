@@ -36,7 +36,7 @@ module HouseholdFinance
     SCENARIO_TYPES = %w[none purchase one_time_income essential_expense extra_debt_payment].freeze
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
     HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical(?:ly)?|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
-    PURCHASE_SCENARIO_PATTERN = /\b(?:can|could|should|may)\s+(?:i|we)\s+take\b[^?!;]*\b(?:trip|vacation|staycation)\b|\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend|book|order)\b/i.freeze
+    PURCHASE_SCENARIO_PATTERN = /\b(?:can|could|should|may)\s+(?:i|we)\s+take\b[^?!;]*\b(?:trip|vacation|staycation)\b|\b(?:could (?:i|we) have bought|(?:i|we) want to buy)\b|\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually|still)\s+)?(?:buy|purchase|get|afford|spend|book|order)\b/i.freeze
     DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\b(?:if|given(?:\s+that)?)\s+(?:our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
     SAME_AMOUNT_PATTERN = /\b(?:(?:same|unchanged)\s+(?:amount|price|cost)|(?:amount|price|cost)\s+(?:is\s+)?(?:the\s+)?same|keep .{0,80}\b(?:amount|price|cost)\b.{0,30}\bsame)\b/i.freeze
@@ -228,11 +228,15 @@ module HouseholdFinance
       end
       reader_result = participant_setup_result unless ::Mia::FinancialReadOnlyRequest.matches?(user_message) || MiaMonthAnswer.question?(user_message)
       return reader_result if reader_result
+      money_result = participant_purchase_result
+      return money_result if money_result
+      goal_result = participant_goal_result
+      return goal_result if goal_result
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
-      if PurchaseQuestionText.income_with_purchase?(user_message)
+      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message)) && !PurchaseQuestionText.debt_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end
@@ -291,6 +295,71 @@ module HouseholdFinance
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] intent fallback: #{e.class}: #{e.message}")
       return explicit_read_only_result if read_only_request
       deterministic_scenario_fallback || setup_unrecognized_reply_result
+    end
+
+    # Use the same source-checked completed facts as the challenge, before any
+    # legacy interpretation can redate or discard informal purchase reports.
+    def participant_goal_result
+      reading = context[:participant_reading]
+      amount = reading&.goal_change.to_h["amount"]
+      return unless amount.present? && !reading.care? && !ParticipantCare.required?(raw_user_message)
+      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.answer_field
+      goals = Array(context[:active_goals])
+      named = goals.select { |goal| user_message.downcase.include?(goal[:label].to_s.downcase) && goal[:label].present? }
+      goal = named.sole if named.one?
+      pending = context.dig(:conversation, :active_thread, :action).to_h
+      goal ||= goals.find { |candidate| candidate[:id].to_i == pending[:goal_id].to_i } if pending[:type] == "update_goal"
+      goal ||= goals.sole if goals.one? && user_message.match?(/\b(?:my|our|the)\s+(?:household\s+)?goal\b/i)
+      common = { confidence: 1.0, continuation: false, resolved_message: user_message,
+        topic: { type: "goal", title: "Tracked goal" }, read_only_plan: {}, source: "participant_reader" }
+      unless goal
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "Which household goal should use that target? Tell me its name; nothing has changed.", action: { type: "none" })
+      end
+      Result.new(**common, intent: "goal_action", needs_clarification: false, clarification: "",
+        action: { type: "update_goal", goal_id: goal[:id], target_amount: ParticipantMessageReader.amount_text(amount) })
+    end
+
+    def participant_purchase_result
+      reading = context[:participant_reading]
+      return unless reading&.available && !reading.care? && !ParticipantCare.required?(raw_user_message)
+      return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.savings_correction.present?
+      return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i) && Array(context[:pending_transaction_reviews]).any?
+      purchases = reading.facts.select { |fact| fact["kind"] == "purchase" }
+      return if purchases.empty?
+      common = { confidence: 1.0, continuation: false, resolved_message: user_message,
+        topic: { type: "transaction_draft", title: "Reported spending" }, read_only_plan: {}, source: "participant_reader" }
+      actions = purchases.filter_map do |fact|
+        date = participant_purchase_date(fact["day"])
+        next unless date && fact["amount"].present? && fact["merchant"].present?
+        { type: "create_transaction_draft", merchant: PurchaseQuestionText.merchant_label(fact["merchant"]),
+          amount: ParticipantMessageReader.amount_text(fact["amount"]), occurred_on: date.iso8601, splits: [] }
+      end
+      if actions.length != purchases.length || purchases.length > MAX_TRANSACTION_REPORTS
+        question = if purchases.one?
+          fact = purchases.sole
+          if fact["amount"].blank?
+            "How much was that purchase?"
+          elsif fact["merchant"].blank?
+            "Where did you make that purchase?"
+          else
+            "I need a purchase date of today or earlier before I can prepare its review."
+          end
+        else
+          "What were the amount, place and past day for each purchase?"
+        end
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "#{question} Nothing has been saved.", action: { type: "none" })
+      end
+      return Result.new(**common, intent: "transaction_report", needs_clarification: false, clarification: "", action: actions.sole) if actions.one?
+      sources = purchases.map { |fact| fact["source_text"].presence || (raw_user_message unless TransactionDraftBuilder.non_expense_movement?(raw_user_message)) }
+      if sources.any?(&:blank?) || sources.each_with_index.any? { |source, index| source != raw_user_message && sources.first(index).any? { |prior| prior.include?(source) || source.include?(prior) } }
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "Please send each purchase separately with its amount, place and day. Nothing has been saved.", action: { type: "none" })
+      end
+      Result.new(**common, intent: "action_plan", needs_clarification: false, clarification: "", action: { type: "none" },
+        write_plan: { title: "Reported purchases", kind: "transaction_reports",
+          actions: actions.each_with_index.map { |action, index| { source_text: sources[index], depends_on: [], action: action } } })
     end
 
     def participant_setup_result
@@ -368,42 +437,8 @@ module HouseholdFinance
       end
       named_debt = setup_named_minimum_result if field == "debt_payment"
       return named_debt if named_debt
-      purchases = reading.facts.select { |fact| fact["kind"] == "purchase" }
-      if purchases.many?
-        actions = purchases.filter_map do |fact|
-          day = participant_purchase_date(fact["day"])
-          next unless day && fact["merchant"].present? && fact["amount"].present?
-          { source_text: raw_user_message, depends_on: [], action: { type: "create_transaction_draft", merchant: fact["merchant"],
-            amount: ParticipantMessageReader.amount_text(fact["amount"]), occurred_on: day.iso8601, splits: [] } }
-        end
-        if actions.length != purchases.length || actions.length > MAX_TRANSACTION_REPORTS
-          return deterministic_setup_clarification(field || pending_field,
-            clarification: "I heard more than one purchase. Please send each purchase with its amount, place and date, one at a time. Nothing has been saved.")
-        end
-        return Result.new(intent: "action_plan", confidence: 1.0, continuation: false, resolved_message: user_message,
-          needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported purchases" },
-          action: { type: "none" }, read_only_plan: {}, source: "participant_reader",
-          write_plan: { title: "Reported purchases", kind: "transaction_reports", actions: actions })
-      end
-      purchase = purchases.first
-      if purchase
-        occurred_on = participant_purchase_date(purchase["day"])
-        unless occurred_on
-          return deterministic_setup_clarification(field || pending_field,
-            clarification: "I need a completed purchase date of today or earlier before I can prepare its review. Nothing has been saved.")
-        end
-        merchant = purchase["merchant"]
-        if merchant.present?
-          return Result.new(intent: "transaction_report", confidence: 1.0, continuation: false, resolved_message: user_message,
-            needs_clarification: false, clarification: "", topic: { type: "transaction_draft", title: "Reported spending" },
-            action: { type: "create_transaction_draft", merchant: merchant, amount: ParticipantMessageReader.amount_text(purchase["amount"]),
-              occurred_on: occurred_on.iso8601, splits: [] }, read_only_plan: {}, source: "participant_reader")
-        end
-      end
-      if purchase && merchant.blank?
-        return deterministic_setup_clarification(field || pending_field,
-          clarification: "I heard the purchase amount, but I still need the place before I can prepare its review. Nothing has been saved. #{MiaSetupGuide.question_message(field || pending_field)}")
-      end
+      purchase_result = participant_purchase_result
+      return purchase_result if purchase_result
       result = deterministic_setup_clarification(field || pending_field,
         clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
       result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
@@ -411,9 +446,10 @@ module HouseholdFinance
     end
 
     def participant_purchase_date(day)
-      result = ParticipantReportDay.call(day: day, message: raw_user_message, today: Date.current)
-      date = result.state == :missing ? Date.current : result.date
-      date unless date&.future?
+      result = ParticipantReportDay.call(day: day, message: raw_user_message, today: Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601))
+      today = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
+      date = result.state == :missing ? today : result.date
+      date if date && date <= today
     end
 
     def deterministic_scenario_result
@@ -574,10 +610,20 @@ module HouseholdFinance
 
       rows = parsed.report[:purchases]
       return unless rows.length <= MAX_TRANSACTION_REPORTS
-      return unless rows.all? { |row| row[:merchant].present? && row[:amount_cents] <= Money::MAX_AMOUNT_CENTS }
+      if rows.any? { |row| row[:merchant].blank? }
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "Where did you make that purchase? Nothing has been saved.", action: { type: "none" })
+      end
+      return unless rows.all? { |row| row[:amount_cents] <= Money::MAX_AMOUNT_CENTS }
+      if rows.one?
+        day = ParticipantReportDay.call(day: "", message: report_message, today: day)
+        return Result.new(**common, intent: "clarification", needs_clarification: true,
+          clarification: "Which past day did you make that purchase?", action: { type: "none" }) if day.state == :unresolved
+        rows.sole[:purchased_on] = day.date.iso8601 if day.state == :resolved
+      end
 
       actions = rows.map do |row|
-        merchant = row[:merchant]
+        merchant = PurchaseQuestionText.merchant_label(row[:merchant])
         merchant = merchant.sub(/\s+on\s+#{Regexp.escape(requested_new_category)}\z/i, "") if requested_new_category.present?
         { type: "create_transaction_draft", merchant: merchant,
           amount: format("%.2f", BigDecimal(row[:amount_cents].to_s) / 100),
@@ -1093,7 +1139,8 @@ module HouseholdFinance
 
     def deterministic_scenario_fallback
       scenario_text = PurchaseQuestionText.purchase_clause(user_message).split(/(?<=[?!])\s+/).first.to_s
-      scenario_type = deterministic_scenario_type(scenario_text)
+      purchase = context[:participant_reading]&.purchase_question.to_h
+      scenario_type = purchase["item"].present? ? "purchase" : deterministic_scenario_type(scenario_text)
       return unless scenario_type
 
       comparison = PurchaseQuestionText.for_comparison(user_message) if scenario_type == "purchase"
@@ -1104,14 +1151,25 @@ module HouseholdFinance
           topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
       end
 
-      participant_amounts = money_cents_from_participant_text(scenario_text)
+      participant_amounts = if purchase["amount"].present?
+        [ ParticipantMessageReader.amount_cents(purchase["amount"]) ]
+      else
+        money_cents_from_participant_text(scenario_text)
+      end
+      if participant_amounts.empty? && scenario_type == "purchase" && PurchaseQuestionText.purchase_question?(user_message)
+        whole_turn_amounts = money_cents_from_participant_text(user_message)
+        if whole_turn_amounts.one?
+          participant_amounts = whole_turn_amounts
+          scenario_text = user_message
+        end
+      end
       rejected_amounts = rejected_money_cents(scenario_text)
       amounts = participant_amounts - rejected_amounts
       return unless amounts.one? && amounts.first.positive?
 
       raw_amount = (BigDecimal(amounts.first.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
 
-      label = participant_amounts.one? && rejected_amounts.empty? ? deterministic_scenario_label(scenario_type) : ""
+      label = purchase["item"].presence || (participant_amounts.one? && rejected_amounts.empty? ? deterministic_scenario_label(scenario_type) : "")
       item = {
         kind: "scenario",
         source_text: scenario_text,
@@ -1152,6 +1210,7 @@ module HouseholdFinance
     def additional_scenario_questions
       user_message.split(/(?<=[?!])\s+/).drop(1).first(5).filter_map do |question|
         next unless question.end_with?("?")
+        next if context[:participant_reading]&.purchase_question.to_h["item"].present? && question.include?(PurchaseQuestionText.purchase_clause(user_message).split(/(?<=[?!])\s+/).first.to_s)
         next if question.match?(/\A(?:do not|don['’]?t|without)\b/i)
 
         { kind: "coaching", source_text: question, resolved_question: question, basis: "saved_household" }
