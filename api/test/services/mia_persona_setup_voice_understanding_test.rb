@@ -81,6 +81,16 @@ class MiaPersonaSetupVoiceUnderstandingTest < ActiveSupport::TestCase
     refute_includes saved["meaning"], "rent"
   end
 
+  test "a voice preamble cannot disguise a same-line client speaker as coach prose" do
+    [ "Client", "Participant #2", "Maria", "Guest / visitor" ].each do |speaker|
+      message = %(Sound like a warm auntie. #{speaker}: I say "Rent comes first")
+      assert_nil Mia::PersonaSetup::PhraseSuggestions.new(message:).exact_quote("Rent comes first"), speaker
+      assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+        contract(message).build([ phrase("Rent comes first", "Rent comes first", "Rent comes first") ])
+      end
+    end
+  end
+
   test "a follow-up updates saved phrase use and keeps its meaning identity and reviewed publication" do
     original = persona_phrase_artifact({ "text" => "Chelu, pump the brakes.", "meaning" => "When someone is about to spend money they do not have" }, source_user_id: @coach.id)
     @persona.update!(draft_config: @persona.draft_config.deep_merge("phrases" => [ original ]))
