@@ -33,7 +33,7 @@ module HouseholdFinance
 
     def current_amounts(message)
       text = PurchaseReportText.normalize(message.to_s).gsub(PurchaseReportParser::DATE_PATTERN, " ")
-      text.scan(/(?<![\w.,])\$?\s*(#{Money::CHAT_NUMBER_SOURCE})(?![\w.,])/).flatten.filter_map { |amount| Money.chat_cents(amount) rescue nil }
+      text.scan(/(?<![\w.,])\$?\s*(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)(?![\w.,])/).flatten.filter_map { |amount| Money.chat_cents(amount) rescue nil }
     end
 
     def purchase_reference_current?(message, reference)

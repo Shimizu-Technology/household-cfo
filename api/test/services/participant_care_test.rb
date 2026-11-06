@@ -52,4 +52,18 @@ class ParticipantCareTest < ActiveSupport::TestCase
       assert_nil HouseholdFinance::ParticipantCare.kind(text), text
     end
   end
+
+  test "missing spaces reach crisis only from a real word start" do
+    [ "iwannadie", "i wannakillmyself", "so i wannadie", "wannakillmyself" ].each do |text|
+      assert Mia::CrisisBoundary.explicit?(text), text
+    end
+    [ "my wifi will die", "my phone will die soon", "the kiwi wanna die lol" ].each do |text|
+      assert_not Mia::CrisisBoundary.explicit?(text), text
+    end
+  end
+
+  test "a thousands price counts as stated in the current message" do
+    assert_includes HouseholdFinance::ParticipantCare.current_amounts("can i get a $5k car"), 500_000
+    assert_includes HouseholdFinance::ParticipantCare.current_amounts("can i get a car for 5k"), 500_000
+  end
 end

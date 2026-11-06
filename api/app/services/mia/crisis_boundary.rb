@@ -155,8 +155,18 @@ module Mia
       text = normalized(message).gsub(/k[1!]ll/i, "kill")
       return false if text.match?(/\Aif i (?:see|get) (?:one more|another) (?:fee|bill|tax) (?:im|i['’]m|i am) (?:gonna|going to) die (?:lol|lmao|haha)[.!?]*\z/i)
       return true if EXTRA_EXPLICIT.any? { |pattern| text.match?(pattern) }
-      EXPLICIT_PATTERNS.any? { |pattern| text.match?(pattern) } || text.delete(" ").match?(COMPACT_EXPLICIT)
+      EXPLICIT_PATTERNS.any? { |pattern| text.match?(pattern) } || compact_explicit?(text)
     end
+
+    # Each try starts on a real word: "my wifi will die" must not read as "i will die".
+    def self.compact_explicit?(text)
+      words = text.split
+      words.each_index.any? do |index|
+        joined = words[index, 12].join
+        (index.zero? || joined.match?(/\Ai/i)) && joined.match(COMPACT_EXPLICIT)&.begin(0)&.zero?
+      end
+    end
+    private_class_method :compact_explicit?
 
     def self.soft?(message)
       text = normalized(message)
