@@ -22,7 +22,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
         "meaning" => "a natural second-person plural",
         "allowed_contexts" => [ "routine" ],
         "prohibited_contexts" => [ "crisis" ],
-        "frequency" => "as_needed",
+        "frequency" => "sparing",
         "caution" => "Use naturally and sparingly."
       }, source_user_id: coach.id)
     ]
@@ -157,7 +157,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     assert_includes payload.fetch(:messages).last.fetch(:content), "assigned_assistant_is_coach_assistant"
     refute_includes payload.fetch(:messages).last.fetch(:content), "mia_is_coach_assistant"
     assert_equal "Review the confirmed plan first.", narrator.send(:sanitize_narration, "Coach Lila: Review the confirmed plan first.")
-    assert_nil narrator.send(:sanitize_narration, "Coach Lila: Y'all should review the confirmed plan first.")
+    assert_equal "Should review the confirmed plan first.", narrator.send(:sanitize_narration, "Coach Lila: Y'all should review the confirmed plan first.")
   end
 
   test "narrator rejects provider output that violates the custom response shape" do

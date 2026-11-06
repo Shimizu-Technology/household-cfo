@@ -8,7 +8,7 @@ const signature = (month: AnnualOutlookMonth) => JSON.stringify([month.income, m
 export function YearOutlook({ plan, moneyKnown = true }: { plan: AnnualBudgetPlan; moneyKnown?: boolean }) {
   const known = moneyKnown && plan.monthly_debt_minimums_known !== false && plan.rows.every(row => row.active === false || (row.months.length === plan.months.length && row.months.every(month => !month.allocation_missing)))
   const months = plan.annual_outlook.months
-  const startMonth = plan.plan_starts_on ? new Intl.DateTimeFormat('en', {month: 'long', timeZone: 'UTC'}).format(new Date(`${plan.plan_starts_on}T00:00:00Z`)) : null
+  const startMonth = plan.plan_starts_on ? new Intl.DateTimeFormat('en', {month: 'long', year: 'numeric', timeZone: 'UTC'}).format(new Date(`${plan.plan_starts_on}T00:00:00Z`)) : null
   const groups: { months: AnnualOutlookMonth[]; signature: string }[] = []
   for (const month of months) {
     const key = signature(month)

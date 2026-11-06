@@ -1,11 +1,60 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 
 class ApiV1MiaHouseholdPatternsTest < ActionDispatch::IntegrationTest
+  include ParticipantReaderTestSupport
   setup do
     @user = User.create!(clerk_id: "patterns-#{SecureRandom.hex(8)}", email: "patterns-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
     @headers = { "Authorization" => "Bearer test_token:#{@user.clerk_id}:#{@user.email}:Ana:Santos" }
+  end
+
+  test "R2 current month observations say so far and do not project a full month" do
+    travel_to Time.zone.local(2026, 11, 7, 12) do
+      purchase(Date.new(2026, 11, 3), "Ross", 6000)
+      post "/api/v1/mia/messages", params: { message: "what stands out on the statement i just did" }, headers: @headers, as: :json
+      assert_response :created
+      answer = response.parsed_body.dig("assistant_message", "content")
+      assert_includes answer, "$60"
+      assert_includes answer, "so far this month"
+      refute_match(/could free|enough reviewed purchases|\$0/, answer)
+    end
+  end
+
+  test "R2 a payoff mention cannot turn a future purchase question into spending" do
+    post "/api/v1/mia/messages", params: { message: "i paid off my card!! can i buy a $900 tv now" }, headers: @headers, as: :json
+    assert_response :created
+    assert_nil response.parsed_body["transaction_draft"]
+    assert_nil response.parsed_body["mia_action_draft"]
+    refute_includes response.parsed_body.dig("assistant_message", "content"), "I drafted"
+  end
+
+  test "clear observation questions still reach patterns with the model off" do
+    purchase(Date.new(2026, 10, 5), "Ross", 2000)
+    [ "whats my spending pattern", "what do you notice in my spending", "where can i cut back", "any small buys adding up" ].each do |message|
+      post "/api/v1/mia/messages", params: { message: message }, headers: @headers, as: :json
+      assert_response :created
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Ross"
+      assert_nil response.parsed_body["mia_action_draft"]
+    end
+  end
+
+  test "semantic observation wording reaches reviewed patterns and does not write" do
+    admission = HouseholdFinance::MiaProviderAdmission.method(:with_slot)
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot) { |**_, &block| block.call }
+    purchase(Date.new(2026, 10, 5), "Ross", 2000)
+    before = financial_counts
+    [ "where could we trim things a bit", "anything little adding up lately", "whats my spending pattern" ].each do |message|
+      with_participant_reader_response({ care: "none", reply_intent: "spending_patterns", question: true, correction: false, facts: [], setup_answer: { field: "none", value: "" }, spending_preferences: [] }) do
+        post "/api/v1/mia/messages", params: { message: message }, headers: @headers, as: :json
+        assert_response :created
+        assert_includes response.parsed_body.dig("assistant_message", "content"), "Ross"
+        assert_equal before, financial_counts
+      end
+    end
+  ensure
+    HouseholdFinance::MiaProviderAdmission.define_singleton_method(:with_slot, admission)
   end
 
   test "household patterns read confirmed purchases without drafting or changing financial records and replay safely" do

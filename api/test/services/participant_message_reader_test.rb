@@ -13,6 +13,37 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "R2 imperative analysis retains intent without changing a habit disclosure" do
+    [ "look at my spending patterns", "analyze my spending habits" ].each do |message|
+      assert read(message, object.merge(reply_intent: "spending_patterns")).available
+      assert HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
+  test "an unasked habit disclosure cannot become a spending records question" do
+    message = "i keep ordering gadgets when im tired"
+    result = read(message, object.merge(reply_intent: "spending_patterns", question: false))
+    assert result.available
+    refute HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
+  test "semantic reply intent is shared across reply paths and scoped to the exact message" do
+    { "where could we trim things a bit" => "spending_patterns", "howd my first thirty days go" => "progress", "packed lunch the whole week woohoo" => "win" }.each do |message, intent|
+      result = read(message, object.merge(reply_intent: intent, question: intent != "win"))
+      assert result.available
+      assert HouseholdFinance::MessageReplyIntent.matches?(message, intent)
+      refute HouseholdFinance::MessageReplyIntent.matches?("another message", intent)
+    end
+    read("not sure", object)
+    refute HouseholdFinance::MessageReplyIntent.matches?("not sure", "win")
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "structured facts keep savings spending and different days independent" do
     text = "cant believe i saved 20 today and 10 yesterday, spent 18 at shell today"
     result = read(text, object(facts: [ fact("set_aside", "20"), fact("set_aside", "10", day: "yesterday"), fact("purchase", "18", merchant: "shell") ]))

@@ -7,11 +7,6 @@ module Mia
     APOSTROPHE_GRAPHEMES = [ "'", "’", "‘", "ʼ", "＇" ].freeze
     DASH_GRAPHEMES = [ "-", "‐", "‑", "‒", "–", "—", "―" ].freeze
     GREETING_PATTERN = /\b(?:h[åa]fa\s+adai|good\s+(?:morning|afternoon|evening))\b/i.freeze
-    MILESTONE_PATTERN = /\b(?:
-      paid\s+off|debt[-\s]?free|milestone|promotion|raise|bonus|windfall|unexpected\s+(?:win|income|money)|surprise\s+(?:win|income|money)|celebrat\w*|
-      (?:reached|hit|met|achieved)\s+(?:my\s+|our\s+|the\s+)?(?:goal|target|milestone)|
-      (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
-    )\b/ix.freeze
     EMOTIONAL_SUPPORT_PATTERN = /\b(?:embarrassed|ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
     CRISIS_PATTERNS = [
       /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
@@ -101,6 +96,28 @@ module Mia
       end
     end
 
+    # Strip exact artifacts before validating the remaining model coaching.
+    # Eligibility and frequency still belong exclusively to server_phrase.
+    def remove_model_phrases(content)
+      value = all_cultural_phrases.sort_by { |entry| -entry.fetch("text").length }.reduce(content.to_s) do |text, entry|
+        phrase = entry.fetch("text")
+        complete = phrase.match?(/[.!?…]\z/)
+        pattern = custom_phrase_pattern(complete ? phrase.sub(/[.!?…]+\z/, "") : phrase)
+        pattern = /#{pattern.source}(?=[ \t]*(?:[.,!?;:]|\z))[ \t]*[.!?]?/i if complete
+        text.gsub(pattern) do |matched|
+          prefix = Regexp.last_match.pre_match.rstrip
+          # Preserve a sentence ending when the phrase ended an existing clause.
+          prefix.present? && !prefix.match?(/[.!?]\z/) && matched.match?(/[.!?]\z/) ? "." : " "
+        end
+      end
+      cleaned = value.gsub(/,\s*and\s*\./i, ".").gsub(/[ \t]+([.!?,;:])/, '\\1')
+        .gsub(/,([.!?])/, '\\1').gsub(/[ \t]+/, " ").sub(/\A[ ,.!?;:]+/, "").strip
+      # Removing a phrase must not leave a broken clause in a delivered reply.
+      cleaned.split(/(?<=[.!?])\s+(?=[[:upper:]])/).reject do |sentence|
+        sentence.match?(/[.!?],|,\s*(?:and|but|so)\s*,|\A(?:I['’]d say|and|but|so)[.!?]\z/i)
+      end.join(" ").strip.presence
+    end
+
     def model_phrase_rejection_reason(content)
       return :server_owned_coach_phrase if all_cultural_phrases.any? { |entry| content.to_s.match?(custom_phrase_pattern(entry.fetch("text"))) }
 
@@ -124,10 +141,6 @@ module Mia
         return :ineligible_coach_phrase if value.match?(custom_phrase_pattern(entry.fetch("text"))) && !allowed.include?(entry)
       end
       return :coach_phrase_variant if value.match?(CULTURAL_LANGUAGE_PATTERN)
-
-      distinctive = entries.flat_map { |entry| entry.fetch("text").downcase.scan(/[[:alpha:]å]+/) }
-        .select { |word| word.length >= 5 }.uniq - %w[money today before after there their would could should every about always together]
-      return :coach_phrase_variant if distinctive.any? { |word| value.match?(/\b#{Regexp.escape(word)}\b/i) }
 
       nil
     end
@@ -201,6 +214,9 @@ module Mia
 
       prohibited = Array(entry["prohibited_contexts"])
       return false if prohibited.any? { |context| context_matches?(context) }
+      contexts = Array(entry["allowed_contexts"]).map { |context| normalized_context_id(context) }
+      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
+      return false if win_phrase && !earned_moment?
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
       allowed = Array(entry["allowed_contexts"])
@@ -211,7 +227,7 @@ module Mia
     def meaning_matches?(meaning)
       text = meaning.to_s
       return user_message.match?(REPEATED_PATTERN) || context_matches?("purchase_caution") if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab/i)
-      return earned_moment? if text.match?(/celebrat|milestone|achievement|win/i)
+      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i)
       return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
 
       false
@@ -228,7 +244,7 @@ module Mia
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
-      when "purchase_caution" then user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
+      when "purchase_caution" then HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
       else false
       end
     end
@@ -289,7 +305,7 @@ module Mia
 
     def custom_phrase_recently_used?(phrase, frequency)
       lookback = case frequency.to_s
-      when "as_needed" then 2
+      when "as_needed" then 0
       when "very_rare" then 6
       when "rare" then 6
       else 4
@@ -338,7 +354,7 @@ module Mia
     end
 
     def earned_moment?
-      user_message.match?(MILESTONE_PATTERN)
+      HouseholdFinance::MessageReplyIntent.matches?(user_message, "win")
     end
 
     def cultural_language_recently_used?

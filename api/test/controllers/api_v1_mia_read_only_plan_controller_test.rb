@@ -159,7 +159,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_equal %w[part-1 part-2], presentation.fetch("sections").pluck("id")
     assert_equal "$900", presentation.dig("scenario", "values", 0, "display_value")
     assert_includes created.dig("assistant_message", "content"), "1. Household CFO guidance"
-    assert_includes created.dig("assistant_message", "content"), "2. Purchase scenario"
+    assert_includes created.dig("assistant_message", "content"), "2. This purchase"
     assert_equal counts, financial_counts
 
     get "/api/v1/mia/messages", headers: auth_headers, as: :json

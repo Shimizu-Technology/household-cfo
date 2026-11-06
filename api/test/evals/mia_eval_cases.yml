@@ -188,7 +188,7 @@ cases:
     prompt: What exactly did I spend at restaurants last Tuesday? Name the merchants and totals.
     expected_phrases:
       - Jul 14, 2026
-      - 0 confirmed restaurants transactions totaling $0
+      - does not establish whether you spent anything
     forbidden_phrases:
       - Cafe
       - Starbucks

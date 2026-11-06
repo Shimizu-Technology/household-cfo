@@ -9,6 +9,14 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "R2 current month reviewed purchases are visible without claiming a complete month" do
+    purchase(Date.new(2026, 11, 3), "Ross", 6000)
+    result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 7)).call
+    assert_equal 6000, result[:observed_spending_cents]
+    assert_equal "2026-11-07", result[:window][:end_on]
+    assert_equal "partial", result[:coverage][:status]
+  end
+
   test "bank fees stay in spending totals but are excluded from small buys" do
     purchase(Date.new(2026, 10, 23), "Cafe", 1200)
     purchase(Date.new(2026, 10, 24), "Cafe", 1000)
@@ -82,7 +90,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     other = HouseholdFinance::WorkspaceResolver.new(other_user).household
     other_category = other.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
     purchase(Date.new(2026, 9, 9), "Other household Ross", 777_777, household: other, category: other_category)
-    result = analyze
+    result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 2), from: Date.new(2026, 8, 1), to: Date.new(2026, 10, 31)).call
     assert_equal({ start_on: "2026-08-01", end_on: "2026-10-31" }, result[:window])
     assert_equal 60_000, result[:observed_spending_cents]
     assert_equal "Ross", result[:discretionary_merchants].sole[:label]

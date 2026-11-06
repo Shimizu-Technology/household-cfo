@@ -18,9 +18,20 @@ module SavingsChallenge
     GOAL_TOPICS = %w[challenge_goal challenge_patterns].freeze
     PROGRESS = /\b(?:how am i doing|where am i|day\s*(?:30|60|90)|30\s*[\/,]\s*60|checkpoints?)\b/i.freeze
 
+    def self.patterns_question?(message)
+      return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
+
+      return HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns") if HouseholdFinance::MessageReplyIntent.known?(message)
+
+      message.match?(PATTERNS) || SpendingPatterns::Answerer.matches?(message)
+    end
+
     def self.special?(message, session:)
+      return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
-      message.match?(PATTERNS) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || message.match?(PROGRESS) ||
+      patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
         amount_reply?(message, session: session) ||
         (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
@@ -61,7 +72,8 @@ module SavingsChallenge
     end
 
     def self.pattern_continuation?(message, choices: [])
-      return false if protected_message?(message)
+      return false if protected_message?(message) || HouseholdFinance::MessageReplyIntent.purchase_question?(message)
+      return false if HouseholdFinance::MessageReplyIntent.known?(message) && !HouseholdFinance::MessageReplyIntent.matches?(message, "none")
       normalized = message.downcase.squish.sub(/[.!]\z/, "")
       return true if Array(choices).any? do |choice|
         merchant = Regexp.escape(choice["merchant"].to_s.downcase)
@@ -144,7 +156,7 @@ module SavingsChallenge
         @answer += " Your reported amounts are still below for you to review when you're ready; nothing has been saved." if @intakes.any?
         return self
       end
-      if !@reading.available && @intakes.empty? && parser&.rejection.nil? && @attachments.empty? && !self.class.special?(@message, session: @session) && @message.match?(/\d/) && !self.class.protected_message?(@message)
+      if !@reading.available && @intakes.empty? && parser&.rejection.nil? && @attachments.empty? && !self.class.special?(@message, session: @session) && @message.match?(/\d/) && !self.class.protected_message?(@message) && !HouseholdFinance::MessageReplyIntent.purchase_question?(@message)
         @answer = HouseholdFinance::ParticipantMessageReader::OFF_REPLY
         return self
       end
@@ -291,7 +303,7 @@ module SavingsChallenge
 
     def pattern_turn
       previous = @session.active_topic
-      if !@message.match?(PATTERNS) && previous["type"] == "challenge_patterns" && self.class.pattern_continuation?(@message, choices: previous["choices"])
+      if !self.class.patterns_question?(@message) && previous["type"] == "challenge_patterns" && self.class.pattern_continuation?(@message, choices: previous["choices"])
         choices = Array(previous["choices"])
         # A named merchant wins ("the one at Kmart"); then ordinals, testing
         # "second" before "first|one" so "the second one" picks the second.
@@ -313,8 +325,13 @@ module SavingsChallenge
           return true
         end
       end
-      return false unless @message.match?(PATTERNS)
+      return false unless self.class.patterns_question?(@message)
       @patterns = SpendingPatterns::Analyzer.new(@household, today: @enrollment.local_today).call
+      if (partial = SpendingPatterns::Answerer.partial_month_summary(@patterns, today: @enrollment.local_today))
+        @answer = partial
+        @topic = { type: "challenge_patterns", choices: [] }
+        return true
+      end
       choices = @patterns[:candidate_changes].first(2)
       @topic = { type: "challenge_patterns", choices: choices }
       coverage = @patterns[:coverage]
@@ -406,7 +423,7 @@ module SavingsChallenge
     end
 
     def progress_turn
-      return false unless @message.match?(PROGRESS)
+      return false unless @message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(@message, "progress")
       projection = Projection.new(@enrollment).call
       calendar = ParticipantSerializer.calendar(@enrollment)
       withdrawn_more = projection[:reporting_known] && projection[:reported_cents].negative?

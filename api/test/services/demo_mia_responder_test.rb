@@ -6,6 +6,45 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   setup { HouseholdFinance::ParticipantMessageReader::Current.reset }
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+  test "an unsaved label does not turn an old raise into current income" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month in 2020")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Your raise to $5,600 is your income now. It is not saved in the plan.", context: "{}", user_message: "what next")
+  end
+
+  test "R2 fallback never infers wins from milestone words with model on or off" do
+    messages = [ "they said no raise this year", "i saved $200 but my kids didnt eat today", "i got a bonus but my lights are getting shut off friday", "my landlord is gonna raise my rent and idk what to do", "i never paid off my card and collectors keep calling", "my bonus didnt come and i dont know how im gonna pay rent", "i paid off my card and honestly whats the point anymore" ]
+    [ nil, "test-key" ].each do |key|
+      messages.each do |message|
+        HouseholdFinance::ParticipantMessageReader::Current.reset
+        responder = Demo::MiaResponder.new(api_key: key)
+        responder.define_singleton_method(:openrouter_response) { |*, **_| nil }
+        answer = responder.call(message, context: "{}")
+        refute_match(/took effort|kept at it|what helped you keep going/i, answer, message)
+      end
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
+  test "R2 history requires explicit past participant money rather than present fact or calendar numbers" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    { "my old rent was $900 but i moved" => "You said your rent is $900, so that bill is covered. Which bill comes next?", "i got a raise in 2024" => "You said your raise was $2,024.", "my paycheck comes on the 15" => "You said your paycheck was $15." }.each do |history, reply|
+      responder.instance_variable_set(:@participant_history, history)
+      assert_equal "unverified_amount", responder.send(:generic_claim_rejection, reply, context: "{}", user_message: "what next"), reply
+    end
+    responder.instance_variable_set(:@participant_history, "my old rent was $900 but i moved")
+    assert_nil responder.send(:generic_claim_rejection, "You said your old rent was $900. That does not establish your current bill.", context: "{}", user_message: "what next")
+  end
+
+  test "a quoted raise from participant history is grounded without certifying saved income" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    responder.instance_variable_set(:@participant_history, "i got a raise to 5600 a month")
+    assert_nil responder.send(:generic_claim_rejection, "You said your income after the raise was $5,600. That does not establish your saved income today.", context: "{}", user_message: "how much is left")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "Your income is $5,600.", context: "{}", user_message: "how much is left")
+    assert_equal "unverified_amount", responder.send(:generic_claim_rejection, "You reported $9,900.", context: "{}", user_message: "how much is left")
+  end
+
   test "recorded coach preview asks whether the purchase fits without claiming it does" do
     reply = file_fixture("mia_preview_decision.txt").read.strip
     responder = stubbed_model_responder(reply)
@@ -814,7 +853,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "transaction review"
   end
 
-  test "ineligible cultural openers and recent repetitions are rejected before sanitation" do
+  test "exact cultural artifacts are removed while surrounding coaching survives" do
     responder = Demo::MiaResponder.new(api_key: nil)
     direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
     standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
@@ -826,10 +865,14 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
     )
 
-    assert_nil direct
-    assert_nil standalone
-    assert_nil recall
-    assert_nil restrained
+    [ direct, standalone, recall, restrained ].each do |reply|
+      assert reply.present?
+      refute_match(/chelu|håfa adai/i, reply)
+    end
+    assert_includes direct, "I drafted the July edit for review."
+    assert_includes standalone, "The category already exists."
+    assert_includes recall, "We were discussing the July edit."
+    assert_includes restrained, "Review it before applying."
   end
 
   test "demo mode does not tell users to confirm unavailable drafts" do

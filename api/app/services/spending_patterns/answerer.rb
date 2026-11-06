@@ -9,11 +9,36 @@ module SpendingPatterns
     # makes them a request.
     ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
 
+    # Conservative read-only floor for an unavailable reader. The live reader
+    # handles meaning; this only recognizes clear requests to observe spending.
+    def self.observation_question?(message)
+      return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
+      return true if HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
+      return false if HouseholdFinance::MessageReplyIntent.known?(message)
+
+      (message.match?(/\b(?:what(?:s|['’]s)?|which|show|tell|notice|spot|see|look|analy[sz]e)\b/i) && message.match?(PATTERN)) ||
+        message.match?(/\b(?:notice|stands? out|unusual|weird)\b.{0,45}\b(?:spending|statement|purchases?)\b|\b(?:where|how)\b.{0,20}\b(?:cut back|trim spending)\b(?:[?.!]*\s*\z|.{0,25}\b(?:spending|purchases|shopping|groceries|takeout|budget)\b)|\bsmall (?:buys|purchases)\b.{0,20}\badd(?:ing)? up\b/i)
+    end
+
     def self.matches?(message)
-      message.match?(QUESTION) && message.match?(PATTERN) && !message.match?(WRITE) && !message.match?(ACTION_REQUEST) &&
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
+
+      observation_question?(message) && !message.match?(WRITE) && !message.match?(ACTION_REQUEST) &&
         !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) &&
         !::Mia::CrisisBoundary.matches?(message) && !::Mia::CrisisBoundary.hopeless?(message) &&
         !HouseholdFinance::MoneyMovementText.food_insecurity?(message)
+    end
+
+    def self.partial_month_summary(patterns, today:)
+      recorded = patterns[:coverage][:months].select { |row| row[:spending_cents] }
+      return unless recorded.any? && recorded.all? { |row| row[:month] == today.strftime("%Y-%m") }
+
+      count = patterns[:purchase_count]
+      cents = patterns[:observed_spending_cents]
+      amount = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents.modulo(100).zero? ? 0 : 2)
+      stores = patterns[:merchants].first(2).pluck(:label).to_sentence
+      "From purchases you’ve reviewed so far this month, I see #{count} #{'purchase'.pluralize(count)} totaling #{amount}, including #{stores}. This may not include everything you’ve spent. Review more purchases or a full statement before drawing a longer-term pattern."
     end
 
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
@@ -31,6 +56,8 @@ module SpendingPatterns
         label = "#{period[:from].strftime('%B %-d, %Y')} through #{period[:to].strftime('%B %-d, %Y')}"
         return "I don’t have reviewed purchases for #{label}, so I can’t tell what you spent then. You can review a statement or tell me about purchases from that period."
       end
+      partial = self.class.partial_month_summary(@patterns, today: Time.current.in_time_zone("Pacific/Guam").to_date) if period.empty?
+      return partial if partial
       choices = @patterns[:candidate_changes].first(2)
       coverage = @patterns[:coverage]
       present = coverage[:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }

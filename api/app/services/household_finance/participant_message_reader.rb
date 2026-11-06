@@ -6,7 +6,7 @@ module HouseholdFinance
   # span; callers convert it to typed, unreviewed input for the existing cards.
   class ParticipantMessageReader
     class Current < ActiveSupport::CurrentAttributes
-      attribute :message, :reading, :guard_care, :recent_care, :care_topic, :scenario_current_only
+      attribute :message, :reading, :guard_care, :reply_intent, :recent_care, :care_topic, :scenario_current_only
     end
 
     ProviderFailure = Class.new(StandardError)
@@ -37,6 +37,8 @@ module HouseholdFinance
       Strict source handling: use exactly the participant's capitalization and spacing for every quote. Never normalize a stated day: quote its complete day/date phrase verbatim so the application can resolve it against the household calendar. When there is no event, facts is []; do not fabricate empty facts. Money in setup_answer is just the quoted money span, without qualifiers such as about or monthly. Explicit written dollar-and-cents words are allowed. Never normalize a dollar sign away or add one.
       unclear_amount: true when any money event has an imprecise or unreadable amount (like 5ish), even beside a clear amount. Do not silently drop that event.
       question: true if she is asking anything, even without punctuation. This does not erase a separate completed fact.
+      reply_intent: month_balance ONLY for the whole month's plan surplus; never bank cash, an individual category, weekly food allowance, or whether a purchase fits. purchase_question for a question about a proposed purchase. A purchase question takes precedence over win or spending_patterns, including a celebration followed by asking to buy something; spending_patterns only for requests to inspect existing spending records, unusual statement activity, small purchases adding up or places to cut back from those records. A disclosure of a personal habit, or advice about the next purchase, is none rather than spending_patterns; win for a positive completed money achievement or avoided spending; progress for a challenge look-back including first 30/60/90 days; purchase_caution for considering spending with no money saved or a card they cannot pay off; otherwise none. Never classify care disclosures as wins or purchase_caution. This intent never authorizes a write.
+      question: true if she is asking anything or requesting information/analysis (including commands such as look at my spending patterns or analyze my spending habits), even without punctuation. This does not erase a separate completed fact.
       setup_answer: field is goal/name/income/fixed/flexible/debt/none. Only answer the open setup field, or the supplied pending field when correction=true. A goal is an actual desired outcome, not junk, greetings, uncertainty, a question, a purchase, income/bill fact or a statement that she has no goal. A name is an actual household name, not idk/none/hi/rent/groceries/sounds good/ya/k or an unrelated fact. value is the exact answer span from her message, stripping correction chatter; for money it must be an exact amount quote. Do not sum bills or invent zeros. Explicit 'no income' or 'no debt payments' can be quoted as the value. A stated fixed total including groceries is valid. Named individual-debt minimums are not a total: return none for those.
       Before emitting setup_answer, ask whether she actually supplied a name or goal. Uncertainty about supplying one is not an answer. Examples: open name + 'I have not picked a name yet' => {"field":"none","value":""}; open fixed + '2450 including food' => {"field":"fixed","value":"2450"}. Quoting an entire sentence as a money value is invalid. The setup value must be just the numeric text; preferences are separate.
       purchase_question: {amount, item}, exact source quotes for a contemplated purchase, including casual plans like thinking of getting or gonna put a TV on my card. This is separate from completed facts. Include its price even without a dollar sign or when the price follows the item in a later clause. The item quote names the item only, excluding its price and article. For a shopping stop or service visit without a named object, quote the named place or service rather than inventing an object. Empty strings when absent. A raise plus a purchase question retains both the income fact and purchase_question.
@@ -83,10 +85,12 @@ module HouseholdFinance
     end
 
     def call
+      Current.reply_intent = nil
       return fallback if @message.bytesize > 12_000 || (@api_key.blank? && !@transport)
       raw = MiaProviderAdmission.with_slot(call_site: "participant_message_reader") { @transport ? @transport.call(payload) : classify }
       validate(JSON.parse(raw.to_s))
     rescue StandardError => error
+      Current.reply_intent = nil
       ProviderOutageAlert.reader_failure(status: @http_status, error_class: error.class.name)
       fallback
     end
@@ -113,6 +117,11 @@ module HouseholdFinance
           %w[groceries fuel].include?(preference["family"]) && %w[fixed everyday].include?(preference["group"]) &&
           preference["evidence"].is_a?(String) && preference["evidence"].present? && @message.include?(preference["evidence"])
       end
+      intent = value["reply_intent"].presence_in(%w[month_balance spending_patterns win progress purchase_caution purchase_question])
+      intent = nil if care != "none" || (intent.in?(%w[month_balance progress]) && !@question)
+      intent = nil if intent == "spending_patterns" && !@question && !@message.match?(/\A\s*(?:look|analy[sz]e|show|inspect|review|tell)\b/i)
+      provided = value.key?("reply_intent")
+      Current.reply_intent = { message: @message, intent: intent || ("none" if provided), provided: provided }
       Result.new(care, facts, value["question"] == true, answer, value["correction"] == true, preferences, true, @hypothetical_movement, @unclear_amount,
         validated_money_fields(value["purchase_question"], %w[amount item]),
         ParticipantMoneyIntent.blocked?(@message, kind: :goal) ? {} : validated_money_fields(value["goal_change"], %w[amount]),
@@ -249,7 +258,7 @@ module HouseholdFinance
     end
 
     def payload
-      properties = { care_status: { type: "string", enum: %w[none ongoing resolved new_topic] }, unclear_amount: { type: "boolean" }, care: { type: "string", enum: %w[none hardship grief shame crisis] }, question: { type: "boolean" }, correction: { type: "boolean" },
+      properties = { reply_intent: { type: "string", enum: %w[none month_balance spending_patterns win progress purchase_caution purchase_question] }, care_status: { type: "string", enum: %w[none ongoing resolved new_topic] }, unclear_amount: { type: "boolean" }, care: { type: "string", enum: %w[none hardship grief shame crisis] }, question: { type: "boolean" }, correction: { type: "boolean" },
         facts: { type: "array", items: object_schema(kind: { type: "string", enum: KINDS }, source_text: { type: "string" }, amount: { type: "string" }, merchant: { type: "string" }, item: { type: "string" }, day: { type: "string" }) },
         setup_answer: object_schema(field: { type: "string", enum: SETUP_FIELDS.keys + [ "none" ] }, value: { type: "string" }),
         purchase_question: object_schema(amount: { type: "string" }, item: { type: "string" }),

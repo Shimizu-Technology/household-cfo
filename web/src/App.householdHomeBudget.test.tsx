@@ -218,7 +218,7 @@ it('uses the shared month answer in Budget and Wealth without treating unknown i
 it('shows the join month and never turns an unknown outlook into a shortfall or zero', () => {
  const months = plan.annual_outlook.months.slice(10).map(month => ({...month, income: null, baseline_surplus: null}))
  render(<YearOutlook plan={{...plan, plan_starts_on: '2026-11-01', annual_outlook: {...plan.annual_outlook, months}}} />)
- expect(screen.getByText('Your plan starts in November.')).toBeTruthy()
+ expect(screen.getByText('Your plan starts in November 2026.')).toBeTruthy()
  expect(screen.getAllByText('Income not known yet')).toHaveLength(2)
  expect(screen.queryByText(/short|\$0/)).toBeNull()
 })

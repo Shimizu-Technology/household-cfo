@@ -56,6 +56,7 @@ module HouseholdFinance
     end
 
     def call
+      return nil if PurchaseQuestionText.proposed_purchase_only?(@raw_input)
       return nil unless transaction_like?
       return nil unless amount_cents.positive? && occurred_on && occurred_on <= Date.current
 

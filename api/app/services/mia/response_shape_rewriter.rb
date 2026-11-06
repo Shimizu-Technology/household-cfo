@@ -41,7 +41,7 @@ module Mia
 
       log_counts(content, reason: reason)
       instruction = "Rewrite the previous answer. #{self.class.instruction(persona, fixed_prefix: @fixed_prefix)} " \
-        "Keep every fact, uncertainty, safety boundary, and the next step; add nothing. " \
+        "Keep every fact, uncertainty, safety boundary, and the next step; add nothing. Keep an explicit participant-decides statement when the previous reply contains one. " \
         "Use plain text without markdown. Return only the rewritten answer."
       if claim_repair
         instruction += " The previous answer failed the #{reason} check. Do not say or imply that the participant can afford a purchase or that it fits their budget. " \
@@ -70,15 +70,21 @@ module Mia
     attr_reader :persona, :user_message, :validator, :rewrite
 
     # Server sentences take part of the reply budget and rewrites often overrun
-    # by one. Drop that one from the middle, keeping the opening and the closing
-    # question, and let the validators judge it. Anything longer gets its fallback.
+    # by one. Remove a sentence without a decision boundary or practical action,
+    # keep the closing question, and let the validators judge it. Anything longer gets its fallback.
     def fit_to_shape(content)
       return if @fixed_prefix.blank?
 
       sentences = content.to_s.split(ResponseShapePolicy::SENTENCE_BOUNDARY).compact_blank
       return if sentences.length < 3
 
-      sentences.delete_at(-2)
+      # Keep the participant's choice and practical actions. If every sentence
+      # carries a boundary or an action, decline the fit and use the validated fallback.
+      protected = /\b(?:hold off|pause|do not|don['’]t|until|yours?|you decide|you choose|your (?:call|choice|decision)|cannot|can['’]t|unknown|not known|before|remove|wait|check|protect|cover|set aside)\b/i
+      index = ((1...(sentences.length - 1)).to_a + [ 0 ]).find { |position| !sentences[position].match?(protected) }
+      return unless index
+
+      sentences.delete_at(index)
       text = sentences.join(" ")
       text if ResponseShapePolicy.new([ @fixed_prefix, text ].compact_blank.join(" "), persona: persona).length_valid?
     end

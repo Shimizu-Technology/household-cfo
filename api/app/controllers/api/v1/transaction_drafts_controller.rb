@@ -258,7 +258,7 @@ module Api
       def confirmed_message(draft)
         categories = draft.confirmed_transaction.transaction_splits.includes(:budget_category)
           .filter_map { |split| split.budget_category&.name }.uniq
-        category = categories.presence&.to_sentence || "Uncategorized"
+        category = categories.presence&.to_sentence || "Needs a category"
         "Saved #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. It now counts in your spending total."
       end
 

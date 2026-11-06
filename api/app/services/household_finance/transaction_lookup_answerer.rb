@@ -29,7 +29,9 @@ module HouseholdFinance
 
     def initialize(household, message, today: Date.current)
       @household = household
-      @message = message.to_s.downcase.squish
+      # Legacy continuity contains prior assistant prose, which is not a
+      # participant-supplied merchant or financial fact.
+      @message = message.to_s.split("Current follow-up: ").last.to_s.downcase.squish
       @today = today
     end
 
@@ -151,11 +153,15 @@ module HouseholdFinance
       observed = matching_bank_transactions(label, pending: false)
       bank_pending = matching_bank_transactions(label, pending: true)
       needs_review = observed.select { |transaction| needs_household_review?(transaction) }
+      if observed.empty? && bank_pending.empty? && transactions.empty?
+        return "I don’t see reviewed purchases or synced activity for #{label} in #{period_label}. That does not establish whether you spent anything. Which purchase or store do you mean?"
+      end
+
       confirmed_total = transactions.sum(&:total_amount_cents)
       observed_total = observed.sum(&:amount_cents)
 
       lines = [
-        "For #{period_label}, your synced bank activity shows #{observed.length} posted #{label} #{'transaction'.pluralize(observed.length)} totaling #{money(observed_total)}.",
+        observed.any? ? "For #{period_label}, your synced bank activity shows #{observed.length} posted #{label} #{'transaction'.pluralize(observed.length)} totaling #{money(observed_total)}." : "I don’t have synced activity for #{label} in #{period_label}.",
         "Based on confirmed transactions, I found #{transactions.length} confirmed #{label} #{'transaction'.pluralize(transactions.length)} totaling #{money(confirmed_total)}.",
         category_breakdown(transactions, target),
         "#{needs_review.length} posted #{label} #{'transaction'.pluralize(needs_review.length)} totaling #{money(needs_review.sum(&:amount_cents))} still #{needs_review.length == 1 ? 'needs' : 'need'} household review before categorization is final.",
@@ -186,6 +192,8 @@ module HouseholdFinance
     def build_bank_summary_answer
       posted = base_bank_transactions.reject(&:pending?)
       pending = base_bank_transactions.select(&:pending?)
+      return "I don’t have synced bank activity for #{period_label}. That does not establish whether money came in or went out." if posted.empty? && pending.empty?
+
       inflows = posted.select { |transaction| transaction.amount_cents.negative? }
       all_outflows = posted.select { |transaction| transaction.amount_cents.positive? }
       outflows, not_spending = all_outflows.partition(&:counts_as_spending?)

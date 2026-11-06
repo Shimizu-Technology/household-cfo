@@ -170,7 +170,7 @@ module HouseholdFinance
           changes << "amount from #{money(before[:amount_cents])} to #{money(after[:amount_cents])}"
         end
         if before[:category_name] != after[:category_name]
-          changes << "category from #{before[:category_name].presence || 'Uncategorized'} to #{after[:category_name].presence || 'Uncategorized'}"
+          changes << "category from #{before[:category_name].presence || 'Needs a category'} to #{after[:category_name].presence || 'Needs a category'}"
         elsif before[:splits] != after[:splits]
           changes << "category splits to #{split_label(after[:splits])}"
         end
@@ -178,7 +178,7 @@ module HouseholdFinance
     end
 
     def split_label(splits)
-      splits.map { |split| "#{split[:category_name].presence || 'Uncategorized'} #{money(split[:amount_cents])}" }.to_sentence
+      splits.map { |split| "#{split[:category_name].presence || 'Needs a category'} #{money(split[:amount_cents])}" }.to_sentence
     end
 
     def date_label(date)

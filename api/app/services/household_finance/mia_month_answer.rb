@@ -1,14 +1,25 @@
 # frozen_string_literal: true
 
+require_relative "message_reply_intent"
+
 module HouseholdFinance
   # One month picture for chat and Home. Values are cents; unknown stays nil.
   # Planned out includes debt minimums. Spent so far is confirmed category
   # spending, so it is compared with category budgets, never with bank cash.
   class MiaMonthAnswer
-    QUESTION = /\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
+    QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
 
     def self.question?(message)
-      message.to_s.match?(QUESTION)
+      return false if MessageReplyIntent.purchase_question?(message)
+
+      excluded = /\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i
+      if (question = message.to_s.match(QUESTION))
+        # A category mentioned in an earlier completed event is not the object
+        # of the current month question. Keep its own trailing object scoped.
+        object = message.to_s[question.end(0)..].split(/[.!?;]/).first.to_s
+        return !object.match?(excluded)
+      end
+      MessageReplyIntent.matches?(message, "month_balance") && !message.to_s.match?(excluded)
     end
 
     def self.question_date(message, today: Date.current)
@@ -22,7 +33,7 @@ module HouseholdFinance
       return relative if relative
 
       month = MonthTerms.detect_number(message) || today.month
-      year = message.to_s[/\b(20\d{2})\b/, 1]&.to_i || today.year
+      year = message.to_s[/\b(?:#{MonthTerms.pattern})\s+(20\d{2})\b/i, 1]&.to_i || today.year
       Date.new(year, month, 1)
     end
 
