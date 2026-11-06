@@ -58,6 +58,22 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     assert_equal [ "20" ], read("saved 20 today, can i buy lunch", object(facts: [ fact("set_aside", "20") ]).merge(question: true)).facts.pluck("amount")
   end
 
+  test "a stated report inside a question keeps its amount" do
+    [ [ "could i put down that i saved 20 today", "20" ], [ "can i put down 30 i set aside friday", "30" ], [ "should i put the $10 i saved today with the rest", "$10" ] ].each do |text, amount|
+      result = read(text, object(facts: [ fact("set_aside", amount, day: "") ]).merge(question: true))
+      assert_equal [ amount ], result.facts.pluck("amount"), text
+    end
+  end
+
+  test "reader shame needs the participant's own words about herself" do
+    [ "i spent too much at ross again", "I keep ordering shoes online at night even though I can't really pay for them.", "so frustrated, i keep messing up this budget" ].each do |text|
+      assert_equal "none", read(text, object(care: "shame")).care, text
+    end
+    [ "im so stupid with money", "i hate myself for this", "I feel so ashamed of who I am." ].each do |text|
+      assert_equal "shame", read(text, object(care: "shame")).care, text
+    end
+  end
+
   test "misplaced commas are never read as larger amounts" do
     { "saved 1,20 today" => "1,20", "saved 20,30 today" => "20,30", "saved 2,5000 today" => "2,5000", "saved 1200,50 today" => "1200,50" }.each do |text, amount|
       result = read(text, object(facts: [ fact("set_aside", amount) ]))

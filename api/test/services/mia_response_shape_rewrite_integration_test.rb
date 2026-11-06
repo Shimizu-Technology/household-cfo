@@ -32,6 +32,24 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @original_admission)
   end
 
+  test "a rewrite that stays too long after server figures is fitted from the middle" do
+    max = @persona.response_shape.fetch("max_sentences")
+    long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "The plan has room for review.") { long }
+    assert_nil result.rejection_reason
+    sentences = result.content.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
+    assert_equal max - 1, sentences.length
+    assert_equal "Sentence number 1 stays calm.", sentences.first
+    assert_equal "What matters most?", sentences.last
+  end
+
+  test "a fitted rewrite still fails its validators" do
+    max = @persona.response_shape.fetch("max_sentences")
+    long = (1..(max - 1)).map { |index| "Sentence number #{index} stays calm." }.join(" ") + " What matters most?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { :unsafe }, fixed_prefix: "The plan has room for review.") { long }
+    assert_equal :unsafe, result.rejection_reason
+  end
+
   test "preview repairs one safe length miss with exact draft and final provider provenance" do
     requests = []
     with_provider_replies([ LONG_REPLY, VALID_REPLY ], requests) do

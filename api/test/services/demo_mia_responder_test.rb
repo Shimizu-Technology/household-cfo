@@ -19,6 +19,12 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_equal "live_model", responder.response_source
   end
 
+  test "the outage fallback keeps the spending pattern reply to spending" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    refute_match(/spending pattern/i, responder.send(:fallback_response, "i dont know how much longer i can keep doing this job", context: "{}", reason: "provider_failure"))
+    assert_match(/spending pattern/i, responder.send(:fallback_response, "i keep ordering shoes online", context: "{}", reason: "provider_failure"))
+  end
+
   test "recorded review preview discusses a yes or no without answering its checks" do
     reply = file_fixture("mia_preview_decision_review.txt").read.strip
     responder = Demo::MiaResponder.new(api_key: nil)

@@ -54,13 +54,34 @@ module Mia
       end
       rewritten = rewrite.call(instruction)
       reason = rejection_reason(rewritten)
-      log_counts(rewritten) if reason == :persona_response_shape
+      if reason == :persona_response_shape
+        log_counts(rewritten)
+        fitted = fit_to_shape(rewritten)
+        if fitted
+          rewritten = fitted
+          reason = rejection_reason(fitted)
+        end
+      end
       Result.new(content: rewritten, rejection_reason: reason, guard_result: @guard_result)
     end
 
     private
 
     attr_reader :persona, :user_message, :validator, :rewrite
+
+    # Server sentences take part of the reply budget and rewrites often overrun
+    # by one. Drop that one from the middle, keeping the opening and the closing
+    # question, and let the validators judge it. Anything longer gets its fallback.
+    def fit_to_shape(content)
+      return if @fixed_prefix.blank?
+
+      sentences = content.to_s.split(ResponseShapePolicy::SENTENCE_BOUNDARY).compact_blank
+      return if sentences.length < 3
+
+      sentences.delete_at(-2)
+      text = sentences.join(" ")
+      text if ResponseShapePolicy.new([ @fixed_prefix, text ].compact_blank.join(" "), persona: persona).length_valid?
+    end
 
     def rejection_reason(content)
       return :blank_response if content.blank?

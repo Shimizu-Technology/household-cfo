@@ -3,6 +3,7 @@ require "json"
 
 module Demo
   class MiaResponder
+    SPENDING_WORD = /\b(?:spen[dt]\w*|b(?:uy|ought)\w*|order\w*|purchas\w*|shop\w*|takeout|impulse)\b/i
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
@@ -692,7 +693,7 @@ module Demo
       if purchase_question
         return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
       end
-      if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN)
+      if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN) && message.match?(SPENDING_WORD)
         return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"
       end
 

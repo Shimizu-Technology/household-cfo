@@ -19,6 +19,14 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     end
   end
 
+  test "family support without account balances asks for them instead of failing" do
+    household = create_yellow_household
+    household.accounts.destroy_all
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Can I lend my brother $100?").call
+    assert_includes answer, "account balances"
+    refute_match(/\AYes/, answer)
+  end
+
   test "an explicitly read only amount edit is not interpreted as a purchase" do
     household = create_yellow_household
     [

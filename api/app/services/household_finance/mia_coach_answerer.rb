@@ -896,6 +896,9 @@ module HouseholdFinance
       return family_support_tradeoff_answer(amount_cents) if family_support_tradeoff?
 
       amount_label = amount_cents&.positive? ? "#{money(amount_cents)}" : "money"
+      if snapshot.fetch(:safe_to_spend_cents).nil?
+        return "Wanting to help makes sense, and I can't compare #{amount_label} to your safe-to-spend yet because your account balances aren't added in My Money. Keep bill money out of it, and set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
+      end
       if amount_cents&.positive? && amount_cents <= snapshot.fetch(:safe_to_spend_cents) && snapshot.fetch(:readiness_tone) != "red"
         return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
@@ -1200,7 +1203,7 @@ module HouseholdFinance
       discretionary_remaining_cents = current_discretionary_remaining_cents
       safe_cents = snapshot.fetch(:safe_to_spend_cents)
       runway_status = "runway is #{snapshot.fetch(:runway_months)} months against a #{target_runway_months.round(1)} month target"
-      verdict = if snapshot.fetch(:readiness_tone) == "green" && safe_cents.positive?
+      verdict = if snapshot.fetch(:readiness_tone) == "green" && safe_cents.to_i.positive?
         "it may be okay only if the price fits inside true surplus and no sinking-fund bill is being skipped"
       else
         "I would not approve it yet unless it is a real need or already funded inside the plan"
