@@ -33,7 +33,7 @@ module HouseholdFinance
       return relative if relative
 
       month = MonthTerms.detect_number(message) || today.month
-      year = message.to_s[/\b(?:#{MonthTerms.pattern})\s+(20\d{2})\b/i, 1]&.to_i || today.year
+      year = MonthTerms.explicit_year(message.to_s) || today.year
       Date.new(year, month, 1)
     end
 

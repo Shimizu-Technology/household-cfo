@@ -104,6 +104,9 @@ module Mia
         complete = phrase.match?(/[.!?…]\z/)
         pattern = custom_phrase_pattern(complete ? phrase.sub(/[.!?…]+\z/, "") : phrase)
         pattern = /#{pattern.source}(?=[ \t]*(?:[.,!?;:]|\z))[ \t]*[.!?]?/i if complete
+        if phrase.match?(/\Ay['’]all\z/i)
+          next text.gsub(/#{pattern.source}(?=\s+(?:should|can|could|need|will|may|might|have|are)\b)/i, "You").gsub(pattern, " ")
+        end
         text.gsub(pattern) do |matched|
           prefix = Regexp.last_match.pre_match.rstrip
           # Preserve a sentence ending when the phrase ended an existing clause.

@@ -255,6 +255,7 @@ module HouseholdFinance
     end
 
     def reflective_answer
+      return if MoneyMovementText.savings_deposit_report?(message) || transaction_report?
       return win_answer if MessageReplyIntent.matches?(message, "win")
       return unless self.class.reflective_message?(message)
       return if transaction_report?

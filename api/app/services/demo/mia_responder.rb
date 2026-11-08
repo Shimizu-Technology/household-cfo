@@ -500,11 +500,15 @@ module Demo
     end
 
     def historical_amount_attributed?(content, mention)
-      sentence = content.to_s[0...mention[:start]].split(/[.!?]/).last.to_s
-      # Recalled amounts may be repeated as past participant reports, never
-      # promoted to a current bill, balance or funding conclusion.
-      past_report = sentence.match?(/\byou (?:said|reported|mentioned) (?:your|you)\b.*\b(?:was|were|used to be|previously)\b/i)
-      past_report && !content.to_s.match?(/\b(?:covered|afford|enough|available|funded|room|spare|left to spend)\b/i)
+      before = content.to_s[0...mention[:start]].split(/[.!?;]|,\s*(?:and|but|so)\b/i).last.to_s
+      after = content.to_s[mention[:start]..].split(/[.!?;]|,\s*(?:and|but|so)\b/i).first.to_s
+      clause = before + after
+      past_report = before.match?(/\A\s*you (?:said|reported|mentioned) (?:your|you)\b(?:(?!\b(?:is|are|now|today)\b).)*\b(?:was|were|used to be|previously|got|received|earned)\b/i)
+      current_claim = content.to_s.split(/[.!?;]/).any? do |statement|
+        !statement.match?(/\byou (?:said|reported|mentioned)\b/i) &&
+          statement.match?(/\b(?:you (?:can|could) (?:pay|spend|cover|afford)|your (?:income|rent|bill|balance|money) (?:is|are|covers?|pays?|totals?))\b/i)
+      end
+      past_report && !current_claim && !clause.match?(/\b(?:covered|afford|enough|available|funded|room|spare|left to spend|now|today)\b/i)
     end
 
     def grounded_percent_mentions?(content, metrics:, user_message: nil)

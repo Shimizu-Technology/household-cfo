@@ -3104,7 +3104,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
-      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       const confirmedMonth = workspace.budget.annual_plan?.months[draftMonthIndex]
@@ -3137,10 +3137,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const signature = `transaction:ignore:${draft.id}`
       const workspace = await ignoreTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
-      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
-      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       setTransactionNotice(`Ignored ${draft.merchant}. It is not counted as spending.`)
@@ -3220,10 +3219,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const signature = `transaction:match:${draft.id}:${matchId ?? 'best'}`
       const workspace = await matchTransactionDraft(draft.id, matchId, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
-      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
-      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_matched', {
@@ -3255,10 +3253,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       const signature = `transaction:reopen:${draft.id}`
       const workspace = await reopenTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
-      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
-      refreshSpendingReportForBudget(workspace.budget, budgetView?.monthIndex ?? draftMonthIndex)
+      void refreshSpendingReport(selectedBudgetPeriodRef.current)
       void refreshDocumentImports({ quiet: true })
       replaceMiaHistory(workspace.mia)
       setTransactionNotice(`Reopened ${draft.merchant}. It is waiting for your review and is not counted as spending.`)
