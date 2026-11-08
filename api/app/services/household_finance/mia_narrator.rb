@@ -76,6 +76,11 @@ module HouseholdFinance
         @response_source = "deterministic_safety"
         return ::Mia::CrisisBoundary.response
       end
+      # A disclosure beside a purchase question gets care, not a model reply about funding it.
+      if care && answer_packet[:kind] == "purchase_scenario" && !answer_packet[:care_context]
+        @response_source = "deterministic_safety"
+        return ParticipantCare.answer(user_message, care: care)
+      end
       if care || answer_packet[:care_context]
         @answer_packet[:fallback_response] = ParticipantCare.answer(user_message, care: care) if care && !answer_packet[:care_context]
         @answer_packet[:kind] = "coaching"
@@ -429,6 +434,7 @@ module HouseholdFinance
     end
 
     def sanitize_narration(content)
+      content = language_policy.remove_model_phrases(content)
       return if language_policy.model_phrase_rejection_reason(content)
       return unless ::Mia::ResponseShapePolicy.new(content, persona: persona).format_valid?
 

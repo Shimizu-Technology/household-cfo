@@ -491,7 +491,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.", answer
+      assert_equal "Okay. I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.", answer
     end
   end
 
@@ -579,7 +579,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "That category is archived. Restore it or choose another name.", answer
+      assert_equal "That category is archived. Restore it or choose another name. What would you like to do?", answer
     end
   end
 
@@ -647,7 +647,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "I drafted setting Fixed essentials to $3,950 for July. Review it before applying.", answer
+      assert_equal "This budget change is ready for review. Apply it only if July and $3,950 are right.", answer
     end
   end
 

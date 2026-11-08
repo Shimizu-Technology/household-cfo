@@ -14,6 +14,10 @@ module HouseholdFinance
       @pattern ||= tokens.map { |name, _number| Regexp.escape(name) }.join("|")
     end
 
+    def explicit_year(text)
+      text.to_s[/\b(?:#{pattern})(?:\s+\d{1,2})?\s*,?\s+(20\d{2})\b/i, 1]&.to_i
+    end
+
     def number(name)
       tokens.find { |candidate, _number| candidate == name.to_s.downcase }&.last
     end

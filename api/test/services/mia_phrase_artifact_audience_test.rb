@@ -72,7 +72,7 @@ class MiaPhraseArtifactAudienceTest < ActiveSupport::TestCase
     ).sanitize("#{PARTICIPANT_PHRASE}, review groceries today.")
 
     assert_equal "#{PARTICIPANT_PHRASE}, review groceries today.", current
-    assert_equal "Review groceries today.", repeated
+    assert_equal "#{PARTICIPANT_PHRASE}, review groceries today.", repeated
   end
 
   test "another participant cannot authorize a phrase through their message or transcript" do
@@ -161,7 +161,7 @@ class MiaPhraseArtifactAudienceTest < ActiveSupport::TestCase
     other_responder = Demo::MiaResponder.new(persona: other_runtime)
     assert_includes source_responder.send(:conversation_history, history).sole.fetch(:content), PARTICIPANT_PHRASE
     refute_includes other_responder.send(:conversation_history, history).sole.fetch(:content), PARTICIPANT_PHRASE
-    assert_nil other_responder.send(
+    assert_equal "Review groceries today.", other_responder.send(
       :sanitize_assistant_content,
       "#{PARTICIPANT_PHRASE}, review groceries today.",
       user_message: "What should I do?",
@@ -174,7 +174,7 @@ class MiaPhraseArtifactAudienceTest < ActiveSupport::TestCase
     refute_includes other_narrator.send(:payload).fetch(:messages).first.fetch(:content), PARTICIPANT_PHRASE
     assert_includes source_narrator.send(:conversation_history).sole.fetch(:content), PARTICIPANT_PHRASE
     refute_includes other_narrator.send(:conversation_history).sole.fetch(:content), PARTICIPANT_PHRASE
-    assert_nil other_narrator.send(:sanitize_narration, "#{PARTICIPANT_PHRASE}, review groceries today.")
+    assert_equal "Review groceries today.", other_narrator.send(:sanitize_narration, "#{PARTICIPANT_PHRASE}, review groceries today.")
   end
 
   private

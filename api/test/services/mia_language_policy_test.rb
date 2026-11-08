@@ -1,6 +1,34 @@
 require "test_helper"
 
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
+  teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
+
+  def reader_win(message)
+    data = { care: "none", facts: [], question: false, reply_intent: "win", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
+    HouseholdFinance::ParticipantMessageReader::Current.message = message
+    HouseholdFinance::ParticipantMessageReader::Current.reading = reading
+  end
+
+  test "win phrases require a reader win even when milestone words or the phrase occur" do
+    phrase = { "text"=>"Small wins count, chelu.", "meaning"=>"Celebrate a win", "allowed_contexts"=>[ "milestone" ], "frequency"=>"as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    [ "they said no raise this year", "i never paid off my card", "i paid off my card finally", "they said no raise this year. Small wins count, chelu." ].each do |message|
+      HouseholdFinance::ParticipantMessageReader::Current.reset
+      assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona).server_phrase, message
+    end
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
+  test "R2 ordinary shared phrase words are not variants and broken stripped clauses disappear" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Win", "allowed_contexts" => [ "win" ], "prohibited_contexts" => [], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    policy = Mia::LanguagePolicy.new(user_message: "what counts", persona: persona)
+    assert_nil policy.model_phrase_rejection_reason("That doesn't count as savings.")
+    assert_equal "What will you try?", policy.remove_model_phrases("That's a real win, and Small wins count, chelu., so keep going. What will you try?")
+  end
+
   test "CR3 legacy crisis-allowed phrases never reach a crisis reply" do
     phrase = { "text" => "One small step", "meaning" => "A phrase", "allowed_contexts" => [ "crisis" ], "prohibited_contexts" => [], "frequency" => "rare" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
@@ -30,6 +58,7 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
   end
 
   test "allows restrained cultural language for a participant milestone" do
+    reader_win("I finally paid off my credit card!")
     result = Mia::LanguagePolicy.new(user_message: "I finally paid off my credit card!").sanitize(
       "Lanya, that payoff is a real milestone, chelu. Protect the freed-up payment in your plan."
     )
@@ -91,5 +120,25 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
       "Par 3 Golf is in Discretionary. Just pay the minimum.",
       "Simply Gum is $4.\nYou are on par, ok."
     ].each { |text| assert_equal text.gsub("\n", " "), policy.sanitize(text) }
+  end
+  test "model phrase removal preserves coaching and leaves eligibility to the server" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    [ "I paid off my card", "What is my plan?", "I cannot pay rent" ].each do |message|
+      policy = Mia::LanguagePolicy.new(user_message: message, persona: persona)
+      reply = policy.remove_model_phrases("That took real effort. Small wins count, chelu. What helped you keep going?")
+      assert_equal "That took real effort. What helped you keep going?", reply
+      assert_nil policy.model_phrase_rejection_reason(reply)
+      assert_equal "That took real effort. What helped?", policy.remove_model_phrases("That took real effort, and small wins count, chelu. What helped?")
+    end
+  end
+  test "as needed differs from sparing and wins can use their own phrase" do
+    reader_win("I paid off my card!")
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    history = [ { role: "assistant", content: phrase["text"] } ]
+    assert_equal phrase["text"], Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
+    phrase["frequency"] = "sparing"
+    assert_nil Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
   end
 end

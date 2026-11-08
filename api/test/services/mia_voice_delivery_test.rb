@@ -117,7 +117,7 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
       "Hold off on deciding until you know where the money would come from, because I can't tell you it is affordable or funded. Chelu, pump the brakes. Is this stroller coming from money you have already set aside for it, or would it go on a card, and what bill or essential needs to be protected first?"
     end
     reply = narrator.call
-    assert_equal "deterministic_fallback", narrator.response_source
+    assert_equal "live_model", narrator.response_source
     refute_includes reply, "Chelu"
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice)
   end

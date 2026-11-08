@@ -242,7 +242,7 @@ module HouseholdFinance
       coaching = deterministic_coaching_result
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
-      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message)) && !PurchaseQuestionText.debt_question?(user_message)
+      if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && user_message.match(PurchaseQuestionText::PURCHASE_QUESTION)&.begin(0).to_i.positive? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end
@@ -633,6 +633,7 @@ module HouseholdFinance
     # Use the challenge reader when no structured provider is configured.
     # This path only proposes reviews. Corrections keep the existing draft router.
     def deterministic_purchase_result(report_message: raw_user_message)
+      return if PurchaseQuestionText.proposed_purchase_only?(report_message)
       return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i)
       return if TransactionDraftBuilder.non_expense_movement?(user_message)
       return if one_purchase_in_parts?(user_message)
@@ -1910,7 +1911,7 @@ module HouseholdFinance
         end
         target.beginning_of_month
       elsif (month_index = calendar_month_index(source_text))
-        explicit_year = source_text.match(/\b(20\d{2})\b/)&.[](1)&.to_i
+        explicit_year = MonthTerms.explicit_year(source_text)
         target_year = explicit_year || Date.current.year
         target_year += 1 if explicit_year.nil? && month_index + 1 < Date.current.month && !source_text.match?(/\b(?:could.*have|bought|last|previous)\b/i)
         Date.new(target_year, month_index + 1, 1)

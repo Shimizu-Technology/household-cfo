@@ -17,6 +17,43 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
+  test "R2 purchase questions get funding coaching during a reader outage instead of savings instructions" do
+    [ "should i buy a $900 tv? also whats my spending pattern", "i paid off my card!! can i buy a $900 tv now" ].each_with_index do |message, index|
+      ask message, "r2-outage-purchase-#{index}"
+      reply = response.parsed_body.dig("assistant_message", "content")
+      assert_includes reply, "no household plan"
+      assert_match(/(?:What|Which account) would cover it/, reply)
+      assert_nil response.parsed_body["challenge_chat_card"]
+      assert_equal 0, SavingsDailyPurchaseVersion.count
+    end
+  end
+
+  test "R2 current month challenge observations do not project monthly savings" do
+    category = @savings_household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
+    year = @savings_household.budget_years.create!(year: 2026)
+    period = year.budget_periods.create!(starts_on: Date.new(2026, 11, 1), ends_on: Date.new(2026, 11, 30))
+    row = @savings_household.household_transactions.create!(budget_period: period, occurred_on: Date.new(2026, 11, 3), merchant: "Ross", total_amount_cents: 6000, source_type: "statement", status: "confirmed")
+    row.transaction_splits.create!(budget_category: category, amount_cents: 6000)
+    ask "look at my spending patterns", "r2-current-patterns"
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "so far this month"
+    assert_includes reply, "$60"
+    refute_match(/could free|90 days/, reply)
+    assert_empty response.parsed_body.dig("spending_patterns", "candidate_changes")
+  end
+
+  test "a patterns question never drops a completed purchase reported in the same turn" do
+    message = "spent 10 at Payless today, what spending patterns do you see?"
+    @participant_reader_fixtures[message] = { "care" => "none", "reply_intent" => "spending_patterns", "question" => true, "correction" => false,
+      "setup_answer" => { "field" => "none", "value" => "" }, "spending_preferences" => [],
+      "facts" => [ { "kind" => "purchase", "amount" => "10", "merchant" => "Payless", "item" => "", "day" => "today" } ] }
+    ask message, "w27-mixed-pattern"
+    card = response.parsed_body.fetch("challenge_chat_card")
+    assert_equal "daily_report", card.fetch("kind")
+    assert_equal [ 1000 ], card.dig("input", "purchases").pluck("amount_cents")
+    assert_equal 0, SavingsDailyPurchaseVersion.count
+  end
+
   test "no savings statements keep purchases separate and repeats reuse their pending review" do
     [ "I spent $18 on lunch at Port of Mocha and I saved nothing today",
       "I spent $18 on lunch at Port of Mocha today and I didn't set aside anything",

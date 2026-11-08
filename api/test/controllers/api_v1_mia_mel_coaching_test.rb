@@ -1,16 +1,30 @@
 require "test_helper"
+require_relative "../support/participant_reader_test_support"
 require_relative "../support/mel_persona_test_helper"
 
 require_relative "../support/reply_guard_test_helper"
 
 class ApiV1MiaMelCoachingTest < ActionDispatch::IntegrationTest
   include ReplyGuardTestHelper
+  include ParticipantReaderTestSupport
   include MelPersonaTestHelper
   setup do
     travel_to HouseholdFinance::MiaEvalHousehold.eval_time
     @user, @household = HouseholdFinance::MiaEvalHousehold.create!
+    [ "I stayed under my grocery budget for the whole week!", "I stuck to my food budget." ].each do |message|
+      @participant_reader_fixtures[message] = { "care" => "none", "facts" => [], "question" => false, "reply_intent" => "win", "setup_answer" => { "field" => "none", "value" => "" }, "correction" => false, "spending_preferences" => [] }
+    end
   end
   teardown { travel_back }
+
+  test "left this month uses the Home surplus and leaves unknown spending unknown" do
+    @household.household_transactions.destroy_all
+    post_message("how much do i have left this month")
+    facts = response.parsed_body.fetch("month_answer")
+    assert_equal facts.fetch("money_in_cents") - facts.fetch("planned_out_cents"), facts.fetch("plan_left_cents")
+    assert_nil facts["spent_so_far_cents"]
+    refute_includes reply, "actuals are $0"
+  end
 
   test "wins repeated habits and hard days coach without creating purchases" do
     {

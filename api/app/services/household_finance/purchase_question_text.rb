@@ -74,18 +74,45 @@ module HouseholdFinance
     end
 
     def self.read_only_purchase_question?(message)
-      # A funding description is not an instruction to reserve new money.
-      text = message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
+      text = read_only_question_text(message)
       purchase_question?(message) && !MiaCoachAnswerer.explicit_write_request?(text)
+    end
+
+    # A funding description is not an instruction to reserve new money.
+    def self.read_only_question_text(message)
+      message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
     end
 
     def self.unfunded?(text)
       text.to_s.match?(/\b(?:don['’]?t|do not) have (?:the )?money\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
     end
 
+    # An achievement without an amount is context, not evidence that a later
+    # proposed purchase already happened. Completed amounts before it stay separate.
+    def self.proposed_purchase_only?(message)
+      text = message.to_s
+      question = text.match(PURCHASE_QUESTION)
+      return false unless question
+      if defined?(ParticipantMessageReader)
+        current = ParticipantMessageReader::Current
+        return false if current.message.to_s.squish == text.squish && current.reading&.available && current.reading.facts.any? { |fact| fact["kind"] == "purchase" }
+      end
+
+      following = text[question.begin(0)..].split(/[?!;]/, 2).last.to_s if text[question.begin(0)..].match?(/[?!;]/)
+      return false if PurchaseReportText.stated_amount?(following)
+      return false if text[question.end(0)..].match?(/\b(?:,|\b(?:and|also|but|then|plus|after))\s*(?:(?:i|we)\s+)?(?:spent|paid|bought|saved)\b/i)
+
+      !PurchaseReportText.stated_amount?(text[0...question.begin(0)])
+    end
+
     def self.purchase_clause(message)
       text = message.to_s
-      income_with_purchase?(text) ? text[text.match(PURCHASE_QUESTION).begin(0)..] : text
+      return text unless income_with_purchase?(text) || proposed_purchase_only?(text)
+
+      question = text.match(PURCHASE_QUESTION)
+      prefix = text[0...question.begin(0)]
+      timing = /\A\s*(?:(?:next|this|last) (?:month|week|year)|today|tomorrow|in \d+ (?:days?|weeks?|months?|years?)|(?:(?:in|on|during|for)\s+)?(?:#{MonthTerms.pattern})(?:\s+20\d{2})?|\d{4}-\d{2}-\d{2})\s*[,;:]?\s*\z/i
+      prefix.match?(timing) ? text : text[question.begin(0)..]
     end
 
     def self.price_reference_only?(segment, first)

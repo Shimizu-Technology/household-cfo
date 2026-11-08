@@ -3,6 +3,35 @@ require "test_helper"
 class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
+  test "R2 stale reopen returns refreshable plain conflict" do
+    user = create_user(email: "r2-stale-reopen@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "R2", stack_key: "discretionary", monthly_amount: 100)
+    draft = create_pending_draft(household, category, merchant: "Already reopened", amount_cents: 1000)
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(user), as: :json
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    refute_includes response.parsed_body.to_s, "Transaction draft"
+    assert_equal "pending", draft.reload.status
+  end
+
+  test "a second tab confirmation returns a plain stale review conflict without a duplicate" do
+    user = create_user(email: "w27-stale@example.invalid")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Review", stack_key: "discretionary", monthly_amount: 100)
+    draft = create_pending_draft(household, category, merchant: "Reviewed once", amount_cents: 1100)
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(user).merge("Idempotency-Key" => "w27-first"), as: :json
+    assert_response :success
+    assert_no_difference -> { household.household_transactions.count } do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(user).merge("Idempotency-Key" => "w27-second"), as: :json
+    end
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    assert_includes response.parsed_body["errors"].join, "already reviewed"
+    refute_includes response.body, "Transaction draft is not pending"
+  end
+
   test "participant can schedule a future raise, a one-time bonus, and an income end without rewriting prior months" do
     travel_to Date.new(2026, 7, 12) do
       user = create_user(email: "income-timeline@example.com")
@@ -585,15 +614,17 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    assert_includes JSON.parse(response.body).fetch("errors").join, "already reviewed"
 
     post "/api/v1/transaction_drafts/#{draft.fetch("id")}/ignore",
       headers: auth_headers(user),
       as: :json
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+    assert_response :conflict
+    assert_equal "stale_review", response.parsed_body["code"]
+    assert_includes JSON.parse(response.body).fetch("errors").join, "already reviewed"
     assert_equal "confirmed", TransactionDraft.find(draft.fetch("id")).status
   end
 

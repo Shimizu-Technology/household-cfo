@@ -170,7 +170,7 @@ module HouseholdFinance
       when "scenario_only"
         "Here are all #{count} scenarios. These values are unapproved and were not saved."
       else
-        "Here are all #{count} answers. Saved household facts and unapproved scenario values are labeled separately."
+        "Here are all #{count} answers. Saved household facts and amounts you asked me to compare are labeled separately."
       end
     end
 
@@ -181,7 +181,7 @@ module HouseholdFinance
       when "scenario_only"
         "Here is that scenario. This value is unapproved and was not saved."
       else
-        "Here is the answer. Saved household facts and unapproved scenario values are labeled separately."
+        "Here is the answer. Saved household facts and amounts you asked me to compare are labeled separately."
       end
     end
 

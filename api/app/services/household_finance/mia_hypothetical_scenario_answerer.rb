@@ -5,10 +5,10 @@ module HouseholdFinance
     Result = Struct.new(:title, :body, :scenario_value, keyword_init: true)
 
     TITLES = {
-      "purchase" => "Purchase scenario",
-      "one_time_income" => "One-time money scenario",
-      "essential_expense" => "Essential bill scenario",
-      "extra_debt_payment" => "Extra debt payment scenario"
+      "purchase" => "This purchase",
+      "one_time_income" => "One-time money",
+      "essential_expense" => "This bill",
+      "extra_debt_payment" => "Extra debt payment"
     }.freeze
 
     def initialize(household, scenario_type:, amount:, label:, effective_on: nil, timing_unavailable: false, annual_budget_manager:, reference_month:)
@@ -71,7 +71,7 @@ module HouseholdFinance
       "#{period} plan #{before}, so #{priced_item} #{comparison} if it is extra spending, and that's a plan figure, not your bank balance. You decide after protecting food, bills, and your emergency cushion. Which account and spending category would cover it?"
     end
 
-    # "a $300 purchase" reads better than "Purchase scenario at $300" when the
+    # "a $300 purchase" reads better than "This purchase at $300" when the
     # participant did not name the item.
     def subject_phrase
       return "a #{money(amount_cents)} purchase" if label == TITLES.fetch(scenario_type)

@@ -23,7 +23,7 @@ module HouseholdFinance
 
       total_cents = drafts.sum(&:total_amount_cents)
       preview = drafts.first(5).map do |draft|
-        category = draft.budget_category&.name || "Uncategorized"
+        category = draft.budget_category&.name || "Needs a category"
         "#{draft.merchant} #{money(draft.total_amount_cents)} in #{category}"
       end.to_sentence
       more_line = drafts.length > 5 ? " There are #{drafts.length - 5} more purchases waiting for review after those." : ""

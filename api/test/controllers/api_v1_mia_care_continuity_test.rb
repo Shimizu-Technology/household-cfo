@@ -11,6 +11,16 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  test "rebased win cannot replace food care and grief costs stay out of how" do
+    ask("i paid off my card but now i cant buy food")
+    refute_match(/That took effort/, reply)
+    assert_match(/food/i, reply)
+    ask("my nana passed sunday and the funeral place wants 3800")
+    ask("how")
+    refute_match(/3,?800/, reply)
+    refute_match(/That took effort/, reply)
+  end
+
   test "household grief keeps two casual replies then answers month and shoes" do
     journey("we buried my husband on tuesday and the funeral cost 2500", "idk", "ok thanks. what do i do first", "how much is left")
     assert_match(/\$/, reply)

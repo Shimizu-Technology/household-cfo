@@ -287,7 +287,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const checkIn = onCheckIn ?? onToday
   const pendingPlans = challenge?.pending_plan_count ?? 0
   const pendingEntries = challenge?.pending_entry_count ?? 0
-  const next = calendar ? nextCheckpoint(calendar) : null
+  const next = calendar ? nextCheckpoint(calendar, challenge?.timeline?.checkpoints_due) : null
   const zone = timeZoneLabel(calendar?.time_zone ?? offer?.time_zone)
   const reported = projection?.reported_cents ?? null
   const excluded = projection?.excluded_entry_count ?? 0
@@ -534,8 +534,10 @@ function matchWords(version: SavingsEntryVersion) {
   if (version.evidence_status === 'revoked') return 'Statement match removed'
   return ''
 }
-function nextCheckpoint(calendar: SavingsCalendar): { day: '30' | '60' | '90'; date: string } | null {
-  for (const day of ['30', '60', '90'] as const) { const date = calendar.checkpoints[day]; if (date && date >= calendar.local_today) return { day, date } }
+function nextCheckpoint(calendar: SavingsCalendar, due?: number[]): { day: '30' | '60' | '90'; date: string } | null {
+  const ready = due?.[0]
+  if (ready === 30 || ready === 60 || ready === 90) { const day = String(ready) as '30' | '60' | '90'; return { day, date: calendar.checkpoints[day] } }
+  for (const day of ['30', '60', '90'] as const) { const date = calendar.checkpoints[day]; if (date && date > calendar.local_today) return { day, date } }
   return null
 }
 function dayLine(calendar: SavingsCalendar, next: ReturnType<typeof nextCheckpoint>): ReactNode {
@@ -543,6 +545,7 @@ function dayLine(calendar: SavingsCalendar, next: ReturnType<typeof nextCheckpoi
   if (calendar.phase === 'window_ended') return `Your 90 days ended ${formatDay(calendar.ends_on)}. You can still add money you set aside before then.`
   const day = calendar.day ? `Day ${calendar.day} of 90` : 'Your 90 days are underway'
   if (!next) return day
+  if (next.date < calendar.local_today) return `${day} · your Day ${next.day} check-in is ready`
   return next.date === calendar.local_today ? `${day} · your Day ${next.day} check-in is today` : <>{day} · next check-in Day {next.day} on <span className="savings-nowrap">{formatDay(next.date)}</span></>
 }
 function message(error: unknown) { return participantErrorMessage(error, 'This challenge request could not be completed. Please try again.') }

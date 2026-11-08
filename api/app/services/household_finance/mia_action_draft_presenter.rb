@@ -171,7 +171,7 @@ module HouseholdFinance
         before_policy = before["policy"] || {}
         after_policy = after["policy"] || {}
         [ {
-          label: "Transition goal",
+          label: "Your goal",
           before: before_policy["label"].presence || "Does not exist",
           after: after_policy["label"].presence || "Removed"
         } ]
