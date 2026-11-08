@@ -249,7 +249,7 @@ module Mia
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
-      when "purchase_caution" then HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || (HouseholdFinance::MessageReplyIntent.purchase_question?(user_message) && HouseholdFinance::PurchaseQuestionText.unfunded?(user_message)) || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
+      when "purchase_caution" then (user_message.match?(/\b(?:charge|swipe)\b/i) && HouseholdFinance::PurchaseQuestionText.unfunded?(user_message)) || HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || (HouseholdFinance::MessageReplyIntent.purchase_question?(user_message) && HouseholdFinance::PurchaseQuestionText.unfunded?(user_message)) || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
       else false
       end
     end
