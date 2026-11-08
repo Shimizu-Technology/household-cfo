@@ -1112,9 +1112,13 @@ module HouseholdFinance
 
     def matching_setup_debts(name)
       words = debt_label_words(name)
-      return [] if words.empty?
-      Array(context[:active_debts]).select { |debt| (words - debt_label_words(debt[:label])).empty? }
+      debts = Array(context[:active_debts])
+      # "my credit card" has only generic words, so compare the whole label.
+      return debts.select { |debt| debt_label_key(debt[:label]) == debt_label_key(name) } if words.empty?
+      debts.select { |debt| (words - debt_label_words(debt[:label])).empty? }
     end
+
+    def debt_label_key(name) = name.to_s.downcase.scan(/[\p{L}\d]+/) - %w[my the our min minimum payment]
 
     def debt_label_words(name)
       name.to_s.downcase.scan(/[\p{L}\d]+/) - %w[card credit loan min minimum payment my the our one]

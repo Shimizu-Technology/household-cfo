@@ -94,4 +94,26 @@ class MiaPlainSetupListTest < ActiveSupport::TestCase
       assert_equal expected, first&.dig(:value), text
     end
   end
+
+  test "a reply with no figure leaves a pending list alone" do
+    prior = { components: [ { source: "rent 875", label: "Rent", amount: "875" } ] }
+    [ "yes", "sounds good", "ok" ].each do |text|
+      assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: nil, field: "fixed_expenses", prior: prior).call, text
+    end
+  end
+
+  test "a start over preface is removed however it is phrased" do
+    [ "lets start over. rent 1000, gpa 200", "start over rent 1000, gpa 200", "ok lets start over, rent 1000, gpa 200" ].each do |text|
+      result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: nil, field: "fixed_expenses").call
+      assert_equal 120000, HouseholdFinance::ParticipantMessageReader.amount_cents(result[:value]), text
+    end
+  end
+
+  test "a name made only of generic words still matches its own debt" do
+    resolver = HouseholdFinance::MiaIntentResolver.allocate
+    debts = [ { label: "Credit card", id: 1 }, { label: "Car loan", id: 2 } ]
+    resolver.define_singleton_method(:context) { { active_debts: debts } }
+    assert_equal [ 1 ], resolver.send(:matching_setup_debts, "my credit card").pluck(:id)
+    assert_empty resolver.send(:matching_setup_debts, "payment")
+  end
 end

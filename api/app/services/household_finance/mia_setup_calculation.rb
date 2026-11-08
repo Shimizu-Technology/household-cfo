@@ -20,7 +20,7 @@ module HouseholdFinance
       return unless @field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
       text = @message.strip.sub(/[.!]\z/, "")
       return if text.blank? || !text.match?(/\d/) && @prior.blank?
-      text = text.sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)+(?:let['’]?s start over[., ]+)?/i, "")
+      text = text.sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)*(?:(?:let['’]?s\s+)?start over[., ]+)?/i, "")
       if @prior.present? && (removed = removal_label(text))
         parts = @prior[:components].to_a.deep_dup
         matches = matching_parts(parts, removed)
@@ -29,6 +29,8 @@ module HouseholdFinance
         return ask if parts.empty?
         return result(parts)
       end
+      # "yes" or "sounds good" on a pending card is not a new list.
+      return if @prior.present? && !text.match?(/\d/)
       if @prior.present? && (whole = text.match(/\A(?:the )?(?:(?:whole|overall|combined) (?:monthly )?total|fixed (?:essentials|expenses) total)\s*(?:(?:is|=|:)\s*)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i))
         return result([ { source: @message.strip, label: "whole total", amount: whole[:amount] } ])
       end
