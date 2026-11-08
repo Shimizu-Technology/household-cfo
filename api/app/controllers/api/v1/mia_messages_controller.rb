@@ -185,7 +185,7 @@ module Api
           if HouseholdFinance::ParticipantCare.kind(content) == :crisis
             return render_crisis_response(session, content, [], message_request: message_request)
           end
-          if savings_program_selected? && !@participant_reading.care? && SavingsChallenge::CoachAnswerer.saved_total_question?(content)
+          if savings_program_selected? && !@participant_reading.care? && @participant_reading.facts.empty? && @participant_reading.savings_correction.blank? && SavingsChallenge::CoachAnswerer.saved_total_question?(content)
             enrollment = require_savings_chat_access!
             answer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user, enrollment: enrollment, message: content).saved_total_response
             return render_household_read_response(session, content, answer, message_request: message_request, topic: @care_topic || {})

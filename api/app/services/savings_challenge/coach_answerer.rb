@@ -99,6 +99,8 @@ module SavingsChallenge
     def self.saved_total_question?(message)
       return false if message.match?(/\b(?:at|on|from)\s+\S+/i)
       return false if message.match?(/\b(?:goals?|targets?|need|should|could|can|would|accounts?)\b/i)
+      # The all-time total would be a wrong answer to a question about one period.
+      return false if message.match?(/\b(?:this|last|past|in)\s+(?:month|week|year)\b|\b(?:today|yesterday|monthly|weekly)\b|\b(?:in\s+)?(?:january|february|march|april|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sept?|oct|nov|dec)\b/i)
       message.match?(/\bhow much (?:have i|did i|i have|i['’]ve) (?:actually )?(?:save[d]?|set aside)\b|\bdid i save anything\b|\b(?:my|i have|i['’]ve)\b.{0,30}\b(?:saved|savings|set aside)\b.{0,30}\b(?:so far|total)\b|\b(?:total|so far)\b.{0,30}\b(?:i have|i['’]ve) (?:saved|set aside)\b/i)
     end
 

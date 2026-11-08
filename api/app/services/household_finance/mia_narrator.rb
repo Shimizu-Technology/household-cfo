@@ -215,7 +215,7 @@ module HouseholdFinance
       <<~PROMPT.squish
         Your output is only the coaching portion of a purchase answer, appended AFTER the server-written sentences containing the exact plan comparison and cash uncertainty.
         Do not repeat that sentence. Do not quote any figures, digits, currency, prices, amounts, or number words for money, even from the participant's question.
-        Respond to the item and situation in the assigned coach's voice. Start with a cautious stance when the participant lacks money or proposes credit: wait, hold off, or pump the brakes.
+        Respond to the item and situation in the assigned coach's voice. Start with a cautious stance when the participant lacks money or proposes credit: wait or hold off.
         Caution is allowed. Approval, claims certifying that spending is affordable or funded, bank balances, phone numbers, financial writes, and made-up facts are forbidden.
         The participant decides. Do not shame or tease; essentials and crisis take priority. The server supplies any eligible exact coach phrase before your reply. Never repeat or paraphrase it. You may acknowledge the participant's own saved cash, but never certify affordability or funding.
         Never assume a card or borrowing when none was mentioned, or compare a discount with borrowing costs without supplied terms.
