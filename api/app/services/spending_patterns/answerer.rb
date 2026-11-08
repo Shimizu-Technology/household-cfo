@@ -41,6 +41,19 @@ module SpendingPatterns
       "From purchases you’ve reviewed so far this month, I see #{count} #{'purchase'.pluralize(count)} totaling #{amount}, including #{stores}. This may not include everything you’ve spent. Review more purchases or a full statement before drawing a longer-term pattern."
     end
 
+    def self.question_reference(message:, observed:, waterfall:, estimate:, question:)
+      if message.match?(/\bsmall (?:buys|purchases)\b/i)
+        return "#{waterfall.strip} #{observed} Which of those purchases would you want to look at together?" if waterfall.present?
+        return "I don't see a cluster of small purchases in the reviewed records. #{observed}"
+      end
+      if message.match?(/\b(?:cut back|trim|reduce)\b/i)
+        return "#{observed} A store total can include essentials, so let's look at what you bought before choosing a cut. Which purchase felt optional?"
+      end
+      return "#{observed}#{waterfall} Does anything there surprise you?" if message.match?(/\b(?:stands? out|statement)\b/i)
+
+      "#{observed}#{waterfall}#{estimate} #{question}"
+    end
+
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
       @household, @message, @persona, @history, @approved_content = household, message, persona, history, approved_content
       @available_product_modules = available_product_modules
@@ -100,16 +113,7 @@ module SpendingPatterns
     private
 
     def pattern_reference(observed, waterfall, estimate, question)
-      if @message.match?(/\bsmall (?:buys|purchases)\b/i)
-        return "#{waterfall.strip} Which of those purchases would you want to look at together?" if waterfall.present?
-        return "I don't see a cluster of small purchases in the reviewed records. #{observed}"
-      end
-      if @message.match?(/\b(?:cut back|trim|reduce)\b/i)
-        return "#{observed} A store total can include essentials, so let's look at what you bought before choosing a cut. Which purchase felt optional?"
-      end
-      return "#{observed}#{waterfall} Does anything there surprise you?" if @message.match?(/\b(?:stands? out|statement)\b/i)
-
-      "#{observed}#{waterfall}#{estimate} #{question}"
+      self.class.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: question)
     end
 
     def money(cents)

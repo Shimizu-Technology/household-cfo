@@ -352,7 +352,7 @@ module SavingsChallenge
       waterfall = cluster ? " #{cluster[:purchase_count]} small buys of #{money(cluster[:threshold_cents])} or less stacked up around #{cluster[:label]} — #{money(cluster[:total_cents])} altogether." : ""
       impact = choices.first
       estimate = impact ? " Spending half as much at #{impact[:merchant]} could free about #{money(impact[:monthly_impact_cents])} a month, based on the months recorded." : ""
-      reference = "#{observed}#{waterfall}#{estimate} #{choices_question(choices)}"
+      reference = SpendingPatterns::Answerer.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: choices_question(choices))
       narrator = PatternsNarrator.new(user_message: @message, persona: @persona, history: @history, approved_content: @approved_content,
         answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference, available_product_modules: @available_product_modules,
           verified_facts: { merchants: @patterns[:discretionary_merchants].first(2), cluster: cluster, choices: choices,
