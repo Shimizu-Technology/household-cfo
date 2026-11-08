@@ -63,7 +63,13 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     [ [ "forgot the internet 75", "1,140" ], [ "no wait power is 225", "1,175" ],
       [ "actually no power bill, its included in the rent now", "950" ],
       [ "scratch the internet, we dont pay for that anymore", "875" ] ].each do |text, expected|
-      json = household_say(text, reading)
+      edit = case text
+      when "forgot the internet 75" then { operation: "add", item: "internet", amount: "75", source: text }
+      when "no wait power is 225" then { operation: "replace", item: "power", amount: "225", source: text }
+      when "actually no power bill, its included in the rent now" then { operation: "remove", item: "power", amount: "", source: text }
+      else { operation: "remove", item: "internet", amount: "", source: text }
+      end
+      json = household_say(text, reading.merge(setup_details: { field: "fixed_expenses", edit: edit }))
       card = json.fetch("mia_action_draft")
       assert card, json.inspect
       assert_includes json.dig("assistant_message", "content"), expected
@@ -152,7 +158,12 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
       [ "wait power is 250", true, [ { source: "power is 250", amount: "250" } ], "Rent $1,080 + power $250 + water $60 = $1,390" ]
     ]
     cards = entries.map do |message, correction, parts, expected|
-      json = household_say(message, reading(correction: correction).merge(setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: parts }))
+      edit = if parts.one?
+        { operation: correction ? "replace" : "add", item: correction ? "power" : "water", amount: parts.sole[:amount], source: message }
+      else
+        { operation: "", item: "", amount: "", source: "" }
+      end
+      json = household_say(message, reading(correction: correction).merge(setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: parts, edit: edit }))
       assert_includes json.dig("assistant_message", "content"), expected
       card = json.fetch("mia_action_draft")
       assert card, json.inspect

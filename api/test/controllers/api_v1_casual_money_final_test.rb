@@ -15,6 +15,15 @@ class ApiV1CasualMoneyFinalTest < ActionDispatch::IntegrationTest
 
   teardown { travel_back }
 
+  test "Day 1 gives the same spending refusal only once" do
+    body = send_message("spent 14.50 at kin yesterday and saved nothing", reading(facts: [
+      fact("purchase", "14.50", "yesterday", "kin"), fact("nothing_saved", "", "yesterday")
+    ]))
+    content = body.fetch("assistant_message").fetch("content")
+    assert_includes content, "Nothing was saved."
+    assert_equal 1, content.scan("Nothing was saved.").length
+  end
+
   def reading(**extra)
     { care: "none", facts: [], question: false, setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }.merge(extra)
   end

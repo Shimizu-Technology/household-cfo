@@ -1327,7 +1327,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "could not verify that amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "does not carry structured values into a different category request" do
@@ -2442,7 +2442,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute result.actionable?
     assert result.clarification?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "could not verify that amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "does not let the model invent a zero-dollar budget write" do
@@ -2507,7 +2507,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "could not verify that amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "generic continuation can use only the immediately preceding participant request amount" do
@@ -2544,7 +2544,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "could not verify that amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "does not reuse an unrelated stale stop-income phrase to authorize zero" do
@@ -2579,7 +2579,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "could not verify that amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "allows semantic zero when the current turn explicitly ends recurring income" do
@@ -3180,7 +3180,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute result.actionable?
     assert result.clarification?
     assert_equal "none", result.action.fetch(:type)
-    assert_includes result.clarification, "participant-authored amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "accepts a bare participant amount that happens to fall in the year range" do
@@ -3267,7 +3267,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     result = resolver.call
 
     refute result.actionable?
-    assert_includes result.clarification, "participant-authored amount"
+    assert_includes result.clarification, "What amount should I use"
   end
 
   test "accepts a matched future income change and rejects an invented income source" do

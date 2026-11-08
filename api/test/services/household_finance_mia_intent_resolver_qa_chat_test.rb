@@ -400,7 +400,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     changed = resolve("put the mcdonalds one under fixed essentials", context: context,
       transport: provider(intent: "transaction_draft_action", action: edit.merge(amount: "30")))
     refute changed.actionable?
-    assert_includes changed.clarification, "participant-authored amount"
+    assert_includes changed.clarification, "What amount should I use"
   end
 
   # F11

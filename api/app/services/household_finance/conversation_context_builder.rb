@@ -105,6 +105,7 @@ module HouseholdFinance
         action: action_payload(topic["action"]),
         setup_calculation: pending_setup_calculation(topic),
         spending_preferences: topic["spending_preferences"],
+        income_source_choices: Array(topic["income_source_choices"]).first(100),
         read_only_plan: read_only_plan,
         document_evidence: document_evidence&.deep_symbolize_keys,
         action_plan: action_plan,

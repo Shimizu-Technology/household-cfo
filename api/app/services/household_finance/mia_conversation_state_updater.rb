@@ -120,6 +120,7 @@ module HouseholdFinance
         "intent" => intent_result.intent,
         "confidence" => intent_result.confidence.to_f.round(3),
         "spending_preferences" => topic[:spending_preferences],
+        "income_source_choices" => topic[:income_source_choices],
         "action" => action[:type].to_s == "none" ? nil : action,
         "mia_action_draft_id" => mia_action_draft&.id,
         "transaction_draft_id" => transaction_draft&.id,

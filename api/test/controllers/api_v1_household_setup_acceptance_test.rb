@@ -12,6 +12,38 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  test "casual two debt minimums survive source verification and apply separately" do
+    post_message("just the visa, min is 60 and the car is 285")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "action_plan", draft.fetch("draft_type")
+    assert_empty @household.debts
+    apply(draft)
+    assert_equal [ 6000, 28500 ], @household.debts.order(:minimum_payment_cents).pluck(:minimum_payment_cents)
+    assert @household.debts.none?(&:balance_known?)
+  end
+
+  test "casual single income correction replaces the earlier pending card" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Borja household", primary_goal: "School fees" }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    with_participant_reader_response({ care: "none", question: false, correction: false,
+      setup_answer: { field: "income", value: "3900" } }) do
+      post_message("i bring home like 3900 a month after taxes")
+    end
+    first = response.parsed_body.fetch("mia_action_draft")
+    assert_empty @household.income_sources
+    with_participant_reader_response({ care: "none", question: false, correction: true,
+      setup_answer: { field: "income", value: "4100" } }) do
+      post_message("oh wait no its more like 4100")
+    end
+    corrected = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first["id"]).status
+    assert_empty @household.income_sources.reload
+    apply(corrected)
+    assert_equal 410000, @household.income_sources.reload.sole.amount_cents
+    assert_equal 4100, @applied.dig("workspace", "setup_values", "primary_income")
+  end
+
   test "the production chat sequence completes all five essentials and shares the current month answer" do
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
     assert_includes reply, "What would you like to call this household?"
@@ -383,6 +415,77 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert_includes reply, "primary monthly take-home income"
     assert_equal 0, @household.budget_categories.count
     assert_equal 0, @household.household_transactions.count
+  end
+
+  test "a newer named debt review cancels the old minimum before either applies" do
+    save_setup(primary_income: 4800, fixed_expenses: 2000, flexible_spend: 900)
+    post_message("The Visa minimum is $40")
+    older = response.parsed_body.fetch("mia_action_draft")
+    post_message("The Visa minimum is $45")
+    newer = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(older["id"]).status
+    post "/api/v1/mia_action_drafts/#{older['id']}/apply", params: {}, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :unprocessable_entity
+    assert_empty @household.debts
+    apply(newer)
+    assert_equal 4500, @household.debts.reload.sole.minimum_payment_cents
+  end
+
+  test "the first income source resolves a pending raise selection" do
+    save_setup(primary_income: 3900, fixed_expenses: 1800, flexible_spend: 800)
+    @household.income_sources.create!(label: "Second job", source_type: "job", amount_cents: 100000, cadence: "monthly", active: true, starts_on: Date.current.beginning_of_month)
+    post_message("i make 5000 a month")
+    assert_includes reply, "Which income source"
+    post_message("the first one")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    apply(draft)
+    assert_equal 500000, @household.income_sources.order(:id).first.income_schedule_entries.order(:id).last.amount_cents
+  end
+
+  test "a missing debt payment amount keeps the next reply in setup" do
+    save_setup(primary_income: 3900, fixed_expenses: 1800, flexible_spend: 800)
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    session.chat_messages.create!(role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("debt_payment"))
+    with_participant_reader_response({ care: "none", question: false, correction: false, setup_answer: { field: "none", value: "" },
+      facts: [ { kind: "bill", item: "truck loan payment", amount: "", merchant: "", day: "" } ] }) do
+      post_message("i got a truck loan payment")
+    end
+    assert_includes reply, "How much is that bill"
+    with_participant_reader_response({ care: "none", question: false, correction: false, setup_answer: { field: "debt", value: "310" } }) do
+      post_message("like 310")
+    end
+    assert response.parsed_body["mia_action_draft"], reply
+    refute_includes reply, "purchase"
+  end
+
+  test "an unnamed correction after Apply retains the last answered income field" do
+    save_setup
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    with_participant_reader_response({ care: "none", question: false, correction: false, setup_answer: { field: "income", value: "3900" } }) do
+      post_message("3900")
+    end
+    apply(response.parsed_body.fetch("mia_action_draft"))
+    captured = nil
+    reader = HouseholdFinance::ParticipantMessageReader
+    original = reader.method(:call)
+    reader.define_singleton_method(:call) do |**options|
+      captured = options
+      reader.new(**options.merge(transport: ->(_) { { care: "none", question: false, correction: true, setup_answer: { field: "income", value: "4250" } }.to_json })).call
+    end
+    begin
+      post_message("my bad its 4250 not 3900")
+    ensure
+      reader.define_singleton_method(:call, original)
+    end
+    assert_equal "fixed_expenses", captured[:setup_field]
+    assert_equal "primary_income", captured[:last_answer_field]
+    corrected = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 390000, @household.income_sources.sole.amount_cents
+    apply(corrected)
+    get "/api/v1/workspace", headers: headers
+    assert_equal 4250, response.parsed_body.dig("workspace", "setup_values", "primary_income")
+    refute_includes @household.reload.confirmed_setup_fields, "fixed_expenses"
+    assert_equal 1, @household.income_sources.count
   end
 
   private
