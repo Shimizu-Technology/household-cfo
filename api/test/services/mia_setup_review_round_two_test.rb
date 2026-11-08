@@ -38,11 +38,10 @@ class MiaSetupReviewRoundTwoTest < ActiveSupport::TestCase
     assert_includes correction[:description], "Rent $1,080 + power $250 + water $60 = $1,390"
   end
 
-  test "a lost component reading asks rather than replacing a pending total" do
+  test "Ruby preserves pending parts even when the reader loses a component" do
     text = "wait power is 250"
     service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed(text, correction: true, components: [], setup_answer: { field: "fixed", value: "250" }), field: "fixed_expenses", prior: prior)
-    assert_nil service.call
-    assert service.clarification.present?
+    assert_equal "1330.0", service.call[:value]
   end
 
   test "working names each part and does not pretend a single item is a sum" do

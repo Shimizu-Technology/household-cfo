@@ -46,6 +46,7 @@ module HouseholdFinance
         memory_rule: "Conversation continuity is context only, not financial truth. Use approved database facts for balances, actuals, plans, transactions, and due dates.",
         rolling_summary: rolling_summary(active_topic, open_topics),
         active_topic: active_topic,
+        pending_setup_calculations: pending_setup_calculations,
         open_topics: open_topics
       }
     end
@@ -114,11 +115,20 @@ module HouseholdFinance
     end
 
     def pending_setup_calculation(topic)
-      return unless topic["status"] == "pending_review"
-      draft = household.mia_action_drafts.pending.find_by(id: topic["mia_action_draft_id"])
-      return unless draft && draft.source_chat_message&.chat_session_id == chat_session.id
-      calculation = draft.metadata["setup_calculation"]
-      calculation&.deep_symbolize_keys&.merge(draft_id: draft.id)
+      fields = topic.dig("action", "setup_updates").to_h.keys
+      pending_setup_calculations[fields.sole.to_s] if fields.one?
+    end
+
+    def pending_setup_calculations
+      return @pending_setup_calculations if defined?(@pending_setup_calculations)
+      @pending_setup_calculations = {}
+      household.mia_action_drafts.pending.order(id: :desc).includes(:source_chat_message).each do |draft|
+        next unless draft.source_chat_message&.chat_session_id == chat_session.id
+        calculation = draft.metadata["setup_calculation"]&.deep_symbolize_keys
+        next unless calculation && calculation[:field].present?
+        @pending_setup_calculations[calculation[:field]] ||= calculation.merge(draft_id: draft.id)
+      end
+      @pending_setup_calculations
     end
 
     def action_plan_payload(topic)

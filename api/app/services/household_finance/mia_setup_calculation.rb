@@ -1,155 +1,132 @@
 module HouseholdFinance
-  # Only exact participant quotes become operands. Pending parts come back from
-  # the household's persisted review, never from assistant prose or model sums.
+  # Arithmetic is a closed grammar over the participant's message. The reader
+  # supplies care/question context, never operands, labels, cadence or permission.
   class MiaSetupCalculation
+    AMOUNT = /\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/
+    MONTHLY = /(?:a\s+month|monthly|\/mo)/i
+    CLAUSE = /\A(?<label>[\p{L}]+(?:\s+[\p{L}]+)*?)\s*(?:(?:is|=|:)\s*)?(?:(?:like|about)\s+)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i
+    NONLABEL = /\b(?:oops|wait|forgot|sorry|minus|negative|less|like|about|if|would|could|should|can|will|might|suppose|whether|no|never|dont|owe|owes|min|minimum|balance|each|per|week|weekly|biweekly|year|day|paycheck|between|up|to|or|maybe|total|last|was|were|back|in|ago|deposit|percent|since|due|not|half|quarter|quarterly|every|other|two|three|four|five|six|seven|eight|nine|ten|one|hundred|thousand|bought|paid|spent|purchase|we|i|pay|make|at|of|actually|is|are)\b|%/i
+    ASK = "What's the total for all of those each month? I'll put it on a review card, and nothing saves until you apply it.".freeze
     attr_reader :clarification
 
     def initialize(message:, reading:, field: nil, prior: nil)
-      @message, @reading, @field = message, reading, field
+      @message, @reading = message.to_s, reading
+      @field = field.presence || reading&.answer_field
       @prior = prior.to_h.deep_symbolize_keys
     end
 
     def call
-      details = (@reading.setup_details.presence || (@reading.question ? {} : bill_details)).deep_symbolize_keys
-      return if @reading.care? || @reading.unclear_amount
-      field = details[:field].presence || @reading.answer_field
-      return unless field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
-      return ask if unsafe_expression?(field)
-      components = details[:components]
-      unless components.is_a?(Array) && components.any?
-        return ask if @prior.present? && !explicit_total_replacement?(field)
-        return
+      return if @reading&.care? || @reading&.question
+      return unless @field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
+      text = @message.strip.sub(/[.!]\z/, "")
+      return if text.blank? || !text.match?(/\d/) && @prior.blank?
+      text = text.sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)+(?:let['’]?s start over[., ]+)?/i, "")
+      if @prior.present? && (removed = removal_label(text))
+        parts = @prior[:components].to_a.deep_dup
+        matches = matching_parts(parts, removed)
+        return ask_part(removed) unless matches.one?
+        parts.delete_at(matches.sole)
+        return ask if parts.empty?
+        return result(parts)
       end
-      return ask unless components.length.between?(1, 12)
-      if @reading.question
-        facts = @reading.facts.select { |fact| fact["kind"] == (field == "primary_income" ? "income" : "bill") }.map { |fact| fact["amount"] }
-        components.each do |component|
-          index = facts.index(component[:amount])
-          return ask unless index
-          facts.delete_at(index)
-        end
+      if @prior.present? && (whole = text.match(/\A(?:the )?(?:(?:whole|overall|combined) (?:monthly )?total|fixed (?:essentials|expenses) total)\s*(?:(?:is|=|:)\s*)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i))
+        return result([ { source: @message.strip, label: "whole total", amount: whole[:amount] } ])
       end
-      occupied = []
-      operands = components.map do |component|
-        source, amount = component.values_at(:source, :amount)
-        return ask unless source.is_a?(String) && source.present? && amount.is_a?(String)
-        start = @message.index(source)
-        return ask unless start
-        range = start...(start + source.length)
-        return ask if occupied.any? { |old| old.overlap?(range) }
-        occupied << range
-        quote = source.match(/(?<![\w.,\/\-])#{Regexp.escape(amount)}(?![\w]|[.,]\d)/)
-        return ask unless quote
-        lead = source[0...quote.begin(0)].rstrip.sub(/\$\s*\z/, "").rstrip
-        return ask if lead.end_with?("-", "−") || amount.match?(ParticipantMessageReader::MISPLACED_COMMA)
-        cents = ParticipantMessageReader.amount_cents(amount)
-        return ask unless cents.between?(0, Money::MAX_AMOUNT_CENTS)
-        label = component_label(source, amount, field)
-        return ask if label.blank? || label.match?(/\d/)
-        { source: source, amount: amount, label: label }
+      return if @prior.blank? && text.match?(/\A#{AMOUNT}\s+(?:including|with)\s+groceries\z/i)
+      # A bare figure is handled by the existing one-answer path. It is not a
+      # named pending-part replacement, and cannot discard the pending list.
+      return @prior.present? ? ask : nil if text.match?(/\A#{AMOUNT}\z/)
+      return if @prior.blank? && text.match?(/\A(?:oops|wait|actually)\s+#{AMOUNT}\z/i)
+      scalar = text.match(/\A(?:actually|wait|oops)\s+(?:(?:my|our|the)\s+)?(?<label>fixed essentials|fixed expenses|monthly income|income|flexible spending)\s+is\s+(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i)
+      if scalar
+        target = scalar[:label].match?(/income/i) ? "primary_income" : scalar[:label].match?(/flexible/i) ? "flexible_spend" : "fixed_expenses"
+        return ask if @prior.present? && @prior[:field] == target
+        @field, @prior = target, {}
+        return result([ { source: @message.strip, label: scalar[:label], amount: scalar[:amount] } ])
       end
-      return ask unless all_numbers_accounted_for?(components, details, field)
-      if field == "primary_income"
-        return ask unless details[:cadence] == "monthly_count" && operands.one? && @prior.blank?
-        count = details[:count].to_s
-        count_value = count.match?(/\A[1-5]\z/) ? count.to_i : { "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5 }[count.downcase]
-        return ask unless count_value && @message.match?(/\b#{Regexp.escape(count)}\s+(?:pay\s?checks?|checks?)\b/i)
-        total = cents_for(operands.sole) * count_value
-        working = "#{count} × #{money(cents_for(operands.sole))} = #{money(total)}"
+      return if @field == "primary_income" && text.match?(/\A(?:we|i)\s+(?:bring\s+(?:home|in)|take\s+home|make|earn)\s+#{AMOUNT}\s*(?:#{MONTHLY})?\z/i)
+      return if !text.match?(/,|\band\b/i) && text.match?(/\b(?:spent|bought|purchased|paid)\b/i) && !MiaSetupReply.bill_statement?(text)
+      return if reported_purchases?(text)
+      correction = text.match?(/\A(?:no wait|wait|actually|oops|sorry no make)\b/i)
+      text = text.sub(/\A(?:forgot|oh and|also|no wait|wait|actually|oops|sorry no make)\s+(?:the\s+)?/i, "") if @prior.present?
+      clauses = text.split(/,\s+|,(?=[^\d\s]|\z)|\s+and\s+/i, -1).map(&:strip)
+      return ask unless clauses.length.between?(1, 8)
+      parts = if @field == "primary_income" && clauses.all? { |clause| clause.match?(/\A#{AMOUNT}\z/) }
+        clauses.map { |clause| { source: clause, amount: clause, label: "" } }
       else
-        return ask unless details[:cadence] == "monthly"
-        if @prior.present? && !explicit_total_replacement?(field)
-          return ask unless @prior[:field] == field && @prior[:components].is_a?(Array) && @prior[:components].any?
-          combined = @prior[:components].deep_dup
-          operands.each do |operand|
-            matches = combined.each_index.select { |index| same_label?(combined[index][:label], operand[:label]) }
-            return ask if matches.many? || (matches.one? && !@reading.correction)
-            return ask if matches.empty? && @reading.correction
-            matches.one? ? combined[matches.sole] = operand : combined << operand
-          end
-          operands = combined
+        clauses.map do |clause|
+          match = CLAUSE.match(clause)
+          return ask unless match && !match[:label].match?(NONLABEL)
+          { source: clause, amount: match[:amount], label: match[:label].strip }
         end
-        return ask unless operands.length.between?(1, 12)
-        total = operands.sum { |operand| cents_for(operand) }
-        labels = operands.map { |operand| "#{operand[:label]} #{money(cents_for(operand))}" }
-        working = labels.one? ? labels.sole : "#{labels.join(' + ')} = #{money(total)}"
-        working = working.sub(/\A./) { |letter| letter.upcase }
       end
-      return ask if total > Money::MAX_AMOUNT_CENTS
-      label = SetupStatus::FIELD_LABELS.fetch(field.to_sym).downcase
-      { field: field, value: Money.dollars(total).to_s, components: operands, cadence: details[:cadence], count: details[:count].to_s,
-        prior_draft_id: @prior[:draft_id],
-        description: "#{working}. Is that your #{label} total? This is only the list you gave me. Add anything missing or correct a named part in chat before applying this card. Nothing saves until you apply it." }
+      return ask if parts.many? && parts.any? { |part| part[:label].match?(/\b(?:bills|expenses|essentials|combined|overall|all|altogether)\b/i) }
+      return ask unless parts.all? { |part| cents_for(part).between?(0, Money::MAX_AMOUNT_CENTS) }
+      if @prior.present?
+        return ask if parts.any? { |part| part[:label].blank? }
+        return ask unless @prior[:field] == @field && @prior[:components].is_a?(Array)
+        return ask if @prior[:components].any? { |part| part[:label] == "whole total" }
+        combined = @prior[:components].deep_dup
+        parts.each do |part|
+          matches = matching_parts(combined, part[:label])
+          return ask_part(part[:label]) if matches.many? || (matches.one? && !correction) || (matches.empty? && correction)
+          matches.one? ? combined[matches.sole] = part : combined << part
+        end
+        parts = combined
+      end
+      result(parts)
     rescue ArgumentError, TypeError, NoMethodError
       ask
     end
 
     private
 
+    def reported_purchases?(text)
+      body = text.sub(/\A(?:(?:i|we)\s+)?spent\s+/i, "")
+      return false if body == text
+      body.split(/,\s+|\s+and\s+/i).all? { |part| part.match?(/\A#{AMOUNT}\s+at\s+[\p{L}][\p{L} '’&.\-]*\z/i) }
+    end
+
+    def removal_label(text)
+      match = text.match(/\A(?:actually\s+)?no\s+(?:the\s+)?(?<label>[\p{L} '’ -]+?)(?:\s+bill)?\s*,\s*it['’]?s included in (?:the )?rent now\z/i) ||
+        text.match(/\Ascratch\s+(?:the\s+)?(?<label>[\p{L} '’ -]+?)\s*,\s*we don['’]?t pay for that anymore\z/i)
+      match&.[](:label)
+    end
+
+    def matching_parts(parts, label)
+      words = label_words(label)
+      return [] if words.empty?
+      parts.each_index.select { |index| label_words(parts[index][:label]) == words }
+    end
+
+    def label_words(label)
+      label.to_s.downcase.scan(/[\p{L}]+/) - %w[the my our bill]
+    end
+
     def ask
-      @clarification = "I can't safely total that list yet. Give each current monthly bill with its name and amount, or state the whole monthly total. For a correction, name the part to replace. Nothing changed."
+      @clarification = ASK
       nil
     end
 
-    def explicit_total_replacement?(field)
-      return @message.match?(/\b(?:monthly|per month|a month)\b/i) if field == "primary_income"
-      @message.match?(/\b(?:whole|overall|combined|fixed essentials|fixed expenses)\b[^.!?]*\btotal\b|\btotal\b[^.!?]*\b(?:fixed essentials|fixed expenses)\b/i)
+    def ask_part(label)
+      @clarification = "Which part should I change for #{label}? The earlier list is still on its review card. Nothing changed."
+      nil
     end
 
-    def unsafe_expression?(field)
-      return true if @message.match?(/\d[\d,.]*\s*(?:[-–]|\bto\b|\bthrough\b)\s*\$?\d|\b(?:half|quarter|percent|percentage)\b|%|\d\s*\/\s*\d|\b(?:since|due)\s+(?:(?:on|by)\s+)?(?:[a-z]+\s+)?\d|\bnot\b[^.!?;]*\d|\b(?:was|were|used to|last month)\b/i)
-      return true if @message.match?(/\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+\d{1,2}\b/i)
-      return true if @message.match?(/\b(?:weekly|bi-?weekly|a week|per week|each week|every (?:other |two |2 )?weeks?)\b/i)
-      field != "primary_income" && @message.match?(/\btotal\b/i) && @message.scan(/\d[\d,.]*/).length > 1
+    def result(parts)
+      return ask unless parts.length.between?(1, 8)
+      total = parts.sum { |part| cents_for(part) }
+      return ask if total > Money::MAX_AMOUNT_CENTS
+      labels = parts.map { |part| [ part[:label].presence, money(cents_for(part)) ].compact.join(" ") }
+      working = labels.one? ? labels.sole : "#{labels.join(' + ')} = #{money(total)}"
+      working = working.sub(/\A./) { |letter| letter.upcase }
+      label = SetupStatus::FIELD_LABELS.fetch(@field.to_sym).downcase
+      { field: @field, value: Money.dollars(total).to_s, components: parts, cadence: "monthly", count: "",
+        prior_draft_id: @prior[:draft_id],
+        description: "#{working}. Is that your #{label} total? This is only the list you gave me. Add anything missing, correct or remove a named part in chat before applying this card. Nothing saves until you apply it." }
     end
 
-    def all_numbers_accounted_for?(components, details, field)
-      remainder = @message.dup
-      components.each do |component|
-        source = component[:source]
-        start = remainder.index(source)
-        return false unless start
-        local = source.index(component[:amount])
-        return false unless local
-        first = start + local
-        remainder[first, component[:amount].length] = " " * component[:amount].length
-      end
-      if field == "primary_income"
-        remainder = remainder.sub(/\b#{Regexp.escape(details[:count].to_s)}(?=\s+(?:pay\s?checks?|checks?)\b)/i, "")
-      end
-      !remainder.match?(/\d/)
-    end
-
-    def component_label(source, amount, field)
-      return "paychecks" if field == "primary_income"
-      source.sub(amount, "").sub(/\A\s*(?:(?:oh|and|wait|actually|also|the|my|our)\b[,\s]*)+/i, "")
-        .sub(/\s+so far\s*\z/i, "").gsub(/\b(?:is|are|of|like|about|minimum|payment|min|monthly)\b/i, "")
-        .delete("$=,:").squish
-    end
-
-    def same_label?(left, right)
-      left.to_s.downcase.squish == right.to_s.downcase.squish
-    end
-
-    def cents_for(operand)
-      ParticipantMessageReader.amount_cents(operand.fetch(:amount))
-    end
-
-    def bill_details
-      return {} unless @field == "fixed_expenses"
-      bills = @reading.facts.select { |fact| fact["kind"] == "bill" }
-      return {} unless bills.any?
-      components = bills.map do |bill|
-        item, amount = bill.values_at("item", "amount")
-        return {} if item.blank? || amount.blank?
-        item_start, amount_start = @message.index(item), @message.index(amount)
-        return {} unless item_start && amount_start
-        first = [ item_start, amount_start ].min
-        last = [ item_start + item.length, amount_start + amount.length ].max
-        { source: @message[first...last], amount: amount }
-      end
-      { field: @field, cadence: "monthly", components: components }
-    end
+    def cents_for(part) = ParticipantMessageReader.amount_cents(part.fetch(:amount))
 
     def money(cents)
       ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)

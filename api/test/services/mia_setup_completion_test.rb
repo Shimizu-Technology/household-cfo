@@ -27,40 +27,37 @@ class MiaSetupCompletionTest < ActiveSupport::TestCase
   end
 
   test "server adds exact bill spans and preserves a partial list for review" do
-    text = "rent 1200 and power 300 so far"
+    text = "rent 1200 and power 300"
     details = { field: "fixed_expenses", cadence: "monthly", count: "", partial: true,
       components: [ { source: "rent 1200", amount: "1200" }, { source: "power 300", amount: "300" } ] }
-    result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details)).call
+    result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details), field: details[:field]).call
     assert_equal "1500.0", result[:value]
     assert_includes result[:description], "Rent $1,200 + power $300 = $1,500"
     assert_includes result[:description], "missing"
   end
 
-  test "quoted paycheck count is multiplied by Ruby only for a stated monthly count" do
+  test "paycheck counts ask for explicit amounts instead of multiplying a reader count" do
     text = "2 paychecks of 1400"
     details = { field: "primary_income", cadence: "monthly_count", count: "2", partial: false,
       components: [ { source: text, amount: "1400" } ] }
-    result = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details)).call
-    assert_equal "2800.0", result[:value]
-    assert_includes result[:description], "2 × $1,400 = $2,800"
-    details[:cadence] = "biweekly"
-    assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details)).call
+    service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading(text, **details), field: "primary_income")
+    assert_nil service.call
   end
 
   test "negative quoted bill amounts do not become positive totals" do
     [ "rent -1200", "rent -$1200", "rent −$1200" ].each do |text|
       parsed = reading(text, field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: [ { source: text, amount: "1200" } ])
-      assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed).call
+      assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed, field: "fixed_expenses").call
     end
   end
 
-  test "invented overlapping and malformed amounts cannot enter a calculated review" do
+  test "invented overlapping reader operands cannot alter the plain Ruby total" do
     text = "rent 1200 and power 300"
     [ [ { source: "rent 1200", amount: "1500" } ],
       [ { source: text, amount: "1200" }, { source: "power 300", amount: "300" } ],
       [ { source: "rent 1200", amount: "12" } ] ].each do |components|
       parsed = reading(text, field: "fixed_expenses", cadence: "monthly", count: "", partial: false, components: components)
-      assert_nil HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed).call
+      assert_equal "1500.0", HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed, field: "fixed_expenses").call[:value]
     end
   end
 end

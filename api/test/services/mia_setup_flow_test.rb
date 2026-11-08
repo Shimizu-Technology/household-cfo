@@ -11,6 +11,42 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     }).call
   end
 
+  test "a reader scalar cannot bypass a ranged saved correction" do
+    result = resolve("actually fixed essentials is 1200-1300", field: "fixed_expenses", data: { correction: true, setup_answer: { field: "fixed", value: "1200" } })
+    refute result.actionable?, result.to_h.inspect
+    assert result.clarification?
+  end
+
+  test "a skip escapes a which-debt question" do
+    text = "skip"
+    parsed = HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_) { { care: "none", facts: [], question: false, defer_setup: true }.to_json })
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
+      participant_reading: parsed, setup_status: { complete: false, missing_fields: [ { key: "debt_payment" } ] }, active_debts: [ { id: 7, label: "BOQ Visa" }, { id: 8, label: "Chase Visa" } ],
+      conversation: { active_thread: { status: "needs_clarification", type: "household_setup", action: { type: "update_debt", debt_id: 0, debt_name: "visa", minimum_payment: "45" } }, recent_messages: [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("debt_payment") } ] }
+    }).call
+    refute_match(/Which debt/, result&.clarification.to_s)
+    assert_match(/paused|unknown/, result.clarification)
+  end
+
+  test "distinctive debt tokens preserve word boundaries and casual minimums" do
+    debts = [ { id: 7, label: "BOQ Visa" }, { id: 8, label: "Credit Card" }, { id: 9, label: "Car Loan" }, { id: 10, label: "Advisa Loan" } ]
+    [ [ "the visa card min is 45", 7, "45" ], [ "my visa min is like 35", 7, "35" ], [ "car min 90", 9, "90" ],
+      [ "we dont owe nobody but boq and thats 55 a month", 7, "55" ] ].each do |text, id, minimum|
+      result = resolve(text, active_debts: debts)
+      assert_equal "update_debt", result&.action&.dig(:type), text
+      assert_equal id, result.action[:debt_id], text
+      assert_equal minimum, result.action[:minimum_payment], text
+    end
+  end
+
+  test "stated no debt at flexible does not become a flexible zero" do
+    result = resolve("we dont have any debts", field: "flexible_spend", data: { setup_answer: { field: "flexible", value: "0" } })
+    assert result.actionable?, result.to_h.inspect
+    assert_equal "update_debt_tracking", result.action[:type]
+    assert_equal "0", result.action[:minimum_payment]
+    assert_empty result.action[:setup_updates].to_h
+  end
+
   test "a known named debt uses the reader fact even with different minimum punctuation" do
     result = resolve("visa min=60", active_debts: [ { id: 7, label: "Visa", debt_type: "other" } ],
       data: { setup_answer: { field: "debt", value: "60" }, facts: [ { kind: "bill", amount: "60", item: "visa", merchant: "", day: "" } ] })
@@ -24,8 +60,8 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     text = "we get 2 paychecks of 1400, can you add that for our monthly income"
     result = resolve(text, field: "primary_income", data: { question: true, facts: [ { kind: "income", amount: "1400", item: "paychecks", merchant: "", day: "" } ],
       setup_details: { field: "primary_income", cadence: "monthly_count", count: "2", partial: false, components: [ { source: "2 paychecks of 1400", amount: "1400" } ] } })
-    assert result&.actionable?, result.to_h.inspect
-    assert_equal "2800.0", result.action.dig(:setup_updates, :primary_income)
+    assert result.clarification?, result.to_h.inspect
+    assert_includes result.clarification, "total"
   end
 
   test "a named minimum updates its existing individual debt instead of asking for a household total" do
@@ -43,8 +79,8 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     result = resolve("rent 1200 and groceries 300; groceries go in fixed", field: "fixed_expenses", data: {
       spending_preferences: preferences, setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true,
         components: [ { source: "rent 1200", amount: "1200" }, { source: "groceries 300", amount: "300" } ] } })
-    assert result.actionable?, result.to_h.inspect
-    assert_equal preferences.map(&:stringify_keys), result.action[:spending_preferences]
+    assert result.clarification?, result.to_h.inspect
+    assert_includes result.clarification, "What\'s the total"
   end
 
   test "a plain saved goal correction remains reviewable" do
@@ -63,7 +99,7 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
       conversation: { active_thread: { status: "pending_review", action: { type: "schedule_income_change", amount: "3500", income_source_id: 1 } }, recent_messages: [] }
     }).call
     assert_equal "update_household_setup", result.action[:type]
-    assert_equal "1450", result.action.dig(:setup_updates, :fixed_expenses)
+    assert_equal 1450.0, result.action.dig(:setup_updates, :fixed_expenses).to_f
   end
 
   test "a question mentioning a bill is answered before asking for a setup total" do
@@ -105,10 +141,8 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     text = "visa min is 95 and the car is 310"
     result = resolve(text, data: { setup_details: { field: "debt_payment", cadence: "monthly", count: "", partial: true,
       components: [ { source: "visa min is 95", amount: "95" }, { source: "the car is 310", amount: "310" } ] } })
-    assert result.actionable?, result.to_h.inspect
-    assert_equal "405.0", result.action[:minimum_payment]
-    assert_equal "unknown", result.action[:amount]
-    assert_includes result.action.dig(:setup_calculation, :description), "Visa $95 + car $310 = $405"
+    assert result.clarification?, result.to_h.inspect
+    assert_includes result.clarification, "total"
   end
 
   test "an everyday spending question is answered and resumes without becoming a value" do
@@ -135,7 +169,7 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
   test "a saved named field can be corrected with a review" do
     result = resolve("actually my monthly income is 4200", field: "fixed_expenses", data: { correction: true, setup_answer: { field: "income", value: "4200" } })
     assert result.actionable?, result.to_h.inspect
-    assert_equal "4200", result.action.dig(:setup_updates, :primary_income)
+    assert_equal 4200.0, result.action.dig(:setup_updates, :primary_income).to_f
   end
 
   test "skipping asks another question without inventing zero" do

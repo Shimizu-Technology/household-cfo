@@ -53,6 +53,72 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "pending parts survive a clarification and named edits through Apply" do
+    begin_setup(primary_income: 3500)
+    first = household_say("rent 875 and power 190", reading.merge(setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: [ { source: "rent 875", amount: "875" }, { source: "power 190", amount: "190" } ] })).fetch("mia_action_draft")
+    assert first
+    ask = household_say("rent up to 1000", reading(field: "fixed", value: "1000"))
+    assert_nil ask["mia_action_draft"]
+    card = nil
+    [ [ "forgot the internet 75", "1,140" ], [ "no wait power is 225", "1,175" ],
+      [ "actually no power bill, its included in the rent now", "950" ],
+      [ "scratch the internet, we dont pay for that anymore", "875" ] ].each do |text, expected|
+      json = household_say(text, reading)
+      card = json.fetch("mia_action_draft")
+      assert card, json.inspect
+      assert_includes json.dig("assistant_message", "content"), expected
+    end
+    apply(card)
+    assert_equal 87500, @household.budget_categories.find_by!(stack_key: "non_discretionary").budget_allocations.maximum(:planned_amount_cents)
+    assert_equal "canceled", MiaActionDraft.find(first["id"]).status
+  end
+
+  test "distinctive debt names and a which-debt continuation retain the minimum" do
+    begin_setup(primary_income: 3500)
+    [ "BOQ Visa", "Chase Visa" ].each { |label| @household.debts.create!(label: label, debt_type: "credit_card", balance_cents: 0, balance_known: false, minimum_payment_cents: 0, minimum_payment_known: false) }
+    json = household_say("the visa card min is 45", reading)
+    assert_nil json["mia_action_draft"]
+    assert_match(/Which debt/, json.dig("assistant_message", "content"))
+    json = household_say("the chase one", reading)
+    card = json.fetch("mia_action_draft")
+    assert card, json.inspect
+    apply(card)
+    assert_equal 4500, @household.debts.find_by!(label: "Chase Visa").minimum_payment_cents
+    refute @household.debts.find_by!(label: "BOQ Visa").minimum_payment_known
+    assert_equal 2, @household.debts.active.count
+  end
+
+  test "named minimum lists produce debt reviews rather than expenses" do
+    begin_setup(primary_income: 3500)
+    household_say("skip", reading.merge(defer_setup: true))
+    household_say("skip", reading.merge(defer_setup: true))
+    json = household_say("visa min 45 and toyota min 310", reading(facts: [ fact("purchase", "45", merchant: "visa"), fact("purchase", "310", merchant: "toyota") ]))
+    card = json.fetch("mia_action_draft")
+    assert card, json.inspect
+    assert_empty @household.transaction_drafts
+    apply(card)
+    assert_equal [ 4500, 31000 ], @household.debts.active.order(:id).pluck(:minimum_payment_cents)
+  end
+
+  test "starting the bill list over prepares a list rather than workspace reset help" do
+    begin_setup(primary_income: 3500)
+    json = household_say("ok lets start over. rent 1000, gpa 200, water 50, phone 120", reading)
+    card = json.fetch("mia_action_draft")
+    assert card, json.inspect
+    assert_includes json.dig("assistant_message", "content"), "1,370"
+    assert_nil json["financial_restart"]
+  end
+
+  test "saved bill corrections acknowledge the amount and offer a route" do
+    begin_setup(primary_income: 3500, fixed_expenses: 1400)
+    [ [ "wait my income is 3350", "3,350" ], [ "oops the rent is actually 1025", "1,025" ], [ "also we pay 60 for the water", "$60" ] ].each do |text, amount|
+      json = household_say(text, reading)
+      content = json.dig("assistant_message", "content")
+      assert json["mia_action_draft"] || content.include?("Open Fix my setup"), content
+      assert_includes content, amount unless json["mia_action_draft"]
+    end
+  end
+
   test "rebased setup care keeps how in support and never reviews disclosure bills" do
     begin_setup(primary_income: 3500)
     text = "my dad passed last week. burial gonna run 5200 idk"
@@ -305,18 +371,19 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     json = household_say("visa min 40 and jcpenney min 25", reading.merge(setup_details: details))
     assert_nil json["transaction_draft"]
     assert json["mia_action_draft"]
-    assert_includes json.dig("assistant_message", "content"), "Visa $40 + jcpenney $25 = $65"
+    assert_equal "action_plan", json["mia_action_draft"]["draft_type"]
+    assert_empty @household.transaction_drafts
     assert_empty @household.household_transactions
     refute HouseholdFinance::DebtPortfolio.new(@household).minimum_payment_known?
   end
 
-  test "counted monthly checks get a calculated review while unconverted pay cadence asks for a monthly amount" do
+  test "explicit monthly check amounts get a review while unconverted pay cadence asks" do
     begin_setup
     details = { field: "primary_income", cadence: "monthly_count", count: "2", partial: false,
       components: [ { source: "2 paychecks of 1400", amount: "1400" } ] }
-    json = household_say("2 paychecks of 1400", reading(field: "income", value: "1400").merge(setup_details: details))
+    json = household_say("1400 and 1250", reading.merge(setup_details: details))
     assert json["mia_action_draft"]
-    assert_includes json.dig("assistant_message", "content"), "2 × $1,400 = $2,800"
+    assert_includes json.dig("assistant_message", "content"), "$1,400 + $1,250 = $2,650"
     assert_empty @household.income_sources
     [ [ "my check is 900 twice a month", "900" ], [ "i get 1000 a week", "1000" ] ].each do |message, amount|
       json = household_say(message, reading(field: "income", value: amount))
