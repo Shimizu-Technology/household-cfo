@@ -32,6 +32,7 @@ module HouseholdFinance
       if @prior.present? && (whole = text.match(/\A(?:the )?(?:(?:whole|overall|combined) (?:monthly )?total|fixed (?:essentials|expenses) total)\s*(?:(?:is|=|:)\s*)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i))
         return result([ { source: @message.strip, label: "whole total", amount: whole[:amount] } ])
       end
+      return if @prior.blank? && (text.match?(MiaIntentResolver::GUIDED_MONEY_REPLY_PATTERN) || MiaSetupReply.monthly_amount(@message, field: @field))
       return if @prior.blank? && text.match?(/\A#{AMOUNT}\s+(?:including|with)\s+groceries\z/i)
       # A bare figure is handled by the existing one-answer path. It is not a
       # named pending-part replacement, and cannot discard the pending list.

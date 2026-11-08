@@ -419,6 +419,10 @@ module HouseholdFinance
           needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Household coaching" },
           action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
       end
+      # Existing closed scalar corrections apply only when there are no named
+      # calculation parts to preserve. Lists require the explicit edit grammar.
+      scalar_correction = setup_correction_result if prior.blank?
+      return scalar_correction if scalar_correction
       # A form save can complete setup while an older chat card remains pending.
       # Keep that review available, but do not turn ordinary chat into its answer.
       return if context.dig(:setup_status, :complete) == true && !reading.correction && !reading.answer_field && !prior

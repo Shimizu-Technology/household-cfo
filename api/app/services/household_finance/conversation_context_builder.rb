@@ -115,7 +115,7 @@ module HouseholdFinance
     end
 
     def pending_setup_calculation(topic)
-      fields = topic.dig("action", "setup_updates").to_h.keys
+      fields = action_payload(topic["action"]).to_h[:setup_updates].to_h.keys
       pending_setup_calculations[fields.sole.to_s] if fields.one?
     end
 
