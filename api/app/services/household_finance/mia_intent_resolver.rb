@@ -238,6 +238,10 @@ module HouseholdFinance
         return setup_reply_result("debt_payment", "0")
       end
       unless context[:participant_reading]&.care? || ParticipantCare.required?(raw_user_message)
+        reading = context[:participant_reading]
+        if !reading.question && !reading.setup_deferred && !raw_user_message.match?(/\d/) && reading.facts.any? { |fact| fact["kind"] == "bill" && fact["amount"].blank? && fact["item"].to_s.match?(/\b(?:loan|debt|card|minimum)\b/i) }
+          return deterministic_setup_clarification("debt_payment", clarification: "How much is that bill or payment each month? Give the amount and I’ll put it on a review card.")
+        end
         debt = setup_debt_continuation_result || setup_named_minimum_list_result || setup_named_balance_and_minimum_result || setup_named_minimum_result || deterministic_debt_free_result
         return debt if debt
         saved_change = saved_setup_change_result
@@ -469,7 +473,7 @@ module HouseholdFinance
       source_values, = deterministic_setup_values
       explicit_setup = deterministic_setup_result if !reading.correction && source_values.length > 1
       return explicit_setup if explicit_setup
-      if field && (reading.setup_deferred || raw_user_message.match?(/\b(?:idk|don['’]?t know|not sure)\b/i) || raw_user_message.squish.match?(/\A(?:idk(?: yet)?|skip|ill do that later|i['’]ll do that later|not sure(?: yet)?|i don['’]?t know(?: yet)?)[.!]?\z/i))
+      if field && (reading.setup_deferred || raw_user_message.squish.match?(/\A(?:idk(?: yet)?|skip|ill do that later|i['’]ll do that later|not sure(?: yet)?|i don['’]?t know(?: yet)?)[.!]?\z/i))
         keys = MiaSetupGuide::NEXT_QUESTIONS.keys
         missing = Array(context.dig(:setup_status, :missing_fields)).map { |item| item.to_h.deep_symbolize_keys[:key].to_s }
         next_field = keys.drop(keys.index(field).to_i + 1).find { |key| missing.include?(key) }
@@ -1813,7 +1817,7 @@ module HouseholdFinance
       else
         needs_clarification = true
         clarification = if references_valid
-          "How much is the payment each month? Give the amount and I’ll put it on a review card."
+          action[:type].in?(%w[create_debt update_debt update_debt_tracking]) ? "How much is the payment each month? Give the amount and I’ll put it on a review card." : "What amount should I use, and what is it for? Nothing changed."
         else
           invalid_reference_clarification(action)
         end

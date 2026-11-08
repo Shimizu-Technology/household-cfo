@@ -18,6 +18,14 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     refute_includes result.clarification, "haven't used"
   end
 
+  test "a payment without an amount gets a plain amount question" do
+    result = resolve("its a car loan payment", data: {
+      facts: [ { kind: "bill", item: "car loan payment", amount: "", merchant: "", day: "" } ] })
+    refute result.actionable?
+    assert_includes result.clarification, "How much is that bill or payment each month?"
+    refute_match(/approved|participant-authored|verify/, result.clarification)
+  end
+
   test "a bill volunteered at the goal question is acknowledged" do
     result = resolve("my rent is 1500 a month btw", field: "primary_goal", data: {
       facts: [ { kind: "bill", amount: "1500", item: "rent", merchant: "", day: "" } ] })
