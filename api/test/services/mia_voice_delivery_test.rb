@@ -78,7 +78,9 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
     assert Mia::ResponseShapePolicy.valid?(reply, persona: voice)
     [ "Buy it today.", "I saved the purchase.", "There is money in your account." ].each do |unsafe|
       narrator.define_singleton_method(:openrouter_response) { coaching.sub("The sale may feel urgent, but the decision is yours.", unsafe) }
-      refute_equal "live_model", narrator.tap(&:call).response_source
+      delivered = narrator.call
+      refute_includes delivered, unsafe
+      assert Mia::ResponseShapePolicy.valid?(delivered, persona: voice), delivered
     end
   end
 

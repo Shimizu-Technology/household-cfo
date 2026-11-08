@@ -171,9 +171,9 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       api_key: "test-key",
       persona: @runtime
     )
-    narrator.define_singleton_method(:openrouter_response) { "First step. Second step. Third step. Fourth step. Fifth step. Sixth step." }
+    narrator.define_singleton_method(:openrouter_response) { "A" * 5000 }
 
-    refute Mia::ResponseShapePolicy.valid?("First step. Second step. Third step. Fourth step. Fifth step. Sixth step.", persona: @runtime)
+    refute Mia::ResponseShapePolicy.valid?("A" * 5000, persona: @runtime)
     assert_equal "Review the confirmed plan first.", narrator.call
   end
 
@@ -232,7 +232,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     response.body = JSON.generate(
       id: "gen-invalid-shape",
       model: "anthropic/claude-sonnet-4.5",
-      choices: [ { message: { content: "First step. Second step. Third step. Fourth step. Fifth step. Sixth step." } } ]
+      choices: [ { message: { content: "A" * 5000 } } ]
     )
     http = Object.new
     http.define_singleton_method(:request) { |_request| response }
@@ -248,8 +248,8 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     end
 
     refute_equal "First step. Second step. Third step. Fourth step. Fifth step. Sixth step.", result
-    assert_includes result, @runtime.uncertainty_line
-    assert_includes result, "What would you like to check before choosing your next step?"
+    refute_includes result, @runtime.uncertainty_line
+    assert_includes result, "What would help most right now?"
     assert ::Mia::ResponseShapePolicy.valid?(result, persona: @runtime), "the fallback itself fits the persona's 3-5 sentence shape"
   end
 

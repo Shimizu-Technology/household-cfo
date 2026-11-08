@@ -61,8 +61,8 @@ module Mia
       return hopeless_reply if @hopeless
       return provider_unavailable_reply if @reason == :provider_unavailable
 
-      if @topic == :general && !::Mia::FinancialReadOnlyRequest.matches?(@message) && !HouseholdFinance::MiaMonthAnswer.question?(@message)
-        return "I'm here with you. What would help most right now?"
+      if @topic == :general && !asks_for_data?
+        return "Let's take this one step at a time. You choose what we work on next. What would help most right now?"
       end
 
       direct = topic_fact
@@ -72,6 +72,11 @@ module Mia
     end
 
     private
+
+    def asks_for_data?
+      HouseholdFinance::MiaMonthAnswer.question?(@message) ||
+        @message.match?(/\b(?:how much|how many|what(?:['’]s| is| are| was| were)? (?:my|our|the) (?:bank |account )?(?:balances?|totals?|spending|payments?|figures?|numbers?)|show (?:my|our|the) (?:records?|transactions?|balances?))\b/i)
+    end
 
     def provider_unavailable_reply
       [ PROVIDER_UNAVAILABLE, topic_fact || general_fact, NOTHING_CHANGED ].compact.join(" ")
