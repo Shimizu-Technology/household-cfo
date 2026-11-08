@@ -104,7 +104,7 @@ module HouseholdFinance
         parts.delete_at(matches.sole)
       else
         return ask unless amount.is_a?(String) && amount.match?(/\A#{AMOUNT}\z/) && source.scan(AMOUNT) == [ amount ]
-        return ask if source.match?(/\b(?:balance|owe|weekly|yearly|annual|quarterly|each|per week|last month|half|percent)\b|[%−-]\s*\$?\d/i)
+        return ask if source.match?(/\b(?:balances?|owe|weekly|biweekly|yearly|annual|quarterly|each|every|last month|half|quarter|percent|minus|negative|deposit|was|were|not)\b|\b(?:a|per)\s+(?:week|day|year|paycheck)\b|%|[−-]\s*\$?\d/i)
         part = { source: source, label: label, amount: amount }
         operation == "add" ? parts << part : parts[matches.sole] = part
       end

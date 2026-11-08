@@ -34,6 +34,18 @@ class MiaSetupSingleAnswerBoundaryTest < ActiveSupport::TestCase
     assert_equal "1590.0", prior[:value]
   end
 
+  test "reader edits cannot turn rates fractions or old bills into monthly parts" do
+    prior = HouseholdFinance::MiaSetupCalculation.new(message: "rent 1500 and phones 90", reading: nil, field: "fixed_expenses").call
+    [ "phones 50 a week", "phones was 50 last month", "phones half of 50", "phones -50", "phones 50% of that" ].each do |message|
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message, pending_field: "fixed_expenses", transport: ->(_) {
+        { care: "none", setup_details: { field: "fixed_expenses", edit: { operation: "replace", item: "phones", amount: "50", source: message } } }.to_json
+      })
+      service = HouseholdFinance::MiaSetupCalculation.new(message: message, reading: reading, field: "fixed_expenses", prior: prior)
+      assert_nil service.call, message
+      assert service.clarification, message
+    end
+  end
+
   test "reader questions cannot become text setup answers" do
     message = "wait im confused whats the household cfo thing mean"
     reading = HouseholdFinance::ParticipantMessageReader.call(message: message, pending_field: "household_name", transport: ->(_) {
