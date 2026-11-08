@@ -411,7 +411,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
       refute_includes response, "that purse isn’t in the cards right now", message
       refute_includes response, "Pump the brakes", message
-      assert_includes response, "do not have enough approved data", message
+      refute_includes response, "do not have enough approved data", message
     end
   end
 
@@ -453,7 +453,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
       refute_includes response, "988", message
       refute_includes response, "not budgeting", message
-      assert_includes response, "do not have enough approved data", message
+      refute_includes response, "do not have enough approved data", message
     end
   end
 
@@ -777,8 +777,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     response = responder.call("How should I think about this trip?", context: context)
 
     refute_includes response, "$700"
-    assert_includes response, "do not have enough approved data"
-    assert_includes response, "your readiness is Yellow (protect the baseline)"
+    refute_includes response, "do not have enough approved data"
+    refute_includes response, "your readiness is Yellow (protect the baseline)"
     assert_equal :reply_rejected, responder.fallback_reason
   end
 
@@ -980,9 +980,9 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     responder = stubbed_model_responder("Your safe-to-spend is $700, so the trip works.")
     reply = responder.call("ok last thing what should i focus on this week", context: QA_CONTEXT)
 
-    assert_equal "Based on what I can see, I do not have enough approved data to answer that as a fact yet. " \
-      "What I can tell you is that your readiness is Red (pause and stabilize basics) and your baseline surplus is $955 a month. " \
-      "What would you like to check before choosing your next step?", reply
+    refute_includes reply, "do not have enough approved data"
+    refute_includes reply, "$955"
+    assert_includes reply, "What would help most right now?"
   end
 
   test "readiness that is not available yet is named as missing, never guessed" do

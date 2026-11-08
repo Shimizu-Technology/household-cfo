@@ -10,6 +10,23 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader::Current.reading = reading
   end
 
+  test "an explicit unfunded card swipe fits a caution phrase even when reader intent is none" do
+    phrase = { "text" => "Chelu, pump the brakes.", "meaning" => "if someone is bout to charge something they cant cover", "allowed_contexts" => [ "general" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    assert_equal phrase["text"], Mia::LanguagePolicy.new(user_message: "ima charge a 180 purse this week even tho i cant pay it off rn", persona: persona).server_phrase
+  end
+
+  test "published general phrase meanings follow the reader intent and frequency" do
+    phrase = { "text" => "Small wins count, chelu.", "meaning" => "when they do good", "allowed_contexts" => [ "general" ], "frequency" => "as_needed" }
+    persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
+    message = "packed my lunch all week yay"
+    reader_win(message)
+    policy = Mia::LanguagePolicy.new(user_message: message, persona: persona, history: [ { role: "assistant", content: phrase["text"] } ])
+    assert_equal phrase["text"], policy.server_phrase
+    phrase["frequency"] = "sparing"
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona, history: [ { role: "assistant", content: phrase["text"] } ]).server_phrase
+  end
+
   test "win phrases require a reader win even when milestone words or the phrase occur" do
     phrase = { "text"=>"Small wins count, chelu.", "meaning"=>"Celebrate a win", "allowed_contexts"=>[ "milestone" ], "frequency"=>"as_needed" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])

@@ -14,7 +14,11 @@ module Mia
         question = sentence.end_with?("?") && sentence.match?(/\A(?:what|which|how|would|could|should|do|does|is|are|can|will|if|when|before)\b/i)
         !question && sentence.match?(/\b(?:you can (?:buy|purchase|book|order)|you (?:should|ought to|must|need to)\s+(?:buy|purchase|book|order)|(?:^|[.!]\s*)(?:please\s+|go\s+)?(?:buy|purchase|book|order)\s+(?:it|the|a|an|this|that))\b/i)
       end
-      return :unsupported_balance_claim if text.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
+      return :unsupported_balance_claim if text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).any? do |sentence|
+        balance_words = sentence.match?(/\b(?:in (?:the|your) bank|in your account|available to spend)\b/i)
+        guarded_question = guard_covered && sentence.end_with?("?") && sentence.match?(/\A(?:what|which|how|would|could|should|do|does|is|are|can|will|if|when|before)\b/i)
+        balance_words && !guarded_question
+      end
       unless confirmed_write || guard_covered
         text.split(ResponseShapePolicy::SENTENCE_BOUNDARY).each do |sentence|
           next unless sentence.match?(/\b(?:saved|recorded|updated|logged)\b/i)

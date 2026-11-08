@@ -84,7 +84,7 @@ module HouseholdFinance
     end
 
     def self.unfunded?(text)
-      text.to_s.match?(/\b(?:don['’]?t|do not) have (?:the )?money\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
+      text.to_s.match?(/\b(?:don['’]?t|do not|dont really|don['’]?t really) (?:have|got) (?:the )?(?:money|cash|it)\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
     end
 
     # An achievement without an amount is context, not evidence that a later

@@ -19,6 +19,8 @@ module Mia
       "milestone" => "milestone",
       "verified_milestone" => "milestone",
       "celebration" => "milestone",
+      "win" => "milestone",
+      "purchase_caution" => "purchase_caution",
       "emotional_support" => "emotional_support",
       "hard_moment" => "emotional_support",
       "repeated_pattern" => "repeated_pattern",
@@ -210,7 +212,7 @@ module Mia
 
     def custom_phrase_allowed?(entry)
       return false if sensitive_moment?
-      return false if entry["meaning"].to_s.match?(/\bwant\b/i) && user_message.match?(/\b(?:replacement|replace|essential|safety|school|medical)\b/i)
+      return false if entry["meaning"].to_s.match?(/want|brakes|charg|unfunded|purchase/i) && user_message.match?(/\b(?:need|replacement|replace|essential|safety|school|medical|car seat)\b/i)
 
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
@@ -218,7 +220,7 @@ module Mia
       prohibited = Array(entry["prohibited_contexts"])
       return false if prohibited.any? { |context| context_matches?(context) }
       contexts = Array(entry["allowed_contexts"]).map { |context| normalized_context_id(context) }
-      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
+      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
       return false if win_phrase && !earned_moment?
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
@@ -229,8 +231,8 @@ module Mia
 
     def meaning_matches?(meaning)
       text = meaning.to_s
-      return user_message.match?(REPEATED_PATTERN) || context_matches?("purchase_caution") if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab/i)
-      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?)\b/i)
+      return context_matches?("purchase_caution") || user_message.match?(REPEATED_PATTERN) if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab|charg|swip|can.t (?:pay|cover)/i)
+      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i)
       return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
 
       false
@@ -247,7 +249,7 @@ module Mia
       when "crisis" then crisis_moment?
       when "hardship" then HouseholdFinance::MiaCoachAnswerer.essential_hardship?(user_message) || HouseholdFinance::MoneyMovementText.food_insecurity?(user_message)
       when "shame" then user_message.match?(/\b(?:shame|ashamed|embarrassed|guilty)\b/i)
-      when "purchase_caution" then HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
+      when "purchase_caution" then (user_message.match?(/\b(?:charge|swipe)\b/i) && HouseholdFinance::PurchaseQuestionText.unfunded?(user_message)) || HouseholdFinance::MessageReplyIntent.matches?(user_message, "purchase_caution") || (HouseholdFinance::MessageReplyIntent.purchase_question?(user_message) && HouseholdFinance::PurchaseQuestionText.unfunded?(user_message)) || user_message.match?(/\b(?:buy|buying|spend|spending|order|ordering|purchase|credit card)\b/i) && user_message.match?(/\b(?:don.t have|do not have|can.t afford|cannot afford|not saved|haven.t saved|need to borrow|have to borrow|nothing set aside|no money set aside)\b/i)
       else false
       end
     end
@@ -296,7 +298,7 @@ module Mia
           ::Mia::CrisisBoundary.matches?(text) || HouseholdFinance::ParticipantCare.required?(text) || ::Mia::SensitiveMoment.matches?(text)
         else
           ::Mia::CrisisBoundary.explicit?(text) || ::Mia::CrisisBoundary.soft?(text) ||
-            text.match?(::Mia::SensitiveMoment::GRIEF) || text.match?(::Mia::SensitiveMoment::STRAIN)
+            HouseholdFinance::MoneyMovementText.food_insecurity?(text) || text.match?(::Mia::SensitiveMoment::GRIEF) || text.match?(::Mia::SensitiveMoment::STRAIN)
         end
         sensitive || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end

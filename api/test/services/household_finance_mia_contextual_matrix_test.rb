@@ -134,8 +134,8 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Can you see my bank statement overdraft?", [ "cannot see real-time bank balances", "official account" ] ],
       [ "What is my credit score?", [ "credit scores", "official" ] ],
       [ "Should we file married for taxes?", [ "cannot give tax advice", "tax" ] ],
-      [ "help", [ "do not have enough approved data", "bill, a purchase, a debt decision, or family support" ] ],
-      [ "What should I do?", [ "do not have enough approved data", "Next CFO move" ] ],
+      [ "help", [ "one step at a time", "bill, a purchase, a debt decision, or family support" ] ],
+      [ "What should I do?", [ "one step at a time", "bill, a purchase, a debt decision, or family support" ] ],
       [ "Can I spend $60 on a handbag if it is on sale?", [ "$60 purse", "not your bank balance" ] ],
       [ "Should we take a trip if business income improves?", [ "runway decision", "business income" ] ]
     ]

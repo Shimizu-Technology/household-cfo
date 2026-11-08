@@ -11,6 +11,24 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  test "confirmed savings totals answer during care without replacing care state" do
+    setup_savings_context
+    with_savings_runtime do
+      savings_enroll
+      savings_plan
+      savings_approve(savings_draft(2500))
+    end
+    @user, @household = @savings_user, @savings_household
+    ask("how much did i save so far")
+    assert_match(/\$25\.00/, reply)
+    ask("i lost my job last week")
+    ask("how much did i save so far")
+    assert_match(/\$25\.00/, reply)
+    refute_match(/packet|drafts|approved data/, reply)
+    ask("did i save anything yet")
+    assert_match(/\$25\.00/, reply)
+  end
+
   test "rebased win cannot replace food care and grief costs stay out of how" do
     ask("i paid off my card but now i cant buy food")
     refute_match(/That took effort/, reply)

@@ -15,6 +15,24 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
   end
   teardown { travel_back }
 
+  test "a shared before-start day warning is said once for spending and nothing saved" do
+    with_savings_runtime do
+      savings_enroll
+      message = "spent 14.50 at kin yesterday and saved nothing"
+      data = { care: "none", facts: [
+        { kind: "purchase", source_text: "spent 14.50 at kin yesterday", amount: "14.50", merchant: "kin", item: "", day: "yesterday" },
+        { kind: "nothing_saved", source_text: "saved nothing", amount: "", merchant: "", item: "", day: "yesterday" }
+      ], question: false, setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
+      session = @savings_household.chat_sessions.create!(user: @savings_user)
+      turn = SavingsChallenge::ChatTurn.new(household: @savings_household, user: @savings_user, enrollment: @savings_enrollment,
+        session: session, message: message, persona: Mia::Persona.default, history: [], reading: reading).call
+      assert_equal 1, turn.answer.scan("Your challenge started").length, turn.answer
+      assert_equal 1, turn.answer.scan("Nothing was saved").length, turn.answer
+      assert_empty turn.intakes
+    end
+  end
+
   test "purchase questions answer the item before card education with no invented plan or write" do
     with_savings_runtime do
       savings_enroll

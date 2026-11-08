@@ -176,4 +176,16 @@ class ApiV1CasualMoneyFinalTest < ActionDispatch::IntegrationTest
     body = send_message("Could I get a couch? I have $500 saved", reading(question: true), challenge: false)
     refute_match(/\$500 couch|\$500 purchase/i, body.dig("assistant_message", "content"))
   end
+
+  test "a report alongside a saved total question keeps its card" do
+    body = send_message("how much did i save so far, put 20 away today", reading(question: true, facts: [ fact("set_aside", "20", "today") ]))
+    assert_equal 1, body.fetch("challenge_chat_cards").length
+  end
+
+  test "a period savings question is not answered with the all-time total" do
+    [ "how much did i save this month", "how much have i saved in october", "how much did i save last week" ].each do |text|
+      assert_not SavingsChallenge::CoachAnswerer.saved_total_question?(text), text
+    end
+    assert SavingsChallenge::CoachAnswerer.saved_total_question?("how much did i save so far")
+  end
 end

@@ -49,6 +49,7 @@ module Mia
     end
 
     def initialize(reason:, message:, context:, persona:, hopeless: false, purchase_question: false)
+      @message = message.to_s
       @reason = REASONS.include?(reason) ? reason : :reply_rejected
       @topic = purchase_question ? :safe_to_spend : self.class.topic_for(message)
       @payload = parse(context)
@@ -60,6 +61,10 @@ module Mia
       return hopeless_reply if @hopeless
       return provider_unavailable_reply if @reason == :provider_unavailable
 
+      unless asks_for_data?
+        return "Let's take this one step at a time. You choose what we work on next. What would help most right now?"
+      end
+
       direct = topic_fact
       return [ direct, CHECKED_BASIS, next_move ].join(" ") if direct
 
@@ -67,6 +72,12 @@ module Mia
     end
 
     private
+
+    def asks_for_data?
+      (@topic != :general && @message.match?(/\?|\b(?:how|hows|what|whats|why|which|show|tell|check|do|is|are)\b/i)) ||
+        HouseholdFinance::MiaMonthAnswer.question?(@message) ||
+        @message.match?(/\b(?:how much|how many|what(?:['’]s| is| are| was| were)? (?:my|our|the) (?:bank |account )?(?:balances?|totals?|spending|payments?|figures?|numbers?)|show (?:my|our|the) (?:records?|transactions?|balances?))\b/i)
+    end
 
     def provider_unavailable_reply
       [ PROVIDER_UNAVAILABLE, topic_fact || general_fact, NOTHING_CHANGED ].compact.join(" ")

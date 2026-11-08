@@ -483,7 +483,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(DEBT_TERM_PATTERN) && normalized_message.match?(/\b(?:tax\s+)?refund\b/i)
 
       if normalized_message.match?(/tax|file married|filing status/i)
-        return "Based on what I can see, I do not have enough approved data to answer that as a fact yet. I also cannot give tax advice or tell you which filing status to choose. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so any tax bill or refund should be placed against the baseline before wants. Next CFO move: use a qualified tax professional or tax software for the tax calculation, then bring the amount and due date back here so we can place it in the annual plan."
+        return "I cannot give tax advice or tell you which filing status to choose. A qualified tax professional or tax software can help you work through it. Bring any tax bill or refund amount and date here when you want to review its place in your plan."
       end
 
       if normalized_message.match?(/bank statement|overdraft|payoff amount|credit score/i)
@@ -496,7 +496,7 @@ module HouseholdFinance
     def ambiguous_help_answer
       return nil unless normalized_message.match?(AMBIGUOUS_HELP_PATTERN)
 
-      "Based on what I can see, I do not have enough approved data to answer that as a fact yet. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, so the default move is to protect the baseline first. Next CFO move: tell me whether this is a bill, a purchase, a debt decision, or family support, and include the amount and due date if money might move."
+      "We can take this one step at a time. Is this about a bill, a purchase, a debt decision, or family support?"
     end
 
     def account_coverage_answer

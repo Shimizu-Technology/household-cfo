@@ -30,8 +30,8 @@ class ApiV1MiaFallbackRepliesTest < ActionDispatch::IntegrationTest
     content = with_model_reply("Put $1,234 toward runway this week.") { post_message(message) }
 
     assert_response :created
-    readiness = HouseholdFinance::SnapshotBuilder.new(@household).call.fetch(:readiness_label)[/\A(Red|Yellow|Green)/, 1]
-    assert_includes content, "What I can tell you is that your readiness is #{readiness}"
+    assert_includes content, "What would help most right now?"
+    refute_includes content, "approved data"
     refute_includes content, "$1,234"
     refute_includes content.downcase, message
     refute_includes content, "try again in a few minutes"

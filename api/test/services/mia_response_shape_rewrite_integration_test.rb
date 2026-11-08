@@ -35,6 +35,37 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     HouseholdFinance::MiaProviderAdmission.singleton_class.define_method(:with_slot, @original_admission)
   end
 
+  test "figures and phrase leave room for the decision and question" do
+    long = "Hold off until it is funded. The call is yours. What would cover it?"
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_text) { nil }, fixed_prefix: "These are plan figures. Chelu, pump the brakes.") { long }
+    assert_nil result.rejection_reason
+    assert_equal "The call is yours. What would cover it?", result.content
+  end
+
+  test "exact product digits are not purchase figures but extra prices still fail" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "thinkin of gettin a 700 ps5 on my card, i dont have the cash", persona: @persona,
+      answer_packet: { kind: "purchase_scenario", purchase_prefix: "The plan has room for review.", fallback_response: "Hold off on this purchase." })
+    HouseholdFinance::ParticipantMessageReader::Current.message = "thinkin of gettin a 700 ps5 on my card, i dont have the cash"
+    HouseholdFinance::ParticipantMessageReader::Current.reading = HouseholdFinance::ParticipantMessageReader::Result.new("none", [], true, {}, false, [], true, false, false, {}, false, { "item" => "ps5", "amount" => "700" }, {}, {}, "none", "purchase_question")
+    assert_equal "Hold off on the product.", narrator.send(:coaching_without_product_names, "Hold off on the PS5.")
+    assert_includes narrator.send(:coaching_without_product_names, "The PS5 leaves $30."), "$30"
+    assert_includes narrator.send(:coaching_without_product_names, "The PS50 leaves $30."), "PS50"
+    assert_includes narrator.send(:coaching_without_product_names, "It leaves 100k."), "100k"
+    HouseholdFinance::ParticipantMessageReader::Current.reading.purchase_question["item"] = "100k"
+    assert_includes narrator.send(:coaching_without_product_names, "It leaves 100k."), "100k"
+  end
+
+  test "fit removes multiple redundant boundary sentences and revalidates" do
+    long = "Hold off on credit. Check what is covered before ordering. You cannot cover another payment yet. The call is yours. What could you save first?"
+    validations = []
+    result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE,
+      validator: ->(text) { validations << text; nil }, fixed_prefix: "These are plan figures.") { long }
+    assert_nil result.rejection_reason
+    assert_includes result.content, "The call is yours."
+    assert_includes result.content, "What could you save first?"
+    assert_equal result.content, validations.last
+  end
+
   test "R2 fitting preserves the cautious stance" do
     long = "Hold off for now. Before ordering, remove your saved card. The decision is yours. What would help tonight?"
     result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "These are plan figures.") { long }
@@ -57,7 +88,7 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     result = Mia::ResponseShapeRewriter.call(long, persona: @persona, user_message: SAMPLE, validator: ->(_content) { nil }, fixed_prefix: "These are plan figures.") { long }
     assert_nil result.rejection_reason
     assert_includes result.content, "The decision is yours."
-    assert_includes result.content, "remove your saved card"
+    assert_includes result.content, "What would help tonight?"
   end
 
   test "a fitted rewrite still fails its validators" do

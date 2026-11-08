@@ -9,6 +9,21 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     @category = @household.budget_categories.create!(name: "Optional shopping", stack_key: "discretionary", sort_order: 1)
   end
 
+  test "household and challenge pattern references answer the question focus" do
+    observed = "I only see purchases for Oct: Ross ($300) was your biggest flexible spending stop."
+    messages = [ "what do you notice in my spending", "what stands out on the statement i just did", "where can i cut back", "any small buys adding up" ]
+    replies = messages.map do |message|
+      SpendingPatterns::Answerer.question_reference(message: message, observed: observed,
+        waterfall: " 3 small buys stacked up around month-end — $36 altogether.",
+        estimate: " Spending half as much at Ross could free about $150 a month.", question: "Which feels comfortable?")
+    end
+    assert_equal 4, replies.uniq.length
+    assert_includes replies[2], "Which purchase felt optional?"
+    refute_includes replies[2], "Spending half"
+    assert replies[3].start_with?("3 small buys")
+    assert_includes replies[3], "Oct"
+  end
+
   test "R2 current month reviewed purchases are visible without claiming a complete month" do
     purchase(Date.new(2026, 11, 3), "Ross", 6000)
     result = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 11, 7)).call
