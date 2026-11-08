@@ -5,7 +5,7 @@ module HouseholdFinance
     AMOUNT = /\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/
     MONTHLY = /(?:a\s+month|monthly|\/mo)/i
     CLAUSE = /\A(?<label>[\p{L}]+(?:\s+[\p{L}]+)*?)\s*(?:(?:is|=|:)\s*)?(?:(?:like|about)\s+)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i
-    NONLABEL = /\b(?:oops|wait|forgot|sorry|minus|negative|less|like|about|if|would|could|should|can|will|might|suppose|whether|no|never|dont|ow(?:e[sd]?|ing)|min|minimum|balances?|each|per|weeks?|weekly|biweekly|years?|yearly|annual|days?|paychecks?|between|up|to|or|maybe|totals?|last|was|were|back|in|ago|deposits?|percent|since|due|not|half|quarter|quarterly|every|other|two|three|four|five|six|seven|eight|nine|ten|one|hundred|thousand|bought|paid|spent|purchase|we|i|pay|make|at|of|actually|is|are)\b|%/i
+    NONLABEL = /\b(?:add|also|remove|replace|drop|take|oh|oops|wait|forgot|sorry|minus|negative|less|like|about|if|would|could|should|can|will|might|suppose|whether|no|never|dont|ow(?:e[sd]?|ing)|min|minimum|balances?|each|per|weeks?|weekly|biweekly|years?|yearly|annual|days?|paychecks?|between|up|to|or|maybe|totals?|last|was|were|back|in|ago|deposits?|percent|since|due|not|half|quarter|quarterly|every|other|two|three|four|five|six|seven|eight|nine|ten|one|hundred|thousand|bought|paid|spent|purchase|we|i|pay|make|at|of|actually|is|are)\b|%/i
     ASK = "What's the total for all of those each month? I'll put it on a review card, and nothing saves until you apply it.".freeze
     attr_reader :clarification
 
@@ -15,16 +15,39 @@ module HouseholdFinance
       @prior = prior.to_h.deep_symbolize_keys
     end
 
+    def plain_list
+      return unless @field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
+      return if @reading&.care? || @reading&.question
+      text = @message.strip.sub(/[.!]\z/, "").sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)*(?:(?:let['’]?s\s+)?start over[., ]+)?/i, "")
+      clauses = text.split(/,\s+|,(?=[^\d\s]|\z)|\s+and\s+/i, -1).map(&:strip)
+      return unless clauses.length.between?(2, 8)
+      # Preserve the closed monthly-paycheck list accepted by the existing
+      # income invitation. Counts and nonmonthly rates never match this form.
+      if @field == "primary_income" && clauses.all? { |clause| clause.match?(/\A#{AMOUNT}\z/) }
+        return result(clauses.map { |clause| { source: clause, amount: clause, label: "" } })
+      end
+      parts = clauses.map do |clause|
+        match = CLAUSE.match(clause)
+        return unless match && !match[:label].match?(NONLABEL)
+        { source: clause, amount: match[:amount], label: match[:label].strip }
+      end
+      return if parts.any? { |part| part[:label].match?(/\b(?:bills|expenses|essentials|combined|overall|all|altogether)\b/i) }
+      result(parts)
+    end
+
     def call
       return if @reading&.care? || @reading&.question
       return unless @field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
+      list = plain_list
+      return list if list
       text = @message.strip.sub(/[.!]\z/, "")
       return if text.blank? || !text.match?(/\d/) && @prior.blank?
       return pending_edit if @prior.present? && @reading&.setup_details&.dig("edit", "operation").present?
       # A single amount belongs to the reader/scalar path. Only a pending
       # calculation gives a one-amount message a list to edit.
+      return if @prior.blank? && @reading&.answer_field
       return if @prior.blank? && text.scan(AMOUNT).length < 2
-      text = text.sub(/\A(?:oh[, ]+)?(?:forgot|wait)\s+(?:the\s+)?/i, "") if @prior.present?
+      text = text.sub(/\A(?:oh[, ]+)?forgot\s+(?:the\s+)?/i, "") if @prior.present?
       text = text.sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)*(?:(?:let['’]?s\s+)?start over[., ]+)?/i, "")
       if @prior.present? && (removed = removal_label(text))
         parts = @prior[:components].to_a.deep_dup
@@ -92,8 +115,17 @@ module HouseholdFinance
 
     def pending_edit
       edit = @reading.setup_details.fetch("edit")
+      # A single reader edit cannot account for a second instruction. Keep the
+      # old card intact and ask rather than applying only part of a message.
+      return ask_part("each change") if @message.match?(/\band\s+(?:add|remove|take out|replace|change|drop)\b/i)
       source, label, amount = edit.values_at("source", "item", "amount")
       return ask_part("that bill") unless source.is_a?(String) && source.present? && @message.include?(source) && label.is_a?(String) && label.present? && source.include?(label) && label_words(label).any?
+      uncovered = @message.sub(source, "").scan(/[\p{L}]+|\d+/).map(&:downcase)
+      return ask_part("each change") unless (uncovered - %w[oh and n also forgot wait no actually oops sorry the please]).empty?
+      if edit["operation"] == "remove"
+        instruction = source.sub(/,\s*(?:it['’]?s included in (?:the )?rent now|we don['’]?t pay for that anymore)\z/i, "").sub(/\Aoh\s+(?:and|n)\s+/i, "")
+        return ask_part("each change") if instruction.match?(/\band\b|,\s*[\p{L}]/i)
+      end
       parts = @prior[:components].to_a.deep_dup
       return ask if parts.any? { |part| part[:label] == "whole total" }
       matches = matching_parts(parts, label)
@@ -105,7 +137,7 @@ module HouseholdFinance
         parts.delete_at(matches.sole)
       else
         return ask unless amount.is_a?(String) && amount.match?(/\A#{AMOUNT}\z/) && source.scan(AMOUNT).map { |quote| quote.delete("$") } == [ amount.delete("$") ]
-        return ask if source.match?(/\b(?:balances?|owe|weekly|biweekly|yearly|annual|quarterly|each|every|last month|half|quarter|percent|minus|negative|deposit|was|were|not)\b|\b(?:a|per)\s+(?:week|day|year|paycheck)\b|%|[−-]\s*\$?\d/i)
+        return ask if source.match?(/\b(?:balances?|owe|twice a month|weekly|biweekly|yearly|annual|quarterly|each|every|last month|half|quarter|percent|minus|negative|deposit|was|were|not)\b|\b(?:a|per)\s+(?:week|day|year|paycheck)\b|%|[−-]\s*\$?\d/i)
         part = { source: source, label: label, amount: amount }
         operation == "add" ? parts << part : parts[matches.sole] = part
       end

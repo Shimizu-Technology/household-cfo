@@ -47,8 +47,9 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     result = HouseholdFinance::MiaIntentResolver.new(user_message: "got a raise im at 5600 now", api_key: "", context: {
       setup_status: { complete: true, missing_fields: [] }, conversation: {},
       income_sources: [ { id: 1, label: "Job", source_type: "job", active: true } ] }).call
-    assert_equal "schedule_income_change", result.action[:type]
-    assert_equal "5600", result.action[:amount]
+    refute result.actionable?
+    assert_includes result.clarification, "monthly take-home"
+    refute_includes result.clarification, "purchase"
   end
 
   def resolve(text, field: "debt_payment", data: {}, complete: false, active_debts: [])
@@ -137,7 +138,8 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
       spending_preferences: preferences, setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true,
         components: [ { source: "rent 1200", amount: "1200" }, { source: "groceries 300", amount: "300" } ] } })
     assert result.clarification?, result.to_h.inspect
-    assert_includes result.clarification, "What\'s the total"
+    assert_includes result.clarification, "monthly total"
+    assert_equal preferences, result.topic.fetch(:spending_preferences).map(&:deep_symbolize_keys)
   end
 
   test "a plain saved goal correction remains reviewable" do

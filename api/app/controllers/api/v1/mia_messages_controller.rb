@@ -161,12 +161,8 @@ module Api
         end
 
         if attached_imports.empty?
-          guide = HouseholdFinance::MiaSetupGuide.new(current_household)
-          field = guide.next_missing_field
-          if field
-            missing = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys
-            field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
-          end
+          missing = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys
+          field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
           @mia_setup_question_field = field if field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: {}, recent_messages: history)
           @setup_interruption_pending = @mia_setup_question_field && HouseholdFinance::MiaSetupGuide.other_question_pending?(conversation_context[:active_topic])
           field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
@@ -175,7 +171,9 @@ module Api
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
+          calculations = conversation_context[:pending_setup_calculations].to_h
+          pending ||= calculations.keys.sole.to_s if calculations.one?
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available

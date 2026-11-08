@@ -103,12 +103,26 @@ module HouseholdFinance
 
           supersede_setup_reviews!(draft, source_chat_message)
           supersede_income_reviews!(draft, source_chat_message)
+          supersede_debt_reviews!(draft, source_chat_message)
 
           draft
         end
       end
 
       private
+
+      def supersede_debt_reviews!(replacement, source_message)
+        return unless items.any? { |item| item.target_record_type == "Debt" }
+        membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+        household.mia_action_drafts.pending.where(requested_by_user: user).where.not(id: replacement.id)
+          .joins(:source_chat_message).where(chat_messages: { chat_session_id: source_message.chat_session_id }).each do |previous|
+          next unless previous.mia_action_items.any? && previous.mia_action_items.all? do |prior|
+            prior.applied_at.nil? && prior.target_record_type == "Debt" && replacement_covers_item?(prior)
+          end
+          result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: membership).call(idempotency_key: "superseded:#{previous.id}:#{replacement.id}")
+          raise ArgumentError, result.errors.join(", ") unless result.success?
+        end
+      end
 
       def supersede_income_reviews!(replacement, source_message)
         return unless draft_type == "income_schedule"

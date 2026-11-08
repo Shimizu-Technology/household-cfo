@@ -189,9 +189,28 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     reading = read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "fixed_expenses", pending_field: "primary_income")
     assert reading.available
     assert_equal "primary_income", reading.answer_field
-    assert_nil read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "primary_income").answer_field
+    # A correction can replace the last applied answer without a pending card.
+    assert_equal "primary_income", read("sorry i meant 4500", object(field: "income", value: "4500", correction: true), setup_field: "primary_income").answer_field
     assert_nil read("cruz", object(field: "name", value: "cruz family"), setup_field: "household_name").answer_field
     assert_nil read("rent 1400 power 200", object(field: "fixed", value: "1600"), setup_field: "fixed_expenses").answer_field
+  end
+
+  test "a twice monthly bill is not a monthly total" do
+    result = read("phones 75 twice a month", object(field: "fixed", value: "75"), setup_field: "fixed_expenses")
+    assert_nil result.answer_field
+    assert result.setup_answer["needs_total"]
+  end
+
+  test "the reader receives the last applied field separately from the open question" do
+    supplied = nil
+    result = HouseholdFinance::ParticipantMessageReader.call(message: "my bad its 4250 not 3900", setup_field: "fixed_expenses", last_answer_field: "primary_income", transport: ->(payload) {
+      supplied = JSON.parse(payload.fetch(:messages).last.fetch(:content))
+      object(field: "income", value: "4250", correction: true).to_json
+    })
+    assert_equal "fixed_expenses", supplied["open_setup_field"]
+    assert_equal "primary_income", supplied["last_answer_field"]
+    assert_equal "primary_income", result.answer_field
+    assert result.correction
   end
 
   test "nothing saved cannot carry a negated amount into an accepted reading" do
