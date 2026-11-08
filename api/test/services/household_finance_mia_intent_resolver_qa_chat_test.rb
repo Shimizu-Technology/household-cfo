@@ -46,7 +46,7 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     [ [ "lunch at kin 16", "kin", "16" ], [ "got gas 40", "gas", "40" ] ].each do |message, merchant, amount|
       with_participant_reader_response({ care: "none", facts: [ { kind: "purchase", source_text: message, amount: amount, merchant: merchant, item: "", day: "" } ], question: false, reply_intent: "none" }) do
         result = resolve(message, context: context)
-        assert_equal "transaction_report", result.intent
+        assert_equal merchant.present? ? "transaction_report" : "clarification", result.intent
         assert_equal amount, result.action[:amount]
         assert_equal Date.current.iso8601, result.action[:occurred_on]
       end

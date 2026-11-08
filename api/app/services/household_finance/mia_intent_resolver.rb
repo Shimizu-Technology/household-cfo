@@ -354,7 +354,7 @@ module HouseholdFinance
       prior = thread[:action].to_h
       if thread[:status] == "needs_clarification" && prior[:type] == "create_transaction_draft" && !reading.question &&
           !raw_user_message.match?(/\b(?:spent|paid|bought|purchased|saved|withdraw|transfer|income)\b/i) && purchases.one? &&
-          (purchases.sole["amount"].blank? || purchases.sole["merchant"].blank? || raw_user_message.match?(/\b(?:actually|instead|correct)\b/i))
+          (purchases.sole["amount"].blank? || raw_user_message.gsub(/[\s$,]/, "") == purchases.sole["amount"].to_s.gsub(/[\s$,]/, "") || raw_user_message.match?(/\b(?:actually|instead|correct)\b/i))
         fact = purchases.sole
         amount = fact["amount"].presence ? ParticipantMessageReader.amount_text(fact["amount"]) : prior[:amount]
         merchant = fact["merchant"].presence || prior[:merchant]
