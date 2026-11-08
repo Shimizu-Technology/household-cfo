@@ -212,7 +212,7 @@ module Mia
 
     def custom_phrase_allowed?(entry)
       return false if sensitive_moment?
-      return false if entry["meaning"].to_s.match?(/\bwant\b/i) && user_message.match?(/\b(?:replacement|replace|essential|safety|school|medical)\b/i)
+      return false if entry["meaning"].to_s.match?(/want|brakes|charg|unfunded|purchase/i) && user_message.match?(/\b(?:need|replacement|replace|essential|safety|school|medical|car seat)\b/i)
 
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
@@ -298,7 +298,7 @@ module Mia
           ::Mia::CrisisBoundary.matches?(text) || HouseholdFinance::ParticipantCare.required?(text) || ::Mia::SensitiveMoment.matches?(text)
         else
           ::Mia::CrisisBoundary.explicit?(text) || ::Mia::CrisisBoundary.soft?(text) ||
-            text.match?(::Mia::SensitiveMoment::GRIEF) || text.match?(::Mia::SensitiveMoment::STRAIN)
+            HouseholdFinance::MoneyMovementText.food_insecurity?(text) || text.match?(::Mia::SensitiveMoment::GRIEF) || text.match?(::Mia::SensitiveMoment::STRAIN)
         end
         sensitive || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end

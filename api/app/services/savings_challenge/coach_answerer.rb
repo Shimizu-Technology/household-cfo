@@ -97,6 +97,7 @@ module SavingsChallenge
     end
 
     def self.saved_total_question?(message)
+      return false if message.match?(/\b(?:at|on|from)\s+\S+/i)
       return false if message.match?(/\b(?:goals?|targets?|need|should|could|can|would|accounts?)\b/i)
       message.match?(/\bhow much (?:have i|did i|i have|i['’]ve) (?:actually )?(?:save[d]?|set aside)\b|\bdid i save anything\b|\b(?:my|i have|i['’]ve)\b.{0,30}\b(?:saved|savings|set aside)\b.{0,30}\b(?:so far|total)\b|\b(?:total|so far)\b.{0,30}\b(?:i have|i['’]ve) (?:saved|set aside)\b/i)
     end

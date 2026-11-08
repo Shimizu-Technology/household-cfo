@@ -78,7 +78,7 @@ module Mia
       sentences = content.to_s.split(ResponseShapePolicy::SENTENCE_BOUNDARY).compact_blank
       return if sentences.length < 3
 
-      decision = sentences.index { |sentence| sentence.match?(/\b(?:(?:the|your) (?:call|choice|decision) (?:is|stays|remains) (?:yours|with you)|you (?:decide|choose))\b/i) }
+      decision = sentences.index { |sentence| sentence.match?(/\b(?:(?:the|your) (?:call|choice|decision) (?:is|stays|remains) (?:yours|with you)|your call to make|(?:the )?decision is up to you|you (?:decide|choose))\b/i) }
       stances = sentences.each_index.select { |index| sentences[index].match?(/\b(?:hold off|pause|wait|do not|don['’]t)\b/i) }
       protected_positions = [ decision, (sentences.length - 1 if sentences.last.end_with?("?")), (stances.first if stances.one?) ].compact
       candidates = ((1...(sentences.length - 1)).to_a + [ 0, sentences.length - 1 ]).uniq - protected_positions
@@ -86,6 +86,7 @@ module Mia
       # closing question take priority over a separate stance sentence.
       candidates += stances - [ decision, (sentences.length - 1 if sentences.last.end_with?("?")) ].compact if stances.one? && decision
       removed = []
+      candidates = candidates.sort_by { |index| sentences[index].match?(/keep food|can['’]t see|required bills|cannot verify/i) ? 1 : 0 }
       candidates.each do |index|
         removed << index
         text = sentences.each_with_index.filter_map { |sentence, position| sentence unless removed.include?(position) }.join(" ")

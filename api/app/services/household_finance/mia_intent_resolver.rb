@@ -229,7 +229,7 @@ module HouseholdFinance
         pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
         context[:participant_reading] = ParticipantMessageReader.call(message: raw_user_message, setup_field: field, pending_field: pending)
       end
-      if context[:participant_reading]&.reply_intent == "win" && !context[:participant_reading].care? && context[:participant_reading].facts.none? { |fact| fact["kind"].in?(%w[purchase income set_aside withdrawal]) } && context[:participant_reading].goal_change.empty? && context[:participant_reading].savings_correction.empty? && context[:participant_reading].answer_field.nil? && !MiaCoachAnswerer.explicit_write_request?(user_message)
+      if context[:participant_reading]&.reply_intent == "win" && !context[:participant_reading].question && !context[:participant_reading].care? && context[:participant_reading].facts.none? { |fact| fact["kind"].in?(%w[income set_aside withdrawal]) || (fact["kind"] == "purchase" && fact["amount"].present?) } && context[:participant_reading].goal_change.empty? && context[:participant_reading].savings_correction.empty? && context[:participant_reading].answer_field.nil? && !MiaCoachAnswerer.explicit_write_request?(user_message)
         return Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: user_message,
           needs_clarification: false, clarification: "", topic: { type: "coaching", title: "Money achievement" },
           action: { type: "none" }, read_only_plan: {}, source: "participant_reader")
@@ -353,7 +353,8 @@ module HouseholdFinance
       thread = context.dig(:conversation, :active_thread).to_h
       prior = thread[:action].to_h
       if thread[:status] == "needs_clarification" && prior[:type] == "create_transaction_draft" && !reading.question &&
-          !raw_user_message.match?(/\b(?:spent|paid|bought|purchased|saved|withdraw|transfer|income)\b/i) && purchases.one?
+          !raw_user_message.match?(/\b(?:spent|paid|bought|purchased|saved|withdraw|transfer|income)\b/i) && purchases.one? &&
+          (purchases.sole["amount"].blank? || purchases.sole["merchant"].blank? || raw_user_message.match?(/\b(?:actually|instead|correct)\b/i))
         fact = purchases.sole
         amount = fact["amount"].presence ? ParticipantMessageReader.amount_text(fact["amount"]) : prior[:amount]
         merchant = fact["merchant"].presence || prior[:merchant]

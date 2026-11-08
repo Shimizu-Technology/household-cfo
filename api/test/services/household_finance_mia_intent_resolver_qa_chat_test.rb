@@ -40,8 +40,21 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     end
   end
 
+  test "a new priced purchase does not borrow a stale flight date" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = { status: "needs_clarification", action: { type: "create_transaction_draft", amount: "620", merchant: "", occurred_on: "2026-11-03" } }
+    [ [ "lunch at kin 16", "kin", "16" ], [ "got gas 40", "gas", "40" ] ].each do |message, merchant, amount|
+      with_participant_reader_response({ care: "none", facts: [ { kind: "purchase", source_text: message, amount: amount, merchant: merchant, item: "", day: "" } ], question: false, reply_intent: "none" }) do
+        result = resolve(message, context: context)
+        assert_equal "transaction_report", result.intent
+        assert_equal amount, result.action[:amount]
+        assert_equal Date.current.iso8601, result.action[:occurred_on]
+      end
+    end
+  end
+
   test "a debt payoff win is coaching rather than incomplete purchase intake" do
-    with_participant_reader_response({ care: "none", facts: [], question: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "win" }) do
+    with_participant_reader_response({ care: "none", facts: [ { kind: "purchase", source_text: "paid off my kmart card", amount: "", merchant: "kmart", item: "", day: "" } ], question: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "win" }) do
       result = resolve("paid off my kmart card finally!! took a whole year")
       assert_equal "coaching", result.intent
       refute result.clarification?
