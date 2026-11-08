@@ -421,3 +421,15 @@ it.each([401,408])('CR16 keeps the current and remaining addresses after HTTP %s
  expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value','one@example.test\ntwo@example.test')
  expect(mocks.createAdminUser).toHaveBeenCalledTimes(1)
 })
+
+it('shows invalid and repeated entries beside the bulk invitation review', async () => {
+  harness()
+  await screen.findByText('Participants in Tuesday group')
+  await userEvent.click(screen.getByText('Add a participant', { selector: 'summary' }))
+  fireEvent.change(screen.getByLabelText('Paste email addresses'), { target: { value: 'one@example.test, notanemail, one@example.test' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review email list' }))
+  expect(screen.getByRole('heading', { name: 'Review 1 person for Tuesday group' })).toBeTruthy()
+  expect(screen.getByText(/notanemail: Enter a complete/)).toBeTruthy()
+  expect(screen.getByText(/one@example.test: Listed more than once/)).toBeTruthy()
+  expect(mocks.createAdminUser).not.toHaveBeenCalled()
+})

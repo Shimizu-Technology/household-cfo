@@ -1,6 +1,48 @@
 require "test_helper"
 
 class MiaSetupFlowTest < ActiveSupport::TestCase
+  test "casual minimum list updates both known debts without assuming balances" do
+    result = resolve("just the visa, min is 60 and the car is 285", active_debts: [ { id: 7, label: "Visa" }, { id: 8, label: "Car loan" } ])
+    assert_equal "action_plan", result.intent
+    actions = result.write_plan[:actions].map { |entry| entry[:action] }
+    assert_equal [ 7, 8 ], actions.pluck(:debt_id)
+    assert_equal %w[60 285], actions.pluck(:minimum_payment)
+    assert actions.all? { |action| !action.key?(:amount) }
+    assert result.write_plan[:actions].all? { |entry| result.resolved_message.include?(entry[:source_text]) }
+  end
+
+  test "not knowing a goal gets a way forward" do
+    result = resolve("idk what my goal should be", field: "primary_goal", data: { defer_setup: true })
+    assert result.clarification?
+    assert_match(/unknown for now|paused/, result.clarification)
+    refute_includes result.clarification, "haven't used"
+  end
+
+  test "a bill volunteered at the goal question is acknowledged" do
+    result = resolve("my rent is 1500 a month btw", field: "primary_goal", data: {
+      facts: [ { kind: "bill", amount: "1500", item: "rent", merchant: "", day: "" } ] })
+    assert result.clarification?
+    assert_includes result.clarification, "Thanks for telling me"
+    assert_empty result.action[:setup_updates].to_h
+  end
+
+  test "unsafe single amount quotes still ask instead of making a monthly card" do
+    [ [ "rent half of 1200", "1200" ], [ "power 20% of that", "20" ], [ "rent due nov 20", "20" ],
+      [ "not the 300 storage", "300" ], [ "rent 100 a week", "100" ], [ "power was 300 last month", "300" ] ].each do |message, amount|
+      result = resolve(message, field: "fixed_expenses", data: { setup_answer: { field: "fixed", value: amount } })
+      refute result.actionable?, message
+      assert result.clarification?, message
+    end
+  end
+
+  test "an outage raise is income rather than an incomplete purchase" do
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: "got a raise im at 5600 now", api_key: "", context: {
+      setup_status: { complete: true, missing_fields: [] }, conversation: {},
+      income_sources: [ { id: 1, label: "Job", source_type: "job", active: true } ] }).call
+    assert_equal "schedule_income_change", result.action[:type]
+    assert_equal "5600", result.action[:amount]
+  end
+
   def resolve(text, field: "debt_payment", data: {}, complete: false, active_debts: [])
     payload = { care: "none", facts: [], question: false, correction: false, setup_answer: { field: "none", value: "" }, spending_preferences: [] }.merge(data)
     parsed = HouseholdFinance::ParticipantMessageReader.new(message: text, setup_field: field).send(:validate, payload.deep_stringify_keys)
@@ -74,6 +116,13 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     refute result.action.key?(:amount)
   end
 
+  test "correction chatter is not part of the debt name" do
+    result = resolve("oops visa minimum is 65", active_debts: [ { id: 7, label: "Visa" } ])
+    assert_equal "update_debt", result.action[:type]
+    assert_equal 7, result.action[:debt_id]
+    assert_equal "65", result.action[:minimum_payment]
+  end
+
   test "calculated totals preserve explicit spending group choices" do
     preferences = [ { family: "groceries", group: "fixed", evidence: "groceries go in fixed" } ]
     result = resolve("rent 1200 and groceries 300; groceries go in fixed", field: "fixed_expenses", data: {
@@ -137,12 +186,13 @@ class MiaSetupFlowTest < ActiveSupport::TestCase
     assert_equal "none", result.action[:type]
   end
 
-  test "two named debt minimums are calculated only into a pending total" do
+  test "two named debt minimums each get their own review action" do
     text = "visa min is 95 and the car is 310"
     result = resolve(text, data: { setup_details: { field: "debt_payment", cadence: "monthly", count: "", partial: true,
       components: [ { source: "visa min is 95", amount: "95" }, { source: "the car is 310", amount: "310" } ] } })
-    assert result.clarification?, result.to_h.inspect
-    assert_includes result.clarification, "total"
+    assert_equal "action_plan", result.intent
+    assert_equal %w[95 310], result.write_plan[:actions].map { |entry| entry[:action][:minimum_payment] }
+    assert result.write_plan[:actions].all? { |entry| !entry[:action].key?(:amount) }
   end
 
   test "an everyday spending question is answered and resumes without becoming a value" do

@@ -20,6 +20,11 @@ module HouseholdFinance
       return unless @field.in?(%w[primary_income fixed_expenses flexible_spend debt_payment])
       text = @message.strip.sub(/[.!]\z/, "")
       return if text.blank? || !text.match?(/\d/) && @prior.blank?
+      return pending_edit if @prior.present? && @reading&.setup_details&.dig("edit", "operation").present?
+      # A single amount belongs to the reader/scalar path. Only a pending
+      # calculation gives a one-amount message a list to edit.
+      return if @prior.blank? && text.scan(AMOUNT).length < 2
+      text = text.sub(/\A(?:oh[, ]+)?(?:forgot|wait)\s+(?:the\s+)?/i, "") if @prior.present?
       text = text.sub(/\A(?:(?:so|ok(?:ay)?|well)[, ]+)*(?:(?:let['’]?s\s+)?start over[., ]+)?/i, "")
       if @prior.present? && (removed = removal_label(text))
         parts = @prior[:components].to_a.deep_dup
@@ -50,8 +55,9 @@ module HouseholdFinance
       return if @field == "primary_income" && text.match?(/\A(?:we|i)\s+(?:bring\s+(?:home|in)|take\s+home|make|earn)\s+#{AMOUNT}\s*(?:#{MONTHLY})?\z/i)
       return if !text.match?(/,|\band\b/i) && text.match?(/\b(?:spent|bought|purchased|paid)\b/i) && !MiaSetupReply.bill_statement?(text)
       return if reported_purchases?(text)
-      correction = text.match?(/\A(?:no wait|wait|actually|oops|sorry no make)\b/i)
+      correction = @reading&.correction || @message.match?(/\b(?:wait|actually|oops|only)\b/i)
       text = text.sub(/\A(?:forgot|oh and|also|no wait|wait|actually|oops|sorry no make)\s+(?:the\s+)?/i, "") if @prior.present?
+      text = text.sub(/\bis\s+only\s+/i, "is ") if @prior.present?
       clauses = text.split(/,\s+|,(?=[^\d\s]|\z)|\s+and\s+/i, -1).map(&:strip)
       return ask unless clauses.length.between?(1, 8)
       parts = if @field == "primary_income" && clauses.all? { |clause| clause.match?(/\A#{AMOUNT}\z/) }
@@ -84,6 +90,27 @@ module HouseholdFinance
 
     private
 
+    def pending_edit
+      edit = @reading.setup_details.fetch("edit")
+      source, label, amount = edit.values_at("source", "item", "amount")
+      return ask_part("that bill") unless source.is_a?(String) && source.present? && @message.include?(source) && label.is_a?(String) && label.present? && source.include?(label)
+      parts = @prior[:components].to_a.deep_dup
+      matches = matching_parts(parts, label)
+      operation = edit["operation"]
+      return ask_part(label) unless @prior[:field] == @field && operation.in?(%w[add replace remove])
+      return ask_part(label) if operation == "add" ? matches.any? : !matches.one?
+      if operation == "remove"
+        return ask_part(label) unless amount == "" && !source.match?(/\d/)
+        parts.delete_at(matches.sole)
+      else
+        return ask unless amount.is_a?(String) && amount.match?(/\A#{AMOUNT}\z/) && source.scan(AMOUNT) == [ amount ]
+        return ask if source.match?(/\b(?:balance|owe|weekly|yearly|annual|quarterly|each|per week|last month|half|percent)\b|[%−-]\s*\$?\d/i)
+        part = { source: source, label: label, amount: amount }
+        operation == "add" ? parts << part : parts[matches.sole] = part
+      end
+      result(parts)
+    end
+
     def reported_purchases?(text)
       body = text.sub(/\A(?:(?:i|we)\s+)?spent\s+/i, "")
       return false if body == text
@@ -92,6 +119,7 @@ module HouseholdFinance
 
     def removal_label(text)
       match = text.match(/\A(?:actually\s+)?no\s+(?:the\s+)?(?<label>[\p{L} '’ -]+?)(?:\s+bill)?\s*,\s*it['’]?s included in (?:the )?rent now\z/i) ||
+        text.match(/\A(?:take out|remove)\s+(?:the\s+)?(?<label>[\p{L} '’ -]+?)\s*,\s*it['’]?s included in (?:the )?rent now\z/i) ||
         text.match(/\Ascratch\s+(?:the\s+)?(?<label>[\p{L} '’ -]+?)\s*,\s*we don['’]?t pay for that anymore\z/i)
       match&.[](:label)
     end

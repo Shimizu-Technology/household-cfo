@@ -57,7 +57,11 @@ class MiaPlainSetupListTest < ActiveSupport::TestCase
       reading = parsed(text, unclear_amount: false, setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: false, components: components })
       service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: reading, field: "fixed_expenses")
       assert_nil service.call, text
-      assert_match(/What's the total/, service.clarification.to_s, text)
+      if text.scan(HouseholdFinance::MiaSetupCalculation::AMOUNT).length >= 2
+        assert_match(/What's the total/, service.clarification.to_s, text)
+      else
+        assert_nil service.clarification, text
+      end
       refute_match(/can't safely|cannot safely/i, service.clarification.to_s)
     end
   end

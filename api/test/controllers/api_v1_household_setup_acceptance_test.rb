@@ -12,6 +12,38 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  test "casual two debt minimums survive source verification and apply separately" do
+    post_message("just the visa, min is 60 and the car is 285")
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "action_plan", draft.fetch("draft_type")
+    assert_empty @household.debts
+    apply(draft)
+    assert_equal [ 6000, 28500 ], @household.debts.order(:minimum_payment_cents).pluck(:minimum_payment_cents)
+    assert @household.debts.none?(&:balance_known?)
+  end
+
+  test "casual single income correction replaces the earlier pending card" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Borja household", primary_goal: "School fees" }).call
+    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
+    with_participant_reader_response({ care: "none", question: false, correction: false,
+      setup_answer: { field: "income", value: "3900" } }) do
+      post_message("i bring home like 3900 a month after taxes")
+    end
+    first = response.parsed_body.fetch("mia_action_draft")
+    assert_empty @household.income_sources
+    with_participant_reader_response({ care: "none", question: false, correction: true,
+      setup_answer: { field: "income", value: "4100" } }) do
+      post_message("oh wait no its more like 4100")
+    end
+    corrected = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "canceled", @household.mia_action_drafts.find(first["id"]).status
+    assert_empty @household.income_sources.reload
+    apply(corrected)
+    assert_equal 410000, @household.income_sources.reload.sole.amount_cents
+    assert_equal 4100, @applied.dig("workspace", "setup_values", "primary_income")
+  end
+
   test "the production chat sequence completes all five essentials and shares the current month answer" do
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
     assert_includes reply, "What would you like to call this household?"

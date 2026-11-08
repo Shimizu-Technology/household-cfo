@@ -46,16 +46,14 @@ class MiaSetupReviewRoundTwoTest < ActiveSupport::TestCase
 
   test "working names each part and does not pretend a single item is a sum" do
     assert_includes calculate("rent 1200 and power 300")[:description], "Rent $1,200 + power $300 = $1,500"
-    single = calculate("rent 1150")[:description]
-    assert_includes single, "Rent $1,150"
-    refute_includes single, "="
+    assert_nil calculate("rent 1150"), "A single bill uses the reader answer path"
   end
 
   test "misread ranges fractions years dates negation cadence and past bills ask instead of summing" do
     [ "rent 1200-1300", "rent half of 1200", "power 20% of that", "rent since 2024", "rent due nov 20", "not the 300 storage", "rent 100 a week", "power was 300 last month", "rent 1200 and power is like 20% of that", "rent 1200 and power 300 total 1500" ].each do |text|
       service = HouseholdFinance::MiaSetupCalculation.new(message: text, reading: parsed(text), field: "fixed_expenses")
       assert_nil service.call, text
-      assert service.clarification.present?, text
+      assert service.clarification.present?, text if text.scan(HouseholdFinance::MiaSetupCalculation::AMOUNT).length >= 2
     end
     assert_nil calculate("2 kids, i make 1400", field: "primary_income", components: [ { source: "i make 1400", amount: "1400" } ])
   end

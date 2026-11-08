@@ -249,6 +249,8 @@ module HouseholdFinance
       return date_continuation if date_continuation
       reader_result = participant_setup_result if participant_writes_allowed
       return reader_result if reader_result
+      salary = deterministic_current_salary_result if participant_writes_allowed && !context[:participant_reading]&.care? && !ParticipantCare.required?(raw_user_message)
+      return salary if salary
       money_result = participant_purchase_result if participant_writes_allowed
       return money_result if money_result
       goal_result = participant_goal_result if participant_writes_allowed
@@ -467,7 +469,7 @@ module HouseholdFinance
       source_values, = deterministic_setup_values
       explicit_setup = deterministic_setup_result if !reading.correction && source_values.length > 1
       return explicit_setup if explicit_setup
-      if field && (reading.setup_deferred || raw_user_message.squish.match?(/\A(?:idk(?: yet)?|skip|ill do that later|i['’]ll do that later|not sure(?: yet)?|i don['’]?t know(?: yet)?)[.!]?\z/i))
+      if field && (reading.setup_deferred || raw_user_message.match?(/\b(?:idk|don['’]?t know|not sure)\b/i) || raw_user_message.squish.match?(/\A(?:idk(?: yet)?|skip|ill do that later|i['’]ll do that later|not sure(?: yet)?|i don['’]?t know(?: yet)?)[.!]?\z/i))
         keys = MiaSetupGuide::NEXT_QUESTIONS.keys
         missing = Array(context.dig(:setup_status, :missing_fields)).map { |item| item.to_h.deep_symbolize_keys[:key].to_s }
         next_field = keys.drop(keys.index(field).to_i + 1).find { |key| missing.include?(key) }
@@ -541,8 +543,11 @@ module HouseholdFinance
       return named_debt if named_debt
       purchase_result = participant_purchase_result
       return purchase_result if purchase_result
+      if reading.facts.any? { |fact| fact["kind"] == "bill" } && field.in?(%w[household_name primary_goal])
+        return deterministic_setup_clarification(field, clarification: "Thanks for telling me about that bill. We can review it with your monthly costs. #{MiaSetupGuide.question_message(field)}")
+      end
       result = deterministic_setup_clarification(field || pending_field,
-        clarification: "#{reading.available ? "I haven't used that as your setup answer. Tell me if you'd like help choosing." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
+        clarification: "#{reading.available ? "We can take this one step at a time. You can give an estimate, ask for help, or say skip." : ParticipantMessageReader::OFF_REPLY} #{MiaSetupGuide.question_message(field || pending_field)}")
       result.topic[:spending_preferences] = reading.spending_preferences if reading.spending_preferences.any?
       result
     end
@@ -664,10 +669,12 @@ module HouseholdFinance
       match = user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:my|our)\s+(?:salary|take[ -]home pay)\s+is\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?\s*(?:now|starting (?:this month|now))?[.!]?\z/i) ||
         user_message.match(/(?:\A|[.!?;—]\s*|\band\s+)(?:(?:please|can you|could you|would you)\s+)?(?:change|set|update)\s+(?:my|our)\s+(?:salary|take[ -]home pay)\s+to\s+\$?([\d,]+(?:\.\d{1,2})?)\s*(?:(?:a|per) month|monthly)?[.!]?\z/i)
       match ||= user_message.match(/\A(?:i|we)\s+(?:(?:just\s+)?got\s+a\s+raise\s+to|(?:now\s+)?(?:make|earn))\s+\$?([\d,]+(?:\.\d{1,2})?)\s+(?:(?:a|per|each)\s+month|monthly)(?:\s+now)?[.!]?\z/i)
+      match ||= user_message.match(/\A(?:i\s+)?got a raise[, ]+(?:i['’]?m|im) at \$?([\d,]+(?:\.\d{1,2})?) now[.!]?\z/i)
       return unless match
 
       sources = Array(context[:income_sources]).select { |source| source[:source_type] == "job" && source[:active] }
-      return unless sources.one?
+      return setup_reply_result("primary_income", match[1].delete(",")) if sources.empty?
+      return deterministic_setup_clarification("primary_income", clarification: "Which income source got the raise? Nothing changed.") unless sources.one?
 
       today = Date.iso8601(context.dig(:calendar, :today).presence || Date.current.iso8601)
       Result.new(intent: "income_action", confidence: 1.0, continuation: false,
@@ -1056,7 +1063,7 @@ module HouseholdFinance
       return purchase if purchase
       return unless MiaSetupReply.bill_statement?(user_message)
 
-      deterministic_setup_clarification("primary_goal", clarification: "That sounds like a household bill. We can add your monthly costs after your goal; I haven't used it as your goal or your total bills. #{MiaSetupGuide.question_message("primary_goal")}")
+      deterministic_setup_clarification("primary_goal", clarification: "Thanks for telling me about that bill. We can come back to it when we review your monthly costs. For now, what would you like your money plan to help with? #{MiaSetupGuide.question_message("primary_goal")}")
     end
 
     def setup_confirmation_result
@@ -1175,9 +1182,12 @@ module HouseholdFinance
     end
 
     def setup_named_minimum_list_result
-      parts = raw_user_message.split(/,\s*(?=[^\d\s])|\s+and\s+/i).map(&:strip)
-      return unless parts.length.between?(2, 8) && parts.all? { |part| part.match?(/\bmin(?:imum)?\b/i) }
-      results = parts.map { |part| setup_named_minimum_result(text: part) }
+      parts = raw_user_message.split(/,\s*(?!min\b)(?=[^\d\s])|\s+and\s+/i).map(&:strip)
+      return unless parts.length.between?(2, 8) && raw_user_message.match?(/\bmin(?:imum)?\b/i)
+      results = parts.map do |part|
+        normalized = part.sub(/,\s*min\b/i, " min").sub(/\A(?:just\s+)?(?:the\s+)?([\p{L} '-]+?),?\s+(?:min(?:imum)?\s+)?is\s+/i, '\\1 minimum is ')
+        setup_named_minimum_result(text: normalized)
+      end
       return unless results.all?
       return results.find(&:clarification?) if results.any?(&:clarification?)
       return unless results.all?(&:actionable?)
@@ -1218,7 +1228,7 @@ module HouseholdFinance
     end
 
     def setup_named_minimum_result(text: user_message)
-      text = text.sub(/[.!]\z/, "").sub(/\Ajust\s+/i, "").sub(/,\s*(?:the\s+)?min\b/i, " minimum").sub(/\bmin\b/i, "minimum")
+      text = text.sub(/[.!]\z/, "").sub(/\A(?:(?:oh|oops|wait|actually|sorry|just)[, ]+)+/i, "").sub(/,\s*(?:the\s+)?min\b/i, " minimum").sub(/\bmin\b/i, "minimum")
       text = text.sub(/\Awe don['’]?t owe nobody but ([\p{L} '-]+?) and that['’]?s (\$?[\d,.]+) a month\z/i, '\\2 a month on \\1')
       amount_source = "(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)"
       amount_first = text.match(/\A\$?\s*#{amount_source}\s+(?:(?:(?:a|per)\s+month\s+)?minimum(?:\s+payment)?\s+)?(?:on|for)\s+(?:the\s+|my\s+|our\s+)?([\p{L}][\p{L} '-]{0,79})\z/i) ||
@@ -1803,7 +1813,7 @@ module HouseholdFinance
       else
         needs_clarification = true
         clarification = if references_valid
-          "I could not verify that amount from an approved household value or participant-authored amount. Please restate the amount."
+          "How much is the payment each month? Give the amount and I’ll put it on a review card."
         else
           invalid_reference_clarification(action)
         end

@@ -35,7 +35,7 @@ module SavingsChallenge
     end
 
     def rejections
-      (Array(@rejections) + [ @rejection ]).compact.uniq
+      (Array(@rejections) + [ @rejection ]).compact.uniq { |reason| reason.except(:movement) }
     end
 
     def intakes

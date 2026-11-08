@@ -158,6 +158,8 @@ class ApiV1CasualMoneyFinalTest < ActionDispatch::IntegrationTest
     assert_equal [ structured, fallback ], parser.rejections
     parser.instance_variable_set(:@rejection, structured)
     assert_equal [ structured ], parser.rejections
+    parser.instance_variable_set(:@rejection, structured.merge(movement: "purchase"))
+    assert_equal [ structured ], parser.rejections
   end
 
   test "a corrected amount the reader also reports makes no second savings card" do
