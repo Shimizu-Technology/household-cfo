@@ -1186,6 +1186,9 @@ module HouseholdFinance
     end
 
     def setup_named_minimum_list_result
+      # Balance-plus-minimum statements have their own typed path. A balance
+      # must never be reinterpreted as another debt's monthly minimum.
+      return if raw_user_message.match?(/\b(?:balances?|owe|owed|owing|apr|interest)\b/i)
       parts = raw_user_message.split(/,\s*(?!min\b)(?=[^\d\s])|\s+and\s+/i).map(&:strip)
       return unless parts.length.between?(2, 8) && raw_user_message.match?(/\bmin(?:imum)?\b/i)
       results = parts.map do |part|
