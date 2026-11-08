@@ -5,7 +5,7 @@ module HouseholdFinance
     AMOUNT = /\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/
     MONTHLY = /(?:a\s+month|monthly|\/mo)/i
     CLAUSE = /\A(?<label>[\p{L}]+(?:\s+[\p{L}]+)*?)\s*(?:(?:is|=|:)\s*)?(?:(?:like|about)\s+)?(?<amount>#{AMOUNT})\s*(?:#{MONTHLY})?\z/i
-    NONLABEL = /\b(?:oops|wait|forgot|sorry|minus|negative|less|like|about|if|would|could|should|can|will|might|suppose|whether|no|never|dont|owe|owes|min|minimum|balance|each|per|week|weekly|biweekly|year|day|paycheck|between|up|to|or|maybe|total|last|was|were|back|in|ago|deposit|percent|since|due|not|half|quarter|quarterly|every|other|two|three|four|five|six|seven|eight|nine|ten|one|hundred|thousand|bought|paid|spent|purchase|we|i|pay|make|at|of|actually|is|are)\b|%/i
+    NONLABEL = /\b(?:oops|wait|forgot|sorry|minus|negative|less|like|about|if|would|could|should|can|will|might|suppose|whether|no|never|dont|ow(?:e[sd]?|ing)|min|minimum|balances?|each|per|weeks?|weekly|biweekly|years?|yearly|annual|days?|paychecks?|between|up|to|or|maybe|totals?|last|was|were|back|in|ago|deposits?|percent|since|due|not|half|quarter|quarterly|every|other|two|three|four|five|six|seven|eight|nine|ten|one|hundred|thousand|bought|paid|spent|purchase|we|i|pay|make|at|of|actually|is|are)\b|%/i
     ASK = "What's the total for all of those each month? I'll put it on a review card, and nothing saves until you apply it.".freeze
     attr_reader :clarification
 

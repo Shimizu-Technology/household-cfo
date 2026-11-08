@@ -444,7 +444,7 @@ module HouseholdFinance
         end
         return deterministic_setup_clarification(field, clarification: "We can leave that unknown for now. Enter my numbers lets you fill in what you know and come back to the rest. #{MiaSetupGuide.question_message(next_field)}")
       end
-      if !reading.question && (reading.answer_field == "primary_income" || field == "primary_income") && raw_user_message.match?(PER_PAY_INCOME)
+      if (!reading.question || raw_user_message.match?(/\d/)) && (reading.answer_field == "primary_income" || field == "primary_income") && raw_user_message.match?(PER_PAY_INCOME)
         return deterministic_setup_clarification("primary_income", clarification: setup_pay_clarification)
       end
       calculation_field = pending_field || field

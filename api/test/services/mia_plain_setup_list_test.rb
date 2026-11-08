@@ -20,7 +20,7 @@ class MiaPlainSetupListTest < ActiveSupport::TestCase
     "rent 1000 and gpa 200 and water 50 and phone 120 and internet 75 and insurance 90 and parking 25 and trash 20" => 158000
   }.freeze
   ASKS = [
-    "rent 1000, we owe 4000 on the truck", "bills 1200, rent 1000, power 200", "fixed essentials 1200 and rent 1000 and power 200",
+    "rent 1000, we owe 4000 on the truck", "paychecks 1400 and rent 1000", "yearly insurance 1200 and power 200", "truck balances 4000 and rent 1000", "bills 1200, rent 1000, power 200", "fixed essentials 1200 and rent 1000 and power 200",
     "rent -1200 and power 200", "rent -$1200 and power 200", "rent −1200 and power 200", "rent isn't 1200 and power 200", "rent minus 1200 and power 200", "two phone lines at 45 each, rent 1000",
     "rent 1000, power 200, 1200", "rent up to 1200 and power 200", "rent between 1000 and 1200",
     "rent 1000 or maybe 1200", "rent 100 per paycheck and power 200", "rent 100 per day and power 200",
