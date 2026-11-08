@@ -125,10 +125,7 @@ module SavingsChallenge
           @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
             message: @message, daily_report: input, savings_intake: input).call
         end
-        parser.rejections.each do |reason|
-          @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
-            message: @message, daily_rejection: reason).call
-        end
+        rejection_answers(parser).each { |reply| @answer += " #{reply}" }
         return self
       end
       parser = ChatIntake.new(@enrollment, message: @message, reading: @reading) if @attachments.empty?
@@ -164,9 +161,7 @@ module SavingsChallenge
         @answer = @intakes.map do |input|
           CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_report: input, savings_intake: input).call
         end.join(" ")
-        parser&.rejections&.each do |reason|
-          @answer += " " + CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_rejection: reason).call
-        end
+        rejection_answers(parser).each { |reply| @answer += " #{reply}" }
         @answer += " I couldn't tell one of the other amounts. Please send that amount again in dollars and cents." if @reading.unclear_amount
         return self
       end
@@ -178,9 +173,7 @@ module SavingsChallenge
         return self
       end
       if @intakes.empty? && parser&.rejections&.any?
-        @answer = parser.rejections.map do |reason|
-          CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment, message: @message, daily_rejection: reason).call
-        end.join(" ")
+        @answer = rejection_answers(parser).join(" ")
         @answer += " I couldn't tell one of the other amounts. Please send it again in dollars and cents." if @reading.unclear_amount
         return self
       end
@@ -245,6 +238,13 @@ module SavingsChallenge
     end
 
     private
+
+    def rejection_answers(parser)
+      Array(parser&.rejections).map do |reason|
+        CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
+          message: @message, daily_rejection: reason).call
+      end.uniq
+    end
 
     # The reader can also report a corrected amount as new savings. Only a further
     # mention of that amount in the message makes it a separate event.
