@@ -57,6 +57,7 @@ module HouseholdFinance
       end
 
       def server_question_asked?(field, active_thread:, recent_messages:)
+        return false unless NEXT_QUESTIONS.key?(field.to_s)
         return false if other_question_pending?(active_thread)
         recent = Array(recent_messages).reverse.find do |message|
           turn = message.to_h.deep_symbolize_keys

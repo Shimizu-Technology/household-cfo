@@ -1,6 +1,12 @@
 require "test_helper"
 
 class HouseholdFinanceMiaSetupGuideTest < ActiveSupport::TestCase
+  test "no setup field means no setup question was asked" do
+    history = [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("primary_income") } ]
+    refute HouseholdFinance::MiaSetupGuide.server_question_asked?(nil, active_thread: {}, recent_messages: history)
+    refute HouseholdFinance::MiaSetupGuide.server_question_asked?("not_a_field", active_thread: {}, recent_messages: history)
+  end
+
   test "a non-setup clarification pauses setup answer collection" do
     guide = HouseholdFinance::MiaSetupGuide
     history = [ { role: "assistant", content: guide.question_message("primary_income") } ]
