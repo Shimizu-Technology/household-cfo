@@ -545,7 +545,7 @@ module HouseholdFinance
     # money. Strip only those whole labels for the numeric floor; the guard
     # still receives the complete reply and every financial claim.
     def coaching_without_product_names(content)
-      labels = PurchaseQuestionText.reading(user_message)&.purchase_question.to_h.fetch("item", "").scan(/\b(?=[[:alnum:]]*[[:alpha:]])(?=[[:alnum:]]*\d)[[:alnum:]]+\b/)
+      labels = PurchaseQuestionText.reading(user_message)&.purchase_question.to_h.fetch("item", "").scan(/\b[[:alpha:]][[:alnum:]]*\d[[:alnum:]]*\b/)
       labels.reduce(content) { |text, label| text.gsub(/(?<![[:alnum:]])#{Regexp.escape(label)}(?![[:alnum:]])/i, "product") }
     end
 

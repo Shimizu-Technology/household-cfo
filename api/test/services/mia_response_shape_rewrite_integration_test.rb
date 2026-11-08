@@ -51,6 +51,8 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     assert_includes narrator.send(:coaching_without_product_names, "The PS5 leaves $30."), "$30"
     assert_includes narrator.send(:coaching_without_product_names, "The PS50 leaves $30."), "PS50"
     assert_includes narrator.send(:coaching_without_product_names, "It leaves 100k."), "100k"
+    HouseholdFinance::ParticipantMessageReader::Current.reading.purchase_question["item"] = "100k"
+    assert_includes narrator.send(:coaching_without_product_names, "It leaves 100k."), "100k"
   end
 
   test "fit removes multiple redundant boundary sentences and revalidates" do
