@@ -103,7 +103,7 @@ module HouseholdFinance
         return ask_part(label) unless amount == "" && !source.match?(/\d/)
         parts.delete_at(matches.sole)
       else
-        return ask unless amount.is_a?(String) && amount.match?(/\A#{AMOUNT}\z/) && source.scan(AMOUNT) == [ amount ]
+        return ask unless amount.is_a?(String) && amount.match?(/\A#{AMOUNT}\z/) && source.scan(AMOUNT).map { |quote| quote.delete("$") } == [ amount.delete("$") ]
         return ask if source.match?(/\b(?:balances?|owe|weekly|biweekly|yearly|annual|quarterly|each|every|last month|half|quarter|percent|minus|negative|deposit|was|were|not)\b|\b(?:a|per)\s+(?:week|day|year|paycheck)\b|%|[−-]\s*\$?\d/i)
         part = { source: source, label: label, amount: amount }
         operation == "add" ? parts << part : parts[matches.sole] = part

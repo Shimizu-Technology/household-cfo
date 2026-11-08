@@ -34,6 +34,17 @@ class MiaSetupSingleAnswerBoundaryTest < ActiveSupport::TestCase
     assert_equal "1590.0", prior[:value]
   end
 
+  test "a quoted numeric edit can omit the currency symbol without truncating digits" do
+    prior = HouseholdFinance::MiaSetupCalculation.new(message: "rent 1500 and phones 90", reading: nil, field: "fixed_expenses").call
+    [ [ "also insurance $118", "118", "1708.0" ], [ "also insurance 1180", "118", nil ] ].each do |message, amount, expected|
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message, pending_field: "fixed_expenses", transport: ->(_) {
+        { care: "none", setup_details: { field: "fixed_expenses", edit: { operation: "add", item: "insurance", amount: amount, source: message } } }.to_json
+      })
+      result = HouseholdFinance::MiaSetupCalculation.new(message: message, reading: reading, field: "fixed_expenses", prior: prior).call
+      expected ? assert_equal(expected, result&.dig(:value), message) : assert_nil(result, message)
+    end
+  end
+
   test "reader edits cannot turn rates fractions or old bills into monthly parts" do
     prior = HouseholdFinance::MiaSetupCalculation.new(message: "rent 1500 and phones 90", reading: nil, field: "fixed_expenses").call
     [ "phones 50 a week", "phones was 50 last month", "phones half of 50", "phones -50", "phones 50% of that" ].each do |message|
