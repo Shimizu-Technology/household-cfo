@@ -21,6 +21,13 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     refute_match(/That took effort/, reply)
   end
 
+  test "explicit setup resume cannot release unresolved crisis" do
+    ask("i want to kill myself")
+    ask("resume setup")
+    assert_equal "crisis", @household.chat_sessions.order(:id).last.active_topic["care_kind"]
+    refute_match(/Next setup question/, reply)
+  end
+
   test "household grief keeps two casual replies then answers month and shoes" do
     journey("we buried my husband on tuesday and the funeral cost 2500", "idk", "ok thanks. what do i do first", "how much is left")
     assert_match(/\$/, reply)

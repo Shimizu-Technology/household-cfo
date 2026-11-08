@@ -232,8 +232,6 @@ module HouseholdFinance
       if user_message.match?(/\Ano debt payments[.!]?\z/i)
         return setup_reply_result("debt_payment", "0")
       end
-      reader_result = participant_setup_result unless ::Mia::FinancialReadOnlyRequest.matches?(user_message) || MiaMonthAnswer.question?(user_message)
-      return reader_result if reader_result
       read_only_request = ::Mia::FinancialReadOnlyRequest.matches?(user_message)
       participant_writes_allowed = !read_only_request && !MiaMonthAnswer.question?(user_message)
       date_continuation = participant_purchase_day_continuation if participant_writes_allowed

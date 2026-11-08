@@ -53,6 +53,31 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "rebased setup care keeps how in support and never reviews disclosure bills" do
+    begin_setup(primary_income: 3500)
+    text = "my dad passed last week. burial gonna run 5200 idk"
+    data = reading(care: "grief", field: "fixed", value: "5200", facts: [ fact("bill", "5200", item: "burial") ]).merge(care_status: "none",
+      setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: [ { source: "burial gonna run 5200", amount: "5200" } ] })
+    json = household_say(text, data)
+    assert_nil json["mia_action_draft"]
+    refute_match(/5,?200|Next setup question|fixed essentials.*total/i, json.dig("assistant_message", "content"))
+    json = household_say("how", reading.merge(care_status: "ongoing", question: true))
+    refute_match(/5,?200|Next setup question|monthly fixed|one monthly total/i, json.dig("assistant_message", "content"))
+    assert_equal "care", @household.chat_sessions.order(:id).last.active_topic["type"]
+    assert_empty @household.mia_action_drafts.where(status: "pending")
+    json = household_say("resume setup", reading.merge(care_status: "ongoing"))
+    assert_match(/fixed|bills/i, json.dig("assistant_message", "content"))
+  end
+
+  test "rebased open fixed bills beat a purchase reading" do
+    begin_setup(primary_income: 3500)
+    text = "rent 1200 and power 300"
+    json = household_say(text, reading(facts: [ fact("bill", "1200", item: "rent"), fact("purchase", "300", merchant: "power") ]).merge(
+      setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: [ { source: "rent 1200", amount: "1200" }, { source: "power 300", amount: "300" } ] }))
+    assert_equal "1500.0", MiaActionDraft.find(json.fetch("mia_action_draft")["id"]).metadata.dig("setup_calculation", "value")
+    assert_empty @household.transaction_drafts
+  end
+
   test "pending bill additions and named corrections preserve prior parts through Apply" do
     begin_setup(primary_income: 3500)
     entries = [

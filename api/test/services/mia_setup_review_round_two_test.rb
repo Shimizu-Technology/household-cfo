@@ -16,6 +16,18 @@ class MiaSetupReviewRoundTwoTest < ActiveSupport::TestCase
     calculate("rent 1080 and power 220")
   end
 
+  test "model off bills at an open fixed question stay setup rather than purchase" do
+    text = "i pay rent 1200"
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: text, setup_field: "fixed_expenses", api_key: "")
+    result = HouseholdFinance::MiaIntentResolver.new(user_message: text, api_key: "", context: {
+      participant_reading: reading, setup_status: { complete: false, missing_fields: [ { key: "fixed_expenses" } ] },
+      conversation: { active_thread: {}, recent_messages: [ { role: "assistant", content: HouseholdFinance::MiaSetupGuide.question_message("fixed_expenses") } ] }
+    }).call
+    refute_equal "transaction_report", result.intent
+    refute_equal "create_transaction_draft", result.action[:type]
+    assert_match(/Enter my numbers|monthly|total/i, result.clarification)
+  end
+
   test "a pending bill list retains parts when adding water and correcting power" do
     addition = HouseholdFinance::MiaSetupCalculation.new(message: "oh and water is 60", reading: parsed("oh and water is 60"), prior: prior, field: "fixed_expenses").call
     assert_equal "1360.0", addition[:value]
