@@ -75,6 +75,9 @@ module SavingsChallenge
         return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
         return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
         return savings_answer if @message.match?(/\b(?:saved|savings|set aside|reserved|withdrew|withdrawal|progress|goal|target)\b/i)
+        if @message.match?(/\b(?:forget|forgetting|forgot|frustrat\w*|tired|ugh|keep trying)\b/i)
+          return "Remembering to save can be hard when life is busy. You can choose a small reminder that fits your day, and essentials still come first. What usually gets in the way?"
+        end
         baseline_answer
       end
     end
@@ -93,10 +96,20 @@ module SavingsChallenge
       "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
     end
 
-    def saved_total_question?
-      return false if @message.match?(/\b(?:progress|goals?|targets?|need|should|could|can|would|accounts?)\b/i)
-      @message.match?(/\bhow much (?:have i|did i|i have|i['’]ve) (?:actually )?(?:saved|set aside)\b|\b(?:my|i have|i['’]ve)\b.{0,30}\b(?:saved|savings|set aside)\b.{0,30}\b(?:so far|total)\b|\b(?:total|so far)\b.{0,30}\b(?:i have|i['’]ve) (?:saved|set aside)\b/i)
+    def self.saved_total_question?(message)
+      return false if message.match?(/\b(?:goals?|targets?|need|should|could|can|would|accounts?)\b/i)
+      message.match?(/\bhow much (?:have i|did i|i have|i['’]ve) (?:actually )?(?:save[d]?|set aside)\b|\bdid i save anything\b|\b(?:my|i have|i['’]ve)\b.{0,30}\b(?:saved|savings|set aside)\b.{0,30}\b(?:so far|total)\b|\b(?:total|so far)\b.{0,30}\b(?:i have|i['’]ve) (?:saved|set aside)\b/i)
     end
+
+    public
+
+    def saved_total_response
+      private_context { savings_total_answer }
+    end
+
+    private
+
+    def saved_total_question? = self.class.saved_total_question?(@message)
 
     def loan_decision_question?
       return false if @message.match?(LOAN_REQUEST)

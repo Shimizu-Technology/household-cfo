@@ -10,6 +10,55 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
 
   QA_SETUP_PARAGRAPH = "ok so me and my husband we make like 4800 a month together after taxes, rent is 1650 power and water like 280 car note 390, groceries and gas and stuff maybe 900, we wanna save up for emergencies cuz last year the car broke down and we had to borrow from my mom".freeze
 
+  test "incomplete reported purchase retains its supplied amount and past date" do
+    message = "spent 620 on plane tix last tuesday"
+    data = { care: "none", facts: [ { kind: "purchase", source_text: message, amount: "620", merchant: "", item: "plane tix", day: "last tuesday" } ], question: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "none" }
+    with_participant_reader_response(data) do
+      result = resolve(message)
+      assert result.clarification?
+      assert_equal "create_transaction_draft", result.action[:type]
+      assert_equal "620", result.action[:amount]
+      assert result.action[:occurred_on].present?
+      assert_match(/Where/, result.clarification)
+      continuation_context = intent_context.deep_dup
+      continuation_context[:conversation][:active_thread] = { status: "needs_clarification", action: result.action }
+      merchant = { care: "none", facts: [ { kind: "purchase", source_text: "united online", amount: "", merchant: "united online", item: "", day: "" } ], question: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "none" }
+      with_participant_reader_response(merchant) do
+        completed = resolve("united online", context: continuation_context)
+        assert_equal "transaction_report", completed.intent
+        assert_equal "620", completed.action[:amount]
+        assert_equal "united online", completed.action[:merchant]
+        assert_equal result.action[:occurred_on], completed.action[:occurred_on]
+        continuation_context[:conversation][:active_thread][:action] = result.action.merge(occurred_on: "")
+        partial = resolve("united online", context: continuation_context)
+        assert partial.clarification?
+        assert_equal "620", partial.action[:amount]
+        assert_equal "united online", partial.action[:merchant]
+        assert partial.action[:occurred_on].blank?
+        assert_match(/Which day/, partial.clarification)
+      end
+    end
+  end
+
+  test "a debt payoff win is coaching rather than incomplete purchase intake" do
+    with_participant_reader_response({ care: "none", facts: [], question: false, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "win" }) do
+      result = resolve("paid off my kmart card finally!! took a whole year")
+      assert_equal "coaching", result.intent
+      refute result.clarification?
+      assert_equal "none", result.action[:type]
+    end
+  end
+
+  test "sale deadlines do not erase a separate purchase month" do
+    message = "should i get a 500 tv, sale ends sunday but i would buy it next month"
+    with_participant_reader_response({ care: "none", facts: [], question: true, purchase_question: { amount: "500", item: "tv" }, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "purchase_question" }) do
+      result = resolve(message)
+      item = result.read_only_plan.fetch(:items).sole
+      assert_equal Date.current.next_month.beginning_of_month.iso8601, item[:effective_on]
+      refute item[:timing_unavailable]
+    end
+  end
+
   # F6
   test "call us with a trailing goal clause names the household without swallowing the sentence" do
     provider_called = false

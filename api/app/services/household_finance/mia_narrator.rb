@@ -464,7 +464,7 @@ module HouseholdFinance
       return claim_rejection if claim_rejection
       if purchase_coaching?
         return :scenario_conclusion if !guard_covered && ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)
-        return :purchase_figures_in_coaching if content.match?(/\b(?:(?:would|will)\s+leave|plan\s+leaves)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b|[\p{N}\p{Sc}]|\b(?:dollars?|bucks|cents?|hundred|thousand|million)\b|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?\s+(?:left|remaining|available|to spend)\b/i)
+        return :purchase_figures_in_coaching if coaching_without_product_names(content).match?(/\b(?:(?:would|will)\s+leave|plan\s+leaves)\s+(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b|[\p{N}\p{Sc}]|\b(?:dollars?|bucks|cents?|hundred|thousand|million)\b|\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)(?:[ -]+(?:one|two|three|four|five|six|seven|eight|nine))?\s+(?:left|remaining|available|to spend)\b/i)
         sentences = content.split(::Mia::ResponseShapePolicy::SENTENCE_BOUNDARY)
         return :purchase_coaching_shape unless content.end_with?("?") && content.count("?") == 1
         return :persona_response_shape unless content.length <= 650 && purchase_sentence_range.cover?(sentences.length)
@@ -539,6 +539,14 @@ module HouseholdFinance
       return :missing_positive_surplus_basis if missing_positive_surplus_basis?(content)
 
       nil
+    end
+
+    # Digits inside an exact participant-named product (PS5, iPhone16) are not
+    # money. Strip only those whole labels for the numeric floor; the guard
+    # still receives the complete reply and every financial claim.
+    def coaching_without_product_names(content)
+      labels = PurchaseQuestionText.reading(user_message)&.purchase_question.to_h.fetch("item", "").scan(/\b(?=[[:alnum:]]*[[:alpha:]])(?=[[:alnum:]]*\d)[[:alnum:]]+\b/)
+      labels.reduce(content) { |text, label| text.gsub(/(?<![[:alnum:]])#{Regexp.escape(label)}(?![[:alnum:]])/i, "product") }
     end
 
     def incorrect_month_review_step?(content)

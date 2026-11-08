@@ -49,6 +49,7 @@ module Mia
     end
 
     def initialize(reason:, message:, context:, persona:, hopeless: false, purchase_question: false)
+      @message = message.to_s
       @reason = REASONS.include?(reason) ? reason : :reply_rejected
       @topic = purchase_question ? :safe_to_spend : self.class.topic_for(message)
       @payload = parse(context)
@@ -59,6 +60,10 @@ module Mia
     def call
       return hopeless_reply if @hopeless
       return provider_unavailable_reply if @reason == :provider_unavailable
+
+      if @topic == :general && !::Mia::FinancialReadOnlyRequest.matches?(@message) && !HouseholdFinance::MiaMonthAnswer.question?(@message)
+        return "I'm here with you. What would help most right now?"
+      end
 
       direct = topic_fact
       return [ direct, CHECKED_BASIS, next_move ].join(" ") if direct

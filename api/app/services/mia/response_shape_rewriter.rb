@@ -78,15 +78,20 @@ module Mia
       sentences = content.to_s.split(ResponseShapePolicy::SENTENCE_BOUNDARY).compact_blank
       return if sentences.length < 3
 
-      # Keep the participant's choice and practical actions. If every sentence
-      # carries a boundary or an action, decline the fit and use the validated fallback.
-      protected = /\b(?:hold off|pause|do not|don['’]t|until|yours?|you decide|you choose|your (?:call|choice|decision)|cannot|can['’]t|unknown|not known|before|remove|wait|check|protect|cover|set aside)\b/i
-      index = ((1...(sentences.length - 1)).to_a + [ 0 ]).find { |position| !sentences[position].match?(protected) }
-      return unless index
-
-      sentences.delete_at(index)
-      text = sentences.join(" ")
-      text if ResponseShapePolicy.new([ @fixed_prefix, text ].compact_blank.join(" "), persona: persona).length_valid?
+      decision = sentences.index { |sentence| sentence.match?(/\b(?:(?:the|your) (?:call|choice|decision) (?:is|stays|remains) (?:yours|with you)|you (?:decide|choose))\b/i) }
+      stances = sentences.each_index.select { |index| sentences[index].match?(/\b(?:hold off|pause|wait|do not|don['’]t)\b/i) }
+      protected_positions = [ decision, (sentences.length - 1 if sentences.last.end_with?("?")), (stances.first if stances.one?) ].compact
+      candidates = ((1...(sentences.length - 1)).to_a + [ 0, sentences.length - 1 ]).uniq - protected_positions
+      # If figures plus a phrase leave only two sentences, choice and the
+      # closing question take priority over a separate stance sentence.
+      candidates += stances - [ decision, (sentences.length - 1 if sentences.last.end_with?("?")) ].compact if stances.one? && decision
+      removed = []
+      candidates.each do |index|
+        removed << index
+        text = sentences.each_with_index.filter_map { |sentence, position| sentence unless removed.include?(position) }.join(" ")
+        return text if ResponseShapePolicy.new([ @fixed_prefix, text ].compact_blank.join(" "), persona: persona).length_valid?
+      end
+      nil
     end
 
     def rejection_reason(content)
