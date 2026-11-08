@@ -7,6 +7,15 @@ class MiaVoiceDeliveryTest < ActiveSupport::TestCase
   include ReplyGuardTestHelper
   include PersonaTestHelper
 
+  test "guarded funding questions are not balance claims and statements still fail" do
+    question = "When the statement is due, will the cash for this uniform be sitting in your account?"
+    assert_nil Mia::NarrationClaims.rejection_reason(question, guard_covered: true)
+    assert_equal :unsupported_balance_claim, Mia::NarrationClaims.rejection_reason(question)
+    [ "The cash is in your account.", "You have money available to spend.", "The money is in your bank, right?" ].each do |reply|
+      assert_equal :unsupported_balance_claim, Mia::NarrationClaims.rejection_reason(reply, guard_covered: true)
+    end
+  end
+
   test "cautious recommendations survive but approvals and false receipts do not" do
     [ "I recommend waiting. Which bill comes first?", "Chelu, pump the brakes. Hold off on the TV. What would cover it?", "That's a lot to put on a card. What could wait?" ].each do |reply|
       assert_nil Mia::NarrationClaims.rejection_reason(reply), reply
