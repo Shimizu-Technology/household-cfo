@@ -465,7 +465,9 @@ module HouseholdFinance
           "fixed_expenses" => "Fixed essentials are the bills you usually need to cover each month, such as rent and utilities.",
           "flexible_spend" => "Everyday spending is the amount you plan for things like groceries, fuel and other flexible costs each month.",
           "debt_payment" => "This is the total of the minimum payments you need to make on your debts each month, rather than the balances you owe."
-        }.fetch(target)
+        }[target]
+        return unless explanation
+
         return deterministic_setup_clarification(target, clarification: "#{explanation} #{MiaSetupGuide.question_message(target)}")
       end
       # Existing closed scalar corrections apply only when there are no named

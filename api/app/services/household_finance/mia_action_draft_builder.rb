@@ -184,6 +184,11 @@ module HouseholdFinance
 
           current = item.payload.deep_stringify_keys
           next false unless (prior.keys - current.keys).empty?
+          # Creation payloads include unknown defaults for omitted amounts.
+          # Such a default cannot replace a previously reviewed known value.
+          if previous.target_record_type == "Debt" && previous.action_type == "create_debt"
+            next false if %w[balance_known minimum_payment_known].any? { |key| prior[key] == true && current[key] != true }
+          end
           # Two creates can target different logical records without record ids.
           identities = %w[label name source_type stack_key goal_type debt_type]
           !previous.action_type.start_with?("create_") || previous.target_record_id.present? || identities.all? { |key| !prior.key?(key) || prior[key] == current[key] }

@@ -44,6 +44,31 @@ class MiaSetupRoundTwoRoutingTest < ActiveSupport::TestCase
     end
   end
 
+  test "unsupported setup question targets do not crash" do
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: "can I buy shoes for 80", setup_field: nil,
+      transport: ->(_) { { question: true, setup_answer: { field: "none", value: "" } }.to_json })
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "can I buy shoes for 80", api_key: "",
+      context: { participant_reading: reading, setup_status: { complete: true } })
+    resolver.define_singleton_method(:next_missing_setup_field) { "emergency_fund" }
+    resolver.define_singleton_method(:guided_setup_question_asked?) { |_| true }
+    assert_nil resolver.send(:participant_setup_result)
+  end
+
+  test "debt replacement must cover earlier known amounts" do
+    item = HouseholdFinance::MiaActionDraftBuilder::Item
+    prior = item.new(action_type: "create_debt", target_record_type: "Debt", payload: {
+      label: "Visa", debt_type: "credit_card", balance_cents: 120000, balance_known: true,
+      minimum_payment_cents: 0, minimum_payment_known: false
+    })
+    replacement = item.new(action_type: "create_debt", target_record_type: "Debt", payload: {
+      label: "Visa", debt_type: "credit_card", balance_cents: 0, balance_known: false,
+      minimum_payment_cents: 4500, minimum_payment_known: true
+    })
+    proposal = HouseholdFinance::MiaActionDraftBuilder::Proposal.allocate
+    proposal.instance_variable_set(:@items, [ replacement ])
+    refute proposal.send(:replacement_covers_item?, prior)
+  end
+
   test "outage unknown amounts never become zero" do
     %w[primary_income fixed_expenses flexible_spend debt_payment].each do |field|
       [ "rent 100 a week", "phones r 25 a week", "nonsense", "work", "junk", "blah thousand", "0junk", "" ].each do |message|

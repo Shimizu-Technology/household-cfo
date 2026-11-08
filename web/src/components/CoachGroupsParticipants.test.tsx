@@ -382,6 +382,7 @@ it('R6 continues after a refused address and names the reason without a permanen
  fireEvent.change(screen.getByLabelText('Paste email addresses'),{target:{value:'refused@example.test, good@example.test'}})
  fireEvent.click(screen.getByRole('button',{name:'Review email list'}));fireEvent.click(screen.getByRole('button',{name:'Add these 2 people'}))
  await screen.findByText('1 person added.')
+ expect(screen.getByText('These addresses were not added:')).toBeTruthy()
  expect(screen.getByText('refused@example.test: Ask a platform administrator to check this account.')).toBeTruthy()
  expect(mocks.createAdminUser).toHaveBeenCalledTimes(2)
  expect(screen.getByLabelText('Paste email addresses')).toHaveProperty('value','')
