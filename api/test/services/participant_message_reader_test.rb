@@ -13,6 +13,32 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "merged setup and money fields survive together including the model off constructor" do
+    text = "rent 1200"
+    result = read(text, object(field: "fixed", value: "1200").merge(care_status: "new_topic", reply_intent: "win",
+      setup_details: { field: "fixed_expenses", cadence: "monthly", count: "", partial: true, components: [ { source: text, amount: "1200" } ] },
+      purchase_question: { amount: "1200", item: "rent" }, goal_change: { amount: "1200" }, savings_correction: { old_amount: "1200", new_amount: "1200", day: "" }), setup_field: "fixed_expenses")
+    assert result.available
+    assert_equal "win", result.reply_intent
+    assert_equal "new_topic", result.care_status
+    assert_equal "fixed_expenses", result.setup_details["field"]
+    assert_equal "1200", result.purchase_question["amount"]
+    assert_equal "1200", result.goal_change["amount"]
+    assert_equal "1200", result.savings_correction["new_amount"]
+    assert HouseholdFinance::MessageReplyIntent.matches?(text, "win")
+    off = HouseholdFinance::ParticipantMessageReader.call(message: "1200", setup_field: "fixed_expenses", api_key: "")
+    refute off.available
+    assert_equal "fixed_expenses", off.answer_field
+    assert_equal({}, off.setup_details)
+    assert_equal({}, off.purchase_question)
+    assert_equal({}, off.goal_change)
+    assert_equal({}, off.savings_correction)
+    assert_equal "none", off.care_status
+    assert_equal "none", off.reply_intent
+  ensure
+    HouseholdFinance::ParticipantMessageReader::Current.reset
+  end
+
   test "R2 imperative analysis retains intent without changing a habit disclosure" do
     [ "look at my spending patterns", "analyze my spending habits" ].each do |message|
       assert read(message, object.merge(reply_intent: "spending_patterns")).available

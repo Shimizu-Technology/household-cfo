@@ -46,6 +46,7 @@ module HouseholdFinance
         memory_rule: "Conversation continuity is context only, not financial truth. Use approved database facts for balances, actuals, plans, transactions, and due dates.",
         rolling_summary: rolling_summary(active_topic, open_topics),
         active_topic: active_topic,
+        pending_setup_calculations: pending_setup_calculations,
         open_topics: open_topics
       }
     end
@@ -102,6 +103,7 @@ module HouseholdFinance
         resolved_message: sanitized_text(topic["resolved_message"], max_length: MAX_TOPIC_TEXT_LENGTH),
         next_move: sanitized_text(topic["next_move"], max_length: MAX_TOPIC_TEXT_LENGTH),
         action: action_payload(topic["action"]),
+        setup_calculation: pending_setup_calculation(topic),
         spending_preferences: topic["spending_preferences"],
         read_only_plan: read_only_plan,
         document_evidence: document_evidence&.deep_symbolize_keys,
@@ -110,6 +112,23 @@ module HouseholdFinance
         transaction_draft_id: topic["transaction_draft_id"].presence,
         updated_at: sanitized_text(topic["updated_at"], max_length: 40)
       }.compact
+    end
+
+    def pending_setup_calculation(topic)
+      fields = action_payload(topic["action"]).to_h[:setup_updates].to_h.keys
+      pending_setup_calculations[fields.sole.to_s] if fields.one?
+    end
+
+    def pending_setup_calculations
+      return @pending_setup_calculations if defined?(@pending_setup_calculations)
+      @pending_setup_calculations = {}
+      household.mia_action_drafts.pending.order(id: :desc).includes(:source_chat_message).each do |draft|
+        next unless draft.source_chat_message&.chat_session_id == chat_session.id
+        calculation = draft.metadata["setup_calculation"]&.deep_symbolize_keys
+        next unless calculation && calculation[:field].present?
+        @pending_setup_calculations[calculation[:field]] ||= calculation.merge(draft_id: draft.id)
+      end
+      @pending_setup_calculations
     end
 
     def action_plan_payload(topic)

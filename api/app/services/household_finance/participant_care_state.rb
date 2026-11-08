@@ -39,7 +39,7 @@ module HouseholdFinance
       recovery = ParticipantCare.explicit_recovery?(message)
       recovered = !reading.available && recovery
       released = current.nil? && !ParticipantCare.followup?(message) &&
-        (recovered || report || reading.answer_field.present? || financial || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
+        (recovered || report || reading.answer_field.present? || financial || MiaSetupGuide.setup_request?(message) || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
       released = recovery if prior && prior["care_kind"] == "crisis"
       if released
         archive(prior) if prior

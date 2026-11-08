@@ -68,7 +68,7 @@ module HouseholdFinance
       normalized = PurchaseReportText.normalize(text)
       prefix = case field.to_s
       when "primary_income" then /\A(?:i|we)\s+(?:(?:take|bring)\s+home|make|earn|receive)\s+/i
-      when "fixed_expenses" then /\A(?:i|we)\s+(?:pay|spend)\s+/i
+      when "fixed_expenses", "debt_payment" then /\A(?:i|we)\s+(?:pay|spend)\s+/i
       when "flexible_spend" then /\A(?:i|we)\s+spend\s+/i
       end
       return unless prefix && normalized.match?(prefix)
@@ -78,7 +78,8 @@ module HouseholdFinance
       tail = match[2].squish
       cadence = /(?:(?:a|per|each|every)\s+month|monthly)/i
       valid_tail = case field.to_s
-      when "primary_income" then tail.match?(/\A#{cadence}\z/i)
+      when "primary_income" then tail.match?(/\A#{cadence}(?:\s+from\s+(?:my|our)\s+(?:job|work)(?:\s+at\s+[\p{L}][\p{L} '’&-]*)?)?\z/i)
+      when "debt_payment" then tail.match?(/\A#{cadence}\z/i)
       when "fixed_expenses" then tail.match?(/\A(?:#{cadence}(?:\s+(?:in|on|for)\s+(?:bills|fixed essentials))?|(?:in|on|for)\s+(?:bills|fixed essentials)(?:\s+#{cadence})?)\z/i)
       when "flexible_spend" then tail.match?(/\A#{cadence}(?:\s+on\s+(?:groceries|gas|food|everyday spending)(?:[\p{L} ,&-]*))?\z/i)
       end
