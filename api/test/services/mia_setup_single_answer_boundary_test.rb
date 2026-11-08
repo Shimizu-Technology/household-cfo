@@ -57,6 +57,19 @@ class MiaSetupSingleAnswerBoundaryTest < ActiveSupport::TestCase
     end
   end
 
+  test "reader edits preserve the whole-total and named-part boundaries" do
+    [ [ "whole total", "insurance" ], [ "rent", "118" ] ].each do |prior_label, item|
+      message = "also insurance 118"
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message, pending_field: "fixed_expenses", transport: ->(_) {
+        { care: "none", setup_details: { field: "fixed_expenses", edit: { operation: "add", item: item, amount: "118", source: message } } }.to_json
+      })
+      prior = { field: "fixed_expenses", components: [ { label: prior_label, source: "1300", amount: "1300" } ] }
+      service = HouseholdFinance::MiaSetupCalculation.new(message: message, reading: reading, field: "fixed_expenses", prior: prior)
+      assert_nil service.call
+      assert service.clarification
+    end
+  end
+
   test "reader questions cannot become text setup answers" do
     message = "wait im confused whats the household cfo thing mean"
     reading = HouseholdFinance::ParticipantMessageReader.call(message: message, pending_field: "household_name", transport: ->(_) {

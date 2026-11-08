@@ -1,6 +1,6 @@
 module HouseholdFinance
-  # Arithmetic is a closed grammar over the participant's message. The reader
-  # supplies care/question context, never operands, labels, cadence or permission.
+  # Ruby parses new amount lists and verifies quoted edits to pending lists.
+  # The reader classifies language; every operand must occur in the message.
   class MiaSetupCalculation
     AMOUNT = /\$?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?/
     MONTHLY = /(?:a\s+month|monthly|\/mo)/i
@@ -93,8 +93,9 @@ module HouseholdFinance
     def pending_edit
       edit = @reading.setup_details.fetch("edit")
       source, label, amount = edit.values_at("source", "item", "amount")
-      return ask_part("that bill") unless source.is_a?(String) && source.present? && @message.include?(source) && label.is_a?(String) && label.present? && source.include?(label)
+      return ask_part("that bill") unless source.is_a?(String) && source.present? && @message.include?(source) && label.is_a?(String) && label.present? && source.include?(label) && label_words(label).any?
       parts = @prior[:components].to_a.deep_dup
+      return ask if parts.any? { |part| part[:label] == "whole total" }
       matches = matching_parts(parts, label)
       operation = edit["operation"]
       return ask_part(label) unless @prior[:field] == @field && operation.in?(%w[add replace remove])
