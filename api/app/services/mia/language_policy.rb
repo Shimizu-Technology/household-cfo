@@ -36,6 +36,10 @@ module Mia
       (?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over|hit\s+(?:my\s+|the\s+)?(?:spending|credit|budget)\s+limit)\b.{0,40}\bagain|
       again\b.{0,40}\b(?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over)
     )\b/ix.freeze
+    # A coach describes a phrase in her own words; these families recognize what
+    # it is for. A meaning in neither family only fires on its stated contexts.
+    CAUTION_MEANING = /pause|brakes|slow|unfunded|spend|buy|purchase|accountab|charg|swip|wanna|want|can.?t (?:pay|cover|afford)/i.freeze
+    WIN_MEANING = /\b(?:celebrat\w*|milestones?|achievements?|wins?|victor\w*|progress|proud|stick\w* (?:to|with)|stuck (?:to|with)|(?:do|does|did|doing)\s+(?:(?:something|anything|so|really|real)\s+){0,2}(?:good|well|right|great))\b/i.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
     def self.redact_unauthorized_phrase_artifacts(content, persona:)
@@ -212,7 +216,7 @@ module Mia
 
     def custom_phrase_allowed?(entry)
       return false if sensitive_moment?
-      return false if entry["meaning"].to_s.match?(/want|brakes|charg|unfunded|purchase/i) && user_message.match?(/\b(?:need|replacement|replace|essential|safety|school|medical|car seat)\b/i)
+      return false if entry["meaning"].to_s.match?(CAUTION_MEANING) && user_message.match?(/\b(?:need|replacement|replace|essential|safety|school|medical|car seat)\b/i)
 
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
@@ -220,7 +224,7 @@ module Mia
       prohibited = Array(entry["prohibited_contexts"])
       return false if prohibited.any? { |context| context_matches?(context) }
       contexts = Array(entry["allowed_contexts"]).map { |context| normalized_context_id(context) }
-      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
+      win_phrase = entry["meaning"].to_s.match?(WIN_MEANING) || (contexts.any? && contexts.all? { |context| context == "milestone" })
       return false if win_phrase && !earned_moment?
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
@@ -231,8 +235,8 @@ module Mia
 
     def meaning_matches?(meaning)
       text = meaning.to_s
-      return context_matches?("purchase_caution") || user_message.match?(REPEATED_PATTERN) if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab|charg|swip|can.t (?:pay|cover)/i)
-      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i)
+      return earned_moment? if text.match?(WIN_MEANING)
+      return context_matches?("purchase_caution") || user_message.match?(REPEATED_PATTERN) if text.match?(CAUTION_MEANING)
       return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
 
       false

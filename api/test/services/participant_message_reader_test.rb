@@ -13,6 +13,12 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "the prompt puts an unfunded want under caution without losing the purchase question" do
+    prompt = HouseholdFinance::ParticipantMessageReader::PROMPT
+    assert_match(/purchase_caution takes precedence over purchase_question/, prompt)
+    assert_match(/keep purchase_question filled/, prompt)
+  end
+
   test "merged setup and money fields survive together including the model off constructor" do
     text = "rent 1200"
     result = read(text, object(field: "fixed", value: "1200").merge(care_status: "new_topic", reply_intent: "win",

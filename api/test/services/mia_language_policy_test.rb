@@ -3,6 +3,18 @@ require "test_helper"
 class MiaLanguagePolicyTest < ActiveSupport::TestCase
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
 
+  def reader_says(message, intent:, care: "none", item: "")
+    data = { care: care, facts: [], question: false, reply_intent: intent, setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [], purchase_question: { amount: "", item: item } }
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
+    HouseholdFinance::ParticipantMessageReader::Current.message = message
+    HouseholdFinance::ParticipantMessageReader::Current.reading = reading
+  end
+
+  def one_phrase(text, meaning, frequency: "as_needed")
+    entry = { "text" => text, "meaning" => meaning, "allowed_contexts" => [ "general" ], "frequency" => frequency }
+    Struct.new(:cultural_phrases, :all_cultural_phrases).new([ entry ], [ entry ])
+  end
+
   def reader_win(message)
     data = { care: "none", facts: [], question: false, reply_intent: "win", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }
     reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_payload) { data.to_json })
@@ -44,6 +56,52 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
     policy = Mia::LanguagePolicy.new(user_message: "what counts", persona: persona)
     assert_nil policy.model_phrase_rejection_reason("That doesn't count as savings.")
     assert_equal "What will you try?", policy.remove_model_phrases("That's a real win, and Small wins count, chelu., so keep going. What will you try?")
+  end
+
+  test "a coach's own words for a win deliver her phrase on a real win" do
+    [ "if they did something good even small i say", "when she sticks to it", "for the little victories", "when somebody makes progress", "whenever they do right by themselves" ].each do |meaning|
+      message = "took my lunch to work all wk"
+      reader_win(message)
+      assert_equal "Small wins count, chelu.", Mia::LanguagePolicy.new(user_message: message, persona: one_phrase("Small wins count, chelu.", meaning)).server_phrase, meaning
+    end
+  end
+
+  test "a win phrase stays off messages that are not wins" do
+    message = "how much is left this month"
+    reader_says(message, intent: "none")
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: one_phrase("Small wins count, chelu.", "if they did something good even small i say")).server_phrase
+  end
+
+  test "the reader's caution reading delivers the phrase however she says she is short" do
+    persona = one_phrase("Chelu, pump the brakes.", "when somebody wanna swipe for something they cant cover i tell them")
+    [ "gonna grab a 60 perfume at the mall im low on cash rn", "wanna put a 450 phone on my card, aint got the cash", "thinkin bout them 75 slippers, wallet empty til the 15th" ].each do |message|
+      reader_says(message, intent: "purchase_caution", item: "phone")
+      assert_equal "Chelu, pump the brakes.", Mia::LanguagePolicy.new(user_message: message, persona: persona).server_phrase, message
+    end
+  end
+
+  test "a funded purchase question does not get the caution phrase" do
+    message = "thinkin of gettin a 300 tv, i saved up for it already"
+    reader_says(message, intent: "purchase_question", item: "tv")
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: one_phrase("Chelu, pump the brakes.", "when somebody wanna swipe for something they cant cover i tell them")).server_phrase
+  end
+
+  test "her phrase never lands on a hard moment even with a caution reading" do
+    persona = one_phrase("Chelu, pump the brakes.", "when somebody wanna swipe for something they cant cover i tell them")
+    message = "im behind on rent n thinkin of puttin groceries on the card, im scared"
+    reader_says(message, intent: "purchase_caution", care: "hardship", item: "groceries")
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona).server_phrase
+    message = "wanna swipe for a new car seat, no money til friday"
+    reader_says(message, intent: "purchase_caution", item: "car seat")
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona).server_phrase
+  end
+
+  test "the reader's caution reading counts as a purchase question and as unfunded" do
+    message = "wanna get them shoes, broke til payday"
+    reader_says(message, intent: "purchase_caution")
+    assert HouseholdFinance::MessageReplyIntent.purchase_question?(message)
+    assert HouseholdFinance::PurchaseQuestionText.unfunded?(message)
+    refute HouseholdFinance::PurchaseQuestionText.unfunded?("wanna get them shoes")
   end
 
   test "CR3 legacy crisis-allowed phrases never reach a crisis reply" do
