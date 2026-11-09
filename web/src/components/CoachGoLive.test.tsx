@@ -87,6 +87,12 @@ it('does not send a launch if recovery cannot be saved',async()=>{
  vi.spyOn(Storage.prototype,'setItem').mockImplementationOnce(()=>{throw new Error('Storage full')})
  render(<Harness/>);await approve();await screen.findByRole('alert');expect(api.postCoachLaunch).not.toHaveBeenCalled();vi.restoreAllMocks()
 })
+it('does not claim there are changes to review when nothing is unpublished',()=>{
+ function Unchanged(){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={published} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()}/>}
+ render(<Unchanged/>)
+ expect(screen.getByRole('heading',{name:'Review your program'})).toBeTruthy()
+ expect(screen.queryByRole('heading',{name:'Review changes, then go live'})).toBeNull()
+})
 it('shows success immediately and removes first-publish copy with stale parent props',async()=>{
  render(<Harness/>);await approve();await screen.findByText(/^Live for Practice people/)
  expect(screen.getByRole('heading',{name:'Your program is live'})).toBeTruthy()

@@ -52,6 +52,8 @@ export function useStatementReviewMutation({ importId, revisionId, scope, refres
       const status = await fetchStatementReviewRequestStatus(recovery.importId, recovery.action, recovery.key)
       if (!isStatementReviewActor(scope)) return
       if (status.state === 'committed') { clearStatementReviewRecovery(recovery.key); if (live.current) { setError(null); refresh() } }
+      // A bulk approval is all or none and repeating it is a no-op, so with its input gone the fresh read is the answer.
+      else if (status.state === 'unknown' && !recovery.input && recovery.action === 'approve_lines') { clearStatementReviewRecovery(recovery.key); if (live.current) { setError(null); refresh() } }
       else saveStatementReviewRecovery({ ...recovery, working: false, error: status.state === 'in_flight' ? 'The earlier request is still processing. Check its result again.' : recovery.input ? 'No committed result found. Retry the exact saved request.' : 'The result remains unknown. This page no longer holds the original request. Further changes are blocked; keep this reference number for support.' })
     } catch (failure) {
       if (!isStatementReviewActor(scope)) return

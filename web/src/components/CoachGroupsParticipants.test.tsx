@@ -26,6 +26,17 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 describe('Coach group essentials', () => {
+  it('says clearly when a participant already belongs to the group', async () => {
+    const user = userEvent.setup()
+    mocks.createAdminUser.mockResolvedValue({ created: false, invitation_status: 'skipped' })
+    harness()
+    await screen.findByText('Participants in Tuesday group')
+    await user.click(screen.getByText('Add a participant', { selector: 'summary', exact: true }))
+    await user.type(screen.getByLabelText('Participant email'), participant.email)
+    await user.click(screen.getByRole('button', { name: 'Add to Tuesday group' }))
+    expect((await screen.findByRole('status')).textContent).toContain('already in this group')
+  })
+
   it('stops a reviewed invitation batch when the program changes',async()=>{
     let complete!:(value:unknown)=>void
     mocks.createAdminUser.mockReturnValue(new Promise(resolve=>{complete=resolve}))
