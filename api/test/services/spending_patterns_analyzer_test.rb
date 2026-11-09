@@ -72,6 +72,18 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
   end
 
+  test "a named month answers the total first and never names a generic category" do
+    travel_to Time.zone.local(2026, 11, 2, 12) do
+      @category.update!(name: "Flexible spending")
+      purchase(Date.new(2026, 9, 5), "Ross", 10_000)
+      purchase(Date.new(2026, 9, 9), "Kmart", 5_000)
+      answer = SpendingPatterns::Answerer.new(household: @household, message: "what did i spend in september",
+        persona: Mia::Persona.neutral, history: [], approved_content: []).call
+      assert_match(/\AYour reviewed purchases for this period total \$150/, answer)
+      refute_match(/category was Flexible spending/, answer)
+    end
+  end
+
   test "both pattern narrator contracts reject a comma splice in partial coverage" do
     [ [ "Oct" ], [ "Aug", "Oct" ] ].each do |months|
       reference = "I only see purchases for #{months.to_sentence}: Ross ($100) was your biggest flexible spend. Look at what you bought. Would you feel comfortable cutting back on Ross?"

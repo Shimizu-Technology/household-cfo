@@ -13,6 +13,14 @@ class HouseholdFinanceMiaActionDraftPresenterTest < ActiveSupport::TestCase
 
   teardown { travel_back }
 
+  test "a new income source shows an unknown starting amount as not entered, never as zero" do
+    draft = @household.mia_action_drafts.new
+    item = Struct.new(:operation_key, :prepared_operation).new("income.source.create", { "predicted_after_snapshot" => { "source" => { "label" => "Clinic", "source_type" => "paycheck", "amount_cents" => 420_000, "starts_on" => "2026-11-01" } } })
+    row = HouseholdFinance::MiaActionDraftPresenter.new(draft).send(:review_fields, item).find { |field| field[:label] == "Starting amount" }
+    assert_equal "Not entered", row[:before]
+    refute_equal "$0.00", row[:before]
+  end
+
   test "structured and legacy moves show the amount moved independently of prose and destination totals" do
     command = { type: "move_allocation", category_id: @dining.id, target_category_id: @repairs.id, amount: "60", months: [ 11 ], year: 2026 }
     [ command, nil ].each do |input|
