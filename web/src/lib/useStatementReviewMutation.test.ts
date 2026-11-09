@@ -77,3 +77,17 @@ it('restores genuinely uncertain request identity after reload without persistin
   expect(readStatementReviewRecovery(scope)?.key).toBe(key)
   expect(readStatementReviewRecovery(scope)?.input).toBeUndefined()
 })
+
+it('leaves the stuck notice when an approval cannot be confirmed and its input is gone after reload', async () => {
+  vi.mocked(mutateStatementReview).mockRejectedValueOnce(new ApiRequestError('Interrupted', { status: 503 }))
+  const refresh = vi.fn()
+  const hook = renderHook(() => useStatementReviewMutation({ scope, importId: 5, revisionId: 6, refresh }))
+  await act(async () => { await hook.result.current.mutate('approve_lines', { lines: [{ event_id: 7, decision: 'leave_out' }] }) })
+  hook.unmount()
+  setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(scope.user_id); bindStatementReviewActor(scope)
+  const reloaded = renderHook(() => useStatementReviewMutation({ scope, importId: 5, revisionId: 6, refresh }))
+  vi.mocked(fetchStatementReviewRequestStatus).mockResolvedValueOnce({ state: 'unknown', can_retry: true } as never)
+  await act(async () => { await reloaded.result.current.checkStatus?.() })
+  expect(reloaded.result.current.pendingRequest).toBeNull()
+  expect(refresh).toHaveBeenCalled()
+})

@@ -36,6 +36,11 @@ module Mia
       (?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over|hit\s+(?:my\s+|the\s+)?(?:spending|credit|budget)\s+limit)\b.{0,40}\bagain|
       again\b.{0,40}\b(?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over)
     )\b/ix.freeze
+    # A coach describes a phrase in her own words; these families recognize what
+    # it is for. A meaning in neither family only fires on its stated contexts.
+    CAUTION_MEANING = /pause|brakes|slow|unfunded|spend|buy|purchase|accountab|charg|swip|wanna|want|can.?t (?:pay|cover|afford)/i.freeze
+    WIN_MEANING = /\b(?:celebrat\w*|milestones?|achievements?|wins?|victor\w*|progress|proud|stick\w* (?:to|with)|stuck (?:to|with)|(?:do|does|did|doing)\s+(?:(?:something|anything|so|really|real)\s+){0,2}(?:good|well|right|great))\b/i.freeze
+    CARE_REPLY = /\bI['’]m sorry for your loss\b|\bThat sounds hard\b|\bGoing without food\b|\bThis doesn['’]t define your worth\b|\b988\b/i.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
     def self.redact_unauthorized_phrase_artifacts(content, persona:)
@@ -212,7 +217,7 @@ module Mia
 
     def custom_phrase_allowed?(entry)
       return false if sensitive_moment?
-      return false if entry["meaning"].to_s.match?(/want|brakes|charg|unfunded|purchase/i) && user_message.match?(/\b(?:need|replacement|replace|essential|safety|school|medical|car seat)\b/i)
+      return false if entry["meaning"].to_s.match?(CAUTION_MEANING) && user_message.match?(/\b(?:needs?|replacement|replace|essential|safety|school|medical|car seat)\b/i)
 
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
@@ -220,7 +225,7 @@ module Mia
       prohibited = Array(entry["prohibited_contexts"])
       return false if prohibited.any? { |context| context_matches?(context) }
       contexts = Array(entry["allowed_contexts"]).map { |context| normalized_context_id(context) }
-      win_phrase = entry["meaning"].to_s.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i) || (contexts.any? && contexts.all? { |context| context == "milestone" })
+      win_phrase = win_meaning?(entry["meaning"]) || (contexts.any? && contexts.all? { |context| context == "milestone" })
       return false if win_phrase && !earned_moment?
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
@@ -231,8 +236,8 @@ module Mia
 
     def meaning_matches?(meaning)
       text = meaning.to_s
-      return context_matches?("purchase_caution") || user_message.match?(REPEATED_PATTERN) if text.match?(/pause|brakes|slow|unfunded|spend|buy|purchase|accountab|charg|swip|can.t (?:pay|cover)/i)
-      return earned_moment? if text.match?(/\b(?:celebrat\w*|milestones?|achievements?|wins?|do(?:ing)? (?:good|well))\b/i)
+      return earned_moment? if win_meaning?(text)
+      return context_matches?("purchase_caution") || user_message.match?(REPEATED_PATTERN) if text.match?(CAUTION_MEANING)
       return user_message.match?(GREETING_PATTERN) if text.match?(/greet|welcome|hello/i)
 
       false
@@ -285,6 +290,9 @@ module Mia
       return true if HouseholdFinance::ParticipantMessageReader::Current.care_topic.present?
       prior = history.filter_map { |turn| (turn[:content] || turn["content"]).to_s if (turn[:role] || turn["role"]).to_s == "user" }.last(4)
       recovery = prior.rindex { |text| text.match?(/\bi (?:started|have|got) a new job\b.*\b(?:steady|stable|doing fine|doing well)\b/i) }
+      # A care reply in recent turns means someone disclosed something hard. A
+      # new money question can release care, but it's too soon for her phrase.
+      return true if recovery.nil? && recent_care_reply?
       if recovery
         prior = prior.each_with_index.filter_map do |text, index|
           text unless index < recovery && HouseholdFinance::ParticipantCare.kind(text) == :job_loss
@@ -303,6 +311,12 @@ module Mia
         sensitive || text.match?(EMOTIONAL_SUPPORT_PATTERN) || text.match?(/\b(?:guilty|shame|worthless|stupid|failure)\b|\bbad with money\b/i)
       end
     end
+
+    def recent_care_reply?
+      history.filter_map { |turn| (turn[:content] || turn["content"]).to_s if (turn[:role] || turn["role"]).to_s == "assistant" }.last(4).any? { |text| text.match?(CARE_REPLY) }
+    end
+
+    def win_meaning?(meaning) = meaning.to_s.match?(WIN_MEANING) && !meaning.to_s.match?(/pause|brakes|slow|hold off|before (?:buy|spend|charg|swip)/i)
 
     def crisis_moment?
       CRISIS_PATTERNS.any? { |pattern| user_message.match?(pattern) }

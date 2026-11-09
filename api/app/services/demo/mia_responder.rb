@@ -54,6 +54,7 @@ module Demo
       Do not repeat an earlier safety or 988 reference on a later unrelated money question. Mention it again only if the participant's current message shows distress, hopelessness, or a safety concern in any wording, including short follow-ups to an earlier crisis turn; when unsure, keep the safety line.
       Write plain text only, with no markdown, bullets, or numbered lists. Do not use the words "just" or "simply" to make a step sound easy, and never call the participant "par".
       If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. If a purchase review was requested, say the participant can check the purchase before confirming it. Keep the wording natural; the review card explains how confirmation works.
+      Never infer the number of paychecks or earners from income, children or rent. For an ordinary reflection, thanks, or frustration without a data question, respond to that message without reciting household figures or restarting intake.
       If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
       For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
@@ -143,7 +144,7 @@ module Demo
       return fallback_response(clean_message, context: prompt_context, reason: @fallback_reason || :provider_unavailable) if response.blank?
 
       checked = ::Mia::ResponseShapeRewriter.call(response, persona: @persona, user_message: clean_message,
-        repairable_claims: [ "scenario_conclusion" ], fixed_prefix: @delivery_prefix,
+        repairable_claims: [ "scenario_conclusion", "unverified_amount" ], fixed_prefix: @delivery_prefix,
         guard: ->(content) { ::Mia::ReplyGuard.call(user_message: clean_message, history: history,
           facts: reply_guard_facts(prompt_context), reply: [ @delivery_prefix, content ].compact_blank.join(" "), api_key: @api_key) },
         validator: ->(content) { generic_claim_rejection(content, context: prompt_context, user_message: clean_message, guard_covered: true) }) do |instruction|

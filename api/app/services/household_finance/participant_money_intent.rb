@@ -5,7 +5,18 @@ module HouseholdFinance
     NO_CARD = /\b(?:dont|don['’]t|do not)\s+(?:make|create|prepare)\b[^.!?]{0,24}\b(?:card|review)\b/i
     NEGATED_PURCHASE = /\b(?:didn['’]?t|did not|never)\s+(?:actually\s+)?(?:spend|pay|buy|purchase)\b/i
     NEGATED_CHANGE = /\b(?:not|dont|don['’]t|do not)\s+(?:going\s+to\s+)?(?:changing|change|setting|set|making|make|updating|update)\b/i
+    # "put 120 on my visa" is a charge; "put 120 toward my visa" or "on my loan" pays it down.
+    DEBT_REPAYMENT = /\b(?:(?:paid\s+\$?[\d,.]+|put\s+\$?[\d,.]+\s+extra)\s+(?:extra\s+)?(?:on|toward|towards|to)\s+(?:(?:my|our|the)\s+)?(?:\w+\s+)?(?:visa|mastercard|amex|discover|credit card|card|loan|mortgage)|put\s+\$?[\d,.]+\s+(?:toward|towards|to)\s+(?:(?:my|our|the)\s+)?(?:\w+\s+)?(?:visa|mastercard|amex|discover|credit card|card|loan|mortgage)|put\s+\$?[\d,.]+\s+on\s+(?:(?:my|our|the)\s+)?(?:\w+\s+)?(?:loan|mortgage))\b(?!\s+(?:at|for|from)\b)/i
     ADVICE = /\A\s*(?:should\s+(?:i|we)\b|(?:is|would)\b.*\b(?:good|comfortable|reasonable|enough)\b)/i
+
+    # A later plan to put it on a card is not spending yet. A completed move in
+    # the same message keeps the reader's fact.
+    def self.future_charge?(message)
+      text = message.to_s
+      text.match?(/\b(?:gonna|going to|about to|planning to|fixing to)\s+(?:charge|swipe|put)\b/i) && !text.match?(/\b(?:spent|bought|purchased|paid|dropped|blew|already charged)\b/i)
+    end
+
+    def self.debt_repayment?(message) = message.to_s.match?(DEBT_REPAYMENT)
 
     def self.blocked?(message, kind:)
       text = message.to_s

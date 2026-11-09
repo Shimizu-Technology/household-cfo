@@ -43,7 +43,9 @@ module Mia
       instruction = "Rewrite the previous answer. #{self.class.instruction(persona, fixed_prefix: @fixed_prefix)} " \
         "Keep every fact, uncertainty, safety boundary, and the next step; add nothing. Keep an explicit participant-decides statement when the previous reply contains one. " \
         "Use plain text without markdown. Return only the rewritten answer."
-      if claim_repair
+      if reason.to_s == "unverified_amount"
+        instruction += " The previous answer stated a dollar amount that could not be checked. Say the same thing with no dollar amounts, plan totals or spending figures, and respond to what the participant actually said."
+      elsif claim_repair
         instruction += " The previous answer failed the #{reason} check. Do not say or imply that the participant can afford a purchase or that it fits their budget. " \
           "Avoid the words afford, affordable, fits, works, and safe-to-spend, including in negative statements and questions. " \
           "Start with what can be established from the supplied facts, state what is unknown, then ask one practical question. The participant decides."

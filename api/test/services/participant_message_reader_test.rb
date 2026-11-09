@@ -13,6 +13,36 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
     HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_payload) { JSON.generate(data) }, **options)
   end
 
+  test "an inferred item cannot discard a quoted amount merchant and day" do
+    text = "dropped 44 at the 76 in dededo last wed"
+    result = read(text, object(facts: [ { kind: "purchase", source_text: text, amount: "44", merchant: "76", item: "gas", day: "last wed" } ]))
+    assert result.available
+    assert_equal [ "44", "76", "" ], result.facts.sole.values_at("amount", "merchant", "item")
+  end
+
+  test "a payment toward a card or loan is not a purchase but a card purchase still is" do
+    [ "paid 300 extra on my visa this month feels good", "put 150 toward my car loan yesterday" ].each do |text|
+      amount = text[/\d+/]
+      assert_empty read(text, object(facts: [ { kind: "purchase", source_text: text, amount: amount, merchant: "", item: "", day: "" } ])).facts, text
+    end
+    text = "paid 40 on my card at ross yesterday"
+    assert_equal "40", read(text, object(facts: [ { kind: "purchase", source_text: text, amount: "40", merchant: "ross", item: "", day: "yesterday" } ])).facts.sole["amount"]
+  end
+
+  test "a price followed by a plan to charge it is not a completed purchase" do
+    text = "mall got boots for 120, gonna charge it, broke til payday"
+    assert_empty read(text, object(facts: [ { kind: "purchase", source_text: "mall got boots for 120", amount: "120", merchant: "mall", item: "boots", day: "" } ])).facts
+    text = "spent 40 at ross, gonna charge the rest"
+    assert_equal "40", read(text, object(facts: [ { kind: "purchase", source_text: "spent 40 at ross", amount: "40", merchant: "ross", item: "", day: "" } ])).facts.sole["amount"]
+  end
+
+  test "the prompt puts an unfunded want under caution without losing the purchase question" do
+    reader = HouseholdFinance::ParticipantMessageReader.new(message: "x", transport: ->(_) { "{}" })
+    prompt = reader.send(:payload).fetch(:messages).first.fetch(:content)
+    assert_match(/purchase_caution takes precedence over purchase_question/, prompt)
+    assert_match(/keep purchase_question filled/, prompt)
+  end
+
   test "merged setup and money fields survive together including the model off constructor" do
     text = "rent 1200"
     result = read(text, object(field: "fixed", value: "1200").merge(care_status: "new_topic", reply_intent: "win",

@@ -156,7 +156,7 @@ module HouseholdFinance
         [
           { label: "Income source", before: "Does not exist", after: source["label"].to_s },
           { label: "Source type", before: "—", after: source["source_type"].to_s.humanize },
-          { label: "Starting amount", before: "$0.00", after: money_from_cents(source["amount_cents"]) },
+          { label: "Starting amount", before: "Not entered", after: money_from_cents(source["amount_cents"]) },
           { label: "Starts", before: "—", after: month_from_date(source["starts_on"]) }
         ]
       when "income.source.archive"

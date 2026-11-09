@@ -36,6 +36,18 @@ class SavingsChallengePatternsNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "a focused cut-back answer need not recite the cluster, estimate or choice" do
+    reference = "From Aug to Oct in the recorded purchases, Ross ($600) and Kmart ($360) were your biggest flexible spends. A store total can include essentials, so let's look at what you bought before choosing a cut. Which purchase felt optional?"
+    subject = SavingsChallenge::PatternsNarrator.new(user_message: "where can i cut back", persona: Mia::Persona.default, api_key: "fictional",
+      answer_packet: { kind: "challenge_patterns", write_state: "no_write", fallback_response: reference,
+        verified_facts: { merchants: [ { label: "Ross", total_cents: 60_000 }, { label: "Kmart", total_cents: 36_000 } ],
+          cluster: { purchase_count: 25, total_cents: 22_799, label: "Friday through Sunday" },
+          choices: [ { merchant: "Ross", monthly_impact_cents: 10_000 } ], months_with_purchases: %w[Aug Sep Oct], missing_months: false } })
+    content = "Ross ($600) and Kmart ($360) led your flexible spending from Aug to Oct. A store total can hide essentials, so look at what was in those bags first. Which purchase there felt optional?"
+    subject.define_singleton_method(:openrouter_response) { content }
+    assert_equal content, subject.call
+  end
+
   test "shared pattern narration retains the challenge no-write boundary" do
     subject = narrator
     content = REFERENCE.sub("Would you feel", "I saved money for you. Would you feel")

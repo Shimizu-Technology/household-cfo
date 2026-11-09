@@ -87,7 +87,7 @@ module SpendingPatterns
         missing ? "I only see purchases for #{present.to_sentence}:" : "From #{present.first} to #{present.last} in the recorded purchases,"
       end
       flexible = merchants.map { |row| "#{row[:label]} (#{money(row[:total_cents])})" }
-      category_names = @patterns[:discretionary_categories].first(2).pluck(:label)
+      category_names = @patterns[:discretionary_categories].first(2).pluck(:label).reject { |name| name.casecmp?("Flexible spending") }
       observed = "#{window} #{flexible.to_sentence} #{flexible.one? ? 'was your biggest flexible spending stop' : 'were your biggest flexible spending stops'}."
       observed = "#{observed} Your largest flexible spending #{category_names.one? ? 'category was' : 'categories were'} #{category_names.to_sentence}." if category_names.any?
       cluster = @patterns[:small_purchase_clusters].first
@@ -105,7 +105,7 @@ module SpendingPatterns
           verified_facts: { merchants: merchants, category_names: category_names, cluster: cluster, choices: choices, months_with_purchases: present, missing_months: missing } })
       answer = narrator.call
       @supplied_content_context = narrator.supplied_content_context
-      answer
+      period.present? && @patterns[:observed_spending_cents] ? "Your reviewed purchases for this period total #{money(@patterns[:observed_spending_cents])}. #{answer}" : answer
     rescue RequestedPeriod::Unsupported
       "I couldn’t identify a supported spending period. Try a month and year, like January 2025, or the last 3 months (up to 12). Nothing changed."
     end

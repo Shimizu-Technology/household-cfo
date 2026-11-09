@@ -62,6 +62,14 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     end
   end
 
+  test "a stated money horizon is funding, not the month of the purchase" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "x", context: intent_context, api_key: nil, transport: nil)
+    [ "thinkin of orderin 80 of shein on my card again, no money til friday", "wanna get them 80 shoes, broke until monday" ].each do |message|
+      assert_equal [ "", false ], resolver.send(:normalized_scenario_effective_on, message, "", item: {}, amount: "80", continuation: false), message
+    end
+    assert_equal true, resolver.send(:normalized_scenario_effective_on, "should i buy it on friday", "", item: {}, amount: "80", continuation: false).last
+  end
+
   test "sale deadlines do not erase a separate purchase month" do
     message = "should i get a 500 tv, sale ends sunday but i would buy it next month"
     with_participant_reader_response({ care: "none", facts: [], question: true, purchase_question: { amount: "500", item: "tv" }, setup_answer: { field: "none", value: "" }, spending_preferences: [], reply_intent: "purchase_question" }) do

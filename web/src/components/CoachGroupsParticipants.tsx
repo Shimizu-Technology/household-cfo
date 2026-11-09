@@ -10,7 +10,8 @@ type GroupDraft = { name: string; status: AdminCohortStatus; starts_on: string; 
 const draftFor = (group: AdminCohort): GroupDraft => ({ name: group.name, status: group.status, starts_on: group.starts_on ?? '', ends_on: group.ends_on ?? '', notes: group.notes })
 const messageFor = (error: unknown) => error instanceof Error ? error.message : 'This change could not be completed. Please try again.'
 
-function invitationNotice(result: AdminUserMutationResponse): string {
+function invitationNotice(result: AdminUserMutationResponse, alreadyInGroup = false): string {
+  if (alreadyInGroup && result.invitation_sent !== true) return 'This participant is already in this group. No invitation email was sent.'
   if (result.invitation_sent === true && result.invitation_status === 'sent') return 'Participant added. Invitation email sent.'
   if (result.invitation_status === 'failed') return 'Participant added. The invitation email did not send. Open Participant access beside their name to resend it.'
   return 'Participant added. No invitation email was sent.'
@@ -186,7 +187,7 @@ function GroupsPanel({ workspaceId, mutationLifecycle, onDirtyChange, onGroupsCh
     void mutate(async () => {
       const result = await createAdminUser({ email: email.trim(), role: 'participant', cohort_id: selected.id, send_invitation_email: sendEmail })
       window.dispatchEvent(new CustomEvent('coach-roster-changed', { detail: selected.id }))
-      return { notice: invitationNotice(result) }
+      return { notice: invitationNotice(result, groupParticipants.some(person => person.email.toLowerCase() === email.trim().toLowerCase())) }
     }, () => { setEmail(''); setInviteOpen(true) })
   }
 

@@ -83,8 +83,10 @@ module HouseholdFinance
       message.to_s.gsub(/\b(?:money|funds|cash)\s+(?:already\s+)?set aside\b/i, "reserved money")
     end
 
+    # The reader catches every casual way of saying the money is not there;
+    # the pattern is the floor when no reading is available.
     def self.unfunded?(text)
-      text.to_s.match?(/\b(?:don['’]?t|do not|dont really|don['’]?t really) (?:have|got) (?:the )?(?:money|cash|it)\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
+      MessageReplyIntent.matches?(text, "purchase_caution") || text.to_s.match?(/\b(?:don['’]?t|do not|dont really|don['’]?t really) (?:have|got) (?:the )?(?:money|cash|it)\b|\b(?:can['’]?t|cannot|won['’]?t|will not)\s+(?:pay|cover|afford)\b/i)
     end
 
     # An achievement without an amount is context, not evidence that a later

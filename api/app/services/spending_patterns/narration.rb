@@ -30,12 +30,16 @@ module SpendingPatterns
         return :incorrect_pattern_window unless (named_months - months).empty? && [ months.first, months.last ].all? { |month| named_months.include?(month) }
         return :missing_pattern_coverage if facts[:missing_months] && !content.match?(/\bonly\b/i)
       end
-      if (cluster = facts[:cluster])
+      # A focused reference leaves out the cluster, estimate or choice; only what
+      # the verified reference states can be required of the reply.
+      reference = fallback_response.to_s
+      cluster_required = reference.match?(/\bsmall (?:buys|purchases)\b/i)
+      if (cluster = facts[:cluster]) && cluster_required
         return :missing_pattern_cluster unless sentences.any? do |sentence|
           sentence.match?(/(?<![$\d])#{cluster[:purchase_count]}\s+(?:small\s+)?(?:buys|purchases)\b/i) && sentence.include?(coaching_money(cluster[:total_cents])) && sentence.include?(cluster[:label])
         end
       end
-      if (choice = facts[:choices]&.first)
+      if (choice = facts[:choices]&.first) && reference.include?("could free about")
         merchant = Regexp.escape(choice[:merchant])
         amount = Regexp.escape(coaching_money(choice[:monthly_impact_cents]))
         # Bind the halving action and its amount to the same display name.
@@ -50,7 +54,7 @@ module SpendingPatterns
         return :missing_pattern_merchant unless content.include?(row[:label])
         return :incorrect_pattern_total unless content.match?(/#{Regexp.escape(row[:label])}\s*\(#{Regexp.escape(amount)}\)/)
       end
-      return :missing_comfortable_choice unless content.match?(/\b(?:comfortable|feel better)\b/i) && content.include?("?")
+      return :missing_comfortable_choice unless content.include?("?") && (content.match?(/\b(?:comfortable|feel better)\b/i) || !reference.match?(/\bcomfortable\b/i))
       nil
     end
 
