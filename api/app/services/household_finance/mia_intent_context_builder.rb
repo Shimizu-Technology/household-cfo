@@ -40,7 +40,6 @@ module HouseholdFinance
         archived_goals: serialized_goals(household.goals.tracked.archived.order(:priority, :id)),
         conversation: {
           active_thread: validated_active_thread,
-          pending_setup_calculations: conversation_context[:pending_setup_calculations].to_h,
           open_threads: validated_open_threads,
           older_summary: validated_active_thread.present? ? conversation_context[:rolling_summary] : nil,
           recent_messages: transcript

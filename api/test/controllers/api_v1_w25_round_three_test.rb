@@ -95,7 +95,7 @@ class ApiV1W25RoundThreeTest < ActionDispatch::IntegrationTest
       post "/api/v1/mia/messages", params: { message: "im a burden" }, headers: headers, as: :json
     end
     assert_equal 1, calls.length
-    assert_equal "household_name", calls.first[:setup_field]
+    assert_equal "household_name", calls.first.dig(:setup_context, :last_asked)
   end
   test "authenticated soft crisis still bypasses a stale financial epoch" do
     user, household = HouseholdFinance::MiaEvalHousehold.create!

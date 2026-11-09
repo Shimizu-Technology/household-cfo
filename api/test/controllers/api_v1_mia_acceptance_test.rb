@@ -1,29 +1,24 @@
 require "test_helper"
 
 class ApiV1MiaAcceptanceTest < ActionDispatch::IntegrationTest
-  test "the visible income suggestion prepares a review without a provider" do
+  test "an income message during open setup points to the form when the reader is off" do
     user, household = participant
     post_message(user, "My take-home pay is now $6,200 a month.")
     assert_response :created
     body = response.parsed_body
-    assert_not_nil body["mia_action_draft"]
-    refute_includes body.dig("assistant_message", "content"), "purchase"
+    assert_nil body["mia_action_draft"]
+    assert_match(/Enter my numbers/, body.dig("assistant_message", "content"))
     assert_equal 0, household.income_sources.count
-    assert_equal 620_000, household.mia_action_drafts.last.mia_action_items.first.after_snapshot["amount_cents"]
   end
 
-  test "the visible debt suggestion prepares a record review without inventing totals" do
+  test "a debt message during open setup writes nothing when the reader is off" do
     user, household = participant
     post_message(user, "My credit card balance is $3,100 and my monthly minimum is $175.")
     assert_response :created
     body = response.parsed_body
-    assert_not_nil body["mia_action_draft"]
-    refute_includes body.dig("assistant_message", "content"), "purchase"
+    assert_nil body["mia_action_draft"]
+    assert_match(/Enter my numbers/, body.dig("assistant_message", "content"))
     assert_equal 0, household.debts.count
-    item = household.mia_action_drafts.last.mia_action_items.first
-    assert_equal "create_debt", item.action_type
-    assert_equal 310_000, item.payload["balance_cents"]
-    assert_equal 17_500, item.payload["minimum_payment_cents"]
   end
 
   test "crisis messages take precedence over provider and financial actions" do

@@ -13823,3 +13823,47 @@ test('BOG UI a goal card does not hide a separate daily report fallback', async 
   })
   await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toBeVisible()
 })
+
+test('mobile Ask Mia setup card updates a row in place and applies on one card', async ({ page }) => {
+  const base = realWorkspaceData(false)
+  const row = (key: string, label: string, extra: Record<string, unknown> = {}) => ({ key, label, kind: 'money', status: 'missing', value_text: null, total_cents: null, parts: [], note: null, ...extra })
+  const cardDraft = (fixedCents: number, rentCents: number) => ({
+    id: 451, status: 'pending', draft_type: 'household_setup', year: base.budget.annual_plan.year, title: 'Your setup so far', summary: 'Your setup so far', rationale: '', source_prompt: 'rent', created_at: '2026-11-09T00:00:00Z', applied_at: null, canceled_at: null, items: [],
+    setup_card: {
+      title: 'Your setup so far',
+      can_apply: true,
+      rows: [
+        row('household_name', 'Household name', { kind: 'text', status: 'entered', value_text: 'Cruz Ohana' }),
+        row('primary_goal', 'Main goal', { kind: 'text', status: 'skipped' }),
+        row('primary_income', 'Monthly income'),
+        row('fixed_expenses', 'Fixed essentials', { status: 'entered', total_cents: fixedCents, parts: [{ id: 'rent', label: 'Rent', cents: rentCents, counted: true }, { id: 'power', label: 'Power', cents: 15000, counted: true }] }),
+        row('flexible_spend', 'Everyday spending', { status: 'needs_monthly', parts: [{ id: 'gas', label: 'Gas', cents: null, counted: false, note: '$20 a week' }], note: 'Gas needs a monthly amount.' }),
+        row('debt_payment', 'Debts'),
+      ],
+    },
+  })
+  const withDraft = (draft: unknown) => ({ ...base, budget: { ...base.budget, annual_plan: { ...base.budget.annual_plan, pending_mia_action_drafts: [draft] } } })
+  await page.route('http://api.test/api/v1/workspace', async (route) => route.fulfill({ status: 200, json: withDraft(cardDraft(165000, 150000)) }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/451/setup_card', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ field: 'fixed_expenses', action_name: 'set', part_id: 'rent', value: '1600' })
+    await route.fulfill({ status: 200, json: { mia_action_draft: cardDraft(175000, 160000), workspace: withDraft(cardDraft(175000, 160000)) } })
+  })
+  let applied = false
+  await page.route('http://api.test/api/v1/mia_action_drafts/451/apply', async (route) => {
+    applied = true
+    await route.fulfill({ status: 200, json: { mia_action_draft: { ...cardDraft(175000, 160000), status: 'applied' }, workspace: withDraft({ ...cardDraft(175000, 160000), status: 'applied' }) } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.getByRole('article', { name: 'Your setup so far', exact: true })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('Skipped for now')).toBeVisible()
+  await expect(card.getByText('Not entered yet').first()).toBeVisible()
+  await expect(card.getByText('$20 a week')).toBeVisible()
+  await expect(card.getByText('$0', { exact: true })).toHaveCount(0)
+  await card.getByRole('button', { name: /^Change Rent/ }).click()
+  await card.getByRole('textbox').fill('1600')
+  await card.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(card.getByRole('button', { name: /^Change Fixed essentials/ })).toContainText('$1,750')
+  await card.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect.poll(() => applied).toBe(true)
+})

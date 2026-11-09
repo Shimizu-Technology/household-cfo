@@ -43,12 +43,24 @@ module HouseholdFinance
         canceled_item_count: draft.mia_action_items.count { |item| item.canceled_at.present? },
         remaining_item_count: draft.mia_action_items.count { |item| item.applied_at.blank? && item.canceled_at.blank? },
         items: action_items
-      }
+      }.tap { |payload| payload[:setup_card] = setup_card if setup_card }
     end
 
     private
 
     attr_reader :draft
+
+    def setup_card
+      @setup_card ||= presented_setup_card
+    end
+
+    def presented_setup_card
+      state = draft.metadata.to_h["setup_card"]
+      return unless state
+      card = MiaSetupCard.new(draft.household, state: state)
+      blocked = state["blocked"].to_h
+      { title: draft.title, rows: card.rows.map { |row| blocked[row[:key]] ? row.merge(note: blocked[row[:key]]) : row }, can_apply: draft.mia_action_items.any? }
+    end
 
     def scope_note
       session = draft.source_chat_message&.chat_session || draft.assistant_chat_message&.chat_session

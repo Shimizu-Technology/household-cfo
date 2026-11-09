@@ -392,3 +392,33 @@
   .mia-action-draft-card .mia-action-draft-actions > button:first-child { grid-column: 1 / -1; }
   .mia-action-draft-card .mia-action-draft-actions > button { min-width: 0; width: 100%; min-height: 44px; }
 }
+
+/* The setup card is one flat list: a row per answer, a sub-row per part. */
+.setup-card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.setup-card h4 { margin: 0 0 4px; font-family: var(--font-body); font-size: var(--text-lg); color: var(--ink); }
+.setup-card-rows { display: grid; }
+.setup-card-group { border-top: 1px solid var(--line); padding: 4px 0; }
+.setup-card-group:first-child { border-top: 0; }
+.setup-card-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 6px 0; border: 0; border-radius: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: transform 140ms var(--ease-out); }
+.setup-card-row:active { transform: scale(0.97); }
+.setup-card-row:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 2px; }
+.setup-card-label { flex: 0 1 auto; min-width: min-content; max-width: 60%; font-weight: 600; overflow-wrap: break-word; }
+.setup-card-label small { display: block; font-weight: 400; color: var(--muted); font-size: var(--text-xs); }
+.setup-card-value { flex: 1 1 40%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.setup-card-line.is-empty .setup-card-value { color: var(--muted); }
+.setup-card-line.is-part { padding-left: 14px; }
+.setup-card-line.is-part .setup-card-label { font-weight: 400; color: var(--ink-soft); }
+.setup-card-note { margin: 2px 0 6px; font-size: var(--text-sm); color: var(--muted); }
+.setup-card-edit { display: grid; gap: 8px; padding: 2px 0 10px; }
+.setup-card-edit input { width: 100%; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; font-size: 16px; background: white; }
+.setup-card-edit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-card-edit-actions button { flex: 1 1 auto; min-height: 44px; transition: transform 140ms var(--ease-out); }
+.setup-card-edit-actions button:active { transform: scale(0.97); }
+.setup-card-promise { margin: 10px 0 0; font-size: var(--text-sm); color: var(--muted); }
+@media (hover: hover) and (pointer: fine) {
+  .setup-card-row:hover .setup-card-label { color: var(--mauve); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .setup-card-row, .setup-card-edit-actions button { transition: none; }
+  .setup-card-row:active, .setup-card-edit-actions button:active { transform: none; }
+}

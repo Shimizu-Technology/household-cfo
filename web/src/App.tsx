@@ -1,3 +1,4 @@
+import { MiaSetupCard } from './components/MiaSetupCard'
 import { historyPosition, pushHistoryEntry } from './lib/browserHistory'
 import { DocumentReadingProgress } from './components/DocumentReadingProgress'
 import { IncomeForms } from './components/IncomeForms'
@@ -108,6 +109,7 @@ import {
   bulkConfirmTransactionDrafts,
   bulkIgnoreTransactionDrafts,
   cancelMiaActionDraft,
+  updateMiaSetupCard,
   clearMiaMessages,
   confirmTransactionDraft,
   createBudgetCategory,
@@ -175,6 +177,7 @@ import type {
   IncomeSourceInput,
   IncomeTimelineSource,
   MiaActionDraft,
+  MiaSetupCardEdit,
   MiaActionItem,
   MiaMessage,
   MiaMessageAttachment,
@@ -2968,6 +2971,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
   }
 
+  // Row edits change the card only; the household is untouched until Apply.
+  async function handleEditMiaSetupCard(draft: MiaActionDraft, edit: MiaSetupCardEdit) {
+    if (!isRealWorkspace || budgetYearLoading) return false
+    if (!beginBudgetAction(`edit-setup-card:${draft.id}`)) return false
+    setMiaError(null)
+    try {
+      const workspace = await updateMiaSetupCard(draft.id, edit)
+      setData({ type: 'financial_mutation', update: workspace })
+      return true
+    } catch (caught) {
+      setMiaError(participantErrorMessage(caught, 'That change didn’t save. Please try again.'))
+      return false
+    } finally {
+      endBudgetAction()
+    }
+  }
+
   async function handleCancelMiaActionDraft(draft: MiaActionDraft) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
@@ -4081,6 +4101,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                         compact
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
+                        onEditSetupCard={handleEditMiaSetupCard}
                         onEditManually={openManualControls}
                         onAskFresh={askForFreshDraft}
                       />
@@ -4269,6 +4290,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     draftActionsDisabled={budgetYearLoading}
                     onApply={handleApplyMiaActionDraft}
                     onCancel={handleCancelMiaActionDraft}
+                    onEditSetupCard={handleEditMiaSetupCard}
                     onEditManually={openManualControls}
                     onAskFresh={askForFreshDraft}
                   />
@@ -7081,6 +7103,7 @@ export function MiaActionDraftReviewStack({
   disabledReason,
   onApply,
   onCancel,
+  onEditSetupCard,
   onEditManually,
   onAskFresh,
 }: {
@@ -7092,13 +7115,16 @@ export function MiaActionDraftReviewStack({
   disabledReason?: string
   onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
+  onEditSetupCard?: (draft: MiaActionDraft, edit: MiaSetupCardEdit) => Promise<boolean>
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
   onAskFresh?: (draft: MiaActionDraft) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
-      {drafts.map((draft) => (
+      {drafts.map((draft) => draft.setup_card && onEditSetupCard ? (
+        <MiaSetupCard key={draft.id} draft={draft} isRealWorkspace={isRealWorkspace} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onEdit={onEditSetupCard} />
+      ) : (
         <MiaActionDraftReviewCard
           key={miaActionDraftRenderKey(draft)}
           draft={draft}
