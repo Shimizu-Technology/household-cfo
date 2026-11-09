@@ -39,6 +39,13 @@ module HouseholdFinance
       /\b(?:a|the)\s+(?:new\s+)?(?:draft|review card)\s+(?:is|was|has been)\s+(?:ready|created|prepared|waiting|pending)\b/i
     ].freeze
 
+    # No card exists on a no_write turn, so nothing was added or is on its way.
+    UNBACKED_CHANGE_CLAIMS = [
+      /\bthanks for (?:adding|putting)\b/i,
+      /\b(?:hasn['’]?t|has not|not)\s+gone through\b/i,
+      /\byou didn['’]?t answer\b/i
+    ].freeze
+
     attr_reader :supplied_content_context, :response_source, :rejection_reason
 
     def initialize(user_message:, answer_packet:, history: [], api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, persona: ::Mia::Persona.default, approved_content: [])
@@ -529,6 +536,7 @@ module HouseholdFinance
       end
       return :stacked_record_caveats if content.scan(RECORD_CAVEAT_PATTERN).length > 1
       return :false_write_claim if !guard_covered && false_write_claim?(content)
+      return :unbacked_change_claim if answer_packet[:write_state] == "no_write" && UNBACKED_CHANGE_CLAIMS.any? { |pattern| content.match?(pattern) }
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)

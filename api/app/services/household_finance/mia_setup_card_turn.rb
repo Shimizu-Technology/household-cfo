@@ -4,8 +4,13 @@ module HouseholdFinance
   class MiaSetupCardTurn
     OFF_REPLY = "I can't read setup answers just now, and nothing was saved. Please try again in a moment, or tap Enter my numbers to keep going.".freeze
     KEEP_GOING = "Take your time.".freeze
+    RESUMED = "Of course, let's keep going.".freeze
+    UNKNOWN_MINIMUM = /\b(?:idk|dont know|don['’]?t know|not sure|no idea)\b/i
+    BARE_YES = /\A(?:yes|yeah|yea|yep|ya|sure|correct|right|ok(?:ay)?|that works|sounds (?:good|right)|use (?:it|that))[\s.!]*\z/i
     TITLE = "Your setup so far".freeze
-    Plan = Data.define(:reply, :update_text, :continues, :next_field)
+    Plan = Data.define(:reply, :update_text, :continues, :next_field, :work_out) do
+      def initialize(work_out: nil, **rest) = super
+    end
     Commit = Data.define(:draft, :created)
 
     class << self
@@ -24,16 +29,32 @@ module HouseholdFinance
 
       def reader_context(household, user:, session:)
         card = load_card(household, user: user, session: session)
-        { saved: saved_values(household), draft: draft_rows(card), skipped: Array(household.setup_skipped_fields), last_asked: active_field(session).to_s }
+        { saved: saved_values(household), draft: draft_rows(card), skipped: Array(household.setup_skipped_fields), last_asked: active_field(session).to_s,
+          paycheck_help: session.active_topic.to_h["setup_card_work_out"].present? }
+      end
+
+      # What she can change by name once setup is done and no card is open.
+      def saved_bills(household, user:, session:)
+        return if SetupStatus.new(household).missing_field_keys.any? || card_draft(household, user: user, session: session)
+        load_card(household, user: user, session: session).saved_bill_labels
+      end
+
+      # The first field still open once a card row or skip has changed.
+      def next_open_field(household, card, new_skips: [], status: SetupStatus.new(household), except: [])
+        skipped = Array(household.setup_skipped_fields) + new_skips + except
+        open = (status.missing_field_keys - skipped).reject { |field| card.field_known?(field) }
+        (card.unresolved_field_keys - skipped).first || open.first
       end
 
       def load_card(household, user:, session:)
         draft = card_draft(household, user: user, session: session)
         return MiaSetupCard.new(household, state: draft.metadata["setup_card"]) if draft
         card = MiaSetupCard.new(household)
-        previous = household.mia_action_drafts.where(draft_type: "household_setup", status: "applied", requested_by_user: user)
-          .where("mia_action_drafts.metadata ? 'setup_card'").recent_first.first
-        card.carry_parts_from(previous.metadata["setup_card"]) if previous
+        # The latest card that touched a field holds its breakdown, even when
+        # a later card changed only something else.
+        household.mia_action_drafts.where(draft_type: "household_setup", status: "applied", requested_by_user: user)
+          .where("mia_action_drafts.metadata ? 'setup_card'").recent_first.limit(10)
+          .each { |previous| card.carry_parts_from(previous.metadata["setup_card"]) }
         card
       end
 
@@ -53,7 +74,9 @@ module HouseholdFinance
       end
     end
 
-    def initialize(household:, user:, session:, reading:, active_topic: session.active_topic.to_h)
+    def initialize(household:, user:, session:, reading:, active_topic: session.active_topic.to_h, resuming: false, message: nil)
+      @resuming = resuming
+      @message = message.to_s
       @household = household
       @user = user
       @session = session
@@ -71,7 +94,7 @@ module HouseholdFinance
       return unless plan
       persist_skips
       topic_field = plan.next_field
-      @session.update!(active_topic: @session.active_topic.to_h.merge("setup_card_field" => topic_field))
+      @session.update!(active_topic: @session.active_topic.to_h.merge("setup_card_field" => topic_field, "setup_card_work_out" => plan.work_out))
       return unless @card_touched
       @commit = save_card(user_message, assistant_message)
     end
@@ -90,19 +113,63 @@ module HouseholdFinance
       end
       changes = @reading.setup_changes
       return unless changes
-      updates = card.apply_changes(changes.except("skips", "help_topic"))
+      waiting_on = @active_topic["setup_card_work_out"].presence_in(MiaSetupCard::MONEY_FIELDS)
+      confirm_offered_monthly(changes)
+      updates = card.apply_changes(changes.except("skips", "help_topic", "work_out", "confirm_monthly"))
       card.apply_preferences(@reading.spending_preferences)
-      @card_touched = updates.any? { |update| !update.action.in?(MiaSetupCard::NOOP_ACTIONS) }
+      @card_touched = card.updates.any? { |update| !update.action.in?(MiaSetupCard::NOOP_ACTIONS) }
       skipped = skip_fields(changes["skips"])
-      update_text = [ MiaSetupCardReply.updated_text(updates, card).presence, MiaSetupCardReply.skipped_text(skipped) ].compact.join(" ")
+      update_text = [ MiaSetupCardReply.updated_text(card.updates, card).presence, MiaSetupCardReply.skipped_text(skipped) ].compact.join(" ")
       next_field = next_open_field(skipped)
+      if waiting_on && (plan = paycheck_answer_plan(waiting_on, update_text, next_field))
+        return plan
+      end
       if update_text.present?
         return Plan.new(reply: nil, update_text: update_text, continues: true, next_field: next_field) if @reading.question
         return Plan.new(reply: compose(update_text, next_field, asked: asked), update_text: update_text, continues: false, next_field: next_field)
       end
+      if (field = work_out_field(changes, asked))
+        return work_out_plan(field, next_field)
+      end
       return help_plan(changes["help_topic"], next_field) if changes["help_topic"]
-      return if @reading.question || @reading.facts.any? || !asked
-      Plan.new(reply: compose(KEEP_GOING, next_field, asked: asked), update_text: nil, continues: false, next_field: next_field)
+      return if !@resuming && (@reading.question || @reading.facts.any? || !asked)
+      Plan.new(reply: compose(@resuming ? RESUMED : KEEP_GOING, next_field, asked: asked), update_text: nil, continues: false, next_field: next_field)
+    end
+
+    def confirm_offered_monthly(changes)
+      field = card.proposal_field
+      card.confirm_proposed_monthly(field) if field && (changes["confirm_monthly"] || @message.match?(BARE_YES))
+    end
+
+    def work_out_field(changes, asked)
+      return unless changes["work_out"]
+      (changes["help_topic"] || asked).presence_in(MiaSetupCard::MONEY_FIELDS)
+    end
+
+    # Help that calculates: the working if there is a figure to work from,
+    # otherwise the amount and how often it comes.
+    def work_out_plan(field, next_field)
+      proposal = card.propose_monthly(field)
+      return Plan.new(reply: MiaSetupCardReply::PAYCHECK_QUESTION, update_text: nil, continues: false, next_field: field, work_out: field) unless proposal
+
+      @card_touched = true
+      Plan.new(reply: MiaSetupCardReply.working(proposal), update_text: nil, continues: false, next_field: field)
+    end
+
+    # She was asked for one paycheck and how often. A lone amount is never a
+    # month, and the frequency can arrive in the next message.
+    def paycheck_answer_plan(field, update_text, next_field)
+      if card.field_known?(field) && !@message.match?(ParticipantCare::SETUP_FIELD_WORDS) && !@message.match?(/\b(?:twice|every)\b/i)
+        card.mark_paycheck_unclear(field)
+        @card_touched = true
+        return Plan.new(reply: MiaSetupCardReply::PAYCHECK_FREQUENCY_QUESTION, update_text: nil, continues: false, next_field: field, work_out: field)
+      end
+      card.set_paycheck_cadence(field, ParticipantMessageReader.stated_cadence(@message))
+      proposal = card.propose_monthly(field)
+      return unless proposal
+
+      @card_touched = true
+      Plan.new(reply: [ update_text.presence, MiaSetupCardReply.working(proposal) ].compact.join(" "), update_text: nil, continues: false, next_field: field)
     end
 
     def help_plan(field, next_field)
@@ -111,9 +178,20 @@ module HouseholdFinance
     end
 
     def compose(lead, next_field, asked:)
-      closing = next_field ? MiaSetupCardReply.question(next_field, card: card, previous: asked) : finish_text
-      first_save = "Nothing saves until you tap Apply." if @card_touched && !card_draft
+      return lead if card.updates.any? { |update| update.action.in?(%i[no_breakdown combined too_long]) }
+      closing = repeat_working(next_field, asked) || (next_field ? MiaSetupCardReply.question(next_field, card: card, previous: asked) : finish_text)
+      first_save = "Nothing saves until you tap Apply." if @card_touched && !card_draft && next_field
       [ lead.presence, first_save, closing ].compact.join(" ")
+    end
+
+    # Asking the same unanswerable question twice is the loop; the working ends it.
+    def repeat_working(next_field, asked)
+      return unless next_field && next_field == asked && card.updates.none? { |update| update.field == next_field }
+      proposal = card.propose_monthly(next_field)
+      return unless proposal
+
+      @card_touched = true
+      MiaSetupCardReply.working(proposal)
     end
 
     def finish_text
@@ -130,10 +208,11 @@ module HouseholdFinance
       field.in?(MiaSetupCard::FIELDS) && @status.missing_field_keys.include?(field) && !card.field_known?(field)
     end
 
-    # A row she just started and left unfinished comes before a new question.
+    # A row she just started and left unfinished comes before a new question,
+    # unless she skipped it or just said she doesn't know the minimum.
     def next_open_field(new_skips)
-      open = (@status.missing_field_keys - Array(@household.setup_skipped_fields) - new_skips).reject { |field| card.field_known?(field) }
-      card.unresolved_field_keys.first || open.first
+      except = card.updates.any? { |update| update.field == MiaSetupCard::DEBT_FIELD && update.action == :added && update.cents.nil? } && @message.match?(UNKNOWN_MINIMUM) ? [ MiaSetupCard::DEBT_FIELD ] : []
+      self.class.next_open_field(@household, card, new_skips: new_skips, status: @status, except: except)
     end
 
     def persist_skips

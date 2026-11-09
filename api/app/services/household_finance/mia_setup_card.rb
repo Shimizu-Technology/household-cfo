@@ -18,6 +18,7 @@ module HouseholdFinance
     CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck" }.freeze
 
     NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long].freeze
+    PAYCHECKS_A_YEAR = { "weekly" => 52, "biweekly" => 26, "yearly" => 1 }.freeze
     PLACEHOLDER_DEBT = "Debt payments".freeze
 
     Update = Data.define(:field, :action, :label, :cents, :note) do
@@ -69,10 +70,56 @@ module HouseholdFinance
     def carry_parts_from(previous_state)
       saved = saved_totals
       previous_state.to_h["fields"].to_h.slice(*MONEY_FIELDS).each do |field, value|
+        next if @carried[field]
         parts = Array(value["parts"]).select { |part| part["counted"] }
         next unless parts.any? && saved[field] && parts.sum { |part| part["cents"].to_i } == saved[field]
         @carried[field] = parts
       end
+    end
+
+    # The bills she can change by name once setup is done.
+    def saved_bill_labels
+      %w[fixed_expenses flexible_spend].select { |field| saved_totals[field] }.index_with { |field| Array(@carried[field]).map { |part| part["label"] } }
+    end
+
+    # A figure that isn't monthly can be worked out, but only she can count it.
+    def proposable_part(field)
+      Array(fields.dig(field, "parts")).find { |part| !part["counted"] && part["stated_cents"] && PAYCHECKS_A_YEAR.key?(part["cadence"]) }
+    end
+
+    def propose_monthly(field)
+      part = proposable_part(field)
+      return unless part
+      times = PAYCHECKS_A_YEAR.fetch(part["cadence"])
+      monthly = ((part["stated_cents"] * times / 12.0) / 100).round * 100
+      part["proposed_cents"] = monthly
+      part["note"] = "#{stated_note(part['stated_cents'], part['cadence'])}, about #{money(monthly)} a month if that's right"
+      { stated_cents: part["stated_cents"], cadence: part["cadence"], times: times, monthly_cents: monthly }
+    end
+
+    def proposal_field = MONEY_FIELDS.find { |field| Array(fields.dig(field, "parts")).any? { |part| part["proposed_cents"] } }
+
+    def confirm_proposed_monthly(field)
+      part = Array(fields.dig(field, "parts")).find { |row| row["proposed_cents"] }
+      return unless part
+      part.replace(part.except("proposed_cents").merge("cents" => part["proposed_cents"], "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil))
+      rebase(field)
+      updates << Update.new(field: field, action: :changed, label: part["label"], cents: part["cents"])
+    end
+
+    # A paycheck amount given before she has said how often it comes.
+    def set_paycheck_cadence(field, cadence)
+      part = Array(fields.dig(field, "parts")).find { |row| !row["counted"] && row["stated_cents"] }
+      return unless part && cadence
+      part.replace(part.merge("cadence" => cadence, "note" => stated_note(part["stated_cents"], cadence)))
+      rebase(field)
+    end
+
+    def mark_paycheck_unclear(field)
+      part = Array(fields.dig(field, "parts")).find { |row| row["counted"] && row["kind"] == "total" }
+      return unless part
+      cents = part["cents"]
+      fields[field] = { "parts" => [ money_part({ "label" => default_label(field), "amount_cents" => cents, "cadence" => "unclear" }) ] }
     end
 
     def apply_changes(changes)
@@ -243,7 +290,7 @@ module HouseholdFinance
         new_part["id"] = match["id"]
         state["parts"][index] = new_part
       elsif entry["op"] == "replace" && saved_totals[field] && existing.none? { |part| part["kind"] != "saved_total" }
-        fields.delete(field) if state["parts"].empty?
+        fields.delete(field)
         return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
       else
         state["parts"] << new_part
@@ -257,6 +304,10 @@ module HouseholdFinance
       existing = carried_or_saved_parts(field, state)
       match = matching_part(existing, label, exact: false)
       unless match
+        if saved_totals[field] && existing.none? { |part| part["kind"] != "saved_total" }
+          fields.delete(field)
+          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
+        end
         fields.delete(field) if state["parts"].empty?
         return updates << Update.new(field: field, action: :not_found, label: label)
       end

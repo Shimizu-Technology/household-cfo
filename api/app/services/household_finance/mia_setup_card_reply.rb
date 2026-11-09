@@ -49,6 +49,16 @@ module HouseholdFinance
       previous == field ? variants.last : variants.first
     end
 
+    PAYCHECK_QUESTION = "Sure, let's work it out. About how much is one paycheck after taxes, and how often do you get it: every week, every two weeks, or twice a month?".freeze
+    PAYCHECK_FREQUENCY_QUESTION = "How often do you get that paycheck: every week, every two weeks, or twice a month?".freeze
+    CADENCE_PHRASES = { "weekly" => "Paid every week is 52 paychecks a year", "biweekly" => "Paid every two weeks is 26 paychecks a year", "yearly" => "Spread over a year" }.freeze
+
+    def working(proposal)
+      stated, monthly = money(proposal[:stated_cents]), money(proposal[:monthly_cents])
+      sum = proposal[:times] == 1 ? "#{stated} ÷ 12" : "#{stated} × #{proposal[:times]} ÷ 12"
+      "#{CADENCE_PHRASES.fetch(proposal[:cadence])}, so #{sum} comes to about #{monthly} a month. I put it on your card but didn't count it yet. Should I use #{monthly}, or is a usual month different?"
+    end
+
     def finished(card)
       card ? "That's everything I need. Look over your card and tap Apply when it's right." : nil
     end

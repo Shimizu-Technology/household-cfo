@@ -18,6 +18,50 @@ module HouseholdFinance
       message.to_s.match?(/\b(?:all good now|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now|(?:i|we) figured it out|(?:i|we)(?: am| are|['’]m|['’]re|m|re) (?:okay|ok|safe) now|(?:i|we) (?:am|are) safe)\b/i)
     end
 
+    # Carrying on with setup, in her words. "i cant keep going" must never match.
+    SETUP_RESUME = /\b(?:lets?|let['’]s|lemme|can we|could we|ok(?:ay)?|want to|wanna|ready to)\s+(?:pls\s+|please\s+|just\s+)?(?:keep\s+go\w*|continue|carry\s+on|go\s+on|finish|get\s+back|go\s+back|pick\s+(?:this|it)\s+back\s+up)\b|\b(?:finish|continue|resume)\s+(?:the\s+|my\s+|our\s+|this\s+)?setup\b/i
+    SETUP_FIELD_WORDS = /\b(?:month|monthly|week|weeks|year|paycheck|check|checks|income|salary|bills?|rent|debts?|loans?|spend\w*|groceries)\b/i
+
+    # Words that say the problem actually moved, as opposed to waving it away.
+    RECOVERY_EVIDENCE = /\b(?:now|better|helping|helped|support\w*|sorted|settled|figured|worked out|got (?:food|help)|covered)\b/i
+    BRUSH_OFF = /\b(?:fine|okay|ok|alright|all right|whatever|tired|nvm|never ?mind|don['’]?t worry|dont worry|no worries)\b/i
+
+    def setup_resume?(message) = message.to_s.match?(SETUP_RESUME)
+
+    # Setup information she actually gave, which is what ends a care topic. A
+    # bare number may be the answer to a care question, so it needs a sign that
+    # it belongs to setup.
+    def setup_content?(message, reading)
+      changes = reading.setup_changes.to_h
+      return false if changes.empty?
+      return true if setup_resume?(message) || Array(changes["skips"]).any?
+      said = reading.care_status == "new_topic"
+      return true if changes.values_at("household_name", "primary_goal").any?(&:present?) && (said || message.to_s.match?(/\b(?:goal|name|call (?:us|it))\b/i))
+
+      [ *MiaSetupCard::MONEY_FIELDS, MiaSetupCard::DEBT_FIELD ].any? do |field|
+        change = changes[field].to_h
+        change["none"] || Array(change["parts"]).any? || (change["total"].present? && (said || message.to_s.match?(SETUP_FIELD_WORDS)))
+      end
+    end
+
+    def brush_off?(message)
+      text = message.to_s
+      text.split.length <= 10 && !text.match?(/\d/) && text.match?(BRUSH_OFF) && !text.match?(RECOVERY_EVIDENCE) && !explicit_recovery?(text)
+    end
+
+    # The close repeats only what she said: thanks earns "You're welcome", and
+    # someone helping earns "support".
+    def closing_reply(message)
+      text = message.to_s
+      return if brush_off?(text)
+      thanks = text.match?(ConversationFollowupResolver::GRATITUDE_PATTERN)
+      support = text.match?(/\b(?:help\w*|support\w*|cousin|sister|brother|mom|dad|family|friend|coach)\b/i)
+      return "I'm glad you have support and things feel more settled. You're welcome, and I'm here when you're ready." if thanks && support
+      return "You're welcome, and I'm here when you're ready." if thanks
+
+      "I'm glad things feel more settled. I'm here when you're ready."
+    end
+
     def scenario_current_only?(history: [], context: {})
       return true if ParticipantMessageReader::Current.scenario_current_only
       conversation = context.to_h.deep_symbolize_keys[:conversation].to_h

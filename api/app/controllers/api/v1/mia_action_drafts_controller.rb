@@ -20,6 +20,7 @@ module Api
             current_household.update!(setup_skipped_fields: Array(current_household.setup_skipped_fields) - [ params[:field].to_s ]) if params[:action_name].to_s == "set"
           end
           HouseholdFinance::MiaSetupCardDraft.new(current_household, user: current_user, card: card).sync!(@draft)
+          advance_setup_question(card)
         end
         render json: { mia_action_draft: serialize_action_draft(@draft.reload), workspace: workspace_payload_for(@draft.year) }
       rescue ArgumentError => error
@@ -130,6 +131,17 @@ module Api
       rescue StandardError => e
         Rails.logger.warn("Setup card rows were not carried draft_id=#{draft&.id}: #{e.class}: #{e.message}")
         nil
+      end
+
+      # A row she just filled in is no longer the question waiting for an answer.
+      def advance_setup_question(card)
+        session = current_chat_session
+        asked = HouseholdFinance::MiaSetupCardTurn.active_field(session)
+        return unless asked
+        household = current_household.reload
+        return if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
+
+        session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
       end
 
       def carried_setup_card(carried) = carried && HouseholdFinance::MiaSetupCard.new(carried.household, state: carried.metadata["setup_card"])

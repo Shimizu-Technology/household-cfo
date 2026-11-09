@@ -1,0 +1,398 @@
+require "test_helper"
+require_relative "../support/savings_challenge_test_support"
+
+# Findings from final QA 5: care that wouldn't let setup resume, a closing line
+# with nobody closing, one-bill changes after Apply, and setup loops.
+class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
+  include SavingsChallengeTestSupport
+
+  EMPTY_MONEY = { none: false, total_amount: "", total_cadence: "", total_count: "", total_source: "", parts: [] }.freeze
+  EMPTY_DEBT = { none: false, total_amount: "", total_source: "", parts: [] }.freeze
+
+  setup do
+    @user = User.create!(clerk_id: "qa5_#{SecureRandom.hex(8)}", email: "qa5-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
+    @household = HouseholdFinance::WorkspaceResolver.new(@user).household
+    @old_key = ENV["OPENROUTER_API_KEY"]
+    ENV["OPENROUTER_API_KEY"] = ""
+  end
+  teardown { ENV["OPENROUTER_API_KEY"] = @old_key }
+
+  def changes(**over)
+    { household_name: "", primary_goal: "", primary_income: EMPTY_MONEY, fixed_expenses: EMPTY_MONEY, flexible_spend: EMPTY_MONEY,
+      debt_payment: EMPTY_DEBT, skips: [], help_topic: "", work_out: false, confirm_monthly: false }.merge(over)
+  end
+
+  def read(care: "none", care_status: "none", question: false, facts: [], setup: changes)
+    { care: care, facts: facts, question: question, care_status: care_status, spending_preferences: [], setup_changes: setup }
+  end
+
+  def legacy(**values)
+    { care: "none", care_status: "none", facts: [], question: false, correction: false, spending_preferences: [],
+      setup_answer: { field: "none", value: "" }, setup_details: { field: "", cadence: "", count: "", partial: true, components: [], edit: { operation: "", item: "", amount: "", source: "" } } }.merge(values)
+  end
+
+  def part(op, label, amount, cadence: "monthly", source: nil)
+    { op: op, label: label, amount: amount, cadence: cadence, count: "", source: source || [ label, amount ].join(" ") }
+  end
+
+  def money(**values) = EMPTY_MONEY.merge(values)
+  def debts(**values) = EMPTY_DEBT.merge(values)
+  def debt(name, minimum, source:) = { op: "add", name: name, minimum: minimum, balance: "", source: source }
+
+  def auth
+    { "Authorization" => "Bearer test_token_#{@user.id}" }.tap { |value| value["X-Cohort-Id"] = @savings_cohort.id.to_s if @savings_cohort }
+  end
+
+  def say(message, data, status: :created)
+    klass = HouseholdFinance::ParticipantMessageReader
+    original = klass.method(:call)
+    captured = nil
+    klass.define_singleton_method(:call) do |**options|
+      captured = options
+      new(**options.merge(transport: ->(_payload) { JSON.generate(data) })).call
+    end
+    post "/api/v1/mia/messages", params: { message: message }, headers: auth, as: :json
+    assert_response status
+    @last_reader_options = captured
+    response.parsed_body
+  ensure
+    klass.define_singleton_method(:call, original)
+  end
+
+  def text(body) = body.dig("assistant_message", "content")
+  def card_of(body) = body.dig("budget", "annual_plan", "pending_mia_action_drafts").to_a.find { |draft| draft["setup_card"] }
+  def row(body, key) = card_of(body).dig("setup_card", "rows").find { |item| item["key"] == key }
+  def session = @household.chat_sessions.order(:id).last
+  def care_topic = session.active_topic.to_h["type"] == "care"
+
+  def apply(draft)
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", params: {}, headers: auth.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :success
+    response.parsed_body
+  end
+
+  def patch_card(draft, **params)
+    patch "/api/v1/mia_action_drafts/#{draft.fetch('id')}/setup_card", params: params, headers: auth, as: :json
+    assert_response :success
+    response.parsed_body
+  end
+
+  def start_care
+    say("Help me set up my household", read)
+    say("sorry my husband just lost his job yesterday n rent is due friday its 1100, i dont know what were gonna do", read(care: "hardship", care_status: "none"))
+    assert care_topic
+  end
+
+  # F1
+  test "continuing setup after hardship releases care and the answer reaches the card" do
+    start_care
+    message = "ok lets keep goin w this, its only my check now, 2400 a month"
+    body = say(message, read(care_status: "ongoing", setup: changes(primary_income: money(total_amount: "2400", total_cadence: "monthly", total_source: "its only my check now, 2400 a month"))))
+    assert_not care_topic
+    assert_equal 240_000, row(body, "primary_income")["total_cents"]
+    assert_match(/Income: \$2,400 a month/, text(body))
+    refute_match(/landlord/i, text(body))
+
+    bills = "rent is 1100, power 150, phone 60. i dont have cable"
+    body = say(bills, read(care_status: "ongoing", setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1100", source: "rent is 1100"), part("add", "power", "150"), part("add", "phone", "60") ]))))
+    assert_equal 131_000, row(body, "fixed_expenses")["total_cents"]
+  end
+
+  test "named debts after hardship land on the card, with an unknown minimum kept" do
+    start_care
+    message = "theres the car 240 n a personal loan i dont know the min"
+    body = say(message, read(care_status: "ongoing", setup: changes(debt_payment: debts(parts: [ debt("car", "240", source: "the car 240"), debt("personal loan", "", source: "a personal loan i dont know the min") ]))))
+    assert_not care_topic
+    debt_row = row(body, "debt_payment")
+    assert_equal %w[Car Personal\ loan], debt_row["parts"].map { |item| item["label"] }
+    assert_equal 24_000, debt_row["parts"].first["cents"]
+    assert_nil debt_row["parts"].last["cents"]
+    assert_match(/Added car \$240/, text(body))
+    refute_match(/monthly minimum on personal loan/i, text(body), "she just said she doesn't know it")
+  end
+
+  test "a skip during care is honoured and is not asked again" do
+    say("Help me set up my household", read)
+    say("I bring home 3000", read(setup: changes(primary_income: money(total_amount: "3000", total_cadence: "monthly", total_source: "I bring home 3000"))))
+    say("sorry my husband just lost his job yesterday n rent is due friday its 1100", read(care: "hardship"))
+    body = say("skip the groceries part i cant think rn", read(care_status: "ongoing", setup: changes(skips: [ "flexible_spend" ])))
+    assert_not care_topic
+    assert_equal [ "flexible_spend" ], @household.reload.setup_skipped_fields
+    assert_match(/leave everyday spending for later/, text(body))
+  end
+
+  test "saying you want to carry on with nothing else asks the next question" do
+    start_care
+    body = say("ok lets keep going", read(care_status: "ongoing"))
+    assert_not care_topic
+    assert_match(/\?\z/, text(body))
+    refute_match(/landlord|food/i, text(body))
+  end
+
+  test "an answer to a care question stays in care and writes nothing" do
+    start_care
+    body = say("we can do maybe 400 by friday", read(care_status: "ongoing"))
+    assert care_topic
+    assert_nil card_of(body)
+    assert_equal 0, @household.mia_action_drafts.pending.count
+  end
+
+  test "a bare amount during care stays in care even if the reader read it as income" do
+    start_care
+    say("400", read(care_status: "ongoing", setup: changes(primary_income: money(total_amount: "400", total_cadence: "monthly", total_source: "400"))))
+    assert care_topic
+    assert_equal 0, @household.mia_action_drafts.pending.count
+  end
+
+  test "a new disclosure alongside setup words stays in care with the card untouched" do
+    start_care
+    say("my husband left us last night too, rent is 1100", read(care: "hardship", care_status: "ongoing", setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1100", source: "rent is 1100") ]))))
+    assert care_topic
+    assert_equal 0, @household.mia_action_drafts.pending.count
+  end
+
+  test "a crisis topic is not released by setup content" do
+    say("Help me set up my household", read)
+    say("i dont know if i can keep going, i dont want to be here", read(care: "crisis"))
+    assert_equal "crisis", session.active_topic["care_kind"]
+    say("ok lets keep going, 2400 a month", read(care_status: "ongoing", setup: changes(primary_income: money(total_amount: "2400", total_cadence: "monthly", total_source: "2400 a month"))))
+    assert_equal "crisis", session.active_topic["care_kind"]
+    assert_equal 0, @household.mia_action_drafts.pending.count
+  end
+
+  # F2
+  test "a brush-off after a food disclosure stays in care and is not closed" do
+    say("havent eaten today so the kids could, thats how it is this week", read(care: "hardship"))
+    body = say("its fine im just tired", read(care_status: "resolved"))
+    assert care_topic
+    refute_match(/glad you have support|You're welcome/, text(body))
+  end
+
+  test "a goal with recovery is handled, not closed" do
+    say("Help me set up my household", read)
+    say("i dont want to be here", read(care: "crisis"))
+    body = say("im ok now. goal is just to get caught up", read(care_status: "resolved", setup: changes(primary_goal: "just to get caught up")))
+    refute_match(/You're welcome|glad you have support/, text(body))
+    assert_equal "just to get caught up", row(body, "primary_goal")["value_text"]
+  end
+
+  test "the warm close keeps to what she actually said" do
+    say("Help me set up my household", read)
+    say("my mom died yesterday", read(care: "grief"))
+    body = say("my cousin is helpin w the funeral now, thank you", read(care_status: "resolved"))
+    assert_match(/glad you have support/, text(body))
+    assert_match(/You're welcome/, text(body))
+    assert_not care_topic
+
+    say("my dad passed", read(care: "grief"))
+    body = say("im doing better now", read(care_status: "resolved"))
+    refute_match(/You're welcome|support/, text(body))
+    assert_match(/settled|better/, text(body))
+  end
+
+  # F3
+  def finish_setup
+    body = say("taitano. get ahead. 5200 income. rent 1650 power 180 insurance 120. everyday 600. no debts", read(setup: changes(household_name: "taitano", primary_goal: "get ahead", primary_income: money(total_amount: "5200", total_cadence: "monthly", total_source: "5200 income"),
+      fixed_expenses: money(parts: [ part("add", "rent", "1650"), part("add", "power", "180"), part("add", "insurance", "120") ]),
+      flexible_spend: money(total_amount: "600", total_cadence: "monthly", total_source: "everyday 600"), debt_payment: debts(none: true))))
+    apply(card_of(body))
+    assert_equal [], HouseholdFinance::SetupStatus.new(@household.reload).missing_field_keys
+  end
+
+  def bill_edit(operation, item, amount, field: "fixed_expenses", source: nil)
+    legacy(correction: true, setup_details: { field: field, cadence: "", count: "", partial: true, components: [], edit: { operation: operation, item: item, amount: amount, source: source || item } })
+  end
+
+  test "removing a saved bill after Apply reopens the breakdown on a new card" do
+    finish_setup
+    body = say("we cancelled the insurance so take that off", bill_edit("remove", "insurance", "", source: "we cancelled the insurance"))
+    assert_includes @last_reader_options[:saved_bills]["fixed_expenses"], "Insurance"
+    fixed = row(body, "fixed_expenses")
+    assert_equal 183_000, fixed["total_cents"]
+    assert_match(/Took out insurance/, text(body))
+    assert_equal 195_000, HouseholdFinance::DataPresenter.new(@household.reload, ensure_plan: false).setup_values[:fixed_expenses].to_f * 100
+    apply(card_of(body))
+    assert_equal 1830.0, HouseholdFinance::DataPresenter.new(@household.reload, ensure_plan: false).setup_values[:fixed_expenses].to_f
+  end
+
+  test "changing a saved bill after Apply reopens the breakdown and a follow-up lands on the same card" do
+    finish_setup
+    body = say("oh n the rent went up to 1700", bill_edit("replace", "rent", "1700", source: "the rent went up to 1700"))
+    assert_equal 200_000, row(body, "fixed_expenses")["total_cents"]
+    assert_match(/Changed rent to \$1,700/, text(body))
+    card = card_of(body)
+    assert_equal "saved", row(body, "primary_income")["status"]
+
+    second = say("we cancelled the insurance so take that off", read(setup: changes(fixed_expenses: money(parts: [ { op: "remove", label: "insurance", amount: "", cadence: "", count: "", source: "we cancelled the insurance" } ]))))
+    assert_equal card["id"], card_of(second)["id"]
+    assert_equal 188_000, row(second, "fixed_expenses")["total_cents"]
+  end
+
+  test "a breakdown survives a later card that only touched something else" do
+    finish_setup
+    body = say("the rent went up to 1700", bill_edit("replace", "rent", "1700", source: "the rent went up to 1700"))
+    apply(card_of(body))
+    assert_equal 2000.0, HouseholdFinance::DataPresenter.new(@household.reload, ensure_plan: false).setup_values[:fixed_expenses].to_f
+    body = say("take the power off", bill_edit("remove", "power", "", source: "take the power off"))
+    assert_equal 182_000, row(body, "fixed_expenses")["total_cents"]
+  end
+
+  test "with no breakdown Mia asks for the new total plainly and promises nothing" do
+    finish_setup
+    @household.mia_action_drafts.where("metadata ? 'setup_card'").find_each { |draft| draft.update!(metadata: draft.metadata.except("setup_card")) }
+    body = say("we cancelled the insurance so take that off", bill_edit("remove", "insurance", "", source: "we cancelled the insurance"))
+    assert_nil card_of(body)
+    assert_match(/What should the new total be\?/, text(body))
+    refute_match(/gone through|tap Apply|Look over your card/, text(body))
+    assert_equal 0, @household.mia_action_drafts.pending.count
+    body = say("the rent went up to 1700", bill_edit("replace", "rent", "1700", source: "the rent went up to 1700"))
+    assert_match(/What should the new total be\?/, text(body))
+  end
+
+  # F4
+  test "a row edit moves the last-asked field to the next open one" do
+    say("Help me set up my household", read)
+    first = say("i get 1950 every 2 weeks after taxes", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "biweekly", total_source: "i get 1950 every 2 weeks after taxes"))))
+    assert_equal "primary_income", session.reload.active_topic["setup_card_field"]
+    income = row(first, "primary_income")["parts"].first
+    patch_card(card_of(first), field: "primary_income", action_name: "set", part_id: income["id"], value: "4225")
+    assert_not_equal "primary_income", session.reload.active_topic["setup_card_field"]
+    assert_equal "household_name", session.reload.active_topic["setup_card_field"]
+
+    body = say("not sure, maybe 700 or 800", read(setup: changes(flexible_spend: money(total_amount: "800", total_cadence: "unclear", total_source: "maybe 700 or 800"))))
+    assert_not_equal "primary_income", @last_reader_options[:setup_context][:last_asked]
+    assert_equal 422_500, row(body, "primary_income")["total_cents"]
+  end
+
+  test "an edit to a different row leaves the open question alone" do
+    say("Help me set up my household", read)
+    first = say("we are the reyes, rent 1000", read(setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1000") ]))))
+    asked = session.reload.active_topic["setup_card_field"]
+    patch_card(card_of(first), field: "primary_goal", action_name: "skip")
+    assert_equal asked, session.reload.active_topic["setup_card_field"]
+  end
+
+  # F5
+  def biweekly_income
+    say("Help me set up my household", read)
+    say("i get 1950 every 2 weeks after taxes", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "biweekly", total_source: "i get 1950 every 2 weeks after taxes"))))
+  end
+
+  test "asking for help shows the working, needs confirmation, and a yes uses it" do
+    biweekly_income
+    body = say("yeah help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    assert_match(/\$1,950/, text(body))
+    assert_match(/26/, text(body))
+    assert_match(/\$4,225/, text(body))
+    income = row(body, "primary_income")
+    assert_equal "needs_monthly", income["status"]
+    assert_nil income["total_cents"]
+    assert_match(/\$4,225/, income["parts"].first["note"])
+    assert_equal 1, text(body).count("?")
+
+    yes = say("yeah use that", read(setup: changes(confirm_monthly: true)))
+    confirmed = row(yes, "primary_income")
+    assert_equal "entered", confirmed["status"]
+    assert_equal 422_500, confirmed["total_cents"]
+  end
+
+  test "a plain yes with no reader flag confirms the working, and a number replaces it" do
+    biweekly_income
+    say("yeah help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    yes = say("yep", read(setup: changes))
+    assert_equal 422_500, row(yes, "primary_income")["total_cents"]
+  end
+
+  test "the same question is not asked again when she cannot answer it" do
+    biweekly_income
+    body = say("idk how to figure that out", read(setup: changes))
+    refute_match(/I only have it as/, text(body))
+    assert_match(/\$4,225/, text(body))
+  end
+
+  test "with nothing to work from Mia asks the amount and how often first" do
+    say("Help me set up my household", read)
+    say("hi", read(setup: changes))
+    body = say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    assert_match(/paycheck/i, text(body))
+    assert_match(/how often/i, text(body))
+
+    amount = say("1950", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "monthly", total_source: "1950"))))
+    assert_nil row(amount, "primary_income")["total_cents"], "a paycheck is not a month"
+    assert_match(/how often/i, text(amount))
+
+    how_often = say("every 2 weeks", read(setup: changes))
+    assert_match(/\$4,225/, text(how_often))
+    assert_equal "needs_monthly", row(how_often, "primary_income")["status"]
+  end
+
+  test "weekly help uses the year, not four weeks" do
+    say("Help me set up my household", read)
+    say("i get 800 a week", read(setup: changes(primary_income: money(total_amount: "800", total_cadence: "weekly", total_source: "i get 800 a week"))))
+    body = say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    assert_match(/52/, text(body))
+    assert_match(/\$3,467/, text(body))
+  end
+
+  test "a definition question still gets the definition" do
+    say("Help me set up my household", read)
+    say("i get 1950 every 2 weeks", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "biweekly", total_source: "i get 1950 every 2 weeks"))))
+    body = say("whats take home mean", read(setup: changes(help_topic: "primary_income")))
+    assert_match(/after taxes/, text(body))
+    refute_match(/26/, text(body))
+  end
+
+  test "skipping an unresolved row stops asking about it" do
+    biweekly_income
+    body = say("skip that for now", read(setup: changes(skips: [ "primary_income" ])))
+    refute_match(/I only have it as/, text(body))
+    assert_includes @household.reload.setup_skipped_fields, "primary_income"
+  end
+
+  # F14
+  test "a real question about the challenge after grief gets a real answer" do
+    setup_savings_context
+    with_savings_runtime { savings_enroll }
+    @user, @household = @savings_user, @savings_household
+    say("my dad passed friday n the rosary n food is gonna be like 900, im not sure im up for this challenge rn", legacy(care: "grief"))
+    body = say("how do i pause the challenge tho", legacy(care_status: "ongoing", question: true))
+    assert_match(/isn't a pause|can't pause/i, text(body))
+    assert_match(/program team/i, text(body))
+    refute_match(/Start with one purchase/, text(body))
+    assert_not care_topic
+  end
+
+  test "asking to leave the challenge gets a plain answer, and an ordinary question does not" do
+    setup_savings_context
+    with_savings_runtime { savings_enroll }
+    @user, @household = @savings_user, @savings_household
+    body = say("how do i quit this challenge", legacy(question: true))
+    assert_match(/program team/i, text(body))
+    other = say("how much did i save so far", legacy(question: true))
+    refute_match(/program team/i, text(other))
+  end
+
+  # Minors
+  test "a monthly payment is never read as a purchase price" do
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: "hey should i finance a new iphone, 45 a month, money tight",
+      transport: ->(_) { legacy(question: true, reply_intent: "purchase_caution", purchase_question: { amount: "45", item: "iphone" }).to_json })
+    assert_equal "", reading.purchase_question["amount"]
+    assert_equal "iphone", reading.purchase_question["item"]
+  end
+
+  test "a one-off price stays a price" do
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: "can i get a 650 tv on the card",
+      transport: ->(_) { legacy(question: true, purchase_question: { amount: "650", item: "tv" }).to_json })
+    assert_equal "650", reading.purchase_question["amount"]
+  end
+
+  test "a reused review card says so in plain words" do
+    body = say("rent 1000", read(setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1000") ]))))
+    apply(card_of(body))
+    draft = @household.mia_action_drafts.find(card_of(body)["id"])
+    result = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call(idempotency_key: SecureRandom.uuid)
+    assert_not result.success?
+    assert_no_match(/Mia action draft/, result.errors.join)
+    assert_match(/review card/i, result.errors.join)
+  end
+end

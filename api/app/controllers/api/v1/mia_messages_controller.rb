@@ -167,7 +167,8 @@ module Api
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
           @setup_card_context = setup_card_reader_context(session)
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
+          saved_bills = saved_bills_reader_context(session) unless @setup_card_context
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, saved_bills: saved_bills, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
@@ -189,13 +190,17 @@ module Api
             care_current.recent_care = @care_topic.fetch("care_kind")
             return render_care_response(session, content, history: history, topic: @care_topic, message_request: message_request)
           end
-          if prior_care && @care_topic.nil? && @participant_reading.care_status == "resolved" && !@participant_reading.question && @participant_reading.facts.empty? && @participant_reading.goal_change.empty? && @participant_reading.savings_correction.empty? && @participant_reading.answer_field.nil?
-            return render_household_read_response(session, content, "I'm glad you have support and things feel more settled. You're welcome, and I'm here when you're ready.", message_request: message_request)
+          if prior_care && @care_topic.nil? && @participant_reading.care_status == "resolved" && !@participant_reading.question && @participant_reading.facts.empty? && @participant_reading.goal_change.empty? && @participant_reading.savings_correction.empty? && @participant_reading.answer_field.nil? && !HouseholdFinance::ParticipantCare.setup_content?(content, @participant_reading) && (closing = HouseholdFinance::ParticipantCare.closing_reply(content))
+            return render_household_read_response(session, content, closing, message_request: message_request)
           end
           care_current.recent_care = nil unless @care_topic
           care_current.care_topic = nil unless @care_topic
-          if @setup_card_context && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
-            setup_card_turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session, reading: @participant_reading)
+          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && (help = SavingsChallenge::ParticipantHelp.answer(content))
+            return render_household_read_response(session, content, help, message_request: message_request)
+          end
+          if (@setup_card_context || @participant_reading.setup_changes.present?) && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
+            setup_card_turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session, reading: @participant_reading, message: content,
+              resuming: prior_care && @care_topic.nil? && HouseholdFinance::ParticipantCare.setup_resume?(content))
             if setup_card_turn.plan && !setup_card_turn.plan.continues
               return render_setup_card_turn(session, content, setup_card_turn, message_request: message_request)
             end
@@ -639,6 +644,14 @@ module Api
           needs_clarification: false, clarification: "", topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
       end
 
+      # Once setup is done, one named bill can still change. Challenge
+      # participants keep their single household reviews.
+      def saved_bills_reader_context(session)
+        return if savings_program_selected?
+
+        HouseholdFinance::MiaSetupCardTurn.saved_bills(current_household, user: current_user, session: session)
+      end
+
       def setup_card_reader_context(session)
         return unless setup_card_mode?(session)
 
@@ -662,6 +675,8 @@ module Api
         card = @setup_card_turn ? @setup_card_turn.card : HouseholdFinance::MiaSetupCardTurn.load_card(current_household, user: current_user, session: session)
         question = HouseholdFinance::MiaSetupCardReply.question(field, card: card, previous: active) if field
         question = nil if field && HouseholdFinance::MiaSetupCardReply::QUESTIONS.fetch(field).any? { |variant| assistant_content.include?(variant) }
+        # One question per reply: the coach already asked one.
+        question = nil if assistant_content.to_s.rstrip.end_with?("?")
         [ @setup_card_turn&.plan&.update_text, assistant_content, question ].compact_blank.join(" ")
       end
 

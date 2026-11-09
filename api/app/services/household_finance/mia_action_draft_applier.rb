@@ -28,7 +28,7 @@ module HouseholdFinance
         ::Mia::ActionDraftScope.authorize!(draft, user: user, membership: @cohort_membership)
         existing = household.mia_action_draft_applications.find_by(user: user, idempotency_key: key)
         return replay_application(existing, request_fingerprint) if existing
-        raise ArgumentError, "Mia action draft is no longer available for review" unless draft.reviewable?
+        raise ArgumentError, "This review card was already used or canceled. Nothing else changed." unless draft.reviewable?
 
         items = draft.mia_action_items.lock.order(:position, :id).to_a
         selected = selected_items(items, selected_ids)
