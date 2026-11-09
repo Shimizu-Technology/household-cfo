@@ -19,14 +19,15 @@ module HouseholdFinance
     end
 
     # Carrying on with setup, in her words. "i cant keep going" must never match.
-    SETUP_RESUME = /\b(?:lets?|let['’]s|lemme|can we|could we|ok(?:ay)?|want to|wanna|ready to)\s+(?:pls\s+|please\s+|just\s+)?(?:keep\s+go\w*|continue|carry\s+on|go\s+on|finish|get\s+back|go\s+back|pick\s+(?:this|it)\s+back\s+up)\b|\b(?:finish|continue|resume)\s+(?:the\s+|my\s+|our\s+|this\s+)?setup\b/i
-    SETUP_FIELD_WORDS = /\b(?:month|monthly|week|weeks|year|paycheck|check|checks|income|salary|bills?|rent|debts?|loans?|spend\w*|groceries)\b/i
+    SETUP_RESUME = /\b(?:lets?|let['’]s|lemme|can we|could we|ok(?:ay)?|want to|wanna|ready to)\s+(?:pls\s+|please\s+|just\s+)?(?:keep\s+go\w*|continue|carry\s+on|go\s+on|finish|(?:get|go)\s+back\s+to\s+(?:the\s+|this\s+|my\s+)?(?:setup|this|it|numbers|bills?)|pick\s+(?:this|it)\s+back\s+up)\b|\b(?:finish|continue|resume)\s+(?:the\s+|my\s+|our\s+|this\s+)?setup\b/i
+    SETUP_NOT_RESUMING = /\b(?:can['’]?t|cant|cannot|don['’]?t|dont|won['’]?t|wont|never|not)\b[^.!?]{0,20}\b(?:keep|continue|carry|finish|go on)\b|\b(?:tomorrow|tmrw|later|another time)\b/i
+    SETUP_FIELD_WORDS = /\b(?:month|monthly|week|weeks|year|paychecks?|checks?|income|salary|bills?|rent|debts?|loans?|spend\w*|groceries)\b/i
 
     # Words that say the problem actually moved, as opposed to waving it away.
     RECOVERY_EVIDENCE = /\b(?:now|better|helping|helped|support\w*|sorted|settled|figured|worked out|got (?:food|help)|covered)\b/i
     BRUSH_OFF = /\b(?:fine|okay|ok|alright|all right|whatever|tired|nvm|never ?mind|don['’]?t worry|dont worry|no worries)\b/i
 
-    def setup_resume?(message) = message.to_s.match?(SETUP_RESUME)
+    def setup_resume?(message) = message.to_s.match?(SETUP_RESUME) && !message.to_s.match?(SETUP_NOT_RESUMING)
 
     # Setup information she actually gave, which is what ends a care topic. A
     # bare number may be the answer to a care question, so it needs a sign that

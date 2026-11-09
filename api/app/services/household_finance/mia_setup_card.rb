@@ -128,9 +128,22 @@ module HouseholdFinance
 
     def mark_paycheck_unclear(field)
       part = Array(fields.dig(field, "parts")).find { |row| row["counted"] && row["kind"] == "total" }
-      return unless part
+      return false unless part
       cents = part["cents"]
       fields[field] = { "parts" => [ money_part({ "label" => default_label(field), "amount_cents" => cents, "cadence" => "unclear" }) ] }
+      true
+    end
+
+    # Counted paychecks are plain multiplication of what she said, like a
+    # stated "2 paychecks of 1400".
+    def count_paychecks(field, count)
+      part = Array(fields.dig(field, "parts")).find { |row| !row["counted"] && row["stated_cents"] }
+      return unless part
+      cents = part["stated_cents"] * count
+      note = paycheck_note("count" => count, "amount_cents" => part["stated_cents"]) if count > 1
+      replace_with_total(field, cents, kind: "paychecks", note: note)
+      rebase(field)
+      Update.new(field: field, action: :total, cents: cents, note: note).tap { |update| updates << update }
     end
 
     def apply_changes(changes)

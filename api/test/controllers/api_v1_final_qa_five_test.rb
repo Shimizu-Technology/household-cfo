@@ -164,6 +164,15 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal 0, @household.mia_action_drafts.pending.count
   end
 
+  test "wanting to stop is never read as carrying on" do
+    [ "i dont want to continue", "i cant keep going", "can we continue tomorrow", "i wanna go back home" ].each do |message|
+      assert_not HouseholdFinance::ParticipantCare.setup_resume?(message), message
+    end
+    [ "ok lets keep goin w this", "can we pls finish the setup now", "lets continue", "ok lets get back to the setup" ].each do |message|
+      assert HouseholdFinance::ParticipantCare.setup_resume?(message), message
+    end
+  end
+
   # F2
   test "a brush-off after a food disclosure stays in care and is not closed" do
     say("havent eaten today so the kids could, thats how it is this week", read(care: "hardship"))
@@ -239,6 +248,21 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal 2000.0, HouseholdFinance::DataPresenter.new(@household.reload, ensure_plan: false).setup_values[:fixed_expenses].to_f
     body = say("take the power off", bill_edit("remove", "power", "", source: "take the power off"))
     assert_equal 182_000, row(body, "fixed_expenses")["total_cents"]
+  end
+
+  test "a question alongside a bill change keeps the change in the reply" do
+    finish_setup
+    data = bill_edit("replace", "rent", "1700", source: "the rent went up to 1700").merge(question: true)
+    narrator = HouseholdFinance::MiaNarrator
+    original = narrator.instance_method(:call)
+    narrator.define_method(:call) { "Your plan still has room." }
+    begin
+      body = say("the rent went up to 1700, how much is left now", data)
+      assert_match(/Changed rent to \$1,700/, text(body))
+      assert_equal 200_000, row(body, "fixed_expenses")["total_cents"]
+    ensure
+      narrator.define_method(:call, original)
+    end
   end
 
   test "with no breakdown Mia asks for the new total plainly and promises nothing" do
@@ -330,6 +354,34 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal "needs_monthly", row(how_often, "primary_income")["status"]
   end
 
+  test "twice a month after a paycheck amount is counted, and paychecks are not a lone amount" do
+    say("Help me set up my household", read)
+    say("hi", read(setup: changes))
+    say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    say("1950", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "monthly", total_source: "1950"))))
+    body = say("twice a month", read(setup: changes))
+    assert_equal 390_000, row(body, "primary_income")["total_cents"]
+    assert_match(/2 paychecks of \$1,950/, text(body))
+    assert_nil session.reload.active_topic["setup_card_work_out"]
+
+    @user = User.create!(clerk_id: "qa5b_#{SecureRandom.hex(8)}", email: "qa5b-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
+    @household = HouseholdFinance::WorkspaceResolver.new(@user).household
+    say("Help me set up my household", read)
+    say("hi", read(setup: changes))
+    say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    counted = say("2 paychecks of 1400", read(setup: changes(primary_income: money(total_amount: "1400", total_cadence: "per_paycheck", total_count: "2", total_source: "2 paychecks of 1400"))))
+    assert_equal 280_000, row(counted, "primary_income")["total_cents"]
+  end
+
+  test "a yes only confirms the figure Mia just asked about" do
+    biweekly_income
+    offered = say("yeah help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    assert_equal "primary_income", session.reload.active_topic["setup_card_field"]
+    session.update!(active_topic: session.active_topic.merge("setup_card_field" => "fixed_expenses"))
+    later = say("yes", read(setup: changes))
+    assert_equal "needs_monthly", row(later, "primary_income")["status"], offered.dig("assistant_message", "content")
+  end
+
   test "weekly help uses the year, not four weeks" do
     say("Help me set up my household", read)
     say("i get 800 a week", read(setup: changes(primary_income: money(total_amount: "800", total_cadence: "weekly", total_source: "i get 800 a week"))))
@@ -374,6 +426,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_match(/program team/i, text(body))
     other = say("how much did i save so far", legacy(question: true))
     refute_match(/program team/i, text(other))
+    assert_nil SavingsChallenge::ParticipantHelp.answer("how do i stop overspending during the challenge")
+    assert SavingsChallenge::ParticipantHelp.answer("how do i take a pause from the challenge tho")
   end
 
   # Minors
@@ -432,6 +486,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
       assert_equal :unbacked_change_claim, narrator.send(:narration_rejection_reason, claim), claim
     end
     assert_nil narrator.send(:narration_rejection_reason, "Thanks for telling me that.")
+    without_state = HouseholdFinance::MiaNarrator.new(user_message: "x", answer_packet: { kind: "budget_action", fallback_response: "fallback" }, api_key: "")
+    assert_equal :unbacked_change_claim, without_state.send(:narration_rejection_reason, "That change hasn't gone through yet.")
   end
 
   test "a merchant from another clause is still refused when two amounts are in play" do

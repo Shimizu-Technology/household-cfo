@@ -114,7 +114,7 @@ module HouseholdFinance
       changes = @reading.setup_changes
       return unless changes
       waiting_on = @active_topic["setup_card_work_out"].presence_in(MiaSetupCard::MONEY_FIELDS)
-      confirm_offered_monthly(changes)
+      confirm_offered_monthly(changes, asked)
       updates = card.apply_changes(changes.except("skips", "help_topic", "work_out", "confirm_monthly"))
       card.apply_preferences(@reading.spending_preferences)
       @card_touched = card.updates.any? { |update| !update.action.in?(MiaSetupCard::NOOP_ACTIONS) }
@@ -136,9 +136,10 @@ module HouseholdFinance
       Plan.new(reply: compose(@resuming ? RESUMED : KEEP_GOING, next_field, asked: asked), update_text: nil, continues: false, next_field: next_field)
     end
 
-    def confirm_offered_monthly(changes)
+    # Agreement only counts as an answer to the figure Mia just offered.
+    def confirm_offered_monthly(changes, asked)
       field = card.proposal_field
-      card.confirm_proposed_monthly(field) if field && (changes["confirm_monthly"] || @message.match?(BARE_YES))
+      card.confirm_proposed_monthly(field) if field && field == asked && (changes["confirm_monthly"] || @message.match?(BARE_YES))
     end
 
     def work_out_field(changes, asked)
@@ -159,10 +160,15 @@ module HouseholdFinance
     # She was asked for one paycheck and how often. A lone amount is never a
     # month, and the frequency can arrive in the next message.
     def paycheck_answer_plan(field, update_text, next_field)
-      if card.field_known?(field) && !@message.match?(ParticipantCare::SETUP_FIELD_WORDS) && !@message.match?(/\b(?:twice|every)\b/i)
-        card.mark_paycheck_unclear(field)
+      if card.field_known?(field) && !@message.match?(ParticipantCare::SETUP_FIELD_WORDS) && !@message.match?(/\b(?:twice|every)\b/i) && card.mark_paycheck_unclear(field)
         @card_touched = true
         return Plan.new(reply: MiaSetupCardReply::PAYCHECK_FREQUENCY_QUESTION, update_text: nil, continues: false, next_field: field, work_out: field)
+      end
+      if (count = paychecks_a_month) && (update = card.count_paychecks(field, count))
+        @card_touched = true
+        reply = MiaSetupCardReply.updated_text([ update ], card)
+        following = next_open_field([])
+        return Plan.new(reply: compose(reply, following, asked: field), update_text: reply, continues: false, next_field: following)
       end
       card.set_paycheck_cadence(field, ParticipantMessageReader.stated_cadence(@message))
       proposal = card.propose_monthly(field)
@@ -175,6 +181,11 @@ module HouseholdFinance
     def help_plan(field, next_field)
       question = MiaSetupCardReply.question(field, card: card, previous: nil)
       Plan.new(reply: "#{MiaSetupCardReply.help(field)} #{question}", update_text: nil, continues: false, next_field: next_field || field)
+    end
+
+    def paychecks_a_month
+      return 2 if @message.match?(/\b(?:twice|two times|2 ?x|2 times)\s+(?:a|per|each|every)\s+month\b/i)
+      1 if @message.match?(/\b(?:once\s+a\s+month|monthly|every\s+month)\b/i)
     end
 
     def compose(lead, next_field, asked:)

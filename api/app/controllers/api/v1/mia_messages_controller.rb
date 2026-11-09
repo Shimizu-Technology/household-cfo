@@ -289,7 +289,7 @@ module Api
         ).call
         intent_context[:available_product_modules] = module_guidance.context
         intent_context[:participant_reading] = @participant_reading
-        intent_context[:setup_card_open] = @setup_card_context.present?
+        intent_context[:setup_card_open] = @setup_card_context.present? || @setup_card_turn.present?
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -302,7 +302,7 @@ module Api
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
         end
-        intent_result = setup_card_coaching_turn(intent_result, content) if @setup_card_context && setup_write_intent?(intent_result)
+        intent_result = setup_card_coaching_turn(intent_result, content) if (@setup_card_context || @setup_card_turn) && setup_write_intent?(intent_result)
         allowed_household_intent = @savings_household_read ? ::Mia::HouseholdPlanRequest.allowed_read_intent?(intent_result) : ::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
         if @savings_household_request && intent_result && !allowed_household_intent
           return render_household_scope_clarification(session, content, message_request: message_request)
@@ -387,7 +387,7 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
-        assistant_content = setup_card_resumed_content(assistant_content, session, intent_result, content) if @setup_card_context
+        assistant_content = setup_card_resumed_content(assistant_content, session, intent_result, content) if @setup_card_context || @setup_card_turn
         assistant_content = append_persona_capability_boundary(content, assistant_content)
         assistant_content = append_prompt_injection_boundary(content, assistant_content)
         if @savings_household_request
