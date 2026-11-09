@@ -4,6 +4,8 @@ module HouseholdFinance
   class ParticipantCareState
     TTL = 48.hours
     REPORT_KINDS = %w[purchase set_aside withdrawal nothing_saved income].freeze
+    # How the product works is a different topic, whatever the care label says.
+    PRODUCT_QUESTION = /\b(?:pause|resume|leave|quit|stop|restart|withdraw|cancel)\b[^.!?]{0,40}\b(?:challenge|program|app)\b/i
 
     def initialize(session, persona_context_id: nil)
       @session, @persona_context_id = session, persona_context_id
@@ -39,7 +41,7 @@ module HouseholdFinance
       recovery = ParticipantCare.explicit_recovery?(message)
       recovered = !reading.available && recovery
       released = current.nil? && !ParticipantCare.followup?(message) &&
-        (recovered || report || reading.answer_field.present? || financial || MiaSetupGuide.setup_request?(message) || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
+        (recovered || report || reading.answer_field.present? || financial || (reading.question && message.match?(PRODUCT_QUESTION)) || MiaSetupGuide.setup_request?(message) || (reading.available && reading.care_status.in?(%w[resolved new_topic])))
       released = recovery if prior && prior["care_kind"] == "crisis"
       if released
         archive(prior) if prior
@@ -59,6 +61,14 @@ module HouseholdFinance
         "last_question" => Array(history).reverse.find { |row| row[:role].to_s == "assistant" }&.fetch(:content, "").to_s.last(700))
       @session.update!(active_topic: topic)
       topic
+    end
+
+    # A money question can end the topic before recovery is said out loud.
+    def recently_released?
+      Array(@session.open_topics).any? do |row|
+        topic = row.to_h.deep_stringify_keys
+        topic["type"] == "care" && topic["care_kind"] != "crisis" && (Time.zone.parse(topic["expires_at"].to_s) rescue Time.at(0)) > Time.current
+      end
     end
 
     def self.report?(message, reading)

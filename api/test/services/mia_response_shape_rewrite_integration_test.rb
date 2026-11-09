@@ -224,13 +224,14 @@ class MiaResponseShapeRewriteIntegrationTest < ActiveSupport::TestCase
     assert_includes attempts.last.fetch(:messages).last.fetch(:content), "3-4 sentences"
   end
 
-  test "unsafe original is not sent for a length rewrite" do
+  test "an unverified amount gets one repair and is never delivered" do
     requests = []
     with_provider_replies([ "Your income is $999. Check the plan. Check the bills. Check the costs. What next?" ], requests) do
       responder = Demo::MiaResponder.new(api_key: "test-key", persona: @persona)
       refute_includes responder.call(SAMPLE, context: Mia::PersonaPreviewer::PREVIEW_CONTEXT.to_json), "$999"
     end
-    assert_equal 1, requests.length
+    assert_equal 2, requests.length
+    assert_includes requests.last.fetch("messages").last.fetch("content"), "no dollar amounts"
   end
 
   test "crisis response bypasses the coach length and never calls the provider" do

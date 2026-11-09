@@ -43,6 +43,8 @@ module Mia
       "unavailable_until_setup_complete" => "Your starting household details are not finished yet. Ask me to help set up your household, one question at a time."
     }.freeze
 
+    WARM_CLOSE = "I'm glad to hear that. You're welcome, and I'm here when you're ready.".freeze
+
     def self.topic_for(message)
       matched = TOPIC_PATTERNS.select { |_topic, pattern| message.to_s.match?(pattern) }.keys
       matched.one? ? matched.first : :general
@@ -62,6 +64,7 @@ module Mia
       return provider_unavailable_reply if @reason == :provider_unavailable
 
       unless asks_for_data?
+        return WARM_CLOSE if thanks_or_recovery?
         return "Let's take this one step at a time. You choose what we work on next. What would help most right now?"
       end
 
@@ -72,6 +75,11 @@ module Mia
     end
 
     private
+
+    def thanks_or_recovery?
+      current = HouseholdFinance::ParticipantMessageReader::Current
+      @message.match?(/\b(?:thank you|thanks|thx|ty)\b/i) || (current.message.to_s.squish == @message.squish && current.reading&.care_status == "resolved")
+    end
 
     def asks_for_data?
       (@topic != :general && @message.match?(/\?|\b(?:how|hows|what|whats|why|which|show|tell|check|do|is|are)\b/i)) ||

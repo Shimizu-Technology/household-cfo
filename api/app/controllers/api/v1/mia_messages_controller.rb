@@ -182,7 +182,7 @@ module Api
             answer = SavingsChallenge::CoachAnswerer.new(household: current_household, user: current_user, enrollment: enrollment, message: content).saved_total_response
             return render_household_read_response(session, content, answer, message_request: message_request, topic: @care_topic || {})
           end
-          prior_care = @care_topic.present?
+          prior_care = @care_topic.present? || @care_state.recently_released?
           @care_topic = @care_state.transition(content, @participant_reading, history: history)
           if @care_topic && (@care_topic["care_kind"] == "crisis" || !HouseholdFinance::ParticipantCareState.report?(content, @participant_reading))
             care_current.care_topic = @care_topic

@@ -27,4 +27,11 @@ class MiaFallbackReplyChallengeTest < ActiveSupport::TestCase
     assert_includes text, Mia::FallbackReply::HOPELESS_STEP
     assert_includes text, "starting household details are not finished"
   end
+  test "thanks and recovery get a warm close instead of the generic line" do
+    [ "we talked to my sister n she got it handled, thank you", "all good now we worked it out, thanks" ].each do |message|
+      text = Mia::FallbackReply.new(reason: :reply_rejected, message: message, context: "{}", persona: PERSONA).call
+      assert_includes text, "You're welcome", message
+      refute_match(/one step at a time/, text)
+    end
+  end
 end

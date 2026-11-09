@@ -9,11 +9,28 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
 
   teardown { HouseholdFinance::ParticipantMessageReader::Current.reset }
 
-  def reading(message, care: "none", status: "none")
-    result = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_) { { care: care, care_status: status }.to_json })
+  def reading(message, care: "none", status: "none", question: false)
+    result = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_) { { care: care, care_status: status, question: question }.to_json })
     current = HouseholdFinance::ParticipantMessageReader::Current
     current.message, current.reading, current.recent_care = message, result, "grief"
     result
+  end
+
+  test "a practical challenge question releases care even if the reader calls it ongoing" do
+    text = "can i stop the challenge for a bit"
+    assert_nil @state.transition(text, reading(text, status: "ongoing", question: true), history: [])
+    assert_empty @session.reload.active_topic
+    assert @state.recently_released?
+  end
+
+  test "an open question still inside the hard moment stays in care" do
+    text = "what do i even do now"
+    assert_equal "grief", @state.transition(text, reading(text, status: "ongoing", question: true), history: []).fetch("care_kind")
+  end
+
+  test "a crisis release is never treated as recently released care" do
+    @session.update!(open_topics: [ HouseholdFinance::ParticipantCare.topic(:crisis) ], active_topic: {})
+    refute @state.recently_released?
   end
 
   test "crisis latch survives another care label and a money topic" do

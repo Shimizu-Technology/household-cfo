@@ -112,7 +112,7 @@ module HouseholdFinance
       sanitized = sanitize_narration(narrated)
       checked = ::Mia::ResponseShapeRewriter.call(sanitized, persona: persona, user_message: user_message,
         fixed_prefix: delivery_prefix,
-        repairable_claims: [ :scenario_conclusion ], guard: method(:guard_reply),
+        repairable_claims: [ :scenario_conclusion, :unverified_amount ], guard: method(:guard_reply),
         validator: ->(content) { narration_rejection_reason(content, guard_covered: purchase_coaching? || answer_packet[:kind] == "coaching") }) do |instruction|
         @response_shape_rewrite_messages = [ { role: "assistant", content: sanitized }, { role: "system", content: instruction } ]
         rewritten = MiaProviderAdmission.with_slot(call_site: "mia_narrator_shape_rewrite") { openrouter_response }
@@ -451,16 +451,21 @@ module HouseholdFinance
       @language_policy ||= ::Mia::LanguagePolicy.new(user_message: user_message, history: history, persona: persona)
     end
 
+    def recent_crisis?
+      answer_packet[:care_context].to_h.stringify_keys["care_kind"].to_s == "crisis"
+    end
+
     def narration_rejection_reason(content, guard_covered: false)
       return :blank_response if content.blank?
       if answer_packet[:care_context]
         return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|debt minimums)|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
         without_dates = content.gsub(/\b\d{1,2}(?:st|nd|rd|th)\b/i) { |date| user_message.include?(date) ? "" : date }
+        without_dates = without_dates.gsub(/\b(?:988|911)\b/, "") if recent_crisis?
         return :unverified_amount if without_dates.match?(/[\p{N}\p{Sc}]/)
         return :ineligible_coach_phrase if language_policy.phrase_rejection_reason(content)
       end
-      return :unexpected_crisis_guidance if ParticipantCare.unexpected_crisis_guidance?(user_message, content, care: @guard_care_kind)
-      claim_rejection = ::Mia::NarrationClaims.rejection_reason(content, guard_covered: guard_covered, confirmed_write: answer_packet[:write_state] == "confirmed_write" || (answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)))
+      return :unexpected_crisis_guidance if !recent_crisis? && ParticipantCare.unexpected_crisis_guidance?(user_message, content, care: @guard_care_kind)
+      claim_rejection = ::Mia::NarrationClaims.rejection_reason(recent_crisis? ? content.gsub(/\b(?:call|dial|text)\s+(?:or\s+\w+\s+)?(?:988|911)\b/i, "") : content, guard_covered: guard_covered, confirmed_write: answer_packet[:write_state] == "confirmed_write" || (answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)))
       return claim_rejection if claim_rejection
       if purchase_coaching?
         return :scenario_conclusion if !guard_covered && ::Demo::MiaResponder.unsupported_scenario_conclusion?(content)

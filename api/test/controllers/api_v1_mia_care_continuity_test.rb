@@ -11,6 +11,37 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
+  def reading_for(text, **values)
+    HouseholdFinance::ParticipantMessageReader.call(message: text, transport: ->(_) { { care: "none", care_status: "none", facts: [], question: false }.merge(values).to_json })
+  end
+
+  test "recovery after a money question has cleared care still closes warmly" do
+    ask("my mom died yesterday")
+    ask("how much is left")
+    assert_empty @household.chat_sessions.order(:id).last.active_topic
+    text = "my cousin is helpin w the funeral now, thank you"
+    with_reader(reading_for(text, care_status: "resolved")) { ask(text) }
+    assert_match(/You're welcome/, reply)
+    refute_match(/one step at a time|what would help/i, reply)
+  end
+
+  test "a thank-you long after care does not get the care close" do
+    ask("my mom died yesterday")
+    ask("how much is left")
+    travel 3.days
+    text = "ok thats all good then, thank you"
+    with_reader(reading_for(text, care_status: "resolved")) { ask(text) }
+    refute_match(/glad you have support/, reply)
+  end
+
+  test "a practical question about the challenge leaves care and does not repeat the condolence" do
+    ask("my mom passed last week")
+    text = "how do i take a pause from the challenge tho"
+    with_reader(reading_for(text, care_status: "ongoing", question: true)) { ask(text) }
+    assert_empty @household.chat_sessions.order(:id).last.active_topic
+    refute_match(/sorry for your loss/i, reply)
+  end
+
   test "confirmed savings totals answer during care without replacing care state" do
     setup_savings_context
     with_savings_runtime do
