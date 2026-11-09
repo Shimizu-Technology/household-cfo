@@ -1129,11 +1129,12 @@ module HouseholdFinance
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
       return unless purchase_question? && purchase_comparison_amount_cents.nil?
 
-      return "What's the full price, and how many months would you be paying it off?" if monthly_payment_quoted?
+      return FULL_PRICE_QUESTION if monthly_payment_quoted?
 
       "What does the item cost, and which month are you considering it for?"
     end
 
+    FULL_PRICE_QUESTION = "What's the full price, and how many months would you be paying it off?".freeze
     MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
     FINANCING_PATTERN = /\b(?:financ\w*|payments?|installments?|payment plan|lease|layaway)\b/i
 

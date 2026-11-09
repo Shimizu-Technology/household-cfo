@@ -460,11 +460,21 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     body = say("hey should i finance a new iphone, 45 a month, money tight", legacy(question: true, reply_intent: "purchase_caution", purchase_question: { amount: "45", item: "iphone" }))
     refute_match(/\$45(?:\.00)? (?:new )?iphone/i, text(body))
     refute_match(/would leave/, text(body))
+    assert_match(/full price/, text(body))
+    assert_equal 1, text(body).count("?")
   end
 
   test "income quoted by the month is not a monthly payment" do
     assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?("I make $4,500 a month. Can I afford a stroller?")
     assert HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?("should i finance a new iphone, 45 a month")
+  end
+
+  test "dollars or bucks a month also gets the full price question" do
+    finish_setup
+    [ "should i finance a new iphone, 45 bucks a month", "should i finance a new iphone, 45 dollars a month" ].each do |message|
+      body = say(message, legacy(question: true, reply_intent: "purchase_caution", purchase_question: { amount: "45", item: "iphone" }))
+      assert_match(/full price/, text(body), message)
+    end
   end
 
   test "a one-off price stays a price" do
@@ -629,6 +639,10 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
       assert ::Mia::CrisisBoundary.soft?(message) || ::Mia::CrisisBoundary.matches?(message), message
       assert_not HouseholdFinance::ParticipantCare.skip_only?(message, skip_reading(message)), message
     end
+    start_care
+    body = say("skip it i dont want to be here anymore", read(care: "crisis", setup: changes(skips: [ "flexible_spend" ])))
+    assert_includes text(body), "988"
+    assert_empty @household.reload.setup_skipped_fields
   end
 
   [ "ok lets keep goin i have nothing left", "ok lets keep goin the kids havent eaten since yesterday", "rent is 1100 n i still dont know how we gonna pay it" ].each do |message|

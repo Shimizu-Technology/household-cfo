@@ -257,6 +257,7 @@ module HouseholdFinance
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
       if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && user_message.match(PurchaseQuestionText::PURCHASE_QUESTION)&.begin(0).to_i.positive? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
+        return full_price_clarification if MiaCoachAnswerer.monthly_payment_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end
@@ -1153,6 +1154,12 @@ module HouseholdFinance
       return transport.call(payload) if transport
 
       MiaProviderAdmission.with_slot(call_site: "mia_intent") { openrouter_response }
+    end
+
+    def full_price_clarification
+      Result.new(intent: "clarification", confidence: 1.0, continuation: false, resolved_message: user_message,
+        needs_clarification: true, clarification: MiaCoachAnswerer::FULL_PRICE_QUESTION,
+        topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
     end
 
     def deterministic_scenario_fallback
