@@ -464,6 +464,72 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
 
   private
 
+  def finished_setup_context(**extra)
+    intent_context.merge(setup_status: { complete: true, missing_fields: [] }, debt_tracking: { mode: "individual" }, active_debts: [], **extra)
+  end
+
+  def debt_row(id, label, type = "other")
+    { id: id, label: label, debt_type: type, minimum_payment: 40, balance: nil, active: true }
+  end
+
+  test "finished setup: two named minimums become one reviewed debt plan" do
+    context = finished_setup_context(active_debts: [ debt_row(1, "Visa", "credit_card"), debt_row(2, "Toyota", "auto_loan") ])
+    result = resolve("visa min 45 and toyota min 310", context: context)
+    assert_equal "action_plan", result.intent, result.to_h.inspect
+    assert_equal "debt_minimums", result.write_plan[:kind]
+    assert_equal %w[45 310], result.write_plan[:actions].map { |item| item.dig(:action, :minimum_payment).to_s.sub(/\.0+\z/, "") }
+  end
+
+  test "finished setup: a pending correction replaces only that amount" do
+    pending = { schema_version: 2, type: "household_setup", status: "pending_review", action: { type: "update_household_setup", setup_updates: { primary_income: "4800" } } }
+    context = finished_setup_context.deep_merge(conversation: { active_thread: pending, recent_messages: [] })
+    [ "Actually $4,600", "Make that $4,600 instead", "No, $4,600" ].each do |sentence|
+      result = resolve(sentence, context: context)
+      assert_equal "4600", result.action.dig(:setup_updates, :primary_income).to_s.sub(/\.0+\z/, ""), sentence
+    end
+    income = pending.merge(action: { type: "schedule_income_change", income_source_id: 7, income_source_name: "Job", amount: "4800" })
+    result = resolve("Actually $4,600", context: finished_setup_context.deep_merge(conversation: { active_thread: income, recent_messages: [] }))
+    assert_equal "income_action", result.intent
+    assert_equal "4600", result.action[:amount].to_s.sub(/\.0+\z/, "")
+  end
+
+  test "finished setup: saved income and bill corrections" do
+    income = resolve("wait my income is 3350", context: finished_setup_context)
+    assert_equal "3350", income.action.dig(:setup_updates, :primary_income).to_s.sub(/\.0+\z/, ""), income.to_h.inspect
+    bill = resolve("oops the rent is actually 1025", context: finished_setup_context)
+    assert bill.clarification?
+    assert_includes bill.clarification, "$1,025"
+    assert_includes bill.clarification, "Fix my setup"
+    refute bill.actionable?
+  end
+
+  test "finished setup: a raise picks the right income source" do
+    job = ->(id, label) { { id: id, label: label, source_type: "job", active: true } }
+    one = resolve("I got a raise to 5000 a month", context: finished_setup_context(income_sources: [ job.call(7, "Clinic") ]))
+    assert_equal "income_action", one.intent, one.to_h.inspect
+    two = resolve("I got a raise to 5000 a month", context: finished_setup_context(income_sources: [ job.call(7, "Clinic"), job.call(8, "Store") ]))
+    assert_includes two.clarification, "Which income source got the raise?"
+    thread = { status: "needs_clarification", action: two.action, income_source_choices: [ 7, 8 ] }
+    picked = resolve("the second one", context: finished_setup_context(income_sources: [ job.call(7, "Clinic"), job.call(8, "Store") ]).deep_merge(conversation: { active_thread: thread, recent_messages: [] }))
+    assert_equal 8, picked.action[:income_source_id]
+  end
+
+  test "finished setup: a typed credit card balance and minimum" do
+    message = "My credit card balance is $3,100 and my monthly minimum is $175."
+    created = resolve(message, context: finished_setup_context)
+    assert_equal "create_debt", created.action[:type], created.to_h.inspect
+    assert_equal "175", created.action[:minimum_payment].to_s.sub(/\.0+\z/, "")
+    many = resolve(message, context: finished_setup_context(active_debts: [ debt_row(1, "Visa", "credit_card"), debt_row(2, "Amex", "credit_card") ]))
+    assert_includes many.clarification, "Which credit card"
+  end
+
+  test "start over with named bills is a list, but numbers alone do not block a restart" do
+    session = Struct.new(:active_topic).new({})
+    refute Mia::FinancialRestartRequest.matches?("ok lets start over. rent 1000, gpa 200, water 50, phone 120", session: session)
+    assert Mia::FinancialRestartRequest.matches?("start over, I have 2 accounts and 3 debts", session: session)
+    assert Mia::FinancialRestartRequest.matches?("I want to start over with my 2024 numbers", session: session)
+  end
+
   def resolve(message, context: intent_context, transport: nil, api_key: :default)
     key = api_key == :default ? (transport ? "test-key" : nil) : api_key
     HouseholdFinance::MiaIntentResolver.new(user_message: message, context: context, api_key: key, transport: transport).call

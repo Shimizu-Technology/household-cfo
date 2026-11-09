@@ -10,9 +10,10 @@ module HouseholdFinance
 
     class << self
       def card_draft(household, user:, session:)
+        # Clear chat detaches the card from its message, but it is still her card.
         household.mia_action_drafts.pending.where(draft_type: "household_setup", requested_by_user: user)
-          .where("mia_action_drafts.metadata ? 'setup_card'").joins(:source_chat_message)
-          .where(chat_messages: { chat_session_id: session.id }).recent_first.first
+          .where("mia_action_drafts.metadata ? 'setup_card'").left_outer_joins(:source_chat_message)
+          .where("chat_messages.chat_session_id = :session OR mia_action_drafts.source_chat_message_id IS NULL", session: session.id).recent_first.first
       end
 
       def open?(household, user:, session:)
@@ -91,7 +92,7 @@ module HouseholdFinance
       return unless changes
       updates = card.apply_changes(changes.except("skips", "help_topic"))
       card.apply_preferences(@reading.spending_preferences)
-      @card_touched = updates.any? { |update| !update.action.in?(%i[not_found no_breakdown debt_on_file]) }
+      @card_touched = updates.any? { |update| !update.action.in?(MiaSetupCard::NOOP_ACTIONS) }
       skipped = skip_fields(changes["skips"])
       update_text = [ MiaSetupCardReply.updated_text(updates, card).presence, MiaSetupCardReply.skipped_text(skipped) ].compact.join(" ")
       next_field = next_open_field(skipped)
@@ -132,7 +133,7 @@ module HouseholdFinance
     # A row she just started and left unfinished comes before a new question.
     def next_open_field(new_skips)
       open = (@status.missing_field_keys - Array(@household.setup_skipped_fields) - new_skips).reject { |field| card.field_known?(field) }
-      open.find { |field| card.unresolved?(field) || (field == MiaSetupCard::DEBT_FIELD && card.debts_without_minimum.any?) } || open.first
+      card.unresolved_field_keys.first || open.first
     end
 
     def persist_skips

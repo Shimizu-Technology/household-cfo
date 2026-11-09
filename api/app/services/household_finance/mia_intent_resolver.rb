@@ -11,7 +11,6 @@ module HouseholdFinance
     # "Could I get a couch? I have $500 saved" states funding, not the couch's price.
     FUNDING_AMOUNT = /\b(?:i|we)(?:['’]ve|\s+have|\s+got|\s+saved|\s+make|\s+earn)\b[^.!?;]*\d|\d[^.!?;]*\b(?:saved|set aside|in (?:my |our )?(?:savings|checking|account)|a (?:month|week|year))\b/i
     # One paycheck or week is not the monthly income the setup question asks for.
-    PER_PAY_INCOME = /\b(?:\d+|two|three|four)\s+(?:pay\s?)?checks\b|\b(?:pay\s?)?checks?\s+(?:is|are|of)\b|\b(?:each|every|per)\s+(?:pay\s?)?(?:check|day)\b|\b(?:twice|two times) a month\b|\bsemi-?monthly\b|\bbi-?weekly\b|\bweekly\b|\b(?:a|per|each|every)\s+week\b|\bevery\s+(?:other|two|2)\s+weeks?\b/i.freeze
     MIN_ACTION_CONFIDENCE = 0.72
 
     INTENTS = %w[
@@ -1008,19 +1007,6 @@ module HouseholdFinance
       setup_reply_result("primary_goal", match[1])
     end
 
-    def setup_pay_clarification
-      answer = if raw_user_message.match?(/\b(?:smaller|different|unequal|varies|vary)\b/i)
-        "Those paychecks have different amounts. What is their actual combined monthly take-home total? Give that total, or each paycheck amount for this month; I'll prepare a review card."
-      elsif raw_user_message.match?(/\b(?:weekly|bi-?weekly|a week|per week|each week|every (?:other|two|2) weeks?)\b/i)
-        "Weekly and biweekly pay can mean different numbers of paychecks in a month. I can't assume your monthly take-home income. Give the monthly amount you want to plan with, or each paycheck amount for this month; I'll put it on a review card."
-      else
-        "A paycheck amount alone does not tell me your monthly income. What is the actual total for this month? You can give each paycheck amount for a review card."
-      end
-      recent = Array(context.dig(:conversation, :recent_messages)).reverse.find { |turn| turn[:role].to_s == "assistant" }
-      return answer unless recent && recent[:content].to_s.include?(answer)
-      "Coming back to pay: what combined amount will you actually take home this month? If the checks differ, list each amount. Nothing saves before review."
-    end
-
     def setup_named_balance_and_minimum_result
       amount_source = "(#{Money::CHAT_NUMBER_SOURCE}#{Money::CHAT_THOUSANDS_SOURCE}?)"
       match = raw_user_message.squish.match(/\A(?:the |my |our )?([\p{L}][\p{L} '-]{0,79}?)\s+balance\s+(?:is\s+)?\$?#{amount_source}\s*[,;]?\s*(?:and\s+)?min(?:imum)?(?: payment)?\s+(?:is\s+)?\$?#{amount_source}[.!]?\z/i)
@@ -1095,22 +1081,6 @@ module HouseholdFinance
       deterministic_setup_clarification("fixed_expenses", clarification: "You gave #{quoted} for that bill. Open Fix my setup to review your fixed essentials total with this change. Nothing changed.")
     end
 
-    def setup_named_minimum_from_reading(reading)
-      return unless reading.answer_field == "debt_payment" && context.dig(:debt_tracking, :mode).to_s != "summary"
-      bills = reading.facts.select { |fact| fact["kind"] == "bill" }
-      return unless bills.one?
-      bill = bills.sole
-      return if bill["item"].blank? || bill["amount"].blank?
-      return unless ParticipantMessageReader.amount_cents(bill["amount"]) == ParticipantMessageReader.amount_cents(reading.setup_answer["value"])
-      debts = matching_setup_debts(bill["item"])
-      return ambiguous_setup_debt_result(debts) if debts.many?
-      return unless debts.one?
-      Result.new(intent: "debt_action", confidence: 1.0, continuation: true, resolved_message: user_message,
-        needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimum", subject: debts.sole[:label] },
-        action: { type: "update_debt", debt_id: debts.sole[:id], debt_name: debts.sole[:label], minimum_payment: ParticipantMessageReader.amount_text(bill["amount"]) },
-        read_only_plan: {}, source: "participant_reader")
-    end
-
     def setup_debt_label?(name)
       name.match?(/\b(?:visa|mastercard|amex|card|loan|car|mortgage|note|debt)\b/i) || matching_setup_debts(name).any?
     end
@@ -1127,10 +1097,9 @@ module HouseholdFinance
       return unless amount
       name = (amount_first ? amount_first[2] : name_first[1]).squish
       debts = matching_setup_debts(name)
-      open_minimum = false
       debt_named = setup_debt_label?(name)
       monthly_card = text.match?(/\b(?:a|per) month\b/i) && debt_named
-      return unless (open_minimum && debt_named) || text.match?(/\bminimum\b/i) || monthly_card
+      return unless text.match?(/\bminimum\b/i) || monthly_card
       return ambiguous_setup_debt_result(debts, name: name, amount: amount) if debts.many?
       return if context.dig(:debt_tracking, :mode).to_s == "summary"
       name = debts.one? ? debts.sole[:label] : name.sub(/\A./) { |letter| letter.upcase }

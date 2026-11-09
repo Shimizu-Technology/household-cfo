@@ -43,6 +43,7 @@ module HouseholdFinance
       return "What's #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
       return "What are #{labels.to_sentence} in a usual month?" if labels.any?
       debts = field == MiaSetupCard::DEBT_FIELD ? card.debts_without_minimum : []
+      return "What do you pay on debts in a usual month?" if debts == [ MiaSetupCard::PLACEHOLDER_DEBT ]
       return "What's the monthly minimum on #{debts.to_sentence.downcase}?" if debts.any?
       variants = QUESTIONS.fetch(field)
       previous == field ? variants.last : variants.first
@@ -58,12 +59,14 @@ module HouseholdFinance
 
     private_class_method def self.field_lines(field, group, card)
       if field.in?(MiaSetupCard::TEXT_FIELDS)
-        return group.map { |update| field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." }
+        return group.flat_map { |update| update.action == :too_long ? single_lines(field, update) : [ field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." ] }
       end
       lines = []
       added = group.select { |update| update.action == :added && update.cents }
       lines << "Added #{added.map { |update| phrase(update) }.to_sentence}." if added.any?
-      group.each { |update| lines.concat(single_lines(field, update)) }
+      group.reject { |update| update.action == :card_full }.each { |update| lines.concat(single_lines(field, update)) }
+      full = group.select { |update| update.action == :card_full }.map { |update| update.label.downcase }
+      lines << "Your card holds #{MiaSetupCard::MAX_PARTS} rows here, so I left #{full.to_sentence} off. You can combine a few, or give me one total." if full.any?
       if added.many? || group.any? { |update| update.action.in?(%i[changed removed]) }
         total = field == MiaSetupCard::DEBT_FIELD ? debt_total(card) : card.money_total(field)
         lines << "#{FIELD_NAMES.fetch(field).capitalize} #{field == 'primary_income' ? 'is' : 'are'} #{money(total)} so far." if total
@@ -73,15 +76,17 @@ module HouseholdFinance
 
     private_class_method def self.single_lines(field, update)
       case update.action
-      when :changed then [ "Changed #{update.label.downcase} to #{money(update.cents)}." ]
+      when :changed then update.cents ? [ "Changed #{update.label.downcase} to #{money(update.cents)}." ] : [ "Updated #{update.label.downcase}. It #{update.note}." ]
       when :removed then [ "Took out #{update.label.downcase}." ]
       when :added then update.cents ? [] : [ "Added #{update.label.downcase}. It #{update.note}." ]
       when :total then [ total_line(field, update) ]
       when :none then [ field == MiaSetupCard::DEBT_FIELD ? "Noted: no debts." : none_line(field) ]
-      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} is on the card as needs a monthly amount (#{update.note})." ]
+      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still needs a monthly amount (#{update.note}), so I didn't count it." ]
       when :no_breakdown then [ "I only have one total for #{FIELD_NAMES.fetch(field)} (#{money(update.cents)}), so I can't change #{update.label.downcase} by itself. What should the new total be?" ]
       when :not_found then [ "I don't see #{update.label.downcase} on your card." ]
-      when :debt_on_file then [ "A debt on file has a monthly minimum, so I left debts alone. You can change it in My Money." ]
+      when :debt_on_file then [ "You have a debt saved, so I left debts as they are. Tell me which one is gone, or change it in My Money." ]
+      when :combined then [ "#{update.note} is one row on your card, so I can't change #{update.label.downcase} by itself. What should that whole row be?" ]
+      when :too_long then [ "That's a little long for #{FIELD_NAMES.fetch(field)}. Can you shorten it to #{update.cents} characters or fewer?" ]
       else []
       end
     end

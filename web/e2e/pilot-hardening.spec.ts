@@ -13832,11 +13832,12 @@ test('mobile Ask Mia setup card updates a row in place and applies on one card',
     setup_card: {
       title: 'Your setup so far',
       can_apply: true,
+      revision: 3,
       rows: [
         row('household_name', 'Household name', { kind: 'text', status: 'entered', value_text: 'Cruz Ohana' }),
         row('primary_goal', 'Main goal', { kind: 'text', status: 'skipped' }),
         row('primary_income', 'Monthly income'),
-        row('fixed_expenses', 'Fixed essentials', { status: 'entered', total_cents: fixedCents, parts: [{ id: 'rent', label: 'Rent', cents: rentCents, counted: true }, { id: 'power', label: 'Power', cents: 15000, counted: true }] }),
+        row('fixed_expenses', 'Fixed essentials', { status: 'entered', total_cents: fixedCents, parts: [{ id: 'rent', label: 'Rent', cents: rentCents, counted: true }, { id: 'power', label: 'Power', cents: 15000, counted: true }, { id: 'long', label: 'Supercalifragilisticexpialidocious35', cents: 0, counted: true }] }),
         row('flexible_spend', 'Everyday spending', { status: 'needs_monthly', parts: [{ id: 'gas', label: 'Gas', cents: null, counted: false, note: '$20 a week' }], note: 'Gas needs a monthly amount.' }),
         row('debt_payment', 'Debts'),
       ],
@@ -13850,6 +13851,7 @@ test('mobile Ask Mia setup card updates a row in place and applies on one card',
   })
   let applied = false
   await page.route('http://api.test/api/v1/mia_action_drafts/451/apply', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ setup_card_revision: 3 })
     applied = true
     await route.fulfill({ status: 200, json: { mia_action_draft: { ...cardDraft(175000, 160000), status: 'applied' }, workspace: withDraft({ ...cardDraft(175000, 160000), status: 'applied' }) } })
   })
@@ -13859,7 +13861,8 @@ test('mobile Ask Mia setup card updates a row in place and applies on one card',
   await expect(card.getByText('Skipped for now')).toBeVisible()
   await expect(card.getByText('Not entered yet').first()).toBeVisible()
   await expect(card.getByText('$20 a week')).toBeVisible()
-  await expect(card.getByText('$0', { exact: true })).toHaveCount(0)
+  await expect(card.getByText('$20 a week')).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await card.getByRole('button', { name: /^Change Rent/ }).click()
   await card.getByRole('textbox').fill('1600')
   await card.getByRole('button', { name: 'Save', exact: true }).click()

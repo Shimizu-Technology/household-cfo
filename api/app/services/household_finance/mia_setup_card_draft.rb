@@ -24,6 +24,18 @@ module HouseholdFinance
       draft.reload
     end
 
+    # A partial Apply saves what is counted; the rows still waiting on an amount
+    # move to a fresh card so she can finish them.
+    def self.carry_unresolved!(draft, user:, source_message:)
+      state = draft.metadata.to_h["setup_card"]
+      return unless state && source_message
+      remaining = MiaSetupCard.new(draft.household, state: state).unresolved_state
+      return if remaining["fields"].empty?
+      card = MiaSetupCard.new(draft.household.reload, state: remaining)
+      card.rebase_all
+      new(draft.household, user: user, card: card).save!(user_message: source_message, assistant_message: draft.assistant_chat_message, existing: nil)
+    end
+
     private
 
     def build_items
@@ -37,7 +49,7 @@ module HouseholdFinance
       blocked, items = build_items
       MiaActionDraftBuilder::Proposal.new(household: household, user: user, year: Date.current.year,
         draft_type: "household_setup", title: MiaSetupCardTurn::TITLE, summary: MiaSetupCardTurn::TITLE, rationale: "", source_prompt: source_prompt,
-        items: items, metadata: { source: "mia_chat", parser: "setup_card", setup_card: card.to_h.merge("blocked" => blocked) }.merge(card.spending_preferences.any? ? { spending_preferences: card.spending_preferences } : {}))
+        items: items, metadata: { source: "mia_chat", parser: "setup_card", setup_card: card.to_h.merge("blocked" => blocked, "revision" => card.revision + 1) }.merge(card.spending_preferences.any? ? { spending_preferences: card.spending_preferences } : {}))
     end
 
     attr_reader :household, :user, :card
@@ -78,7 +90,7 @@ module HouseholdFinance
     end
 
     def named_debt_commands(state)
-      parts = Array(state["parts"])
+      parts = Array(state["parts"]).reject { |part| part["placeholder"] }
       commands = parts.filter_map do |part|
         if part["removed"]
           { type: "archive_debt", debt_id: part["debt_id"] } if part["debt_id"]

@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { MiaActionDraft, MiaSetupCardEdit, MiaSetupCardPart, MiaSetupCardRow } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 
@@ -39,6 +39,7 @@ export function MiaSetupCard({
   const [editing, setEditing] = useState<Editing | null>(null)
   const [value, setValue] = useState('')
   const [saving, setSaving] = useState(false)
+  const rowButtons = useRef(new Map<string, HTMLButtonElement>())
   if (!card) return null
   const locked = !isRealWorkspace || disabled || Boolean(action) || saving
 
@@ -57,10 +58,16 @@ export function MiaSetupCard({
   }
 
   async function submit(edit: MiaSetupCardEdit) {
+    const key = editing?.key
     setSaving(true)
-    const saved = await onEdit(draft, edit)
-    setSaving(false)
-    if (saved) setEditing(null)
+    try {
+      if (!await onEdit(draft, edit)) return
+      setEditing(null)
+      // The form is gone, so focus returns to the row it came from.
+      if (key) requestAnimationFrame(() => rowButtons.current.get(key)?.focus())
+    } finally {
+      setSaving(false)
+    }
   }
 
   const rowOf = (row: MiaSetupCardRow, part?: MiaSetupCardPart) => {
@@ -70,12 +77,30 @@ export function MiaSetupCard({
       ? (part.cents != null ? formatReviewMoney(part.cents) : part.note ?? STATUS_TEXT.needs_monthly)
       : rowValue(row)
     const note = part && part.cents != null ? part.note : null
+    const rowKey = `${row.key}:${part?.id ?? ''}`
+    // Named debts are changed one at a time, so their total is not a control.
+    const isStatic = !part && row.kind === 'debts' && row.parts.length > 0
     return (
       <div className={`setup-card-line${part ? ' is-part' : ''}${!part && row.status === 'missing' ? ' is-empty' : ''}`}>
-        <button type="button" className="setup-card-row" aria-expanded={isOpen} disabled={locked} onClick={() => open(row, part)} aria-label={`Change ${label}: ${shown}`}>
-          <span className="setup-card-label">{label}{note && <small>{note}</small>}</span>
-          <span className="setup-card-value">{shown}</span>
-        </button>
+        {isStatic ? (
+          <div className="setup-card-row is-static">
+            <span className="setup-card-label">{label}</span>
+            <span className="setup-card-value">{shown}</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            ref={(element) => { if (element) rowButtons.current.set(rowKey, element); else rowButtons.current.delete(rowKey) }}
+            className="setup-card-row"
+            aria-expanded={isOpen}
+            disabled={locked}
+            onClick={() => open(row, part)}
+            aria-label={`Change ${label}: ${shown}`}
+          >
+            <span className="setup-card-label">{label}{note && <small>{note}</small>}</span>
+            <span className="setup-card-value">{shown}</span>
+          </button>
+        )}
         {isOpen && (
           <form className="setup-card-edit" onSubmit={(event) => {
             event.preventDefault()
@@ -122,7 +147,7 @@ export function MiaSetupCard({
       {draft.stale && <p className="mia-action-stale-note" role="status">Your numbers changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
       <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
       <div className="mia-action-draft-actions">
-        <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale)} onClick={() => onApply(draft)}>
+        <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
           {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
         </button>
         <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>

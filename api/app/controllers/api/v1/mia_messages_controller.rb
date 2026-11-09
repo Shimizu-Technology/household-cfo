@@ -194,7 +194,7 @@ module Api
           end
           care_current.recent_care = nil unless @care_topic
           care_current.care_topic = nil unless @care_topic
-          if @setup_card_context && !@participant_reading.care? && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
+          if @setup_card_context && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
             setup_card_turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session, reading: @participant_reading)
             if setup_card_turn.plan && !setup_card_turn.plan.continues
               return render_setup_card_turn(session, content, setup_card_turn, message_request: message_request)
@@ -615,7 +615,7 @@ module Api
           user_message, assistant_message = persist_chat_messages(session, content, [], turn.plan.reply)
           retire_document_evidence_state(session) if document_evidence_topic_present?(session)
           turn.commit!(user_message: user_message, assistant_message: assistant_message)
-          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: Date.current.year).plan_data
+          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message),
             mia_action_draft: turn.draft ? serialize_mia_action_draft(turn.draft) : nil,
@@ -661,6 +661,7 @@ module Api
         @setup_card_ask_field = field
         card = @setup_card_turn ? @setup_card_turn.card : HouseholdFinance::MiaSetupCardTurn.load_card(current_household, user: current_user, session: session)
         question = HouseholdFinance::MiaSetupCardReply.question(field, card: card, previous: active) if field
+        question = nil if field && HouseholdFinance::MiaSetupCardReply::QUESTIONS.fetch(field).any? { |variant| assistant_content.include?(variant) }
         [ @setup_card_turn&.plan&.update_text, assistant_content, question ].compact_blank.join(" ")
       end
 

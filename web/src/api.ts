@@ -740,7 +740,7 @@ export type MiaSetupCardRow = {
   note: string | null
 }
 
-export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_apply: boolean }
+export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_apply: boolean; revision: number }
 
 export type MiaSetupCardEdit = { field: string; action_name: 'set' | 'remove' | 'skip' | 'unskip'; part_id?: string; value?: string }
 
@@ -4619,11 +4619,11 @@ export async function deleteIncomeScheduleEntry(id: number, year: number | undef
   return payload.budget
 }
 
-export async function applyMiaActionDraft(id: number, idempotencyKey: string, itemIds?: number[]): Promise<AppData> {
+export async function applyMiaActionDraft(id: number, idempotencyKey: string, itemIds?: number[], setupCardRevision?: number): Promise<AppData> {
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(itemIds ? { item_ids: itemIds } : {}),
+    body: JSON.stringify({ ...(itemIds ? { item_ids: itemIds } : {}), ...(setupCardRevision == null ? {} : { setup_card_revision: setupCardRevision }) }),
   })
   return payload.workspace
 }

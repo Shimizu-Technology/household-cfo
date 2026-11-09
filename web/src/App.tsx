@@ -2910,7 +2910,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const selection = itemIds?.slice().sort((left, right) => left - right)
     const signature = `apply-mia-action:${draft.id}:${selection?.join(',') ?? 'remaining'}`
     try {
-      const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
+      const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection, draft.setup_card?.revision)
       budgetOperationKeysRef.current.complete(signature)
       setData(miaDraftChangesSharedFinancialRecords(draft, selection) ? { type: 'shared_financial_mutation', update: workspace } : { type: 'financial_mutation', update: workspace })
       if (workspace.workspace?.setup_values) {
@@ -2975,13 +2975,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   async function handleEditMiaSetupCard(draft: MiaActionDraft, edit: MiaSetupCardEdit) {
     if (!isRealWorkspace || budgetYearLoading) return false
     if (!beginBudgetAction(`edit-setup-card:${draft.id}`)) return false
+    setBudgetError(null)
     setMiaError(null)
     try {
       const workspace = await updateMiaSetupCard(draft.id, edit)
       setData({ type: 'financial_mutation', update: workspace })
       return true
     } catch (caught) {
-      setMiaError(participantErrorMessage(caught, 'That change didn’t save. Please try again.'))
+      const message = participantErrorMessage(caught, 'That change didn’t save. Please try again.')
+      setBudgetError(message)
+      setMiaError(message)
       return false
     } finally {
       endBudgetAction()
@@ -7223,7 +7226,9 @@ function MiaActionDraftReviewCard({
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
   const reviewValueCount = proposedSetupKeys.size || draft.items.length
-  const applyLabel = setupCoverage?.complete
+  // Debts are not part of `complete`, so it alone can't say nothing is left.
+  const coverageFinished = Boolean(setupCoverage?.complete && setupCoverage.missing_fields.length === 0)
+  const applyLabel = coverageFinished
     ? 'Apply starting picture'
     : setupCoverage
       ? `Apply ${reviewValueCount} value${reviewValueCount === 1 ? '' : 's'}`
@@ -7310,9 +7315,9 @@ function MiaActionDraftReviewCard({
           })}
         </div>}
         {setupCoverage && !isStale && (
-          <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Your household details after this review">
+          <section className={`mia-setup-coverage${coverageFinished ? ' is-complete' : ''}`} aria-label="Your household details after this review">
             <div>
-              <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
+              <strong>{coverageFinished ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
               <span>This review includes {reviewValueCount} confirmed value{reviewValueCount === 1 ? '' : 's'}.</span>
             </div>
             {setupCoverage.missing_fields.length > 0 && (

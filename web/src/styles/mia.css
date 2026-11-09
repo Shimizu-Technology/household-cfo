@@ -401,8 +401,10 @@
 .setup-card-group:first-child { border-top: 0; }
 .setup-card-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 6px 0; border: 0; border-radius: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: transform 140ms var(--ease-out); }
 .setup-card-row:active { transform: scale(0.97); }
+.setup-card-row.is-static { cursor: default; }
+.setup-card-row.is-static:active { transform: none; }
 .setup-card-row:focus-visible { outline: 3px solid var(--brand-focus); outline-offset: 2px; }
-.setup-card-label { flex: 0 1 auto; min-width: min-content; max-width: 60%; font-weight: 600; overflow-wrap: break-word; }
+.setup-card-label { flex: 0 1 auto; min-width: 0; max-width: 60%; font-weight: 600; overflow-wrap: break-word; }
 .setup-card-label small { display: block; font-weight: 400; color: var(--muted); font-size: var(--text-xs); }
 .setup-card-value { flex: 1 1 40%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .setup-card-line.is-empty .setup-card-value { color: var(--muted); }

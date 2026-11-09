@@ -54,14 +54,14 @@ module HouseholdFinance
     # A setup card has one reader: it proposes per-field changes as exact quotes
     # and never calculates. MiaSetupCard owns every total.
     SETUP_CARD_PROMPT = <<~TEXT.freeze
-      setup_context is set: she is filling in one household setup card. saved is what is already approved, draft is what is on the card, skipped is what she skipped, last_asked is the setup field Mia just asked about (may be empty). Fill setup_changes from the CURRENT message only. You quote; you never calculate, convert, total or correct arithmetic. Every amount, label, name and source is an exact verbatim span of the message, exactly as written including typos. source is the exact clause holding that entry. Leave anything not stated empty. Do not repeat what is already in draft unless she changed it. A question about a bill does not supply that bill.
+      setup_context is set: she is filling in one household setup card. saved is what is already approved, draft is what is on the card, skipped is what she skipped, last_asked is the setup field Mia just asked about (may be empty). Fill setup_changes from the CURRENT message only. You quote; you never calculate, convert, total or correct arithmetic. Every amount, label, name and source is an exact verbatim span of the message, exactly as written including typos. source is the exact clause holding that entry. Leave anything not stated empty. A bill or amount she gives at a different question still goes on its own field; "rent 1000" while last_asked is household_name is fixed_expenses. Do not repeat what is already in draft unless she changed it. A question about a bill does not supply that bill.
       household_name, primary_goal: exact quote of what she proposes, else "". A goal is a desired outcome; a name is a proposed household name, never an expense, a person's description, idk or a greeting.
       primary_income, fixed_expenses, flexible_spend: for one stated overall amount use total_amount with total_cadence (and total_count), total_source. For separately named amounts use parts, each {op, label, amount, cadence, count, source}. Never output both a total and the parts that add up to it unless she states both, and then include both. fixed_expenses are must-pay bills (rent, power, water, phone, internet, insurance); flexible_spend is everyday spending (groceries, gas). A named bill not in draft is add. A named bill she changes is replace. If she says a bill is gone, not paid or covered by someone else ("take out the internet", "we dont pay water my dad does", "landlord covers it now") use remove with amount "". A hedge or aside stays her amount: "power maybe 140 idk" is power 140 cadence monthly; "bout 310" is 310; "maybe 600 for food n gas" is 600 cadence monthly. A plain "no income" answer at last_asked primary_income is that field with none=true and care=none. "i dont have cable" is no entry at all, never zero. Keep unrelated numbers out: kids, ages, dates, years, percentages, balances, things bought. A completed purchase ("spent 80 at payless") is a fact, not a part.
       cadence: monthly when the amount is monthly or a usual bill with no other frequency stated; per_paycheck with count quoting how many paychecks in a month when stated; weekly; biweekly; yearly; unclear only for two different amounts ("450-500", "maybe x maybe y", "x, y tops") or when she cannot say whether it is monthly. A single amount with a hedge word is monthly, never unclear. Ruby converts only monthly and counted paychecks; everything else waits for a monthly amount, so keep the amount quoted exactly as she said it.
       replace_all on a money field: true when she says start over or gives a whole new list for that field ("ok lets start over. rent 1000, gpa 200"), so earlier rows go away. Otherwise false.
       Bare amounts with no label answering last_asked are still that field: "1400 and 1250" at last_asked primary_income is two parts with empty labels and cadence monthly. Two different amounts at last_asked such as "maybe 450, 500 tops" are total_amount "500", total_cadence unclear, on the last_asked field; it is never a goal or name.
       none on a money field: true only for a plain statement that the whole field is zero ("no income", "no bills").
-      debt_payment: none true for a plain "no debts". For named debts use parts, each {op, name, minimum, balance, source}. minimum is the monthly minimum quote, balance is the owed amount quote, each "" if not stated; never put a balance in minimum. Two debts in one message are two parts: "the visa is 75 n the truck 310" and "my card is like 40 minimum n student loan 120" each give two parts. One overall monthly debt total without names uses total_amount with total_source. A debt she pays off or that is gone uses op remove.
+      debt_payment: none true for a plain "no debts". For named debts use parts, each {op, name, minimum, balance, source}. minimum is the monthly minimum quote, balance is the owed amount quote, each "" if not stated; never put a balance in minimum. Two debts in one message are two parts: "the visa is 75 n the truck 310" and "my card is like 40 minimum n student loan 120" each give two parts. One overall debt total without names uses total_amount with total_cadence and total_source. A debt she pays off or that is gone uses op remove.
       skips: setup field keys she asks to skip, does not know yet, or wants to come back to. Use last_asked for a bare "skip", "idk yet", "ill do that later". Never skip a field she answered.
       help_topic: the setup field key when she asks what a setup question or term means or how to answer it ("whats fixed mean", "what do you mean by goal", "idk what my goal should be"), else "". A plain question about something else leaves help_topic empty and uses question=true.
       Examples: "rent is 1100, power 150, phone 60. i dont have cable" => fixed_expenses.parts add rent/power/phone, no cable. "no the rent is 1350 not 1250" => fixed_expenses.parts replace rent amount "1350". "take out the internet, landlord covers it now" => remove internet. "2 paychecks of 1400" at income => total_amount "1400", total_cadence per_paycheck, total_count "2". "visa balance is 4000, minimum 75" => debt part minimum "75", balance "4000".
@@ -170,11 +170,11 @@ module HouseholdFinance
     # here depends on the reader having behaved.
     def validated_setup_changes(value)
       return unless @setup_context && value.is_a?(Hash)
-      @claimed_amounts = Hash.new(0)
+      @claimed_offsets = Set.new
       changes = {}
-      changes["household_name"] = setup_text_quote(value["household_name"])
+      changes["household_name"] = setup_name_quote(value["household_name"])
       changes["primary_goal"] = setup_goal_quote(value["primary_goal"])
-      SETUP_MONEY_FIELDS.each { |field| changes[field] = setup_money_change(value[field]) }
+      SETUP_MONEY_FIELDS.each { |field| changes[field] = setup_money_change(field, value[field]) }
       changes["debt_payment"] = setup_debt_change(value["debt_payment"])
       changes["skips"] = Array(value["skips"]).select { |field| field.in?(SETUP_FIELDS.values) }.uniq
       help = value["help_topic"]
@@ -190,6 +190,14 @@ module HouseholdFinance
       value.squish.presence
     end
 
+    # A name is a label, not a sentence about the family.
+    SETUP_SENTENCE_WORDS = /\b(?:we|i|my|me|got|have|has|is|are|am|was|were|because|kids?|children|husband|wife)\b|\d/i
+
+    def setup_name_quote(value)
+      quote = setup_text_quote(value)
+      quote unless quote.nil? || quote.match?(SETUP_SENTENCE_WORDS)
+    end
+
     def setup_goal_quote(value)
       quote = setup_text_quote(value)
       return unless quote
@@ -198,20 +206,38 @@ module HouseholdFinance
       quote
     end
 
-    def setup_money_change(value)
+    def setup_money_change(field, value)
       return {} unless value.is_a?(Hash)
       change = {}
-      if value["none"] == true && @message.match?(/\b(?:no|none|nothing|zero|0|dont|don['’]?t|not any)\b/i)
-        change["none"] = true
-        return change
-      end
       change["replace_all"] = true if value["replace_all"] == true
       if (total = setup_money_entry(value["total_amount"], cadence: value["total_cadence"], count: value["total_count"], source: value["total_source"]))
         change["total"] = total
       end
-      parts = Array(value["parts"]).first(MiaSetupCard::MAX_PARTS).filter_map { |part| setup_part(part) }
+      parts = Array(value["parts"]).first(SETUP_PARTS_READ).filter_map { |part| setup_part(part) }
       change["parts"] = parts if parts.any?
+      return { "none" => true } if change.except("replace_all").empty? && value["none"] == true && setup_none_evidence?(field)
       change
+    end
+
+    SETUP_PARTS_READ = MiaSetupCard::MAX_PARTS * 2
+    SETUP_NONE_TERMS = {
+      "primary_income" => /\b(?:income|job|work|working|paychecks?|pay|money coming)\b/i,
+      "fixed_expenses" => /\b(?:bills?|rent|essentials|fixed|expenses)\b/i,
+      "flexible_spend" => /\b(?:spending|everyday|groceries|extras?|flexible)\b/i,
+      "debt_payment" => /\b(?:debts?|owe|loans?|minimums?|payments?|cards?)\b|\bdebt[- ]?free\b/i
+    }.freeze
+    SETUP_NONE_NEGATIVE = /\b(?:no|none|nothing|zero|never|without|dont|don['’]?t|not any|nobody)\b|\bdebt[- ]?free\b/i
+    SETUP_NONE_UNSURE = /\b(?:idk|dont know|don['’]?t know|not sure|unsure|no idea|no clue|yet|later|maybe)\b/i
+    SETUP_NONE_BARE = /\A\W*(?:no|none|nope|nah|nothing|zero|0)\b[^\d]{0,20}\z/i
+
+    # "none" zeroes a whole field, so one clause must say exactly that about
+    # this field. A bare "none" counts only as the answer to that question.
+    def setup_none_evidence?(field)
+      return false if @message.match?(SETUP_NONE_UNSURE)
+      return true if @setup_context.to_h[:last_asked].to_s == field && @message.match?(SETUP_NONE_BARE)
+      @message.split(/[.,;!?]|\s+(?:and|but|n)\s+/i).any? do |clause|
+        !clause.match?(/\d/) && clause.match?(SETUP_NONE_NEGATIVE) && clause.match?(SETUP_NONE_TERMS.fetch(field))
+      end
     end
 
     def setup_part(part)
@@ -264,11 +290,13 @@ module HouseholdFinance
       nil
     end
 
+    # Each figure in the message can back only one row. Rows are matched to it
+    # by their own source clause, so "water 50, trash 50" keeps both.
     def claim_setup_amount(amount, source)
       offsets = @message.to_enum(:scan, money_span(amount)).map { Regexp.last_match.begin(0) }
       offsets = offsets.select { |offset| setup_source_covers?(source, offset, amount) } if source.present? && @message.include?(source)
-      offset = offsets[@claimed_amounts[amount]]
-      @claimed_amounts[amount] += 1 if offset
+      offset = offsets.find { |candidate| !@claimed_offsets.include?(candidate) }
+      @claimed_offsets << offset if offset
       offset
     end
 
@@ -283,7 +311,10 @@ module HouseholdFinance
 
     SETUP_RANGE_AFTER = /\A\s*(?:-|–|—|or|to)\s*\$?\d|\A\s*,\s*\$?\d[\d,.]*\s*(?:tops|max|or so)|\A\s*(?:tops|max|or so|or less|or more|ish)\b/i
     SETUP_RANGE_BEFORE = /(?:\d\s*(?:-|–|—|or|to)\s*\$?|between\s+\$?|(?<!went\s)(?<!gone\s)up to\s+\$?|at most\s+\$?|maybe\s+\$?\d[\d,.]*\s*,?\s*(?:maybe\s+)?\$?)\z/i
-    SETUP_QUANTITY_AFTER = /\A\s+(?:kids?|children|people|persons?|adults?|cars?|trucks?|vehicles?|weeks?|months?\s+(?:ago|behind|left|old)|years?|yrs?|days?|hours?|hrs?|times?|rooms?|bedrooms?|cards?|dogs?|cats?|payments?\s+left|pay\s+periods?)\b/i
+    SETUP_TIME_AFTER = /\A\s+(?:weeks?|months?\s+(?:ago|behind|left|old)|years?|yrs?|days?|hours?|hrs?|times?|payments?\s+left|pay\s+periods?)\b/i
+    # "3 kids" counts things, but "visa 75 truck 310" starts the next item.
+    SETUP_COUNT_AFTER = /\A\s+(?:kids?|children|people|persons?|adults?|cars?|trucks?|vehicles?|rooms?|bedrooms?|cards?|dogs?|cats?)\b/i
+    SETUP_LARGEST_COUNT = 12
     SETUP_MONTH_BEFORE = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\z/i
     SETUP_NEGATED_BEFORE = /\b(?:not|never|no longer|used to(?:\s+be)?|was|were|isn['’]?t|wasn['’]?t|ain['’]?t|don['’]?t pay|dont pay|stop(?:ped)?\s+paying)\s+(?:the\s+|a\s+|an\s+|about\s+|like\s+|even\s+)*\$?\s*\z/i
     SETUP_BALANCE_BEFORE = /\b(?:balance|owe[ds]?|owing|paid off|still owe|in debt)\b[^\d]{0,24}\z/i
@@ -300,13 +331,17 @@ module HouseholdFinance
       return :reject if after.match?(/\A(?:st|nd|rd|th)\b/i) || after.match?(/\A\s*\/\s*\d/) || before.match?(/\/\s*\z/) || (before.match?(SETUP_MONTH_BEFORE) && (amount.delete("$,").to_i <= 31 || amount.delete("$,").match?(/\A(?:19|20)\d{2}\z/)))
       return :reject if amount.delete("$,").to_i <= 31 && before.match?(/\b(?:the|due|due\s+on|due\s+the|by\s+the)\s*\z/i) && after.match?(/\A\s*(?:\z|[,.;!?]|of\b|and\b|n\b)/i)
       return :reject if setup_year?(amount, before, after)
-      return :reject if after.match?(SETUP_QUANTITY_AFTER)
+      return :reject if setup_quantity_after?(amount, after)
       return :reject if before.match?(SETUP_NEGATED_BEFORE)
       return :reject if after.match?(/\A\s+(?:last\s+(?:month|year|week)|ago)\b/i) || before.match?(/\bif\s+[^.?!,]{0,20}\z/i) && hypothetical_amount?(amount)
       return :reject if after.match?(SETUP_BALANCE_AFTER) || (before.match?(SETUP_BALANCE_BEFORE) && !before.last(30).match?(/\b(?:min(?:imum)?|payment|a month|monthly)\b/i))
       return :unclear if after.match?(SETUP_RANGE_AFTER) || before.match?(SETUP_RANGE_BEFORE)
       return :unclear if after.match?(/\A\s+(?:each|apiece|per\s+(?:person|line|kid|phone|car))\b/i)
       :ok
+    end
+
+    def setup_quantity_after?(amount, after)
+      after.match?(SETUP_TIME_AFTER) || (after.match?(SETUP_COUNT_AFTER) && amount.delete("$,").to_f <= SETUP_LARGEST_COUNT)
     end
 
     def setup_year?(amount, before, after)
@@ -333,15 +368,13 @@ module HouseholdFinance
 
     def setup_debt_change(value)
       return {} unless value.is_a?(Hash)
-      if value["none"] == true && @message.match?(/\b(?:no|none|nothing|zero|0|dont|don['’]?t|not any|debt[- ]?free)\b/i)
-        return { "none" => true }
-      end
       change = {}
-      if (total = setup_money_entry(value["total_amount"], cadence: "monthly", count: "", source: value["total_source"]))
+      if (total = setup_money_entry(value["total_amount"], cadence: value["total_cadence"], count: "", source: value["total_source"]))
         change["total"] = total
       end
-      parts = Array(value["parts"]).first(MiaSetupCard::MAX_PARTS).filter_map { |part| setup_debt_part(part) }
+      parts = Array(value["parts"]).first(SETUP_PARTS_READ).filter_map { |part| setup_debt_part(part) }
       change["parts"] = parts if parts.any?
+      return { "none" => true } if change.empty? && value["none"] == true && setup_none_evidence?("debt_payment")
       change
     end
 
@@ -352,27 +385,42 @@ module HouseholdFinance
       return unless name
       return { "op" => "remove", "name" => name } if op == "remove"
       # A quote can only be one of the two, and a balance must never read as a minimum.
-      balance = setup_debt_amount(part["balance"], part["source"], kind: :balance)
-      minimum = setup_debt_amount(part["minimum"], part["source"], kind: :minimum)
-      return if minimum.nil? && balance.nil?
-      { "op" => op, "name" => name, "minimum_cents" => minimum, "balance_cents" => balance }
+      balance = setup_debt_balance(part["balance"], part["source"])
+      minimum = setup_debt_minimum(part["minimum"], part["source"])
+      return if minimum.empty? && balance.nil?
+      { "op" => op, "name" => name, "balance_cents" => balance }.merge(minimum)
     end
 
-    def setup_debt_amount(amount, source, kind:)
+    def setup_debt_balance(amount, source)
       return if amount.blank? || !amount.is_a?(String) || !valid_money?(amount)
       offset = claim_setup_amount(amount, source)
       return unless offset
-      before = @message[0...offset]
-      after = @message[(offset + amount.length)..].to_s
-      return if kind == :balance && (after.match?(/\A\s*(?:a\s+month|monthly|min\b|minimum\b)/i) || before.match?(/\b(?:min|minimum|payment)\b[^\d]{0,12}\z/i))
-      return if after.match?(/\A\s*(?:%|percent\b|pct\b)/i)
-      return if after.match?(/\A(?:st|nd|rd|th)\b/i) || setup_year?(amount, before, after) || after.match?(SETUP_QUANTITY_AFTER)
-      return if before.match?(SETUP_NEGATED_BEFORE)
-      if kind == :minimum && (after.match?(SETUP_BALANCE_AFTER) || (before.match?(SETUP_BALANCE_BEFORE) && !before.last(30).match?(/\b(?:min(?:imum)?|payment|a month|monthly)\b/i)))
-        return
-      end
-      return if stated_cadence(setup_clause(offset, amount)) && kind == :minimum
+      before, after = setup_amount_context(offset, amount)
+      return if after.match?(/\A\s*(?:a\s+month|monthly|min\b|minimum\b)/i) || before.match?(/\b(?:min|minimum|payment)\b[^\d]{0,12}\z/i)
+      return if setup_unusable_debt_quote?(amount, before, after)
       self.class.amount_cents(amount)
+    end
+
+    # A firm monthly minimum, or the stated figure waiting for one. A range or a
+    # weekly amount is kept and shown, but is never a monthly number.
+    def setup_debt_minimum(amount, source)
+      return {} if amount.blank? || !amount.is_a?(String) || !valid_money?(amount)
+      offset = claim_setup_amount(amount, source)
+      return {} unless offset
+      before, after = setup_amount_context(offset, amount)
+      return {} if setup_unusable_debt_quote?(amount, before, after) || after.match?(SETUP_BALANCE_AFTER)
+      return {} if before.match?(SETUP_BALANCE_BEFORE) && !before.last(30).match?(/\b(?:min(?:imum)?|payment|a month|monthly)\b/i)
+      cents = self.class.amount_cents(amount)
+      cadence = stated_cadence(setup_clause(offset, amount))
+      cadence ||= "unclear" if after.match?(SETUP_RANGE_AFTER) || before.match?(SETUP_RANGE_BEFORE)
+      cadence ? { "minimum_cents" => nil, "stated_cents" => cents, "cadence" => cadence } : { "minimum_cents" => cents }
+    end
+
+    def setup_amount_context(offset, amount) = [ @message[0...offset], @message[(offset + amount.length)..].to_s ]
+
+    def setup_unusable_debt_quote?(amount, before, after)
+      after.match?(/\A\s*(?:%|percent\b|pct\b)/i) || after.match?(/\A(?:st|nd|rd|th)\b/i) || setup_year?(amount, before, after) ||
+        setup_quantity_after?(amount, after) || before.match?(SETUP_NEGATED_BEFORE)
     end
 
     def validated_money_fields(value, keys)
@@ -548,7 +596,7 @@ module HouseholdFinance
       part = object_schema(op: { type: "string", enum: %w[add replace remove] }, label: { type: "string" }, amount: { type: "string" }, cadence: cadence, count: { type: "string" }, source: { type: "string" })
       debt = object_schema(op: { type: "string", enum: %w[add replace remove] }, name: { type: "string" }, minimum: { type: "string" }, balance: { type: "string" }, source: { type: "string" })
       money = object_schema(none: { type: "boolean" }, replace_all: { type: "boolean" }, total_amount: { type: "string" }, total_cadence: cadence, total_count: { type: "string" }, total_source: { type: "string" }, parts: { type: "array", items: part })
-      debts = object_schema(none: { type: "boolean" }, total_amount: { type: "string" }, total_source: { type: "string" }, parts: { type: "array", items: debt })
+      debts = object_schema(none: { type: "boolean" }, total_amount: { type: "string" }, total_cadence: cadence, total_source: { type: "string" }, parts: { type: "array", items: debt })
       { setup_changes: object_schema(household_name: { type: "string" }, primary_goal: { type: "string" }, primary_income: money, fixed_expenses: money, flexible_spend: money, debt_payment: debts, skips: { type: "array", items: { type: "string", enum: SETUP_FIELDS.values } }, help_topic: { type: "string", enum: [ "", *SETUP_FIELDS.values ] }) }
     end
 

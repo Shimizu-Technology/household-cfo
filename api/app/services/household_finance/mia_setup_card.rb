@@ -17,6 +17,9 @@ module HouseholdFinance
     FILLER_WORDS = %w[the my our bill payment payments monthly].freeze
     CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck" }.freeze
 
+    NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long].freeze
+    PLACEHOLDER_DEBT = "Debt payments".freeze
+
     Update = Data.define(:field, :action, :label, :cents, :note) do
       def initialize(field:, action:, label: nil, cents: nil, note: nil) = super
     end
@@ -27,11 +30,37 @@ module HouseholdFinance
       @household = household
       @fields = state.to_h["fields"].to_h.deep_dup
       @spending_preferences = Array(state.to_h["spending_preferences"]).deep_dup
-      @carried = state.to_h["carried"].to_h
+      @carried = state.to_h["carried"].to_h.deep_dup
+      @bases = state.to_h["bases"].to_h.deep_dup
+      @revision = state.to_h["revision"].to_i
       @updates = []
     end
 
-    def to_h = { "version" => 1, "fields" => fields, "spending_preferences" => spending_preferences, "carried" => @carried }
+    attr_reader :revision
+
+    def to_h = { "version" => 1, "fields" => fields, "spending_preferences" => spending_preferences, "carried" => @carried, "bases" => @bases, "revision" => revision }
+
+    # A row is stale when the saved value moved after she told Mia this one, so
+    # a form save is never overwritten by an older number from the card.
+    def stale?(field) = @bases.key?(field) && @bases[field] != saved_signature(field)
+
+    def rebase_all = fields.each_key { |field| rebase(field) }
+
+    def unresolved_field_keys
+      FIELDS.select { |field| unresolved?(field) || (field == DEBT_FIELD && debts_without_minimum.any?) }
+    end
+
+    # What must survive a partial Apply: only rows still waiting on an amount.
+    def unresolved_state
+      kept = fields.slice(*MONEY_FIELDS.select { |field| unresolved?(field) })
+      placeholders = Array(debt_state["parts"]).select { |part| part["placeholder"] }
+      kept[DEBT_FIELD] = { "parts" => placeholders } if placeholders.any?
+      { "fields" => kept.deep_dup, "spending_preferences" => spending_preferences }
+    end
+
+    def unresolved_summary
+      MONEY_FIELDS.flat_map { |field| unresolved_labels(field) } + Array(debt_state["parts"]).select { |part| part["placeholder"] }.map { |part| part["name"] }
+    end
 
     def empty? = fields.empty?
 
@@ -47,10 +76,9 @@ module HouseholdFinance
     end
 
     def apply_changes(changes)
-      apply_text("household_name", changes["household_name"]) if changes["household_name"]
-      apply_text("primary_goal", changes["primary_goal"]) if changes["primary_goal"]
-      MONEY_FIELDS.each { |field| apply_money(field, changes[field]) if changes[field].present? }
-      apply_debts(changes[DEBT_FIELD]) if changes[DEBT_FIELD].present?
+      TEXT_FIELDS.each { |field| rebasing(field) { apply_text(field, changes[field]) } if changes[field] }
+      MONEY_FIELDS.each { |field| rebasing(field) { apply_money(field, changes[field]) } if changes[field].present? }
+      rebasing(DEBT_FIELD) { apply_debts(changes[DEBT_FIELD]) } if changes[DEBT_FIELD].present?
       updates
     end
 
@@ -70,21 +98,23 @@ module HouseholdFinance
       when "remove" then edit_remove(field, part_id)
       else raise ArgumentError, "Unknown setup change"
       end
+      rebase(field)
     end
 
     def rows
       FIELDS.map do |field|
-        field.in?(TEXT_FIELDS) ? text_row(field) : field == DEBT_FIELD ? debt_row : money_row(field)
+        row = field.in?(TEXT_FIELDS) ? text_row(field) : field == DEBT_FIELD ? debt_row : money_row(field)
+        stale?(field) ? row.merge(note: "Your saved number changed after you told me this. Tap to enter it again.") : row
       end
     end
 
     # What Apply can save: rows with an unresolved part wait for a monthly amount.
     def setup_updates
       fields.each_with_object({}) do |(field, value), updates|
-        next if field == DEBT_FIELD
+        next if field == DEBT_FIELD || stale?(field)
         if field.in?(TEXT_FIELDS)
           updates[field.to_sym] = value["value"]
-        elsif (cents = money_total(field)) && !unresolved?(field)
+        elsif (cents = money_total(field))
           updates[field.to_sym] = Money.dollars(cents).to_s
         end
       end
@@ -93,7 +123,8 @@ module HouseholdFinance
     def debt_state = fields[DEBT_FIELD].to_h
 
     def debts_changed?
-      debt_state["none"] || debt_state["total_cents"] || Array(debt_state["parts"]).any? { |part| !part["saved"] || part["changed"] || part["removed"] }
+      return false if stale?(DEBT_FIELD)
+      debt_state["none"] || debt_state["total_cents"] || Array(debt_state["parts"]).any? { |part| !part["placeholder"] && (!part["saved"] || part["changed"] || part["removed"]) }
     end
 
     def unresolved?(field)
@@ -131,8 +162,9 @@ module HouseholdFinance
     attr_reader :household
 
     def apply_text(field, value)
-      limit = field == "household_name" ? MAX_NAME : MAX_GOAL
-      text = value.to_s.squish.truncate(limit, omission: "…")
+      limit = text_limit(field)
+      text = value.to_s.squish
+      return updates << Update.new(field: field, action: :too_long, cents: limit) if text.length > limit
       return if text.blank? || fields.dig(field, "value") == text
       fields[field] = { "value" => text }
       updates << Update.new(field: field, action: :set, label: text)
@@ -200,6 +232,12 @@ module HouseholdFinance
       label = entry["label"].presence || "#{default_label(field)} #{existing.length + 1}"
       match = matching_part(existing, label, exact: entry["op"] == "add") unless unlabeled
       new_part = money_part(entry.merge("label" => label))
+      combined = match if match && combined_row?(match, label)
+      combined ||= existing.find { |part| combined_row?(part, label) && (label_words(label) - label_words(part["label"])).empty? } unless match || unlabeled
+      return updates << Update.new(field: field, action: :combined, label: label, note: combined["label"]) if combined
+      if !match && state["parts"].length >= MAX_PARTS
+        return updates << Update.new(field: field, action: :card_full, label: label)
+      end
       if match
         index = state["parts"].index(match)
         new_part["id"] = match["id"]
@@ -210,7 +248,6 @@ module HouseholdFinance
       else
         state["parts"] << new_part
       end
-      state["parts"] = state["parts"].first(MAX_PARTS)
       action = new_part["counted"] ? (match ? :changed : :added) : :needs_monthly
       updates << Update.new(field: field, action: action, label: label, cents: new_part["counted"] ? new_part["cents"] : nil, note: new_part["note"])
     end
@@ -223,6 +260,7 @@ module HouseholdFinance
         fields.delete(field) if state["parts"].empty?
         return updates << Update.new(field: field, action: :not_found, label: label)
       end
+      return updates << Update.new(field: field, action: :combined, label: label, note: match["label"]) if combined_row?(match, label)
       state["parts"].delete(match)
       if state["parts"].empty? && saved_totals[field]
         fields[field] = { "parts" => [] }
@@ -250,7 +288,11 @@ module HouseholdFinance
       counted = cadence == "monthly"
       cents = entry["amount_cents"]
       { "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
-        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : cadence == "unclear" ? "#{money(cents)}, not sure it's monthly" : "#{money(cents)} #{CADENCE_NOTES.fetch(cadence)}" }
+        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) }
+    end
+
+    def stated_note(cents, cadence)
+      cadence == "unclear" ? "#{money(cents)}, not sure it's monthly" : "#{money(cents)} #{CADENCE_NOTES.fetch(cadence)}"
     end
 
     def matching_part(parts, label, exact:)
@@ -263,6 +305,10 @@ module HouseholdFinance
       close.sole if close.one?
     end
 
+    def combined_row?(part, label)
+      part["label"].to_s.match?(/\s(?:and|n|&|\+)\s|\//i) && label_words(part["label"]) != label_words(label)
+    end
+
     def label_words(label)
       (label.to_s.downcase.scan(/[\p{L}]+/) - FILLER_WORDS).map(&:singularize)
     end
@@ -271,18 +317,30 @@ module HouseholdFinance
 
     def apply_debts(change)
       if change["none"]
-        return updates << Update.new(field: DEBT_FIELD, action: :debt_on_file) if debts_with_minimums?
+        return updates << Update.new(field: DEBT_FIELD, action: :debt_on_file) if DebtPortfolio.new(household).active_debts.any?
         fields[DEBT_FIELD] = { "none" => true }
         return updates << Update.new(field: DEBT_FIELD, action: :none)
       end
-      state = fields[DEBT_FIELD] ||= { "parts" => saved_debt_parts }
+      state = fields[DEBT_FIELD] ||= {}
       state.delete("none")
-      if change["total"]
-        state["total_cents"] = change.dig("total", "amount_cents")
-        updates << Update.new(field: DEBT_FIELD, action: :total, cents: state["total_cents"])
-      end
+      state["parts"] ||= saved_debt_parts
+      apply_debt_total(state, change["total"]) if change["total"]
       Array(change["parts"]).each { |part| apply_debt_part(state, part) }
       fields.delete(DEBT_FIELD) if state["parts"].empty? && state.except("parts").empty?
+    end
+
+    # A figure that isn't monthly waits on its own row until she gives one.
+    def apply_debt_total(state, total)
+      state["parts"].reject! { |part| part["placeholder"] }
+      if total["cadence"] == "monthly"
+        state["total_cents"] = total["amount_cents"]
+        updates << Update.new(field: DEBT_FIELD, action: :total, cents: state["total_cents"])
+      else
+        state.delete("total_cents")
+        placeholder = { "id" => new_id, "name" => PLACEHOLDER_DEBT, "placeholder" => true, "minimum_cents" => nil, "balance_cents" => nil, "minimum_note" => stated_note(total["amount_cents"], total["cadence"]) }
+        state["parts"] << placeholder
+        updates << Update.new(field: DEBT_FIELD, action: :needs_monthly, label: PLACEHOLDER_DEBT, note: placeholder["minimum_note"])
+      end
     end
 
     def apply_debt_part(state, part)
@@ -292,23 +350,37 @@ module HouseholdFinance
         match["saved"] ? match["removed"] = true : state["parts"].delete(match)
         return updates << Update.new(field: DEBT_FIELD, action: :removed, label: match["name"])
       end
+      if !match && state["parts"].count { |row| !row["placeholder"] } >= MAX_PARTS
+        return updates << Update.new(field: DEBT_FIELD, action: :card_full, label: part["name"])
+      end
       state.delete("total_cents")
+      state["parts"].reject! { |row| row["placeholder"] }
       if match
-        match["minimum_cents"] = part["minimum_cents"] if part["minimum_cents"]
-        match["balance_cents"] = part["balance_cents"] if part["balance_cents"]
+        apply_debt_amounts(match, part)
         match.delete("removed")
         match["changed"] = true if match["saved"]
         updates << debt_update(match, :changed)
       else
-        created = { "id" => new_id, "name" => part["name"].to_s.sub(/\A./, &:upcase), "minimum_cents" => part["minimum_cents"], "balance_cents" => part["balance_cents"] }
+        created = { "id" => new_id, "name" => part["name"].to_s.sub(/\A./, &:upcase), "minimum_cents" => nil, "balance_cents" => part["balance_cents"] }
+        apply_debt_amounts(created, part)
         state["parts"] << created
-        state["parts"] = state["parts"].first(MAX_PARTS)
         updates << debt_update(created, :added)
       end
     end
 
+    def apply_debt_amounts(row, part)
+      row["balance_cents"] = part["balance_cents"] if part["balance_cents"]
+      if part["minimum_cents"]
+        row["minimum_cents"] = part["minimum_cents"]
+        row.delete("minimum_note")
+      elsif part["stated_cents"] && row["minimum_cents"].nil?
+        row["minimum_note"] = stated_note(part["stated_cents"], part["cadence"])
+      end
+    end
+
     def debt_update(part, action)
-      Update.new(field: DEBT_FIELD, action: action, label: part["name"], cents: part["minimum_cents"], note: part["minimum_cents"] ? nil : "needs a minimum")
+      note = part["minimum_note"] ? "needs a monthly minimum (#{part['minimum_note']})" : "needs a minimum" unless part["minimum_cents"]
+      Update.new(field: DEBT_FIELD, action: action, label: part["name"], cents: part["minimum_cents"], note: note)
     end
 
     def matching_debt(parts, name)
@@ -329,40 +401,57 @@ module HouseholdFinance
       end
     end
 
-    def debts_with_minimums?
-      DebtPortfolio.new(household).active_debts.any? { |debt| debt.minimum_payment_known? && debt.minimum_payment_cents.positive? }
-    end
-
-    def edit_set(field, part_id, value, label)
+    def edit_set(field, part_id, value, _label)
       return edit_text(field, value) if field.in?(TEXT_FIELDS)
-      cents = Money.cents!(value.to_s.delete(",").strip, message: "Enter an amount like 1500.")
-      raise ArgumentError, "Enter an amount of $0 or more." if cents.negative?
-      raise ArgumentError, "That amount is too large." if cents > Money::MAX_AMOUNT_CENTS
-      return edit_debt(part_id, cents, label) if field == DEBT_FIELD
+      cents = edited_cents(value)
+      return edit_debt(part_id, cents) if field == DEBT_FIELD
       state = fields[field] ||= { "parts" => [] }
-      part = state["parts"].find { |row| row["id"] == part_id }
-      if part
+      if part_id.present?
+        part = state["parts"].find { |row| row["id"] == part_id }
+        raise ArgumentError, "That row changed. Look at your card again." unless part
         part.replace(part.merge("cents" => cents, "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil, "kind" => part["kind"] == "saved_total" ? "part" : part["kind"]))
       else
         state["parts"] = [ { "id" => new_id, "label" => TOTAL_LABEL, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "total" } ]
       end
     end
 
+    def edited_cents(value)
+      text = value.to_s.strip
+      raise ArgumentError, "Enter an amount like 1500." if text.match?(ParticipantMessageReader::MISPLACED_COMMA)
+      cents = Money.cents!(text.delete(","), message: "Enter an amount like 1500.")
+      raise ArgumentError, "Enter an amount of $0 or more." if cents.negative?
+      raise ArgumentError, "That amount is too large." if cents > Money::MAX_AMOUNT_CENTS
+      cents
+    end
+
+    def text_limit(field) = field == "household_name" ? MAX_NAME : MAX_GOAL
+
     def edit_text(field, value)
       text = value.to_s.squish
       raise ArgumentError, "Enter something first." if text.blank?
-      fields[field] = { "value" => text.truncate(field == "household_name" ? MAX_NAME : MAX_GOAL, omission: "…") }
+      raise ArgumentError, "Keep this to #{text_limit(field)} characters or fewer." if text.length > text_limit(field)
+      fields[field] = { "value" => text }
     end
 
-    def edit_debt(part_id, cents, label)
-      state = fields[DEBT_FIELD] ||= { "parts" => saved_debt_parts }
+    def edit_debt(part_id, cents)
+      state = fields[DEBT_FIELD] ||= {}
       state.delete("none")
-      state.delete("total_cents")
-      part = state["parts"].find { |row| row["id"] == part_id }
-      if part
+      state["parts"] ||= saved_debt_parts
+      if part_id.present?
+        part = state["parts"].find { |row| row["id"] == part_id }
+        raise ArgumentError, "That row changed. Look at your card again." unless part
+        if part["placeholder"]
+          state["parts"].delete(part)
+          state["total_cents"] = cents
+          return
+        end
+        state.delete("total_cents")
         part["minimum_cents"] = cents
+        part.delete("minimum_note")
         part["changed"] = true if part["saved"]
       else
+        raise ArgumentError, "Change each debt on its own row." if state["parts"].any? { |row| !row["placeholder"] && !row["removed"] }
+        state["parts"].reject! { |row| row["placeholder"] }
         state["total_cents"] = cents
       end
     end
@@ -373,7 +462,7 @@ module HouseholdFinance
       return unless state
       if field == DEBT_FIELD
         return fields.delete(field) if part_id.blank?
-        part = state["parts"].find { |row| row["id"] == part_id }
+        part = Array(state["parts"]).find { |row| row["id"] == part_id }
         return unless part
         part["saved"] ? part["removed"] = true : state["parts"].delete(part)
         fields.delete(field) if state["parts"].empty?
@@ -419,7 +508,7 @@ module HouseholdFinance
       return base_row(DEBT_FIELD, status: "entered", kind: "debts", value_text: "No debts") if state["none"]
       parts = Array(state["parts"]).reject { |part| part["removed"] }.map do |part|
         { id: part["id"], label: part["name"], cents: part["minimum_cents"], counted: part["minimum_cents"].present?,
-          note: part["minimum_cents"].nil? ? "needs a minimum" : (part["balance_cents"] ? "#{money(part['balance_cents'])} balance" : nil), removable: true }
+          note: part["minimum_cents"].nil? ? (part["minimum_note"] || "needs a minimum") : (part["balance_cents"] ? "#{money(part['balance_cents'])} balance" : nil), removable: true }
       end
       total = state["total_cents"] || (parts.any? && parts.all? { |part| part[:counted] } ? parts.sum { |part| part[:cents] } : nil)
       base_row(DEBT_FIELD, status: debt_known? ? "entered" : "needs_monthly", kind: "debts", total_cents: total, parts: parts,
@@ -448,6 +537,21 @@ module HouseholdFinance
     end
 
     def confirmed = @confirmed ||= SetupStatus.new(household).confirmed_field_keys
+
+    def rebasing(field)
+      already = updates.length
+      yield
+      rebase(field) if updates.drop(already).any? { |update| !update.action.in?(NOOP_ACTIONS) }
+    end
+
+    def rebase(field) = @bases[field] = saved_signature(field)
+
+    def saved_signature(field)
+      return confirmed.include?(field) ? saved_text(field) : nil if field.in?(TEXT_FIELDS)
+      return saved_totals[field] if field.in?(MONEY_FIELDS)
+      portfolio = DebtPortfolio.new(household)
+      [ portfolio.minimum_payment_known?, portfolio.monthly_minimum_cents, portfolio.active_debts.length ]
+    end
 
     def new_id = SecureRandom.hex(4)
 

@@ -12,7 +12,7 @@ function draft(rows: MiaSetupCardRow[], canApply = true): MiaActionDraft {
   return {
     id: 7, status: 'pending', draft_type: 'household_setup', year: 2026, title: 'Your setup so far', summary: 'Your setup so far',
     rationale: null, source_prompt: null, created_at: null, applied_at: null, canceled_at: null, items: [],
-    setup_card: { title: 'Your setup so far', rows, can_apply: canApply },
+    setup_card: { title: 'Your setup so far', rows, can_apply: canApply, revision: 1 },
   }
 }
 
@@ -65,6 +65,36 @@ describe('MiaSetupCard', () => {
     const { onApply } = setup([row('primary_income', { status: 'entered', total_cents: 100000 })])
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
     expect(onApply).toHaveBeenCalledOnce()
+  })
+
+  it('keeps Apply off while a typed edit is open and returns focus after saving', async () => {
+    setup([row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 100000 })])
+    const apply = screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement
+    expect(apply.disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
+    expect(apply.disabled).toBe(true)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1200' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toMatch(/Change Monthly income/))
+    expect(apply.disabled).toBe(false)
+  })
+
+  it('edits named debts one row at a time, not through their total', () => {
+    setup([row('debt_payment', { kind: 'debts', label: 'Debts', status: 'entered', total_cents: 7500, parts: [{ id: 'd1', label: 'Visa', cents: 7500, counted: true }] })])
+    expect(screen.queryByRole('button', { name: /Change Debts/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Change Visa/ })).toBeTruthy()
+  })
+
+  it('stays usable when an edit rejects', async () => {
+    const { onEdit } = setup([row('primary_income', { label: 'Monthly income' })])
+    onEdit.mockRejectedValueOnce(new Error('boom'))
+    fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1200' } })
+    const failure = new Promise<void>((resolve) => { window.addEventListener('unhandledrejection', (event) => { event.preventDefault(); resolve() }, { once: true }) })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await Promise.race([failure, new Promise((resolve) => setTimeout(resolve, 100))])
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false))
   })
 
   it('disables Apply with no savable row', () => {
