@@ -109,6 +109,10 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_nil debt_row["parts"].last["cents"]
     assert_match(/Added car \$240/, text(body))
     refute_match(/monthly minimum on personal loan/i, text(body), "she just said she doesn't know it")
+    later = say("skip the groceries part i cant think rn", read(care_status: "ongoing", setup: changes(skips: [ "flexible_spend" ])))
+    refute_match(/monthly minimum on personal loan/i, text(later))
+    assert_equal "needs_monthly", row(later, "debt_payment")["status"]
+    assert_match(/needs a minimum/, row(later, "debt_payment")["parts"].last["note"])
   end
 
   test "a skip during care is honoured and is not asked again" do

@@ -211,7 +211,8 @@ module HouseholdFinance
     # A row she just started and left unfinished comes before a new question,
     # unless she skipped it or just said she doesn't know the minimum.
     def next_open_field(new_skips)
-      except = card.updates.any? { |update| update.field == MiaSetupCard::DEBT_FIELD && update.action == :added && update.cents.nil? } && @message.match?(UNKNOWN_MINIMUM) ? [ MiaSetupCard::DEBT_FIELD ] : []
+      card.mark_minimum_unknown(card.updates.select { |update| update.field == MiaSetupCard::DEBT_FIELD && update.action == :added && update.cents.nil? }.map(&:label)) if @message.match?(UNKNOWN_MINIMUM)
+      except = card.only_unknown_minimums_left? ? [ MiaSetupCard::DEBT_FIELD ] : []
       self.class.next_open_field(@household, card, new_skips: new_skips, status: @status, except: except)
     end
 

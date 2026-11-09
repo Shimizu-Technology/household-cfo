@@ -91,7 +91,7 @@ module HouseholdFinance
       when :added then update.cents ? [] : [ "Added #{update.label.downcase}. It #{update.note}." ]
       when :total then [ total_line(field, update) ]
       when :none then [ field == MiaSetupCard::DEBT_FIELD ? "Noted: no debts." : none_line(field) ]
-      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still needs a monthly amount (#{update.note}), so I didn't count it." ]
+      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still #{update.label.to_s.match?(/s\z/i) ? 'need' : 'needs'} a monthly amount (#{update.note}), so I didn't count it." ]
       when :no_breakdown then [ "I only have one total for #{FIELD_NAMES.fetch(field)} (#{money(update.cents)}), so I can't change #{update.label.downcase} by itself. What should the new total be?" ]
       when :not_found then [ "I don't see #{update.label.downcase} on your card." ]
       when :debt_on_file then [ "You have a debt saved, so I left debts as they are. Tell me which one is gone, or change it in My Money." ]

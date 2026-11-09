@@ -48,7 +48,7 @@ module HouseholdFinance
     def rebase_all = fields.each_key { |field| rebase(field) }
 
     def unresolved_field_keys
-      FIELDS.select { |field| unresolved?(field) || (field == DEBT_FIELD && debts_without_minimum.any?) }
+      FIELDS.select { |field| unresolved?(field) || (field == DEBT_FIELD && debts_without_minimum.any? && !only_unknown_minimums_left?) }
     end
 
     # What must survive a partial Apply: only rows still waiting on an amount.
@@ -104,7 +104,18 @@ module HouseholdFinance
       return unless part
       part.replace(part.except("proposed_cents").merge("cents" => part["proposed_cents"], "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil))
       rebase(field)
-      updates << Update.new(field: field, action: :changed, label: part["label"], cents: part["cents"])
+      sole = Array(fields.dig(field, "parts")).one?
+      updates << Update.new(field: field, action: sole ? :total : :changed, label: part["label"], cents: part["cents"])
+    end
+
+    # She said she doesn't have it. The row still says so, but Mia stops asking.
+    def mark_minimum_unknown(names)
+      Array(debt_state["parts"]).each { |part| part["minimum_unknown"] = true if names.include?(part["name"]) && part["minimum_cents"].nil? }
+    end
+
+    def only_unknown_minimums_left?
+      pending = Array(debt_state["parts"]).reject { |part| part["removed"] || part["minimum_cents"] }
+      pending.any? && pending.all? { |part| part["minimum_unknown"] }
     end
 
     # A paycheck amount given before she has said how often it comes.
