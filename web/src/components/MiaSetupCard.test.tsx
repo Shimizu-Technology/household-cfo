@@ -91,9 +91,7 @@ describe('MiaSetupCard', () => {
     onEdit.mockRejectedValueOnce(new Error('boom'))
     fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '1200' } })
-    const failure = new Promise<void>((resolve) => { window.addEventListener('unhandledrejection', (event) => { event.preventDefault(); resolve() }, { once: true }) })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
-    await Promise.race([failure, new Promise((resolve) => setTimeout(resolve, 100))])
     await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false))
   })
 

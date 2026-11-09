@@ -65,6 +65,8 @@ export function MiaSetupCard({
       setEditing(null)
       // The form is gone, so focus returns to the row it came from.
       if (key) requestAnimationFrame(() => rowButtons.current.get(key)?.focus())
+    } catch {
+      // The form stays open so the typed amount can be saved again.
     } finally {
       setSaving(false)
     }
