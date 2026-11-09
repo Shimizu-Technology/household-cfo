@@ -37,6 +37,12 @@ module HouseholdFinance
       REQUIRED_FIELDS.map(&:to_s) - confirmed_field_keys
     end
 
+    # What is still worth asking in chat. A skipped question stays unknown, and
+    # Home keeps showing it as still to add, but Mia does not ask it again.
+    def open_field_keys
+      missing_field_keys - Array(household.setup_skipped_fields)
+    end
+
     def as_json(*)
       required_fields = REQUIRED_FIELDS.map do |key|
         {

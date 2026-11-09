@@ -23,16 +23,6 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "names exclude sentences and keep long family names" do
-    ask(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
-    [ "My mom is in the hospital and the kids have not eaten since yesterday morning at all", "I need help with my family", "My husband left me last night" ].each do |message|
-      ask(message)
-      assert_nil response.parsed_body["mia_action_draft"], message
-    end
-    ask("Santos Cruz Dela Rosa extended family household")
-    assert response.parsed_body["mia_action_draft"], reply
-  end
-
   test "five essentials stay complete with unknown and archived debt minimums" do
     five_answers
     assert HouseholdFinance::SetupStatus.new(@household).complete?
@@ -98,30 +88,6 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
       assert_match(/October 2026/, reply, message)
       refute_match(/November 2026 plan leaves/, reply)
     end
-  end
-
-  test "debt replies support none and natural amounts but never overwrite individual minimums" do
-    five_answers
-    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "flexible_spend" ])
-    ask(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
-    ask("skip")
-    ask("We pay about $150 a month")
-    assert response.parsed_body["mia_action_draft"], reply
-    ask("none")
-    assert response.parsed_body["mia_action_draft"], reply
-    ask("I don't know")
-    assert_match(/(?:leave that unknown|Setup is paused).*Enter my numbers/i, reply)
-    assert_nil response.parsed_body["mia_action_draft"]
-    refute_match(/Next setup question/i, reply)
-    @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10000, minimum_payment_cents: 5000)
-    @household.household_profile.update!(debt_tracking_mode: "individual")
-    ask("No debt payments")
-    assert_nil response.parsed_body["mia_action_draft"], reply
-    assert_match(/Visa|individual|minimum/i, reply)
-    @household.household_profile.update!(debt_tracking_mode: "summary")
-    ask("No debt payments")
-    assert_nil response.parsed_body["mia_action_draft"], reply
-    assert_match(/debt.*minimum|minimum.*debt/i, reply)
   end
 
   test "legacy purchase coaching keeps every figure deterministic" do

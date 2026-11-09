@@ -53,7 +53,7 @@ module HouseholdFinance
         end
         generation = household.financial_generation + 1
         prior = household.attributes.slice("confirmed_setup_fields", "primary_goal", "stage").merge("profile" => household.household_profile.attributes.except("id", "household_id", "created_at", "updated_at"))
-        household.update!(financial_generation: generation, confirmed_setup_fields: [], primary_goal: nil)
+        household.update!(financial_generation: generation, confirmed_setup_fields: [], setup_skipped_fields: [], primary_goal: nil)
         profile = household.household_profile
         profile.update!(financial_generation: generation, debt_tracking_mode: "individual", debt_summary_balance_cents: 0,
           debt_summary_balance_known: false, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false,

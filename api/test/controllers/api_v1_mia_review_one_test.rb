@@ -33,7 +33,7 @@ class ApiV1MiaReviewOneTest < ActionDispatch::IntegrationTest
       post_message("I make $5,200 a month now. Should I buy a $600 phone?")
     end
     reply = response.parsed_body.dig("assistant_message", "content")
-    assert_includes reply, "Next setup question:"
+    assert_includes reply, "household details"
     refute_includes reply, "Open Budget"
   end
 

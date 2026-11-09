@@ -10,55 +10,22 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
   end
   teardown { travel_back }
 
-  test "M8 a miss stays in setup and a long name can be reviewed without truncation" do
+  test "M8 with the reader off setup says so, offers the form and writes nothing" do
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
     post_message("$3,900")
     assert_match(/try again/i, reply)
-    refute_includes reply, "Next setup question"
-    refute_match(/readiness|safe.to.spend/, reply)
-    name = "The Santos Cruz Dela Rosa extended family household of Dededo"
-    post_message(name)
-    draft = response.parsed_body.fetch("mia_action_draft")
-    assert draft, reply
-    item = draft.fetch("items").find { |entry| entry["action_type"] == "update_household_profile" }
-    assert_equal name, item.dig("payload", "name")
-  end
-
-  test "M8 income question survives a miss and accepts natural language and bare amount" do
-    HouseholdFinance::SetupUpdater.new(@household, household_name: "Cruz household", primary_goal: "Pay off Visa").call
-    post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
-    post_message("I am not sure")
-    assert_match(/try again/i, reply)
-    refute_includes reply, "Next setup question"
-    post_message("I take home about $4,800 a month from my job at the hospital")
-    draft = response.parsed_body.fetch("mia_action_draft")
-    assert draft, reply
+    assert_match(/Enter my numbers/, reply)
+    post_message("I take home about $4,800 a month")
+    assert_match(/Enter my numbers/, reply)
+    assert_nil response.parsed_body["mia_action_draft"]
     assert_equal 0, @household.income_sources.count
-    post_message("$4,800")
-    assert response.parsed_body["mia_action_draft"], reply
-    refute_match(/readiness color/, reply)
   end
 
-  test "M3 no debt payments is a reviewed minimum of zero not an invented balance" do
+  test "M3 setup is not complete until debts are answered" do
     five_answers
     post_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST)
-    assert_includes reply, "setup is complete"
-    post_message("no debt payments")
-    draft = response.parsed_body.fetch("mia_action_draft")
-    assert draft, reply
-    refute HouseholdFinance::DebtPortfolio.new(@household.reload).minimum_payment_known?
-    post_message("yes")
-    assert_equal draft.fetch("id"), response.parsed_body.dig("mia_action_draft", "id")
-    refute HouseholdFinance::DebtPortfolio.new(@household.reload).minimum_payment_known?
-    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", params: {}, headers: headers.merge("Idempotency-Key" => SecureRandom.uuid), as: :json
-    assert_response :success
-    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
-    portfolio = HouseholdFinance::DebtPortfolio.new(@household)
-    assert portfolio.minimum_payment_known?
-    assert_equal 0, portfolio.monthly_minimum_cents
-    refute portfolio.balance_known?
-    assert_includes response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content"), "setup is complete"
-    assert_equal 150000, response.parsed_body.dig("workspace", "dashboard", "month_answer", "plan_left_cents")
+    refute_includes reply, "setup is complete"
+    assert_includes reply, "debts"
   end
 
   test "M3 month answer persists direct links to the actual missing numbers" do

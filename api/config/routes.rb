@@ -152,6 +152,7 @@ Rails.application.routes.draw do
       end
       resources :income_schedule_entries, only: %i[create update destroy]
       resources :mia_action_drafts, only: [] do
+        patch "setup_card", on: :member
         member do
           post :apply
           post :cancel

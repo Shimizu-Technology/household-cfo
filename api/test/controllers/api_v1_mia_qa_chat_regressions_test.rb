@@ -11,38 +11,7 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
   teardown { travel_back }
 
   # F6
-  test "call us with a goal clause drafts a short household name and the goal" do
-    user, _household = participant
-    post_message(user, "call us the cruz ohana lol and our main goal is to build an emergency fund of like 3 months")
-
-    assert_response :created
-    items = response.parsed_body.dig("mia_action_draft", "items").to_a
-    name = items.find { |item| item.dig("payload", "key") == "household_name" }
-    goal = items.find { |item| item.dig("payload", "key") == "primary_goal" }
-    assert_equal "The Cruz Ohana", name&.dig("payload", "value"), response.parsed_body.inspect
-    assert_equal "Build an emergency fund of like 3 months", goal&.dig("payload", "value")
-  end
-
   # F8
-  test "after setup the gate names every missing piece and no debt becomes a reviewed zero summary" do
-    user, household = participant
-    complete_setup(household)
-    with_resolved_intent(coaching_intent("How much is safe to spend this month?")) do
-      post_message(user, "ok we done with setup? so how much is safe to spend this month")
-    end
-    answer = reply
-    assert_includes answer, "debt minimum"
-    assert_includes answer, "checking, savings, and emergency-fund balances"
-    assert_includes answer, "no debt payments"
-
-    assert_difference -> { household.mia_action_drafts.count }, 1 do
-      post_message(user, "we dont have any debt, no credit cards nothing")
-    end
-    draft = household.mia_action_drafts.order(:id).last
-    assert_equal "debt_plan", draft.draft_type
-    refute HouseholdFinance::DebtPortfolio.new(household.reload).minimum_payment_known?, "nothing applies before review"
-  end
-
   # F7
   test "spending follow-ups answer the named category or merchant with consistent October numbers" do
     user, household = participant

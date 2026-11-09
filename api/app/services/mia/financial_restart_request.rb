@@ -1,14 +1,14 @@
 module Mia
   module FinancialRestartRequest
+    BILL_RECITAL = /\b(?:rent|mortgage|power|water|gpa|gwa|electric\w*|internet|phones?|bills?|insurance|groceries|gas|car|truck|visa|loan|cable)\b[^.,\d]{0,14}\$?\d/i
+
     module_function
 
     def matches?(message, session:)
       content = message.to_s.squish
       return false if negated?(content)
       # A fresh recital of named bills is a setup review, not a workspace wipe.
-      if content.match?(/\bstart over\b/i) && HouseholdFinance::MiaSetupCalculation.new(message: content, reading: nil, field: "fixed_expenses").call
-        return false
-      end
+      return false if content.match?(/\bstart over\b/i) && content.scan(BILL_RECITAL).length >= 2
       return false if content.match?(/\b(?:chat|conversation|explanation|answer|draft|question|message)\b/i) && !content.match?(/\b(?:financial|numbers|income|debts?|accounts?|budget|information|everything)\b/i)
       explicit = content.match?(/\b(?:reset|clear|erase|wipe|delete)\b.{0,100}\b(?:everything|all\s+(?:(?:of\s+)?(?:my|our|the)\s+)?(?:info(?:rmation)?|data|numbers|records)|(?:my|our)\s+(?:info(?:rmation)?|financial\s+(?:data|picture)|numbers))\b/i) ||
         content.match?(/\b(?:start\s+(?:over|from\s+scratch)|fresh\s+start)\b/i)

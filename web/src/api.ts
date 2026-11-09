@@ -717,7 +717,32 @@ export type MiaActionDraft = {
   stale?: boolean
   stale_message?: string | null
   items: MiaActionItem[]
+  setup_card?: MiaSetupCardData
 }
+
+export type MiaSetupCardPart = {
+  id: string
+  label: string
+  cents: number | null
+  counted: boolean
+  note?: string | null
+  removable?: boolean
+}
+
+export type MiaSetupCardRow = {
+  key: string
+  label: string
+  kind: 'text' | 'money' | 'debts'
+  status: 'entered' | 'saved' | 'missing' | 'skipped' | 'needs_monthly'
+  value_text: string | null
+  total_cents: number | null
+  parts: MiaSetupCardPart[]
+  note: string | null
+}
+
+export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_apply: boolean; revision: number }
+
+export type MiaSetupCardEdit = { field: string; action_name: 'set' | 'remove' | 'skip' | 'unskip'; part_id?: string; value?: string }
 
 export type AnnualBudgetPlan = {
   year: number
@@ -4594,11 +4619,20 @@ export async function deleteIncomeScheduleEntry(id: number, year: number | undef
   return payload.budget
 }
 
-export async function applyMiaActionDraft(id: number, idempotencyKey: string, itemIds?: number[]): Promise<AppData> {
+export async function applyMiaActionDraft(id: number, idempotencyKey: string, itemIds?: number[], setupCardRevision?: number): Promise<AppData> {
   const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
-    body: JSON.stringify(itemIds ? { item_ids: itemIds } : {}),
+    body: JSON.stringify({ ...(itemIds ? { item_ids: itemIds } : {}), ...(setupCardRevision == null ? {} : { setup_card_revision: setupCardRevision }) }),
+  })
+  return payload.workspace
+}
+
+export async function updateMiaSetupCard(id: number, edit: MiaSetupCardEdit): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/setup_card`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(edit),
   })
   return payload.workspace
 }

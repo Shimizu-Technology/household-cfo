@@ -35,8 +35,8 @@ module HouseholdFinance
         @metadata = metadata
       end
 
-      def create_draft!(source_chat_message:, assistant_chat_message:)
-        raise ArgumentError, "Mia reviews must contain at least one change" if items.empty?
+      def create_draft!(source_chat_message:, assistant_chat_message:, allow_empty: false)
+        raise ArgumentError, "Mia reviews must contain at least one change" if items.empty? && !allow_empty
         if draft_type == "action_plan" && items.length > MiaActionPlanBuilder::MAX_ACTIONS
           raise ArgumentError, "Mia action plans must contain between 1 and #{MiaActionPlanBuilder::MAX_ACTIONS} changes"
         end
@@ -60,32 +60,7 @@ module HouseholdFinance
             })
           )
 
-          items.each_with_index do |item, index|
-            action_item = draft.mia_action_items.create!(
-              position: index,
-              action_type: item.action_type,
-              target_record_type: item.target_record_type,
-              target_record_id: item.target_record_id,
-              label: item.label,
-              description: item.description,
-              payload: item.payload,
-              before_snapshot: item.before_snapshot,
-              after_snapshot: item.after_snapshot,
-              source_text: item.source_text,
-              source_start: item.source_start,
-              source_end: item.source_end,
-              dependencies: Array(item.dependencies)
-            )
-            prepared = Operations::MiaItemAdapter.prepare(household, action_item, year: year)
-            if prepared
-              action_item.update!(
-                operation_key: prepared.operation_key,
-                operation_version: prepared.operation_version,
-                prepared_operation: prepared.as_json,
-                prepared_operation_fingerprint: prepared.fingerprint
-              )
-            end
-          end
+          write_items!(draft)
           household.household_audit_events.create!(
             user: user,
             actor_type: "mia",
@@ -109,7 +84,50 @@ module HouseholdFinance
         end
       end
 
+      # A setup card keeps its id across edits; its typed items are rewritten so
+      # Apply still runs the prepared, fingerprinted operations it always has.
+      def sync_items!(draft)
+        ApplicationRecord.transaction do
+          household.lock!
+          draft.lock!
+          raise ArgumentError, "That setup card is no longer open." unless draft.pending?
+          draft.mia_action_items.destroy_all
+          draft.update!(title: title, summary: summary, source_prompt: source_prompt,
+            metadata: draft.metadata.merge(metadata.deep_stringify_keys).except("stale_at", "stale_message"))
+          write_items!(draft)
+        end
+      end
+
       private
+
+      def write_items!(draft)
+        items.each_with_index do |item, index|
+          action_item = draft.mia_action_items.create!(
+            position: index,
+            action_type: item.action_type,
+            target_record_type: item.target_record_type,
+            target_record_id: item.target_record_id,
+            label: item.label,
+            description: item.description,
+            payload: item.payload,
+            before_snapshot: item.before_snapshot,
+            after_snapshot: item.after_snapshot,
+            source_text: item.source_text,
+            source_start: item.source_start,
+            source_end: item.source_end,
+            dependencies: Array(item.dependencies)
+          )
+          prepared = Operations::MiaItemAdapter.prepare(household, action_item, year: year)
+          next unless prepared
+
+          action_item.update!(
+            operation_key: prepared.operation_key,
+            operation_version: prepared.operation_version,
+            prepared_operation: prepared.as_json,
+            prepared_operation_fingerprint: prepared.fingerprint
+          )
+        end
+      end
 
       def supersede_debt_reviews!(replacement, source_message)
         return unless items.any? { |item| item.target_record_type == "Debt" }
@@ -690,21 +708,6 @@ module HouseholdFinance
     end
 
     def proposal_result(title:, summary:, rationale:, items:, metadata: {}, draft_type: "budget_edit", year: annual_budget_manager.year)
-      calculation = command[:setup_calculation] if command.is_a?(Hash)
-      if calculation
-        prior = if calculation[:prior_draft_id]
-          draft = household.mia_action_drafts.pending.find_by(id: calculation[:prior_draft_id], requested_by_user: user)
-          draft&.metadata&.dig("setup_calculation")&.deep_symbolize_keys&.merge(draft_id: draft.id)
-        end
-        return validation_result("That earlier review is no longer pending. Please give the full list again. Nothing changed.") if calculation[:prior_draft_id] && !prior
-        verified = MiaSetupCalculation.new(message: raw_input, reading: ParticipantMessageReader::Current.reading, field: calculation[:field], prior: prior).call if ParticipantMessageReader::Current.reading
-        return validation_result("I could not verify that total. Please give the named parts again. Nothing changed.") unless verified && verified.deep_symbolize_keys == calculation
-        if verified
-          metadata = metadata.merge(setup_calculation: verified)
-          summary = verified[:description]
-          rationale = [ verified[:description], rationale ].join(" ")
-        end
-      end
       proposal = Proposal.new(
         household: household,
         user: user,

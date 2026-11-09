@@ -161,19 +161,13 @@ module Api
         end
 
         if attached_imports.empty?
-          missing = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys
-          field = HouseholdFinance::MiaSetupGuide.pending_question_field(missing, history)
-          @mia_setup_question_field = field if field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: {}, recent_messages: history)
-          @setup_interruption_pending = @mia_setup_question_field && HouseholdFinance::MiaSetupGuide.other_question_pending?(conversation_context[:active_topic])
-          field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: conversation_context[:active_topic], recent_messages: history)
           field = "primary_goal" if HouseholdFinance::MiaSetupGuide.goal_change_request?(content)
           thread = conversation_context[:active_topic].to_h.deep_symbolize_keys
           action = thread[:action].to_h
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
-          calculations = conversation_context[:pending_setup_calculations].to_h
-          pending ||= calculations.keys.sole.to_s if calculations.one?
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
+          @setup_card_context = setup_card_reader_context(session)
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
@@ -200,6 +194,13 @@ module Api
           end
           care_current.recent_care = nil unless @care_topic
           care_current.care_topic = nil unless @care_topic
+          if @setup_card_context && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
+            setup_card_turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session, reading: @participant_reading)
+            if setup_card_turn.plan && !setup_card_turn.plan.continues
+              return render_setup_card_turn(session, content, setup_card_turn, message_request: message_request)
+            end
+            @setup_card_turn = setup_card_turn if setup_card_turn.plan
+          end
         end
 
         # Challenge goal/pattern continuations must not fall through to household goal reads.
@@ -283,6 +284,7 @@ module Api
         ).call
         intent_context[:available_product_modules] = module_guidance.context
         intent_context[:participant_reading] = @participant_reading
+        intent_context[:setup_card_open] = @setup_card_context.present?
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -295,6 +297,7 @@ module Api
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
         end
+        intent_result = setup_card_coaching_turn(intent_result, content) if @setup_card_context && setup_write_intent?(intent_result)
         allowed_household_intent = @savings_household_read ? ::Mia::HouseholdPlanRequest.allowed_read_intent?(intent_result) : ::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
         if @savings_household_request && intent_result && !allowed_household_intent
           return render_household_scope_clarification(session, content, message_request: message_request)
@@ -379,13 +382,7 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
-        if (@participant_reading&.question || @setup_interruption_pending) && @participant_reading && !@participant_reading.care? && !intent_result&.actionable? && !intent_result&.needs_clarification && !HouseholdFinance::ParticipantCare.required?(content) && !@savings_household_request
-          guide = HouseholdFinance::MiaSetupGuide.new(current_household)
-          field = @mia_setup_question_field if guide.next_missing_field
-          if field && !assistant_content.include?("Next setup question:")
-            assistant_content = "#{assistant_content} #{HouseholdFinance::MiaSetupGuide.resume_question_message(field, history)}"
-          end
-        end
+        assistant_content = setup_card_resumed_content(assistant_content, session, intent_result, content) if @setup_card_context
         assistant_content = append_persona_capability_boundary(content, assistant_content)
         assistant_content = append_prompt_injection_boundary(content, assistant_content)
         if @savings_household_request
@@ -400,6 +397,10 @@ module Api
           assistant_presentation: assistant_presentation
         )
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
+        if @setup_card_turn
+          @setup_card_turn.commit!(user_message: user_message, assistant_message: assistant_message)
+          mia_action_draft ||= @setup_card_turn.draft
+        end
         if mia_action_draft && !::Mia::ActionDraftScope.visible?(mia_action_draft, user: current_user, membership: current_cohort_membership, runtime: current_participant_runtime)
           mia_action_draft = nil
           assistant_message.update!(content: with_wellbeing_check(content, "Open the program where Mia prepared that review card. Nothing changed."))
@@ -432,6 +433,9 @@ module Api
         end
         retain_care_topic(session, content)
         retire_document_evidence_state(session) if retire_prior_document_evidence
+        if @setup_card_ask_field
+          session.update!(active_topic: session.reload.active_topic.to_h.merge("setup_card_field" => @setup_card_ask_field))
+        end
         if @savings_household_request
           session.update!(active_topic: session.reload.active_topic.to_h.merge("record_scope" => "household_plan"))
         end
@@ -505,12 +509,11 @@ module Api
         history = HouseholdFinance::ConversationTranscriptBuilder.new(session,
           persona_version_id: current_persona.version_id, cohort_id: current_participant_runtime.cohort_id,
           cohort_release_id: current_participant_runtime.release_id).call.map { |row| row.slice(:role, :content) }
-        field = HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
-        field = nil unless field && HouseholdFinance::MiaSetupGuide.server_question_asked?(field, active_thread: session.active_topic, recent_messages: history)
+        field = nil
         action = session.active_topic.to_h["action"].to_h
         pending = action["setup_updates"].to_h.keys.sole if action["setup_updates"].to_h.keys.one? && session.active_topic["status"] == "pending_review"
         pending = "primary_income" if action["type"] == "schedule_income_change" && session.active_topic["status"] == "pending_review"
-        { recent_care: topic, setup_field: field, pending_field: pending,
+        { recent_care: topic, setup_field: field, pending_field: pending, setup_context: setup_card_reader_context(session),
           goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action["type"].in?(%w[create_goal update_goal]) }
       rescue SavingsChallenge::AccessPolicy::Unavailable
         { recent_care: nil, setup_field: nil, pending_field: nil, goal_conversation: false }
@@ -603,6 +606,63 @@ module Api
       def render_household_scope_clarification(session, content, message_request:)
         render_household_read_response(session, content, ::Mia::HouseholdPlanRequest.clarification,
           message_request: message_request)
+      end
+
+      def render_setup_card_turn(session, content, turn, message_request:)
+        ApplicationRecord.transaction do
+          current_household.lock!
+          chat_session_scope.authorize!
+          user_message, assistant_message = persist_chat_messages(session, content, [], turn.plan.reply)
+          retire_document_evidence_state(session) if document_evidence_topic_present?(session)
+          turn.commit!(user_message: user_message, assistant_message: assistant_message)
+          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message),
+            mia_action_draft: turn.draft ? serialize_mia_action_draft(turn.draft) : nil,
+            transaction_draft: nil, budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget, spending_report: nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [], mia_action_draft: turn.draft)
+          render json: payload, status: :created
+        end
+      end
+
+      # While a setup card is open the card is the only way setup changes. A
+      # model intent that wants to write setup becomes a plain answer instead.
+      def setup_write_intent?(intent_result)
+        return false unless intent_result&.actionable?
+        actions = [ intent_result.action, *Array(intent_result.write_plan.to_h[:actions]).map { |item| item[:action] } ]
+        actions.any? { |action| action.to_h[:type].to_s.in?(%w[update_household_setup update_debt_tracking create_debt update_debt archive_debt restore_debt]) }
+      end
+
+      def setup_card_coaching_turn(_intent_result, content)
+        HouseholdFinance::MiaIntentResolver::Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: content,
+          needs_clarification: false, clarification: "", topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+      end
+
+      def setup_card_reader_context(session)
+        return unless setup_card_mode?(session)
+
+        HouseholdFinance::MiaSetupCardTurn.reader_context(current_household, user: current_user, session: session)
+      end
+
+      # Challenge participants keep their single household reviews; setup by
+      # chat belongs to the household program.
+      def setup_card_mode?(session)
+        return false unless HouseholdFinance::MiaSetupCardTurn.open?(current_household, user: current_user, session: session)
+        !savings_program_selected?
+      end
+
+      def setup_card_resumed_content(assistant_content, session, intent_result, content)
+        return assistant_content if @setup_card_guide_turn || @participant_reading&.care? || intent_result&.actionable? || intent_result&.needs_clarification || (!@participant_reading&.available && HouseholdFinance::ParticipantCare.required?(content))
+        active = HouseholdFinance::MiaSetupCardTurn.active_field(session)
+        return assistant_content unless @setup_card_turn || active
+
+        field = @setup_card_turn ? @setup_card_turn.plan.next_field : HouseholdFinance::MiaSetupGuide.new(current_household).next_missing_field
+        @setup_card_ask_field = field
+        card = @setup_card_turn ? @setup_card_turn.card : HouseholdFinance::MiaSetupCardTurn.load_card(current_household, user: current_user, session: session)
+        question = HouseholdFinance::MiaSetupCardReply.question(field, card: card, previous: active) if field
+        question = nil if field && HouseholdFinance::MiaSetupCardReply::QUESTIONS.fetch(field).any? { |variant| assistant_content.include?(variant) }
+        [ @setup_card_turn&.plan&.update_text, assistant_content, question ].compact_blank.join(" ")
       end
 
       def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil)
@@ -920,6 +980,8 @@ module Api
         return unless message
 
         next_field = guide.next_missing_field
+        @setup_card_guide_turn = true
+        @setup_card_ask_field = next_field
         label = HouseholdFinance::SetupStatus::FIELD_LABELS[next_field&.to_sym]
         HouseholdFinance::MiaIntentResolver::Result.new(
           intent: "clarification",

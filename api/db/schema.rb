@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_06_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2479,6 +2479,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_06_090000) do
     t.text "primary_goal"
     t.string "stage"
     t.datetime "updated_at", null: false
+    t.jsonb "setup_skipped_fields", default: [], null: false
     t.index ["created_by_user_id"], name: "index_households_on_created_by_user_id"
     t.check_constraint "jsonb_typeof(confirmed_setup_fields) = 'array'::text", name: "households_confirmed_setup_fields_array"
   end
