@@ -1853,7 +1853,9 @@ module HouseholdFinance
     end
 
     def normalized_scenario_effective_on(source_text, supplied_value, item:, amount:, continuation:)
-      # A promotion deadline is context, not a request to compare a different plan month.
+      # A deadline for a promotion or for when money arrives is context, not a
+      # request to compare a different plan month.
+      source_text = source_text.gsub(/\b(?:no money|no cash|broke|low on cash|short|tapped out)\s+(?:til|till|until)\s+(?:payday|paycheck|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i, "")
       source_text = source_text.sub(/\b(?:sale|offer|deal|discount)\s+(?:ends?|expires?)\s+(?:(?:on|this|next)\s+)*(?:today|tomorrow|sunday|monday|tuesday|wednesday|thursday|friday|saturday|month|week|\d{4}-\d{2}-\d{2}|(?:#{MonthTerms.pattern})\s+\d{1,2}(?:,?\s+20\d{2})?)\b/i, "")
       grounded = if source_text.match?(/\bnext month\b/i)
         Date.current.next_month.beginning_of_month
