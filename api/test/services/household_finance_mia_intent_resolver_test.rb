@@ -3930,4 +3930,13 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       end
     )
   end
+
+  test "a car expense is not treated as a debt label" do
+    resolver = HouseholdFinance::MiaIntentResolver.allocate
+    resolver.define_singleton_method(:context) { { active_debts: [] } }
+    assert_not resolver.send(:setup_debt_label?, "car insurance")
+    assert_not resolver.send(:setup_debt_label?, "car wash")
+    assert resolver.send(:setup_debt_label?, "car")
+    assert resolver.send(:setup_debt_label?, "car loan")
+  end
 end

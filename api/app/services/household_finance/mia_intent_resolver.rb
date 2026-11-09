@@ -1082,6 +1082,8 @@ module HouseholdFinance
     end
 
     def setup_debt_label?(name)
+      return false if name.match?(/\b(?:insurance|wash|repairs?|maintenance|gas|registration)\b/i)
+
       name.match?(/\b(?:visa|mastercard|amex|card|loan|car|mortgage|note|debt)\b/i) || matching_setup_debts(name).any?
     end
 
