@@ -15,10 +15,12 @@ module HouseholdFinance
       text.match?(/\b(?:gonna|going to|about to|planning to|fixing to)\s+(?:charge|swipe|put)\b/i) && !text.match?(/\b(?:spent|bought|purchased|already charged)\b/i)
     end
 
+    def self.debt_repayment?(message) = message.to_s.match?(DEBT_REPAYMENT)
+
     def self.blocked?(message, kind:)
       text = message.to_s
       return true if text.match?(NO_CARD)
-      return text.match?(NEGATED_PURCHASE) || text.match?(DEBT_REPAYMENT) if kind == :purchase
+      return text.match?(NEGATED_PURCHASE) if kind == :purchase
       text.match?(NEGATED_CHANGE) || text.match?(ADVICE)
     end
   end

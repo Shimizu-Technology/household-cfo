@@ -37,7 +37,8 @@ class ParticipantMessageReaderTest < ActiveSupport::TestCase
   end
 
   test "the prompt puts an unfunded want under caution without losing the purchase question" do
-    prompt = HouseholdFinance::ParticipantMessageReader::PROMPT
+    reader = HouseholdFinance::ParticipantMessageReader.new(message: "x", transport: ->(_) { "{}" })
+    prompt = reader.send(:payload).fetch(:messages).first.fetch(:content)
     assert_match(/purchase_caution takes precedence over purchase_question/, prompt)
     assert_match(/keep purchase_question filled/, prompt)
   end

@@ -461,7 +461,7 @@ module HouseholdFinance
         return unless fact["merchant"].blank? || fact["source_text"].include?(fact["merchant"])
       end
       return if fact["kind"] == "purchase" && ParticipantMoneyIntent.blocked?(fact["source_text"].presence || @message, kind: :purchase)
-      return if fact["kind"] == "purchase" && ParticipantMoneyIntent.future_charge?(@message)
+      return if fact["kind"] == "purchase" && (ParticipantMoneyIntent.debt_repayment?(fact["source_text"].presence || @message) || ParticipantMoneyIntent.future_charge?(@message))
       return if @message.match?(ParticipantMoneyIntent::NO_CARD)
       if fact["kind"] == "nothing_saved"
         return unless fact["amount"].empty?
