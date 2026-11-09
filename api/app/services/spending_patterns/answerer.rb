@@ -116,9 +116,6 @@ module SpendingPatterns
       self.class.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: question)
     end
 
-    def money(cents)
-      whole, fraction = cents.divmod(100)
-      "$#{whole}#{fraction.zero? ? '' : ".#{fraction.to_s.rjust(2, '0')}"}"
-    end
+    def money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
   end
 end

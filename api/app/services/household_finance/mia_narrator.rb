@@ -448,6 +448,7 @@ module HouseholdFinance
       branded = content.to_s.strip
         .sub(/\A#{Regexp.escape(persona.name)}:\s*/i, "")
         .sub(BANNED_OPENERS, "")
+        .gsub(/,\s*participant(?=[,.!?])/i, "")
         .gsub(/#{Regexp.escape(persona.name)}, your household CFO\.?/i, "#{persona.name}, your coach assistant")
         .gsub(/Plan, don[’']t gamble\.?/i, "Protect the household baseline.")
 

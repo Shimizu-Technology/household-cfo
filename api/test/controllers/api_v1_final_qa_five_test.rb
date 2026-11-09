@@ -380,10 +380,67 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal "iphone", reading.purchase_question["item"]
   end
 
+  test "a financed phone is not answered as a forty-five dollar purchase" do
+    finish_setup
+    body = say("hey should i finance a new iphone, 45 a month, money tight", legacy(question: true, reply_intent: "purchase_caution", purchase_question: { amount: "45", item: "iphone" }))
+    refute_match(/\$45(?:\.00)? (?:new )?iphone/i, text(body))
+    refute_match(/would leave/, text(body))
+  end
+
   test "a one-off price stays a price" do
     reading = HouseholdFinance::ParticipantMessageReader.call(message: "can i get a 650 tv on the card",
       transport: ->(_) { legacy(question: true, purchase_question: { amount: "650", item: "tv" }).to_json })
     assert_equal "650", reading.purchase_question["amount"]
+  end
+
+  test "a purchase mentioned during setup gets a review card and is not waved through" do
+    say("Help me set up my household", read)
+    message = "just got back from payless spent like 80 on food"
+    body = say(message, read(facts: [ { kind: "purchase", amount: "80", merchant: "payless", item: "food", day: "", source_text: "spent like 80 on food" } ]))
+    refute_match(/Take your time/, text(body))
+    assert_not_nil body["transaction_draft"]
+    assert_equal 8000, body.dig("transaction_draft", "amount_cents")
+  end
+
+  test "one reply never carries two questions" do
+    say("Help me set up my household", read)
+    narrator = HouseholdFinance::MiaNarrator
+    original = narrator.instance_method(:call)
+    narrator.define_method(:call) { "Good question. Which sounds closer to you?" }
+    begin
+      body = say("how much should i save tho", read(question: true))
+      assert_equal 1, text(body).count("?"), text(body)
+    ensure
+      narrator.define_method(:call, original)
+    end
+  end
+
+  test "participant is never used to address her" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "fallback" }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "idk", answer_packet: packet, api_key: "")
+    assert_equal "That's okay, not knowing yet is a real answer.", narrator.send(:sanitize_narration, "That's okay, participant, not knowing yet is a real answer.")
+  end
+
+  test "unbacked change claims are rejected on a no-write turn" do
+    packet = { kind: "coaching", write_state: "no_write", fallback_response: "fallback" }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "x", answer_packet: packet, api_key: "")
+    [ "Thanks for adding the car and the personal loan.", "Your saved plan still has insurance, so that change hasn't gone through yet.", "You didn't answer about food earlier, so I'm asking again." ].each do |claim|
+      assert_equal :unbacked_change_claim, narrator.send(:narration_rejection_reason, claim), claim
+    end
+    assert_nil narrator.send(:narration_rejection_reason, "Thanks for telling me that.")
+  end
+
+  test "a merchant from another clause is still refused when two amounts are in play" do
+    message = "spent 12 on lunch at kin and 40 on gas"
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+      transport: ->(_) { legacy(facts: [ { kind: "purchase", amount: "40", merchant: "kin", item: "gas", day: "", source_text: "40 on gas" } ]).to_json })
+    assert_empty reading.facts
+  end
+
+  test "reviewed spending totals use commas" do
+    answer = SpendingPatterns::Answerer.allocate
+    assert_equal "$2,246.66", answer.send(:money, 224_666)
+    assert_equal "$150", answer.send(:money, 15_000)
   end
 
   test "a reused review card says so in plain words" do
