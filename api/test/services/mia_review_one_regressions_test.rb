@@ -33,6 +33,24 @@ class MiaReviewOneRegressionsTest < ActiveSupport::TestCase
     end
   end
 
+  test "a recent care reply holds the phrase after a new money question" do
+    message = "wanna put a 60 dress on my card aint got it"
+    [ "That sounds hard. Your safety, food, housing, utilities and medicine come first.", "I'm sorry for your loss. You don't have to work through money right now." ].each do |reply|
+      history = [ { role: "user", content: "we behind on the power bill n gpa gonna cut us off" }, { role: "assistant", content: reply } ]
+      refute_includes Mia::LanguagePolicy.new(user_message: message, persona: voice, history: history).runtime_phrase_instruction, "Chelu"
+    end
+    assert_includes Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice).runtime_phrase_instruction, "Chelu"
+  end
+
+  test "completed spending is not read as a future charge or a debt repayment" do
+    money = HouseholdFinance::ParticipantMoneyIntent
+    assert_not money.future_charge?("dropped 44 at the 76, gonna put the rest on my card")
+    assert_not money.future_charge?("paid 50 for lunch, gonna charge dinner")
+    assert money.future_charge?("120 tv gonna charge it")
+    assert_not money.debt_repayment?("put 120 on my visa")
+    assert money.debt_repayment?("paid 300 extra on my visa this month")
+  end
+
   test "real history blocks phrases after hardship and rare differs from sparing" do
     history = [ { role: "user", content: "I cannot pay rent this month." } ]
     policy = Mia::LanguagePolicy.new(user_message: "Should I buy a TV on a credit card? I don't have the money.", persona: voice, history: history)

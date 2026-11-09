@@ -78,7 +78,7 @@ module Mia
 
     def thanks_or_recovery?
       current = HouseholdFinance::ParticipantMessageReader::Current
-      @message.match?(/\b(?:thank you|thanks|thx|ty)\b/i) || (current.message.to_s.squish == @message.squish && current.reading&.care_status == "resolved")
+      (@message.match?(/\b(?:thank you|thanks|thx|ty)\b/i) && !@message.match?(/\bno thanks\b|\bthanks for nothing\b|\bthanks,? but\b/i)) || (current.message.to_s.squish == @message.squish && current.reading&.care_status == "resolved")
     end
 
     def asks_for_data?
