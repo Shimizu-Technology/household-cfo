@@ -534,4 +534,249 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_no_match(/Mia action draft/, result.errors.join)
     assert_match(/review card/i, result.errors.join)
   end
+
+  # Independent review of #273
+  def fresh_user
+    @user = User.create!(clerk_id: "qa5r_#{SecureRandom.hex(8)}", email: "qa5r-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
+    @household = HouseholdFinance::WorkspaceResolver.new(@user).household
+  end
+
+  def saved_fixed = HouseholdFinance::DataPresenter.new(@household.reload, ensure_plan: false).setup_values[:fixed_expenses].to_f
+
+  def finish_with_lump_total
+    body = say("taitano. get ahead. 5200 income. bills about 1950. everyday 600. no debts", read(setup: changes(household_name: "taitano", primary_goal: "get ahead", primary_income: money(total_amount: "5200", total_cadence: "monthly", total_source: "5200 income"),
+      fixed_expenses: money(total_amount: "1950", total_cadence: "monthly", total_source: "bills about 1950"),
+      flexible_spend: money(total_amount: "600", total_cadence: "monthly", total_source: "everyday 600"), debt_payment: debts(none: true))))
+    apply(card_of(body))
+  end
+
+  test "a named bill after a saved lump total asks for the new total and never adds to it" do
+    finish_with_lump_total
+    body = say("oh n the rent went up to 1700", bill_edit("replace", "rent", "1700", source: "the rent went up to 1700"))
+    assert_nil card_of(body)
+    assert_match(/What should the new total be\?/, text(body))
+    assert_equal 1950.0, saved_fixed
+    assert_equal 0, @household.mia_action_drafts.pending.count
+    body = say("take that insurance off", bill_edit("remove", "insurance", "", source: "take that insurance off"))
+    assert_match(/What should the new total be\?/, text(body))
+    refute_match(/tap Apply|Look over your card/, text(body))
+  end
+
+  [ [ "replace", "rent went up" ], [ "add", "rent went up" ] ].each do |op, label|
+    test "on an open card a lump total is not added to (#{op}, #{label})" do
+      say("Help me set up my household", read)
+      say("bills about 1950", read(setup: changes(fixed_expenses: money(total_amount: "1950", total_cadence: "monthly", total_source: "bills about 1950"))))
+      body = say("oh n the rent went up to 1700", read(setup: changes(fixed_expenses: money(parts: [ part(op, "rent", "1700", source: "the rent went up to 1700") ]))))
+      fixed = row(body, "fixed_expenses")
+      assert_equal 195_000, fixed["total_cents"], text(body)
+      assert_match(/What should the new total be\?/, text(body))
+    end
+  end
+
+  test "a lump total carried after a partial Apply is not added to" do
+    say("Help me set up my household", read)
+    first = say("bills about 1950", read(setup: changes(fixed_expenses: money(total_amount: "1950", total_cadence: "monthly", total_source: "bills about 1950"))))
+    apply(card_of(first))
+    body = say("oh n the rent went up to 1700", read(setup: changes(fixed_expenses: money(parts: [ part("replace", "rent", "1700", source: "the rent went up to 1700") ]))))
+    assert_match(/What should the new total be\?/, text(body))
+    assert_equal 0, @household.mia_action_drafts.pending.count
+    assert_equal 1950.0, saved_fixed
+  end
+
+  test "a bill that is not on her saved list is not described as being on a card" do
+    finish_setup
+    body = say("take the cable off", bill_edit("remove", "cable", "", source: "take the cable off"))
+    assert_nil card_of(body)
+    refute_match(/your card|tap Apply/i, text(body))
+    assert_match(/cable/i, text(body))
+    assert_equal 0, @household.mia_action_drafts.pending.count
+  end
+
+  FINDING_TWO = [
+    "skip it we cant eat this week", "skip that the kids havent eaten", "skip it landlord wants us out by friday", "skip rent we cant pay it",
+    "skip power they cut us off yesterday", "skip it im gonna lose the house", "skip it he took all our money", "skip it i cant do this anymore", "skip it i dont want to be here anymore"
+  ].freeze
+
+  FINDING_TWO.each do |message|
+    [ %w[hardship ongoing], %w[none new_topic] ].each do |care, status|
+      test "#{message} keeps care or reaches 988 when read as #{care}" do
+        start_care
+        body = say(message, read(care: care, care_status: status, setup: changes(skips: [ "flexible_spend" ])))
+        assert care_topic || text(body).include?("988"), text(body)
+        assert_empty @household.reload.setup_skipped_fields
+        assert_equal 0, @household.mia_action_drafts.pending.count
+      end
+    end
+  end
+
+  def skip_reading(message, care: "hardship")
+    HouseholdFinance::ParticipantMessageReader.call(message: message, setup_context: { saved: {}, draft: {}, skipped: [], last_asked: "flexible_spend" },
+      transport: ->(_) { read(care: care, care_status: "ongoing", setup: changes(skips: [ "flexible_spend" ])).to_json })
+  end
+
+  test "only plain skip wording overrides a hardship label" do
+    [ "skip", "skip it", "skip that for now", "later", "not now", "i cant think rn", "skip the groceries part i cant think rn", "skip rent", "ok skip this one" ].each do |message|
+      assert HouseholdFinance::ParticipantCare.skip_only?(message, skip_reading(message)), message
+    end
+    (FINDING_TWO + [ "skip it im so tired of everything", "later i guess theres no point" ]).each do |message|
+      assert_not HouseholdFinance::ParticipantCare.skip_only?(message, skip_reading(message)), message
+    end
+    assert_not HouseholdFinance::ParticipantCare.skip_only?("skip", skip_reading("skip", care: "crisis"))
+  end
+
+  test "crisis wording is never read as a skip" do
+    [ "skip it i dont want to be here anymore", "skip it i cant do this anymore" ].each do |message|
+      assert ::Mia::CrisisBoundary.soft?(message) || ::Mia::CrisisBoundary.matches?(message), message
+      assert_not HouseholdFinance::ParticipantCare.skip_only?(message, skip_reading(message)), message
+    end
+  end
+
+  [ "ok lets keep goin i have nothing left", "ok lets keep goin the kids havent eaten since yesterday", "rent is 1100 n i still dont know how we gonna pay it" ].each do |message|
+    test "a current hardship sign does not release care: #{message}" do
+      start_care
+      setup = message.start_with?("rent") ? changes(fixed_expenses: money(parts: [ part("add", "rent", "1100", source: "rent is 1100") ])) : changes
+      say(message, read(care_status: "new_topic", setup: setup))
+      assert care_topic
+      assert_equal 0, @household.mia_action_drafts.pending.count
+    end
+  end
+
+  def income_read(amount, cadence, source, count: "")
+    read(setup: changes(primary_income: money(total_amount: amount, total_cadence: cadence, total_count: count, total_source: source)))
+  end
+
+  [ [ "i get 1950 per paycheck", "biweekly" ], [ "i get 1950 per paycheck", "per_paycheck" ], [ "i get 1950", "biweekly" ], [ "i get 1950", "weekly" ] ].each do |message, cadence|
+    test "#{message} read as #{cadence} is not given a frequency she never said" do
+      say("Help me set up my household", read)
+      body = say(message, income_read("1950", cadence, message))
+      income = row(body, "primary_income")
+      assert_equal "needs_monthly", income["status"]
+      assert_nil income["total_cents"]
+      refute_match(/two weeks|a week/, income["parts"].first["note"].to_s)
+      assert_match(/how often/i, text(body))
+      after = say("ok", read(setup: changes))
+      assert_equal "needs_monthly", row(after, "primary_income")["status"]
+    end
+  end
+
+  test "a frequency she states is kept, and bi-weekly is not weekly" do
+    say("Help me set up my household", read)
+    body = say("i get 1950 bi-weekly", income_read("1950", "biweekly", "i get 1950 bi-weekly"))
+    assert_equal "$1,950 every two weeks", row(body, "primary_income")["parts"].first["note"]
+  end
+
+  [ [ "car insurance 600 quarterly", "yearly", 20_000, /× 4/ ], [ "car insurance 600 twice a year", "yearly", 10_000, /× 2/ ], [ "car insurance 600 a year", "yearly", 5_000, /÷ 12/ ] ].each do |message, cadence, monthly, sum|
+    test "#{message} works out to the right month" do
+      say("Help me set up my household", read)
+      body = say(message, read(setup: changes(fixed_expenses: money(parts: [ part("add", "car insurance", "600", cadence: cadence, source: message) ]))))
+      assert_nil row(body, "fixed_expenses")["total_cents"]
+      worked = say("help me work it out", read(setup: changes(help_topic: "fixed_expenses", work_out: true)))
+      assert_match(sum, text(worked))
+      amount = "$#{monthly / 100}"
+      assert_match(/#{Regexp.escape(amount)} a month/, text(worked))
+      assert_nil row(worked, "fixed_expenses")["total_cents"], "shown, not counted"
+    end
+  end
+
+  def waiting_for_frequency
+    say("Help me set up my household", read)
+    say("hi", read(setup: changes))
+    say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    say("1950", income_read("1950", "monthly", "1950"))
+  end
+
+  [ "semi monthly", "semi-monthly", "semimonthly", "twice a month", "2x a month" ].each do |answer|
+    test "#{answer} after how often counts two paychecks" do
+      waiting_for_frequency
+      body = say(answer, read(setup: changes))
+      assert_equal 390_000, row(body, "primary_income")["total_cents"]
+      assert_match(/2 paychecks of \$1,950/, text(body))
+    end
+  end
+
+  [ "bi-monthly", "bimonthly", "bi monthly" ].each do |answer|
+    test "#{answer} after how often asks which she means" do
+      waiting_for_frequency
+      body = say(answer, read(setup: changes))
+      assert_equal "needs_monthly", row(body, "primary_income")["status"]
+      assert_nil row(body, "primary_income")["total_cents"]
+      assert_match(/twice a month|every two months/i, text(body))
+      answered = say("twice a month", read(setup: changes))
+      assert_equal 390_000, row(answered, "primary_income")["total_cents"]
+    end
+  end
+
+  test "semi monthly in one message counts two, even if the reader says monthly" do
+    say("Help me set up my household", read)
+    body = say("i get 1950 semi monthly", income_read("1950", "monthly", "i get 1950 semi monthly"))
+    assert_equal 390_000, row(body, "primary_income")["total_cents"]
+  end
+
+  test "a typed row is not overwritten by an earlier proposal" do
+    biweekly_income
+    body = say("yeah help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
+    income = row(body, "primary_income")["parts"].first
+    edited = patch_card(card_of(body), field: "primary_income", action_name: "set", part_id: income["id"], value: "4300")
+    assert_equal 430_000, edited["mia_action_draft"]["setup_card"]["rows"].find { |item| item["key"] == "primary_income" }["total_cents"]
+    session.update!(active_topic: session.reload.active_topic.merge("setup_card_field" => "primary_income"))
+    after = say("yes", read(setup: changes(confirm_monthly: true)))
+    assert_equal 430_000, row(after, "primary_income")["total_cents"]
+    refute_match(/4,225/, text(after))
+  end
+
+  test "frequency words count only as the answer to the frequency question" do
+    waiting_for_frequency
+    body = say("rent is 1100 every month", read(setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1100", source: "rent is 1100 every month") ]))))
+    assert_equal "needs_monthly", row(body, "primary_income")["status"]
+    assert_nil row(body, "primary_income")["total_cents"]
+    assert_equal 110_000, row(body, "fixed_expenses")["total_cents"]
+  end
+
+  test "the closing line needs a real thank-you or a real resolution" do
+    say("havent eaten today so the kids could", read(care: "hardship"))
+    body = say("well manage somehow", read(care_status: "resolved"))
+    assert care_topic
+    refute_match(/glad|settled/i, text(body))
+
+    fresh_user
+    say("havent eaten today so the kids could", read(care: "hardship"))
+    body = say("thanks we're ok", read(care_status: "resolved"))
+    assert_not care_topic
+    assert_match(/You're welcome/, text(body))
+    refute_match(/settled|support/, text(body))
+
+    fresh_user
+    say("havent eaten today so the kids could", read(care: "hardship"))
+    body = say("thanks but we still dont have food", read(care_status: "resolved"))
+    assert care_topic
+    refute_match(/You're welcome/, text(body))
+  end
+
+  test "the pause answer says only what is true" do
+    answer = SavingsChallenge::ParticipantHelp::ANSWER
+    assert_match(/can't pause the challenge yourself/, answer)
+    assert_match(/program team would be the place to ask/, answer)
+    refute_match(/coach|Only your/i, answer)
+  end
+
+  [ "should i finance a new iphone, 45 dollars a month", "should i finance a new iphone, 45 bucks a month" ].each do |message|
+    test "#{message} is not a price" do
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+        transport: ->(_) { legacy(question: true, purchase_question: { amount: "45", item: "iphone" }).to_json })
+      assert_equal "", reading.purchase_question["amount"]
+      assert HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message)
+    end
+  end
+
+  [ "I get paid $4,500 a month. Can I afford a stroller?", "my check is 4500 a month, can i get a stroller", "my paycheck is 4500 monthly, can i get a stroller", "should i get a gym membership, 40 a month", "thinking of a netflix subscription 15 a month" ].each do |message|
+    test "#{message} is not a financed payment" do
+      assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message)
+    end
+  end
+
+  test "a monthly subscription keeps its amount" do
+    message = "should i get a gym membership, 40 a month"
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, transport: ->(_) { legacy(question: true, purchase_question: { amount: "40", item: "gym membership" }).to_json })
+    assert_equal "40", reading.purchase_question["amount"]
+  end
 end

@@ -103,6 +103,12 @@ module HouseholdFinance
 
     def self.amount_cents(value) = Money.chat_cents(amount_text(value))
 
+    # Only a message that is nothing but a frequency answers Mia's question.
+    def self.pay_frequency_answer(message)
+      text = message.to_s.squish.sub(/[.!?]+\z/, "")
+      PAY_ANSWERS.find { |_, pattern| text.match?(/\A#{PAY_ANSWER_LEAD.source}(?:#{pattern.source})\z/i) }&.first
+    end
+
     def self.stated_cadence(clause) = SETUP_CADENCE_WORDS.find { |pattern, _| clause.to_s.match?(pattern) }&.last
 
     def self.zero_answer?(value, field:)
@@ -295,11 +301,18 @@ module HouseholdFinance
       cadence = cadence.presence_in(SETUP_CADENCES) || "monthly"
       clause = setup_clause(offset, amount)
       cadence = "unclear" if status == :unclear
-      cadence = stated_cadence(clause) || cadence if cadence.in?(%w[monthly unclear])
+      stated = stated_frequency(clause, source)
+      # The reader may not supply a frequency she never gave.
+      unstated = !stated && (cadence.in?(READER_FREQUENCIES) || (cadence == "monthly" && clause.match?(PER_PAYCHECK)))
+      cadence = "unclear" if unstated
+      cadence = stated if stated && cadence != "per_paycheck"
       entry = { "amount_cents" => self.class.amount_cents(amount), "quote" => amount, "cadence" => cadence, "source" => clause }
-      if cadence == "per_paycheck"
+      entry["needs_frequency"] = true if unstated
+      if cadence == "twice_monthly"
+        entry.merge!("cadence" => "per_paycheck", "count" => 2)
+      elsif cadence == "per_paycheck"
         entry["count"] = setup_paycheck_count(count, source.is_a?(String) && @message.include?(source) ? source : clause)
-        entry["cadence"] = "unclear" unless entry["count"]
+        entry.merge!("cadence" => "unclear", "needs_frequency" => true) unless entry["count"]
       end
       entry["total_marker"] = true if setup_total_context?(offset, amount)
       entry
@@ -344,10 +357,23 @@ module HouseholdFinance
     SETUP_NEGATED_BEFORE = /\b(?:not|never|no longer|used to(?:\s+be)?|was|were|isn['’]?t|wasn['’]?t|ain['’]?t|don['’]?t pay|dont pay|stop(?:ped)?\s+paying)\s+(?:the\s+|a\s+|an\s+|about\s+|like\s+|even\s+)*\$?\s*\z/i
     SETUP_BALANCE_BEFORE = /\b(?:balance|owe[ds]?|owing|paid off|still owe|in debt)\b[^\d]{0,24}\z/i
     SETUP_BALANCE_AFTER = /\A\s+(?:balance|owed|left\b|total owed|still owed)/i
-    SETUP_CADENCE_WORDS = { /\b(?:weekly|(?:a|per|each|every)\s+week)\b/i => "weekly",
-      /\b(?:biweekly|bi-weekly|every\s+(?:two|2|other)\s+weeks?|(?:a|per|each|every)\s+pay\s*(?:period|check)|per\s+paycheck)\b/i => "biweekly",
-      /\b(?:yearly|annually|annual|(?:a|per|each|every)\s+year|quarterly|twice\s+a\s+year)\b/i => "yearly",
+    # Order matters: the narrower wording has to win ("bi-weekly" holds "weekly").
+    SETUP_CADENCE_WORDS = { /\b(?:semi[- ]?monthly|(?:twice|two\s+times|2\s*x|2\s+times)\s+(?:a|per|each|every)\s+month)\b/i => "twice_monthly",
+      /\bbi[- ]?monthly\b/i => "unclear",
+      /\b(?:bi[- ]?weekly|fortnightly|every\s+(?:two|2|other)\s+(?:weeks?|wks?))\b/i => "biweekly",
+      /\b(?:weekly|(?:a|per|each|every)\s+week)\b/i => "weekly",
+      /\b(?:quarterly|(?:a|per|each|every)\s+quarter|every\s+(?:3|three)\s+months)\b/i => "quarterly",
+      /\b(?:(?:twice|two\s+times|2\s*x|2\s+times)\s+(?:a|per|each|every)\s+year|semi[- ]?annual\w*|every\s+(?:6|six)\s+months)\b/i => "twice_yearly",
+      /\b(?:yearly|annually|annual|(?:a|per|each|every)\s+year)\b/i => "yearly",
       /\b(?:(?:a|per|each|every)\s+day|daily)\b/i => "unclear" }.freeze
+    READER_FREQUENCIES = %w[weekly biweekly yearly].freeze
+    PER_PAYCHECK = /\b(?:per|a|each|every)\s+(?:pay\s*check|check|pay\s*period)\b/i
+    PAY_ANSWER_LEAD = /(?:(?:(?:i|we)\s+(?:get\s+)?(?:it|paid)|get\s+paid|paid|it['’]?s|its|it\s+is|like|about|usually|ok(?:ay)?|yeah|um+)\s+)*/i
+    PAY_ANSWERS = { "bimonthly" => /bi[- ]?monthly/i,
+      "twice_monthly" => /semi[- ]?monthly|twice\s+a\s+month|(?:two|2)\s*(?:x|times)\s+a\s+month/i,
+      "biweekly" => /bi[- ]?weekly|fortnightly|every\s+(?:two|2|other)\s+(?:weeks?|wks?)/i,
+      "weekly" => /weekly|(?:every|each|per|a|once\s+a)\s+week/i,
+      "monthly" => /monthly|once\s+a\s+month|every\s+month|a\s+month/i }.freeze
 
     def setup_amount_status(amount, offset)
       before = @message[0...offset]
@@ -382,6 +408,13 @@ module HouseholdFinance
     end
 
     def stated_cadence(clause) = self.class.stated_cadence(clause)
+
+    # Her clause, the reader's quote of it, or the whole message when it holds
+    # one amount. "every 2 weeks" isn't a second amount.
+    def stated_frequency(clause, source)
+      stated_cadence(clause) || (stated_cadence(source) if source.is_a?(String) && @message.include?(source)) ||
+        (stated_cadence(@message) if @message.gsub(/\d+\s*(?:weeks?|wks?|months?|x|times)\b/i, " ").scan(/\d[\d,.]*/).one?)
+    end
 
     def setup_total_context?(offset, amount)
       after = @message[(offset + amount.length)..].to_s
@@ -464,13 +497,13 @@ module HouseholdFinance
         @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /))
     end
 
-    PAYMENT_AFTER = /\A\s*(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
+    PAYMENT_AFTER = /\A\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
 
     # Financing quotes a payment; only the price can be compared with the plan.
     def purchase_question_without_payment(question)
       amount = question["amount"].to_s
       offset = amount.present? && @message.index(amount)
-      return question unless offset && @message[(offset + amount.length)..].match?(PAYMENT_AFTER)
+      return question unless offset && @message[(offset + amount.length)..].match?(PAYMENT_AFTER) && !@message.match?(PurchaseQuestionText::RECURRING_COST)
       question.merge("amount" => "")
     end
 

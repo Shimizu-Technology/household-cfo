@@ -15,10 +15,14 @@ module HouseholdFinance
     CARD_LABELS = { "household_name" => "Household name", "primary_goal" => "Main goal", "primary_income" => "Monthly income",
       "fixed_expenses" => "Fixed essentials", "flexible_spend" => "Everyday spending", "debt_payment" => "Debts" }.freeze
     FILLER_WORDS = %w[the my our bill payment payments monthly].freeze
-    CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck" }.freeze
+    CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck", "quarterly" => "a quarter", "twice_yearly" => "twice a year", "twice_monthly" => "twice a month" }.freeze
 
     NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long].freeze
-    PAYCHECKS_A_YEAR = { "weekly" => 52, "biweekly" => 26, "yearly" => 1 }.freeze
+    PAYCHECKS_A_YEAR = { "weekly" => 52, "biweekly" => 26, "quarterly" => 4, "twice_yearly" => 2, "yearly" => 1 }.freeze
+    # One figure with no named bills inside it. Changing a bill can only ask
+    # for a new total, because nothing says how much of it that bill was.
+    LUMP_KINDS = %w[saved_total total paychecks].freeze
+    CHANGED_WORDS = /\b(?:went\s+(?:up|down)|gone\s+(?:up|down)|raised|increased|dropped|lowered|changed|more\s+like|now)\b/i
     PLACEHOLDER_DEBT = "Debt payments".freeze
 
     Update = Data.define(:field, :action, :label, :cents, :note) do
@@ -72,7 +76,7 @@ module HouseholdFinance
       previous_state.to_h["fields"].to_h.slice(*MONEY_FIELDS).each do |field, value|
         next if @carried[field]
         parts = Array(value["parts"]).select { |part| part["counted"] }
-        next unless parts.any? && saved[field] && parts.sum { |part| part["cents"].to_i } == saved[field]
+        next unless parts.any? && parts.all? { |part| part["kind"] == "part" } && saved[field] && parts.sum { |part| part["cents"].to_i } == saved[field]
         @carried[field] = parts
       end
     end
@@ -96,6 +100,8 @@ module HouseholdFinance
       part["note"] = "#{stated_note(part['stated_cents'], part['cadence'])}, about #{money(monthly)} a month if that's right"
       { stated_cents: part["stated_cents"], cadence: part["cadence"], times: times, monthly_cents: monthly }
     end
+
+    def needs_frequency?(field) = Array(fields.dig(field, "parts")).any? { |part| !part["counted"] && part["needs_frequency"] }
 
     def proposal_field = MONEY_FIELDS.find { |field| Array(fields.dig(field, "parts")).any? { |part| part["proposed_cents"] } }
 
@@ -122,7 +128,7 @@ module HouseholdFinance
     def set_paycheck_cadence(field, cadence)
       part = Array(fields.dig(field, "parts")).find { |row| !row["counted"] && row["stated_cents"] }
       return unless part && cadence
-      part.replace(part.merge("cadence" => cadence, "note" => stated_note(part["stated_cents"], cadence)))
+      part.replace(part.except("needs_frequency").merge("cadence" => cadence, "note" => stated_note(part["stated_cents"], cadence)))
       rebase(field)
     end
 
@@ -298,6 +304,7 @@ module HouseholdFinance
     def apply_money_part(field, entry)
       return apply_removal(field, entry["label"]) if entry["op"] == "remove"
       state = fields[field] ||= { "parts" => [] }
+      seeded = state["parts"].empty?
       existing = carried_or_saved_parts(field, state)
       unlabeled = entry["label"].blank?
       label = entry["label"].presence || "#{default_label(field)} #{existing.length + 1}"
@@ -313,9 +320,9 @@ module HouseholdFinance
         index = state["parts"].index(match)
         new_part["id"] = match["id"]
         state["parts"][index] = new_part
-      elsif entry["op"] == "replace" && saved_totals[field] && existing.none? { |part| part["kind"] != "saved_total" }
-        fields.delete(field)
-        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
+      elsif lump_only?(existing) && !unlabeled && (entry["op"] == "replace" || entry["source"].to_s.match?(CHANGED_WORDS))
+        fields.delete(field) if seeded
+        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: existing.sum { |part| part["cents"].to_i })
       else
         state["parts"] << new_part
       end
@@ -325,12 +332,13 @@ module HouseholdFinance
 
     def apply_removal(field, label)
       state = fields[field] ||= { "parts" => [] }
+      seeded = state["parts"].empty?
       existing = carried_or_saved_parts(field, state)
       match = matching_part(existing, label, exact: false)
       unless match
-        if saved_totals[field] && existing.none? { |part| part["kind"] != "saved_total" }
-          fields.delete(field)
-          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
+        if lump_only?(existing)
+          fields.delete(field) if seeded
+          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: existing.sum { |part| part["cents"].to_i })
         end
         fields.delete(field) if state["parts"].empty?
         return updates << Update.new(field: field, action: :not_found, label: label)
@@ -358,12 +366,15 @@ module HouseholdFinance
       state["parts"]
     end
 
+    def lump_only?(parts) = parts.any? && parts.all? { |part| LUMP_KINDS.include?(part["kind"]) }
+
     def money_part(entry, forced_unclear: false)
       cadence = forced_unclear ? "unclear" : entry["cadence"]
       counted = cadence == "monthly"
       cents = entry["amount_cents"]
-      { "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
-        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) }
+      extra = entry["needs_frequency"] && !counted ? { "needs_frequency" => true } : {}
+      extra.merge({ "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
+        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) })
     end
 
     def stated_note(cents, cadence)
@@ -484,7 +495,7 @@ module HouseholdFinance
       if part_id.present?
         part = state["parts"].find { |row| row["id"] == part_id }
         raise ArgumentError, "That row changed. Look at your card again." unless part
-        part.replace(part.merge("cents" => cents, "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil, "kind" => part["kind"] == "saved_total" ? "part" : part["kind"]))
+        part.replace(part.except("proposed_cents", "needs_frequency").merge("cents" => cents, "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil, "kind" => part["kind"] == "saved_total" ? "part" : part["kind"]))
       else
         state["parts"] = [ { "id" => new_id, "label" => TOTAL_LABEL, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "total" } ]
       end

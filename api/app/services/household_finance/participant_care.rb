@@ -34,7 +34,7 @@ module HouseholdFinance
     # it belongs to setup.
     def setup_content?(message, reading)
       changes = reading.setup_changes.to_h
-      return false if changes.empty?
+      return false if changes.empty? || current_hardship_sign?(message) || ::Mia::SensitiveMoment.grief?(message)
       return true if setup_resume?(message) || Array(changes["skips"]).any?
       said = reading.care_status == "new_topic"
       return true if changes.values_at("household_name", "primary_goal").any?(&:present?) && (said || message.to_s.match?(/\b(?:goal|name|call (?:us|it))\b/i))
@@ -45,30 +45,41 @@ module HouseholdFinance
       end
     end
 
-    SKIP_DISCLOSURE = /\b(?:left|lost|died|passed|evict\w*|hospital\w*|hurt\w*|scared|afraid|hungry|starving|shut ?off|fired|laid off|no food)\b/i
+    # A present-tense sign that the problem is still happening. It keeps care
+    # open whatever the reader labels the rest of the message.
+    CURRENT_HARDSHIP = /\b(?:can['’]?t|cannot)\s+(?:eat|pay|afford|make|cover|buy|feed)\b|\b(?:haven['’]?t|hasn['’]?t|not)\s+eaten\b|\b(?:no|nothing\s+to|don['’]?t\s+have(?:\s+any)?|dont\s+have(?:\s+any)?)\s+(?:food|eat)\b|\b(?:hungry|starving|homeless|evict\w*)\b|\bwants?\s+(?:us|me)\s+out\b|\b(?:kick\w*|throw\w*|put\w*)\s+(?:us|me)\s+out\b|\blose\s+(?:the|our|my)\s+(?:house|home|apartment|job)\b|\bcut\s+(?:us|me|it|our\s+\w+|my\s+\w+)\s+off\b|\bshut\s*(?:us|me)?\s*off\b|\bdisconnect\w*\b|\btook\s+all\b|\bstole\b|\bnothing\s+left\b|\bno\s+money\s+left\b|\b(?:don['’]?t|dont)\s+know\s+how\s+(?:we|i)\b|\bhow\s+(?:we|i)\s+gonna\s+pay\b/i
+    SKIP_TARGET = "(?:it|that|this|that\\s+one|this\\s+one|(?:the\\s+)?(?:groceries|grocery|gas|food|rent|bills?|power|water|phone|income|goal|name|debts?|spending|everyday(?:\\s+spending)?)(?:\\s+(?:part|one|question|bit))?)".freeze
+    CANT_THINK = "(?:i\\s+)?can['’]?t\\s+think(?:\\s+(?:straight|rn|right\\s+now|today))*".freeze
+    PLAIN_SKIP = /\A\W*(?:(?:ok(?:ay)?|k|pls|please|can\s+we|lets|let['’]s|just|maybe)[\s,]+)*(?:skip|pass|later|not\s+now|come\s+back\s+to\s+(?:it|that)|do\s+(?:it|that)\s+later)(?:\s+#{SKIP_TARGET})?(?:\s+(?:for\s+now|rn|right\s+now|please|pls|later))*(?:[\s,.!-]+#{CANT_THINK})?\W*\z|\A\W*#{CANT_THINK}\W*\z/i
 
-    def skip_only?(message, reading)
+    def current_hardship_sign?(message)
       text = message.to_s
-      return false unless reading.care == "hardship" && Array(reading.setup_changes.to_h["skips"]).any?
-      text.split.length <= 12 && !text.match?(/\d/) && !text.match?(SKIP_DISCLOSURE) && !text.match?(Regexp.union(::Mia::SensitiveMoment::GRIEF, ::Mia::SensitiveMoment::STRAIN))
+      text.match?(CURRENT_HARDSHIP) || text.match?(::Mia::SensitiveMoment::STRAIN) ||
+        ::Mia::CrisisBoundary.explicit?(text) || ::Mia::CrisisBoundary.soft?(text) || MoneyMovementText.food_insecurity?(text)
+    end
+
+    # A hardship label on nothing but a skip. Any other words in the message
+    # leave the label standing.
+    def skip_only?(message, reading)
+      reading.care == "hardship" && Array(reading.setup_changes.to_h["skips"]).any? && message.to_s.match?(PLAIN_SKIP) && !current_hardship_sign?(message) && !::Mia::SensitiveMoment.grief?(message)
     end
 
     def brush_off?(message)
       text = message.to_s
-      text.split.length <= 10 && !text.match?(/\d/) && text.match?(BRUSH_OFF) && !text.match?(RECOVERY_EVIDENCE) && !explicit_recovery?(text)
+      text.split.length <= 10 && !text.match?(/\d/) && text.match?(BRUSH_OFF) && !text.match?(RECOVERY_EVIDENCE) && !text.match?(ConversationFollowupResolver::GRATITUDE_PATTERN) && !explicit_recovery?(text)
     end
 
     # The close repeats only what she said: thanks earns "You're welcome", and
     # someone helping earns "support".
     def closing_reply(message)
       text = message.to_s
-      return if brush_off?(text)
+      return if brush_off?(text) || current_hardship_sign?(text)
       thanks = text.match?(ConversationFollowupResolver::GRATITUDE_PATTERN)
       support = text.match?(/\b(?:help\w*|support\w*|cousin|sister|brother|mom|dad|family|friend|coach)\b/i)
       return "I'm glad you have support and things feel more settled. You're welcome, and I'm here when you're ready." if thanks && support
       return "You're welcome, and I'm here when you're ready." if thanks
 
-      "I'm glad things feel more settled. I'm here when you're ready."
+      "I'm glad things feel more settled. I'm here when you're ready." if text.match?(RECOVERY_EVIDENCE) || explicit_recovery?(text)
     end
 
     def scenario_current_only?(history: [], context: {})

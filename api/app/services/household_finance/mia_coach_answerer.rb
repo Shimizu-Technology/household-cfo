@@ -1134,14 +1134,15 @@ module HouseholdFinance
       "What does the item cost, and which month are you considering it for?"
     end
 
-    MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
+    MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
     FINANCING_PATTERN = /\b(?:financ\w*|payments?|installments?|payment plan|lease|layaway)\b/i
 
     # A payment is what financing costs each month; it says nothing about the
-    # price. Income quoted by the month is not a payment.
+    # price. Income or a subscription quoted by the month is not a financed payment.
     def self.monthly_payment_question?(message)
       text = message.to_s
-      return false unless text.match?(MONTHLY_PAYMENT_PATTERN) && !text.match?(PurchaseQuestionText::INCOME_TOPIC)
+      return false unless text.match?(MONTHLY_PAYMENT_PATTERN)
+      return false if text.match?(Regexp.union(PurchaseQuestionText::INCOME_TOPIC, PurchaseQuestionText::MONTHLY_INCOME, PurchaseQuestionText::RECURRING_COST))
       reader = PurchaseQuestionText.reading(text)&.purchase_question.to_h
       text.match?(FINANCING_PATTERN) || (reader["item"].present? && reader["amount"].blank?)
     end

@@ -119,21 +119,26 @@ module HouseholdFinance
       card.apply_preferences(@reading.spending_preferences)
       @card_touched = card.updates.any? { |update| !update.action.in?(MiaSetupCard::NOOP_ACTIONS) }
       skipped = skip_fields(changes["skips"])
-      update_text = [ MiaSetupCardReply.updated_text(card.updates, card).presence, MiaSetupCardReply.skipped_text(skipped) ].compact.join(" ")
+      update_text = [ MiaSetupCardReply.updated_text(card.updates, card, card_open: @card_touched || card_draft.present?).presence, MiaSetupCardReply.skipped_text(skipped) ].compact.join(" ")
       next_field = next_open_field(skipped)
       if waiting_on && (plan = paycheck_answer_plan(waiting_on, update_text, next_field))
         return plan
       end
       if update_text.present?
         return Plan.new(reply: nil, update_text: update_text, continues: true, next_field: next_field) if @reading.question
-        return Plan.new(reply: compose(update_text, next_field, asked: asked), update_text: update_text, continues: false, next_field: next_field)
+        return composed_plan(update_text, update_text, next_field, asked)
       end
       if (field = work_out_field(changes, asked))
         return work_out_plan(field, next_field)
       end
       return help_plan(changes["help_topic"], next_field) if changes["help_topic"]
       return if !@resuming && (@reading.question || @reading.facts.any? || !asked)
-      Plan.new(reply: compose(@resuming ? RESUMED : KEEP_GOING, next_field, asked: asked), update_text: nil, continues: false, next_field: next_field)
+      composed_plan(@resuming ? RESUMED : KEEP_GOING, nil, next_field, asked)
+    end
+
+    def composed_plan(lead, update_text, next_field, asked)
+      reply = compose(lead, next_field, asked: asked)
+      Plan.new(reply: reply, update_text: update_text, continues: false, next_field: next_field, work_out: @frequency_asked)
     end
 
     # Agreement only counts as an answer to the figure Mia just offered.
@@ -158,19 +163,22 @@ module HouseholdFinance
     end
 
     # She was asked for one paycheck and how often. A lone amount is never a
-    # month, and the frequency can arrive in the next message.
+    # month, and only an answer to that question is read as a frequency.
     def paycheck_answer_plan(field, update_text, next_field)
-      if card.field_known?(field) && !@message.match?(ParticipantCare::SETUP_FIELD_WORDS) && !@message.match?(/\b(?:twice|every)\b/i) && card.mark_paycheck_unclear(field)
+      if lone_paycheck?(field) && card.mark_paycheck_unclear(field)
         @card_touched = true
         return Plan.new(reply: MiaSetupCardReply::PAYCHECK_FREQUENCY_QUESTION, update_text: nil, continues: false, next_field: field, work_out: field)
       end
-      if (count = paychecks_a_month) && (update = card.count_paychecks(field, count))
+      frequency = ParticipantMessageReader.pay_frequency_answer(@message)
+      return Plan.new(reply: MiaSetupCardReply::BIMONTHLY_QUESTION, update_text: nil, continues: false, next_field: field, work_out: field) if frequency == "bimonthly"
+      if (count = { "twice_monthly" => 2, "monthly" => 1 }[frequency]) && (update = card.count_paychecks(field, count))
         @card_touched = true
         reply = MiaSetupCardReply.updated_text([ update ], card)
         following = next_open_field([])
         return Plan.new(reply: compose(reply, following, asked: field), update_text: reply, continues: false, next_field: following)
       end
-      card.set_paycheck_cadence(field, ParticipantMessageReader.stated_cadence(@message))
+      card.set_paycheck_cadence(field, frequency) if frequency
+      return unless frequency || card.updates.any? { |update| update.field == field }
       proposal = card.propose_monthly(field)
       return unless proposal
 
@@ -178,21 +186,28 @@ module HouseholdFinance
       Plan.new(reply: [ update_text.presence, MiaSetupCardReply.working(proposal) ].compact.join(" "), update_text: nil, continues: false, next_field: field)
     end
 
+    def lone_paycheck?(field)
+      card.updates.any? { |update| update.field == field && update.action == :total } &&
+        !@message.match?(ParticipantCare::SETUP_FIELD_WORDS) && !@message.match?(/\b(?:twice|every)\b/i)
+    end
+
     def help_plan(field, next_field)
       question = MiaSetupCardReply.question(field, card: card, previous: nil)
       Plan.new(reply: "#{MiaSetupCardReply.help(field)} #{question}", update_text: nil, continues: false, next_field: next_field || field)
     end
 
-    def paychecks_a_month
-      return 2 if @message.match?(/\b(?:twice|two times|2 ?x|2 times)\s+(?:a|per|each|every)\s+month\b/i)
-      1 if @message.match?(/\b(?:once\s+a\s+month|monthly|every\s+month)\b/i)
-    end
-
     def compose(lead, next_field, asked:)
-      return lead if card.updates.any? { |update| update.action.in?(%i[no_breakdown combined too_long]) }
-      closing = repeat_working(next_field, asked) || (next_field ? MiaSetupCardReply.question(next_field, card: card, previous: asked) : finish_text)
+      return lead if card.updates.any? { |update| update.action.in?(%i[no_breakdown combined too_long not_found]) }
+      closing = frequency_question(next_field) || repeat_working(next_field, asked) || (next_field ? MiaSetupCardReply.question(next_field, card: card, previous: asked) : finish_text)
       first_save = "Nothing saves until you tap Apply." if @card_touched && !card_draft && next_field
       [ lead.presence, first_save, closing ].compact.join(" ")
+    end
+
+    # An amount with no stated frequency can't be worked out yet.
+    def frequency_question(field)
+      return unless field && card.needs_frequency?(field)
+      @frequency_asked = field
+      MiaSetupCardReply::PAYCHECK_FREQUENCY_QUESTION
     end
 
     # Asking the same unanswerable question twice is the loop; the working ends it.

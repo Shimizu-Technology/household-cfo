@@ -5,6 +5,9 @@ module HouseholdFinance
     CORRECTION = /\A(?:(?:no|actually|sorry|correction|wait)[,:;]?\s+)*(?:(?:it|the (?:price|cost))\s+(?:actually\s+)?(?:is|costs?)\b|i meant\b|make (?:it|that)\b|\$\s*[\d,.]+(?:k|\s+dollars?)?(?:,?\s+please)?[.!]?\s*\z)/i.freeze
 
     INCOME_TOPIC = /\b(?:raise|income|salary|earn|take home|bring home)\b|\bmake\s+\$?\d/i.freeze
+    MONTHLY_INCOME = /\b(?:get(?:s)?\s+paid|my\s+check|pay\s*checks?|wages?|pay\s+is)\b/i.freeze
+    # What a monthly cost really is, so the monthly figure is the one to compare.
+    RECURRING_COST = /\b(?:subscriptions?|memberships?|gym|netflix|hulu|spotify|disney|streaming|dues)\b/i.freeze
     PURCHASE_QUESTION = /\b(?:can|could|should|may)\s+(?:i|we)\b[^?!;]*\b(?:buy|purchase|afford|get|spend|book|order)\b/i.freeze
 
     def self.income_with_purchase?(message)

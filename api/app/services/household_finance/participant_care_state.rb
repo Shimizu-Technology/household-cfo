@@ -40,7 +40,8 @@ module HouseholdFinance
       end
       recovery = ParticipantCare.explicit_recovery?(message)
       recovered = !reading.available && recovery
-      settled = reading.care_status.in?(%w[resolved new_topic]) && !(prior && ParticipantCare.brush_off?(message))
+      settled = (reading.care_status == "new_topic" || (reading.care_status == "resolved" && ParticipantCare.closing_reply(message))) &&
+        !(prior && (ParticipantCare.brush_off?(message) || ParticipantCare.current_hardship_sign?(message)))
       released = current.nil? && !ParticipantCare.followup?(message) &&
         (recovered || report || reading.answer_field.present? || ParticipantCare.setup_content?(message, reading) || financial || (reading.question && message.match?(PRODUCT_QUESTION)) || MiaSetupGuide.setup_request?(message) || (reading.available && settled))
       released = recovery if prior && prior["care_kind"] == "crisis"
