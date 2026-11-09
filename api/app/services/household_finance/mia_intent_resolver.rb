@@ -1156,7 +1156,7 @@ module HouseholdFinance
     end
 
     def deterministic_scenario_fallback
-      return if user_message.match?(MiaCoachAnswerer::MONTHLY_PAYMENT_PATTERN)
+      return if MiaCoachAnswerer.monthly_payment_question?(user_message)
 
       scenario_text = PurchaseQuestionText.purchase_clause(user_message).split(/(?<=[?!])\s+/).first.to_s
       purchase = context[:participant_reading]&.purchase_question.to_h

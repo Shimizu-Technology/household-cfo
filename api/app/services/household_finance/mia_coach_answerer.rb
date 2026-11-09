@@ -1135,9 +1135,18 @@ module HouseholdFinance
     end
 
     MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
+    FINANCING_PATTERN = /\b(?:financ\w*|payments?|installments?|payment plan|lease|layaway)\b/i
 
-    # A payment is what financing costs each month; it says nothing about the price.
-    def monthly_payment_quoted? = message.to_s.match?(MONTHLY_PAYMENT_PATTERN)
+    # A payment is what financing costs each month; it says nothing about the
+    # price. Income quoted by the month is not a payment.
+    def self.monthly_payment_question?(message)
+      text = message.to_s
+      return false unless text.match?(MONTHLY_PAYMENT_PATTERN) && !text.match?(PurchaseQuestionText::INCOME_TOPIC)
+      reader = PurchaseQuestionText.reading(text)&.purchase_question.to_h
+      text.match?(FINANCING_PATTERN) || (reader["item"].present? && reader["amount"].blank?)
+    end
+
+    def monthly_payment_quoted? = self.class.monthly_payment_question?(message)
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)

@@ -462,6 +462,11 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/would leave/, text(body))
   end
 
+  test "income quoted by the month is not a monthly payment" do
+    assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?("I make $4,500 a month. Can I afford a stroller?")
+    assert HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?("should i finance a new iphone, 45 a month")
+  end
+
   test "a one-off price stays a price" do
     reading = HouseholdFinance::ParticipantMessageReader.call(message: "can i get a 650 tv on the card",
       transport: ->(_) { legacy(question: true, purchase_question: { amount: "650", item: "tv" }).to_json })
