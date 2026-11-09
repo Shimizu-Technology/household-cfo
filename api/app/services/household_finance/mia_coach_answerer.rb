@@ -1129,8 +1129,15 @@ module HouseholdFinance
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
       return unless purchase_question? && purchase_comparison_amount_cents.nil?
 
+      return "What's the full price, and how many months would you be paying it off?" if monthly_payment_quoted?
+
       "What does the item cost, and which month are you considering it for?"
     end
+
+    MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
+
+    # A payment is what financing costs each month; it says nothing about the price.
+    def monthly_payment_quoted? = message.to_s.match?(MONTHLY_PAYMENT_PATTERN)
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
@@ -1278,7 +1285,7 @@ module HouseholdFinance
     def purchase_comparison_amount_cents
       amount = PurchaseQuestionText.reading(message)&.purchase_question.to_h["amount"]
       return ParticipantMessageReader.amount_cents(amount) if amount.present?
-      return if PurchaseQuestionText.for_comparison(message).needs_clarification
+      return if PurchaseQuestionText.for_comparison(message).needs_clarification || monthly_payment_quoted?
 
       text = purchase_comparison_text
       # "The shoes are $90. Can I get them?" states the price just before the
