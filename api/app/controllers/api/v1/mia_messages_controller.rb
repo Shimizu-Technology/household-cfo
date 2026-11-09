@@ -170,6 +170,11 @@ module Api
           saved_bills = saved_bills_reader_context(session) unless @setup_card_context
           @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, saved_bills: saved_bills, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
+          # The care label on a plain skip varies between reads. Skipping is a
+          # setup answer unless the message also discloses something new.
+          if @care_topic && @care_topic["care_kind"] != "crisis" && HouseholdFinance::ParticipantCare.skip_only?(content, @participant_reading)
+            @participant_reading = @participant_reading.with(care: "none", care_status: "new_topic")
+          end
           HouseholdFinance::ParticipantMessageReader::Current.reading = @participant_reading
           unless @participant_reading.available
             HouseholdFinance::ParticipantCare.guard_when_unread(content, history: history,

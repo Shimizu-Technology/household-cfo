@@ -40,7 +40,7 @@ module HouseholdFinance
 
     def question(field, card:, previous:)
       labels = card.unresolved_labels(field)
-      return "What's #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
+      return "#{labels.first.match?(/s\z/i) ? 'What are' : "What's"} #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
       return "What are #{labels.to_sentence} in a usual month?" if labels.any?
       debts = field == MiaSetupCard::DEBT_FIELD ? card.debts_without_minimum : []
       return "What do you pay on debts in a usual month?" if debts == [ MiaSetupCard::PLACEHOLDER_DEBT ]

@@ -125,6 +125,23 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_match(/leave everyday spending for later/, text(body))
   end
 
+  test "a skip is honoured even when the reader labels it hardship" do
+    say("Help me set up my household", read)
+    say("sorry my husband just lost his job yesterday n rent is due friday its 1100", read(care: "hardship"))
+    body = say("skip the groceries part i cant think rn", read(care: "hardship", care_status: "ongoing", setup: changes(skips: [ "flexible_spend" ])))
+    assert_not care_topic
+    assert_equal [ "flexible_spend" ], @household.reload.setup_skipped_fields
+    assert_match(/leave everyday spending for later/, text(body))
+    refute_match(/food/i, text(body))
+  end
+
+  test "a skip with a new disclosure stays in care and skips nothing" do
+    start_care
+    say("skip it my husband left us last night", read(care: "hardship", care_status: "ongoing", setup: changes(skips: [ "primary_income" ])))
+    assert care_topic
+    assert_equal [], @household.reload.setup_skipped_fields
+  end
+
   test "saying you want to carry on with nothing else asks the next question" do
     start_care
     body = say("ok lets keep going", read(care_status: "ongoing"))

@@ -45,6 +45,14 @@ module HouseholdFinance
       end
     end
 
+    SKIP_DISCLOSURE = /\b(?:left|lost|died|passed|evict\w*|hospital\w*|hurt\w*|scared|afraid|hungry|starving|shut ?off|fired|laid off|no food)\b/i
+
+    def skip_only?(message, reading)
+      text = message.to_s
+      return false unless reading.care == "hardship" && Array(reading.setup_changes.to_h["skips"]).any?
+      text.split.length <= 12 && !text.match?(/\d/) && !text.match?(SKIP_DISCLOSURE) && !text.match?(Regexp.union(::Mia::SensitiveMoment::GRIEF, ::Mia::SensitiveMoment::STRAIN))
+    end
+
     def brush_off?(message)
       text = message.to_s
       text.split.length <= 10 && !text.match?(/\d/) && text.match?(BRUSH_OFF) && !text.match?(RECOVERY_EVIDENCE) && !explicit_recovery?(text)
