@@ -25,9 +25,9 @@ module HouseholdFinance
 
     module_function
 
-    def updated_text(updates, card)
+    def updated_text(updates, card, card_open: true)
       lines = []
-      updates.group_by(&:field).each { |field, group| lines.concat(field_lines(field, group, card)) }
+      updates.group_by(&:field).each { |field, group| lines.concat(field_lines(field, group, card, card_open)) }
       lines.join(" ")
     end
 
@@ -40,13 +40,24 @@ module HouseholdFinance
 
     def question(field, card:, previous:)
       labels = card.unresolved_labels(field)
-      return "What's #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
+      return "#{labels.first.match?(/s\z/i) ? 'What are' : "What's"} #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
       return "What are #{labels.to_sentence} in a usual month?" if labels.any?
       debts = field == MiaSetupCard::DEBT_FIELD ? card.debts_without_minimum : []
       return "What do you pay on debts in a usual month?" if debts == [ MiaSetupCard::PLACEHOLDER_DEBT ]
       return "What's the monthly minimum on #{debts.to_sentence.downcase}?" if debts.any?
       variants = QUESTIONS.fetch(field)
       previous == field ? variants.last : variants.first
+    end
+
+    PAYCHECK_QUESTION = "Sure, let's work it out. About how much is one paycheck after taxes, and how often do you get it: every week, every two weeks, or twice a month?".freeze
+    PAYCHECK_FREQUENCY_QUESTION = "How often do you get that paycheck: every week, every two weeks, or twice a month?".freeze
+    BIMONTHLY_QUESTION = "Do you mean twice a month, or every two months?".freeze
+    CADENCE_PHRASES = { "weekly" => "Paid every week is 52 paychecks a year", "biweekly" => "Paid every two weeks is 26 paychecks a year", "quarterly" => "Four times a year", "twice_yearly" => "Twice a year", "yearly" => "Spread over a year" }.freeze
+
+    def working(proposal)
+      stated, monthly = money(proposal[:stated_cents]), money(proposal[:monthly_cents])
+      sum = proposal[:times] == 1 ? "#{stated} ÷ 12" : "#{stated} × #{proposal[:times]} ÷ 12"
+      "#{CADENCE_PHRASES.fetch(proposal[:cadence])}, so #{sum} comes to about #{monthly} a month. I put it on your card but didn't count it yet. Should I use #{monthly}, or is a usual month different?"
     end
 
     def finished(card)
@@ -57,14 +68,14 @@ module HouseholdFinance
       Array(card.fields.dig(field, "parts")).find { |part| !part["counted"] }&.fetch("note").to_s
     end
 
-    private_class_method def self.field_lines(field, group, card)
+    private_class_method def self.field_lines(field, group, card, card_open)
       if field.in?(MiaSetupCard::TEXT_FIELDS)
-        return group.flat_map { |update| update.action == :too_long ? single_lines(field, update) : [ field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." ] }
+        return group.flat_map { |update| update.action == :too_long ? single_lines(field, update, card_open) : [ field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." ] }
       end
       lines = []
       added = group.select { |update| update.action == :added && update.cents }
       lines << "Added #{added.map { |update| phrase(update) }.to_sentence}." if added.any?
-      group.reject { |update| update.action == :card_full }.each { |update| lines.concat(single_lines(field, update)) }
+      group.reject { |update| update.action == :card_full }.each { |update| lines.concat(single_lines(field, update, card_open)) }
       full = group.select { |update| update.action == :card_full }.map { |update| update.label.downcase }
       lines << "Your card holds #{MiaSetupCard::MAX_PARTS} rows here, so I left #{full.to_sentence} off. You can combine a few, or give me one total." if full.any?
       if added.many? || group.any? { |update| update.action.in?(%i[changed removed]) }
@@ -74,16 +85,16 @@ module HouseholdFinance
       lines.compact
     end
 
-    private_class_method def self.single_lines(field, update)
+    private_class_method def self.single_lines(field, update, card_open)
       case update.action
       when :changed then update.cents ? [ "Changed #{update.label.downcase} to #{money(update.cents)}." ] : [ "Updated #{update.label.downcase}. It #{update.note}." ]
       when :removed then [ "Took out #{update.label.downcase}." ]
       when :added then update.cents ? [] : [ "Added #{update.label.downcase}. It #{update.note}." ]
       when :total then [ total_line(field, update) ]
       when :none then [ field == MiaSetupCard::DEBT_FIELD ? "Noted: no debts." : none_line(field) ]
-      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still needs a monthly amount (#{update.note}), so I didn't count it." ]
+      when :needs_monthly then [ "#{(update.label || FIELD_NAMES.fetch(field)).sub(/\A./, &:upcase)} still #{update.label.to_s.match?(/s\z/i) ? 'need' : 'needs'} a monthly amount (#{update.note}), so I didn't count it." ]
       when :no_breakdown then [ "I only have one total for #{FIELD_NAMES.fetch(field)} (#{money(update.cents)}), so I can't change #{update.label.downcase} by itself. What should the new total be?" ]
-      when :not_found then [ "I don't see #{update.label.downcase} on your card." ]
+      when :not_found then [ card_open ? "I don't see #{update.label.downcase} on your card." : "I don't see #{update.label.downcase} in your saved numbers. Which one did you mean?" ]
       when :debt_on_file then [ "You have a debt saved, so I left debts as they are. Tell me which one is gone, or change it in My Money." ]
       when :combined then [ "#{update.note} is one row on your card, so I can't change #{update.label.downcase} by itself. What should that whole row be?" ]
       when :too_long then [ "That's a little long for #{FIELD_NAMES.fetch(field)}. Can you shorten it to #{update.cents} characters or fewer?" ]

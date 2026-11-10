@@ -5,7 +5,52 @@ module HouseholdFinance
     CORRECTION = /\A(?:(?:no|actually|sorry|correction|wait)[,:;]?\s+)*(?:(?:it|the (?:price|cost))\s+(?:actually\s+)?(?:is|costs?)\b|i meant\b|make (?:it|that)\b|\$\s*[\d,.]+(?:k|\s+dollars?)?(?:,?\s+please)?[.!]?\s*\z)/i.freeze
 
     INCOME_TOPIC = /\b(?:raise|income|salary|earn|take home|bring home)\b|\bmake\s+\$?\d/i.freeze
+    MONTHLY_INCOME = /\b(?:get(?:s)?\s+paid|my\s+check|pay\s*checks?|wages?|pay\s+is)\b/i.freeze
+    # What a monthly cost really is, so the monthly figure is the one to compare.
+    RECURRING_COST = /\b(?:subscriptions?|memberships?|gym|netflix|hulu|spotify|disney|streaming|dues)\b/i.freeze
     PURCHASE_QUESTION = /\b(?:can|could|should|may)\s+(?:i|we)\b[^?!;]*\b(?:buy|purchase|afford|get|spend|book|order)\b/i.freeze
+
+    # A payment is what financing costs each month, worded after the amount
+    # ("45 a month") or before it ("payments of $45"). Income in the same
+    # clause, or a subscription in the same sentence, makes it something else.
+    PAYMENT_AFTER = /\A\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i.freeze
+    PAYMENT_BEFORE = /\b(?:monthly\s+)?(?:payments?|installments?)\s+(?:of|at|is|are|(?:would|will)\s+be)?\s*(?:(?:about|around|like|only|just)\s+)?\z/i.freeze
+    QUOTED_AMOUNT = /(?<![\w$,.])\$?\s*#{Money::CHAT_NUMBER_SOURCE}(?!\d|,\d)#{Money::CHAT_THOUSANDS_SOURCE}?(?!\s*(?:months?|mos?|weeks?|wks?|years?|yrs?|days?|%|x\b|times\b))/.freeze
+    CLAUSE_BREAK = /[!?;\n]|[.,](?!\d)/.freeze
+    SENTENCE_BREAK = /[!?;\n]|\.(?!\d)/.freeze
+
+    Amount = Data.define(:cents, :payment, :other_monthly)
+
+    def self.amounts(message)
+      text = message.to_s
+      text.to_enum(:scan, QUOTED_AMOUNT).filter_map do
+        match = Regexp.last_match
+        cents = Money.chat_cents(match[0].delete("$"))
+        next unless cents.positive?
+
+        before, after = text[0...match.begin(0)], text[match.end(0)..].to_s
+        clause = [ before.split(CLAUSE_BREAK, -1).last, match[0], after.split(CLAUSE_BREAK, 2).first ].join(" ")
+        sentence = [ before.split(SENTENCE_BREAK, -1).last, match[0], after.split(SENTENCE_BREAK, 2).first ].join(" ")
+        other = clause.match?(Regexp.union(INCOME_TOPIC, MONTHLY_INCOME)) || sentence.match?(RECURRING_COST)
+        Amount.new(cents, !other && (after.match?(PAYMENT_AFTER) || before.match?(PAYMENT_BEFORE)), other)
+      end
+    end
+
+    def self.payment_cents(message) = amounts(message).select(&:payment).map(&:cents).uniq
+
+    # A price is neither a payment nor income or a subscription, and it is more
+    # than one payment, so the 15 in "iphone 15, 45 a month" is not a price.
+    def self.price_quoted?(message)
+      found = amounts(message)
+      payment = found.select(&:payment).map(&:cents).max.to_i
+      found.any? { |amount| !amount.payment && !amount.other_monthly && amount.cents > payment }
+    end
+
+    # True only when every place she wrote this amount quotes it as a payment.
+    def self.payment_only?(message, cents)
+      matching = amounts(message).select { |amount| amount.cents == cents }
+      matching.any? && matching.all?(&:payment)
+    end
 
     def self.income_with_purchase?(message)
       text = message.to_s

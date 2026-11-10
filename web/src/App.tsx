@@ -7229,7 +7229,7 @@ function MiaActionDraftReviewCard({
   // Debts are not part of `complete`, so it alone can't say nothing is left.
   const coverageFinished = Boolean(setupCoverage?.complete && setupCoverage.missing_fields.length === 0)
   const applyLabel = coverageFinished
-    ? 'Apply starting picture'
+    ? `Apply ${reviewValueCount === 1 ? 'change' : 'changes'}`
     : setupCoverage
       ? `Apply ${reviewValueCount} value${reviewValueCount === 1 ? '' : 's'}`
       : 'Apply change'

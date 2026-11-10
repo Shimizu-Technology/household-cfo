@@ -53,6 +53,34 @@ describe('MiaSetupCard', () => {
     await waitFor(() => expect(onEdit).toHaveBeenCalledWith(expect.anything(), { field: 'primary_income', action_name: 'skip' }))
   })
 
+  it('warns before Not now clears answers, and stays quiet with nothing to lose', () => {
+    const { onCancel } = setup([row('household_name', { kind: 'text', status: 'entered', value_text: 'Cruz Ohana', label: 'Household name' })])
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(screen.getByText(/This clears what you've told me/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my card' }))
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear this card' }))
+    expect(onCancel).toHaveBeenCalledTimes(1)
+    cleanup()
+    const empty = setup([row('primary_income', { label: 'Monthly income' })], false)
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(empty.onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('warns before Not now drops a typed edit, and moves focus with the confirmation', () => {
+    const { onCancel } = setup([row('primary_income', { label: 'Monthly income' })], false)
+    fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '4200' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(document.activeElement?.textContent).toBe('Keep my card')
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my card' }))
+    expect(document.activeElement?.textContent).toBe('Not now')
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('4200')
+  })
+
   it('edits and removes one part', async () => {
     const { onEdit } = setup([row('fixed_expenses', { label: 'Fixed essentials', status: 'entered', total_cents: 150000, parts: [{ id: 'p1', label: 'Rent', cents: 150000, counted: true }] })])
     expect(screen.getAllByText('$1,500')).toHaveLength(2)

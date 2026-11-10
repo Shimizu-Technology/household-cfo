@@ -257,6 +257,7 @@ module HouseholdFinance
       return coaching if coaching && MiaCoachAnswerer.routing_priority(user_message).in?(%i[hardship essential_skip])
 
       if (context[:participant_reading]&.purchase_question.to_h["item"].present? || PurchaseQuestionText.income_with_purchase?(user_message) || (api_key.blank? && transport.nil? && user_message.match(PurchaseQuestionText::PURCHASE_QUESTION)&.begin(0).to_i.positive? && PurchaseQuestionText.proposed_purchase_only?(user_message))) && !PurchaseQuestionText.debt_question?(user_message)
+        return full_price_clarification if MiaCoachAnswerer.monthly_payment_question?(user_message)
         scenario = deterministic_scenario_fallback
         return scenario if scenario&.read_only_plan?
       end
@@ -1155,7 +1156,15 @@ module HouseholdFinance
       MiaProviderAdmission.with_slot(call_site: "mia_intent") { openrouter_response }
     end
 
+    def full_price_clarification
+      Result.new(intent: "clarification", confidence: 1.0, continuation: false, resolved_message: user_message,
+        needs_clarification: true, clarification: MiaCoachAnswerer::FULL_PRICE_QUESTION,
+        topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+    end
+
     def deterministic_scenario_fallback
+      return if MiaCoachAnswerer.monthly_payment_question?(user_message)
+
       scenario_text = PurchaseQuestionText.purchase_clause(user_message).split(/(?<=[?!])\s+/).first.to_s
       purchase = context[:participant_reading]&.purchase_question.to_h
       scenario_type = purchase["item"].present? ? "purchase" : deterministic_scenario_type(scenario_text)
@@ -1182,7 +1191,7 @@ module HouseholdFinance
         end
       end
       rejected_amounts = rejected_money_cents(scenario_text)
-      amounts = participant_amounts - rejected_amounts
+      amounts = participant_amounts - rejected_amounts - PurchaseQuestionText.payment_cents(user_message)
       return unless amounts.one? && amounts.first.positive?
 
       raw_amount = (BigDecimal(amounts.first.to_s) / 100).to_s("F").sub(/\.0+\z/, "")

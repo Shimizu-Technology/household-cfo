@@ -41,7 +41,7 @@ module HouseholdFinance
       unclear_amount: true when any money event has an imprecise or unreadable amount (like 5ish), even beside a clear amount. Do not silently drop that event.
       question: true if she is asking anything or requesting information/analysis (including commands such as look at my spending patterns or analyze my spending habits), even without punctuation. This does not erase a separate completed fact.
       reply_intent: month_balance ONLY for the whole month's plan surplus; never bank cash, an individual category, weekly food allowance, or whether a purchase fits. purchase_question for a question about a proposed purchase. A purchase question takes precedence over win or spending_patterns, including a celebration followed by asking to buy something; spending_patterns only for requests to inspect existing spending records, unusual statement activity, small purchases adding up or places to cut back from those records. A disclosure of a personal habit, or advice about the next purchase, is none rather than spending_patterns; win for a positive completed money achievement or avoided spending; progress for a challenge look-back including first 30/60/90 days; purchase_caution for considering spending on a want with no money behind it or a card they will carry; otherwise none. purchase_caution takes precedence over purchase_question when she says, in any wording, that the money is not there (low on cash, aint got it, broke til payday, no money til friday, moneys tight) or plans to charge a want and pay it off slowly; keep purchase_question filled. A want she says is saved or paid in full is purchase_question. A needed essential is never purchase_caution. Never classify care disclosures as wins or purchase_caution. This intent never authorizes a write.
-      purchase_question: {amount, item}, exact source quotes for a contemplated purchase, including casual plans like thinking of getting or gonna put a TV on my card. This is separate from completed facts. Include its price even without a dollar sign or when the price follows the item in a later clause. The item quote names the item only, excluding its price and article. For a shopping stop or service visit without a named object, quote the named place or service rather than inventing an object. Empty strings when absent. A raise plus a purchase question retains both the income fact and purchase_question.
+      purchase_question: {amount, item}, exact source quotes for a contemplated purchase, including casual plans like thinking of getting or gonna put a TV on my card. A monthly payment is not a price: "finance a new iphone, 45 a month" is amount "" and item "iphone". This is separate from completed facts. Include its price even without a dollar sign or when the price follows the item in a later clause. The item quote names the item only, excluding its price and article. For a shopping stop or service visit without a named object, quote the named place or service rather than inventing an object. Empty strings when absent. A raise plus a purchase question retains both the income fact and purchase_question.
       goal_change: {amount}, the requested savings/challenge or household tracked goal target, not an amount already saved. A hedged amount beside the word goal ("idk maybe like 350 for my goal") is that goal, with unclear_amount false. Read casual commands and a bare amount when the supplied goal conversation is active. Choose the replacement, not the old target. Empty when absent.
       savings_correction: {old_amount, new_amount, day}, exact quotes for an explicit correction to previously saved money, including 'change the 25 to 20'. Never emit a new set_aside fact for the correction. If unclear leave fields empty.
       setup_answer: field is goal/name/income/fixed/flexible/debt/none. For a new answer use open_setup_field. For a correction use an explicitly named field first, otherwise pending_field, otherwise last_answer_field. Do not move an unnamed correction onto the newly open question after Apply. Every correction still needs a review card. A goal is an actual desired outcome, not junk, greetings, uncertainty, a question, a purchase, income/bill fact or a statement that she has no goal. A name is an actual proposed household name, not idk/none/hi/rent/groceries/sounds good/ya/k or an unrelated fact. Descriptions of family members, children, jobs or where she lives do not propose a household name; do not extract a place name from them. value is the exact answer span from her message, stripping correction chatter; for money it must be an exact amount quote. Do not sum bills or invent zeros. Explicit 'no income' or 'no debt payments' can be quoted as the value. A question about whether a bill belongs in a spending group is not a setup answer or a total: keep its bill facts, set question=true, and leave setup_answer as none. A separate explicitly stated monthly total in the same message can still answer the setup field. A stated fixed total including groceries is valid. One named debt with its minimum answers the debt question: quote its amount and retain a bill fact with the exact debt name in item. For multiple debts, provide setup_details components instead of a total.
@@ -49,14 +49,15 @@ module HouseholdFinance
       correction: true when changing an earlier setup answer, whether pending or already saved, including oops/sorry i meant/no its/wait. An explicitly named setup field takes precedence over the supplied pending field: when she corrects fixed essentials while an income card is pending, answer fixed, not income. Return the named field and its exact replacement quote. Use the pending field only when she does not name a different field. If there is no pending field, last_answer_field identifies the last applied answer: use it for an unnamed correction after Apply. An ordinary new answer still belongs to open_setup_field. Adding a missing named bill to a pending list uses setup_details with correction=false; replacing a named part uses correction=true. Keep the exact bill name in its source span. This only proposes a review; it never changes saved values.
       defer_setup: true when she wants to skip the current setup question, does not know yet, wants to answer later, or asks to come back to it. This is never an answer or zero. False for a question asking what a setup term means.
       For a pending bill list, setup_details.edit identifies an add, replace or remove instruction regardless of casual preambles. A further named bill is an addition to that pending review even when the open setup question has moved to a different field. An addition does not need to explicitly name the setup field. Use pending_field as setup_details.field for these edits, retain the bill fact, and leave setup_answer as none unless she separately states a replacement total. operation is add/replace/remove or empty; item is the exact quoted bill name, amount the exact new money quote (empty for removal), and source the exact instruction quote. If the bill to change is unclear leave item empty. Do not infer a new amount, a balance, a percentage or a nonmonthly payment as a monthly bill. An empty edit has all four strings empty.
+      saved_bills, when present, lists her approved monthly bills by setup field. When she removes, changes or adds one bill after setup ("we cancelled the insurance so take that off", "oh n the rent went up to 1700", "we got a new phone bill 60"), return setup_details with field set to fixed_expenses or flexible_spend, and edit: operation, item (the exact quoted bill name), amount (exact new money quote, empty for a removal) and source. A whole new total stays setup_answer, and debts or purchases are not saved bills.
       setup_details: use for a list answering a setup money question, an explicitly named correction, or an addition/change to the supplied pending_field. A request to add actual stated bills or counted paychecks can be question=true and still supply setup_details; retain their actual bill/income facts too. Classification questions and hypothetical amounts must never supply setup_details. field is the full setup field key or empty. components contains each amount with source: the exact disjoint clause quoting that amount and its bill/debt name; amount: the exact numeric money span. Never include an overall total alongside its parts, a balance as a minimum, or an unrelated purchase. cadence is monthly for monthly bills/minimums, monthly_count for an explicit count of paychecks answering monthly income ("2 paychecks of 1400"), weekly/biweekly for those stated frequencies, or empty. count is the exact count quote (digits or words) for monthly_count, otherwise empty. partial is true if the list is incomplete; never claim a list is complete merely because it was supplied. Empty details has field="", components=[], cadence="", count="", partial=true. Do not calculate totals.
     TEXT
     # A setup card has one reader: it proposes per-field changes as exact quotes
     # and never calculates. MiaSetupCard owns every total.
     SETUP_CARD_PROMPT = <<~TEXT.freeze
-      setup_context is set: she is filling in one household setup card. saved is what is already approved, draft is what is on the card, skipped is what she skipped, last_asked is the setup field Mia just asked about (may be empty). Fill setup_changes from the CURRENT message only. You quote; you never calculate, convert, total or correct arithmetic. Every amount, label, name and source is an exact verbatim span of the message, exactly as written including typos. source is the exact clause holding that entry. Leave anything not stated empty. A bill or amount she gives at a different question still goes on its own field; "rent 1000" while last_asked is household_name is fixed_expenses. Do not repeat what is already in draft unless she changed it. A question about a bill does not supply that bill.
+      setup_context is set: she is filling in one household setup card. saved is what is already approved, draft is what is on the card, skipped is what she skipped, last_asked is the setup field Mia just asked about (may be empty). Fill setup_changes from the CURRENT message only. Giving setup information is not a disclosure: an amount, a bill list, a debt, a skip or wanting to carry on with the setup is care=none and care_status=new_topic, even straight after hardship and even when it mentions that situation ("its only my check now, 2400 a month", "skip the groceries part i cant think rn"). Only a new or worsening disclosure in this message itself is care. An unresolved answer to a support question ("maybe 400 by friday" about what she can cover) is care_status=ongoing and fills no setup field. You quote; you never calculate, convert, total or correct arithmetic. Every amount, label, name and source is an exact verbatim span of the message, exactly as written including typos. source is the exact clause holding that entry. Leave anything not stated empty. A bill or amount she gives at a different question still goes on its own field; "rent 1000" while last_asked is household_name is fixed_expenses. Do not repeat what is already in draft unless she changed it. A question about a bill does not supply that bill.
       household_name, primary_goal: exact quote of what she proposes, else "". A goal is a desired outcome; a name is a proposed household name, never an expense, a person's description, idk or a greeting.
-      primary_income, fixed_expenses, flexible_spend: for one stated overall amount use total_amount with total_cadence (and total_count), total_source. For separately named amounts use parts, each {op, label, amount, cadence, count, source}. Never output both a total and the parts that add up to it unless she states both, and then include both. fixed_expenses are must-pay bills (rent, power, water, phone, internet, insurance); flexible_spend is everyday spending (groceries, gas). A named bill not in draft is add. A named bill she changes is replace. If she says a bill is gone, not paid or covered by someone else ("take out the internet", "we dont pay water my dad does", "landlord covers it now") use remove with amount "". A hedge or aside stays her amount: "power maybe 140 idk" is power 140 cadence monthly; "bout 310" is 310; "maybe 600 for food n gas" is 600 cadence monthly. A plain "no income" answer at last_asked primary_income is that field with none=true and care=none. "i dont have cable" is no entry at all, never zero. Keep unrelated numbers out: kids, ages, dates, years, percentages, balances, things bought. A completed purchase ("spent 80 at payless") is a fact, not a part.
+      primary_income, fixed_expenses, flexible_spend: for one stated overall amount use total_amount with total_cadence (and total_count), total_source. For separately named amounts use parts, each {op, label, amount, cadence, count, source}. Never output both a total and the parts that add up to it unless she states both, and then include both. fixed_expenses are must-pay bills (rent, power, water, phone, internet, insurance); flexible_spend is everyday spending (groceries, gas). A named bill not in draft is add. A named bill she changes is replace. If she says a bill is gone, not paid or covered by someone else ("take out the internet", "we dont pay water my dad does", "landlord covers it now") use remove with amount "". A hedge or aside stays her amount: "power maybe 140 idk" is power 140 cadence monthly; "bout 310" is 310; "maybe 600 for food n gas" is 600 cadence monthly. A plain "no income" answer at last_asked primary_income is that field with none=true and care=none. "i dont have cable" is no entry at all, never zero. Keep unrelated numbers out: kids, ages, dates, years, percentages, balances, things bought. A completed purchase is still a fact during setup, even with no question asked: "just got back from payless spent like 80 on food" is facts purchase amount 80, merchant payless, item food, and no setup part.
       cadence: monthly when the amount is monthly or a usual bill with no other frequency stated; per_paycheck with count quoting how many paychecks in a month when stated; weekly; biweekly; yearly; unclear only for two different amounts ("450-500", "maybe x maybe y", "x, y tops") or when she cannot say whether it is monthly. A single amount with a hedge word is monthly, never unclear. Ruby converts only monthly and counted paychecks; everything else waits for a monthly amount, so keep the amount quoted exactly as she said it.
       replace_all on a money field: true when she says start over or gives a whole new list for that field ("ok lets start over. rent 1000, gpa 200"), so earlier rows go away. Otherwise false.
       Bare amounts with no label answering last_asked are still that field: "1400 and 1250" at last_asked primary_income is two parts with empty labels and cadence monthly. Two different amounts at last_asked such as "maybe 450, 500 tops" are total_amount "500", total_cadence unclear, on the last_asked field; it is never a goal or name.
@@ -64,6 +65,7 @@ module HouseholdFinance
       debt_payment: none true for a plain "no debts". For named debts use parts, each {op, name, minimum, balance, source}. minimum is the monthly minimum quote, balance is the owed amount quote, each "" if not stated; never put a balance in minimum. Two debts in one message are two parts: "the visa is 75 n the truck 310" and "my card is like 40 minimum n student loan 120" each give two parts. One overall debt total without names uses total_amount with total_cadence and total_source. A debt she pays off or that is gone uses op remove.
       skips: setup field keys she asks to skip, does not know yet, or wants to come back to. Use last_asked for a bare "skip", "idk yet", "ill do that later". Never skip a field she answered.
       help_topic: the setup field key when she asks what a setup question or term means or how to answer it ("whats fixed mean", "what do you mean by goal", "idk what my goal should be"), else "". A plain question about something else leaves help_topic empty and uses question=true.
+      work_out: true when she wants help working out or calculating a monthly number ("help me work it out", "idk how to figure that out", "can u do the math"), with help_topic set to that field. false for a question about what a term means. confirm_monthly: true only when she agrees to a monthly figure Mia offered in draft ("yes", "use that", "sounds right"). If she gives a number instead, that is the answer and confirm_monthly is false. When paycheck_help is true she was asked for one paycheck and how often it comes: a lone amount is that paycheck with cadence unclear, never a monthly amount.
       Examples: "rent is 1100, power 150, phone 60. i dont have cable" => fixed_expenses.parts add rent/power/phone, no cable. "no the rent is 1350 not 1250" => fixed_expenses.parts replace rent amount "1350". "take out the internet, landlord covers it now" => remove internet. "2 paychecks of 1400" at income => total_amount "1400", total_cadence per_paycheck, total_count "2". "visa balance is 4000, minimum 75" => debt part minimum "75", balance "4000".
     TEXT
 
@@ -101,18 +103,27 @@ module HouseholdFinance
 
     def self.amount_cents(value) = Money.chat_cents(amount_text(value))
 
+    # Only a message that is nothing but a frequency answers Mia's question.
+    def self.pay_frequency_answer(message)
+      text = message.to_s.squish.sub(/[.!?]+\z/, "")
+      PAY_ANSWERS.find { |_, pattern| text.match?(/\A#{PAY_ANSWER_LEAD.source}(?:#{pattern.source})\z/i) }&.first
+    end
+
+    def self.stated_cadence(clause) = SETUP_CADENCE_WORDS.find { |pattern, _| clause.to_s.match?(pattern) }&.last
+
     def self.zero_answer?(value, field:)
       text = value.to_s.strip.downcase
       (field == "primary_income" && text == "no income") ||
         (field == "debt_payment" && text.in?([ "no debt payments", "no debt", "no debts", "none", "nothing" ]))
     end
 
-    def initialize(message:, recent_care: nil, setup_field: nil, pending_field: nil, last_answer_field: nil, goal_conversation: false, setup_context: nil, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.participant_reader, transport: nil)
+    def initialize(message:, recent_care: nil, setup_field: nil, pending_field: nil, last_answer_field: nil, goal_conversation: false, setup_context: nil, saved_bills: nil, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.participant_reader, transport: nil)
       @last_answer_field = last_answer_field
       @recent_care = recent_care
       @message, @setup_field, @pending_field = message.to_s, setup_field, pending_field
       @goal_conversation = goal_conversation
       @setup_context = setup_context
+      @saved_bills = saved_bills.presence
       @api_key, @model, @transport = api_key.to_s.strip, model, transport
     end
 
@@ -156,10 +167,10 @@ module HouseholdFinance
       Current.reply_intent = { message: @message, intent: intent || ("none" if provided), provided: provided }
       Result.new(care, facts, value["question"] == true, answer, value["correction"] == true, preferences, true, @hypothetical_movement, @unclear_amount,
         validated_setup_details(value["setup_details"], correction: value["correction"] == true), value["defer_setup"] == true,
-        validated_money_fields(value["purchase_question"], %w[amount item]),
+        purchase_question_without_payment(validated_money_fields(value["purchase_question"], %w[amount item])),
         ParticipantMoneyIntent.blocked?(@message, kind: :goal) ? {} : validated_money_fields(value["goal_change"], %w[amount]),
         ParticipantMoneyIntent.blocked?(@message, kind: :correction) ? {} : validated_money_fields(value["savings_correction"], %w[old_amount new_amount day]),
-        value["care_status"].presence_in(%w[none ongoing resolved new_topic]) || "none", intent || "none", validated_setup_changes(value["setup_changes"]))
+        value["care_status"].presence_in(%w[none ongoing resolved new_topic]) || "none", intent || "none", validated_setup_changes(value["setup_changes"]) || validated_saved_bill_change(value["setup_details"]))
     end
 
     SETUP_MONEY_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
@@ -179,7 +190,27 @@ module HouseholdFinance
       changes["skips"] = Array(value["skips"]).select { |field| field.in?(SETUP_FIELDS.values) }.uniq
       help = value["help_topic"]
       changes["help_topic"] = help.presence_in(SETUP_FIELDS.values)
+      changes["work_out"] = value["work_out"] == true
+      changes["confirm_monthly"] = value["confirm_monthly"] == true
       changes
+    rescue ArgumentError
+      nil
+    end
+
+    # One bill changed after setup: the same shape and the same quote checks as
+    # a card change, so Ruby alone decides what it does to the saved breakdown.
+    def validated_saved_bill_change(details)
+      return unless @saved_bills && details.is_a?(Hash)
+      edit = details["edit"]
+      field = details["field"].presence_in(@saved_bills.keys)
+      operation = edit.is_a?(Hash) ? edit["operation"].presence_in(%w[add replace remove]) : nil
+      return unless field && operation
+      @claimed_offsets = Set.new
+      # A named bill can only be changed where the parts are known. Otherwise
+      # the card stops at the plain "what's the new total" question.
+      operation = "replace" if operation != "remove" && @saved_bills[field].blank?
+      part = setup_part("op" => operation, "label" => edit["item"], "amount" => edit["amount"], "cadence" => "monthly", "count" => "", "source" => edit["source"])
+      { field => { "parts" => [ part ] }, "skips" => [] } if part
     rescue ArgumentError
       nil
     end
@@ -270,11 +301,18 @@ module HouseholdFinance
       cadence = cadence.presence_in(SETUP_CADENCES) || "monthly"
       clause = setup_clause(offset, amount)
       cadence = "unclear" if status == :unclear
-      cadence = stated_cadence(clause) || cadence if cadence.in?(%w[monthly unclear])
+      stated = stated_frequency(clause, source)
+      # The reader may not supply a frequency she never gave.
+      unstated = !stated && (cadence.in?(READER_FREQUENCIES) || (cadence == "monthly" && clause.match?(PER_PAYCHECK)))
+      cadence = "unclear" if unstated
+      cadence = stated if stated && cadence != "per_paycheck"
       entry = { "amount_cents" => self.class.amount_cents(amount), "quote" => amount, "cadence" => cadence, "source" => clause }
-      if cadence == "per_paycheck"
+      entry["needs_frequency"] = true if unstated
+      if cadence == "twice_monthly"
+        entry.merge!("cadence" => "per_paycheck", "count" => 2)
+      elsif cadence == "per_paycheck"
         entry["count"] = setup_paycheck_count(count, source.is_a?(String) && @message.include?(source) ? source : clause)
-        entry["cadence"] = "unclear" unless entry["count"]
+        entry.merge!("cadence" => "unclear", "needs_frequency" => true) unless entry["count"]
       end
       entry["total_marker"] = true if setup_total_context?(offset, amount)
       entry
@@ -319,10 +357,23 @@ module HouseholdFinance
     SETUP_NEGATED_BEFORE = /\b(?:not|never|no longer|used to(?:\s+be)?|was|were|isn['’]?t|wasn['’]?t|ain['’]?t|don['’]?t pay|dont pay|stop(?:ped)?\s+paying)\s+(?:the\s+|a\s+|an\s+|about\s+|like\s+|even\s+)*\$?\s*\z/i
     SETUP_BALANCE_BEFORE = /\b(?:balance|owe[ds]?|owing|paid off|still owe|in debt)\b[^\d]{0,24}\z/i
     SETUP_BALANCE_AFTER = /\A\s+(?:balance|owed|left\b|total owed|still owed)/i
-    SETUP_CADENCE_WORDS = { /\b(?:weekly|(?:a|per|each|every)\s+week)\b/i => "weekly",
-      /\b(?:biweekly|bi-weekly|every\s+(?:two|2|other)\s+weeks?|(?:a|per|each|every)\s+pay\s*(?:period|check)|per\s+paycheck)\b/i => "biweekly",
-      /\b(?:yearly|annually|annual|(?:a|per|each|every)\s+year|quarterly|twice\s+a\s+year)\b/i => "yearly",
+    # Order matters: the narrower wording has to win ("bi-weekly" holds "weekly").
+    SETUP_CADENCE_WORDS = { /\b(?:semi[- ]?monthly|(?:twice|two\s+times|2\s*x|2\s+times)\s+(?:a|per|each|every)\s+month)\b/i => "twice_monthly",
+      /\bbi[- ]?monthly\b/i => "unclear",
+      /\b(?:bi[- ]?weekly|fortnightly|every\s+(?:two|2|other)\s+(?:weeks?|wks?))\b/i => "biweekly",
+      /\b(?:weekly|(?:a|per|each|every)\s+week)\b/i => "weekly",
+      /\b(?:quarterly|(?:a|per|each|every)\s+quarter|every\s+(?:3|three)\s+months)\b/i => "quarterly",
+      /\b(?:(?:twice|two\s+times|2\s*x|2\s+times)\s+(?:a|per|each|every)\s+year|semi[- ]?annual\w*|every\s+(?:6|six)\s+months)\b/i => "twice_yearly",
+      /\b(?:yearly|annually|annual|(?:a|per|each|every)\s+year)\b/i => "yearly",
       /\b(?:(?:a|per|each|every)\s+day|daily)\b/i => "unclear" }.freeze
+    READER_FREQUENCIES = %w[weekly biweekly yearly].freeze
+    PER_PAYCHECK = /\b(?:per|a|each|every)\s+(?:pay\s*check|check|pay\s*period)\b/i
+    PAY_ANSWER_LEAD = /(?:(?:(?:i|we)\s+(?:get\s+)?(?:it|paid)|get\s+paid|paid|it['’]?s|its|it\s+is|like|about|usually|ok(?:ay)?|yeah|um+)\s+)*/i
+    PAY_ANSWERS = { "bimonthly" => /bi[- ]?monthly/i,
+      "twice_monthly" => /semi[- ]?monthly|twice\s+a\s+month|(?:two|2)\s*(?:x|times)\s+a\s+month/i,
+      "biweekly" => /bi[- ]?weekly|fortnightly|every\s+(?:two|2|other)\s+(?:weeks?|wks?)/i,
+      "weekly" => /weekly|(?:every|each|per|a|once\s+a)\s+week/i,
+      "monthly" => /monthly|once\s+a\s+month|every\s+month|a\s+month/i }.freeze
 
     def setup_amount_status(amount, offset)
       before = @message[0...offset]
@@ -356,8 +407,13 @@ module HouseholdFinance
       @message[start...finish].strip
     end
 
-    def stated_cadence(clause)
-      SETUP_CADENCE_WORDS.find { |pattern, _| clause.match?(pattern) }&.last
+    def stated_cadence(clause) = self.class.stated_cadence(clause)
+
+    # Her clause, the reader's quote of it, or the whole message when it holds
+    # one amount. "every 2 weeks" isn't a second amount.
+    def stated_frequency(clause, source)
+      stated_cadence(clause) || (stated_cadence(source) if source.is_a?(String) && @message.include?(source)) ||
+        (stated_cadence(@message) if @message.gsub(/\d+\s*(?:weeks?|wks?|months?|x|times)\b/i, " ").scan(/\d[\d,.]*/).one?)
     end
 
     def setup_total_context?(offset, amount)
@@ -387,7 +443,8 @@ module HouseholdFinance
       # A quote can only be one of the two, and a balance must never read as a minimum.
       balance = setup_debt_balance(part["balance"], part["source"])
       minimum = setup_debt_minimum(part["minimum"], part["source"])
-      return if minimum.empty? && balance.nil?
+      # A bare name is a debt she has only in a statement, never in a question.
+      return if minimum.empty? && balance.nil? && (op != "add" || @question)
       { "op" => op, "name" => name, "balance_cents" => balance }.merge(minimum)
     end
 
@@ -441,6 +498,13 @@ module HouseholdFinance
         @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /))
     end
 
+    # Financing quotes a payment; only the price can be compared with the plan.
+    def purchase_question_without_payment(question)
+      amount = question["amount"].to_s
+      return question unless amount.present? && PurchaseQuestionText.payment_only?(@message, self.class.amount_cents(amount))
+      question.merge("amount" => "")
+    end
+
     def validated_setup_details(details, correction:)
       return {} unless details.is_a?(Hash)
       field = details["field"]
@@ -458,7 +522,9 @@ module HouseholdFinance
       if fact["source_text"].present?
         validate_quote!(fact["source_text"])
         return unless fact["amount"].blank? || quoted_money?(fact["amount"], source: fact["source_text"])
-        return unless fact["merchant"].blank? || fact["source_text"].include?(fact["merchant"])
+        # A merchant from another clause can only be misattributed when the
+        # message holds more than one amount.
+        return unless fact["merchant"].blank? || fact["source_text"].include?(fact["merchant"]) || @message.scan(/\d[\d,.]*/).one?
       end
       return if fact["kind"] == "purchase" && ParticipantMoneyIntent.blocked?(fact["source_text"].presence || @message, kind: :purchase)
       return if fact["kind"] == "purchase" && (ParticipantMoneyIntent.debt_repayment?(fact["source_text"].presence || @message) || ParticipantMoneyIntent.future_charge?(@message))
@@ -586,7 +652,7 @@ module HouseholdFinance
       if @setup_context
         properties.except!(:defer_setup, :setup_answer, :setup_details, :correction)
       end
-      { model: @model, messages: [ { role: "system", content: "#{PROMPT}#{@setup_context ? SETUP_CARD_PROMPT : LEGACY_SETUP_PROMPT}" }, { role: "user", content: JSON.generate({ message: @message, recent_care: @recent_care, goal_conversation: @goal_conversation }.merge(@setup_context ? { setup_context: @setup_context } : { open_setup_field: @setup_field, pending_field: @pending_field, last_answer_field: @last_answer_field })) } ],
+      { model: @model, messages: [ { role: "system", content: "#{PROMPT}#{@setup_context ? SETUP_CARD_PROMPT : LEGACY_SETUP_PROMPT}" }, { role: "user", content: JSON.generate({ message: @message, recent_care: @recent_care, goal_conversation: @goal_conversation }.merge(@setup_context ? { setup_context: @setup_context } : { open_setup_field: @setup_field, pending_field: @pending_field, last_answer_field: @last_answer_field, saved_bills: @saved_bills }.compact)) } ],
         response_format: { type: "json_schema", json_schema: { name: "participant_message", strict: true, schema: object_schema(**properties) } },
         provider: { data_collection: "deny", allow_fallbacks: false, require_parameters: true }, max_tokens: AiModels.output_budget(@model, @setup_context ? 2600 : 1800) }.merge(AiModels.sampling(@model, 0)).tap do |body|
           body[:reasoning] = AiModels.chat_reasoning(@model) if AiModels.chat_reasoning(@model)
@@ -601,7 +667,7 @@ module HouseholdFinance
       debt = object_schema(op: { type: "string", enum: %w[add replace remove] }, name: { type: "string" }, minimum: { type: "string" }, balance: { type: "string" }, source: { type: "string" })
       money = object_schema(none: { type: "boolean" }, replace_all: { type: "boolean" }, total_amount: { type: "string" }, total_cadence: cadence, total_count: { type: "string" }, total_source: { type: "string" }, parts: { type: "array", items: part })
       debts = object_schema(none: { type: "boolean" }, total_amount: { type: "string" }, total_cadence: cadence, total_source: { type: "string" }, parts: { type: "array", items: debt })
-      { setup_changes: object_schema(household_name: { type: "string" }, primary_goal: { type: "string" }, primary_income: money, fixed_expenses: money, flexible_spend: money, debt_payment: debts, skips: { type: "array", items: { type: "string", enum: SETUP_FIELDS.values } }, help_topic: { type: "string", enum: [ "", *SETUP_FIELDS.values ] }) }
+      { setup_changes: object_schema(household_name: { type: "string" }, primary_goal: { type: "string" }, primary_income: money, fixed_expenses: money, flexible_spend: money, debt_payment: debts, skips: { type: "array", items: { type: "string", enum: SETUP_FIELDS.values } }, help_topic: { type: "string", enum: [ "", *SETUP_FIELDS.values ] }, work_out: { type: "boolean" }, confirm_monthly: { type: "boolean" }) }
     end
 
     def object_schema(**properties) = { type: "object", properties: properties, required: properties.keys, additionalProperties: false }

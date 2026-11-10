@@ -394,7 +394,7 @@
 }
 
 /* The setup card is one flat list: a row per answer, a sub-row per part. */
-.setup-card { padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
+.setup-card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); overflow-wrap: anywhere; }
 .setup-card h4 { margin: 0 0 4px; font-family: var(--font-body); font-size: var(--text-lg); color: var(--ink); }
 .setup-card-rows { display: grid; }
 .setup-card-group { border-top: 1px solid var(--line); padding: 4px 0; }

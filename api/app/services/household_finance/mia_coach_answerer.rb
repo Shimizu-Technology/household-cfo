@@ -1129,8 +1129,25 @@ module HouseholdFinance
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
       return unless purchase_question? && purchase_comparison_amount_cents.nil?
 
+      return FULL_PRICE_QUESTION if monthly_payment_quoted?
+
       "What does the item cost, and which month are you considering it for?"
     end
+
+    FULL_PRICE_QUESTION = "What's the full price, and how many months would you be paying it off?".freeze
+    FINANCING_PATTERN = /\b(?:financ\w*|payments?|installments?|payment plan|lease|layaway)\b/i
+
+    # A payment is what financing costs each month; it says nothing about the
+    # price. This asks for the price only when she gave a payment and no price.
+    def self.monthly_payment_question?(message)
+      text = message.to_s
+      return false if PurchaseQuestionText.payment_cents(text).empty? || PurchaseQuestionText.price_quoted?(text)
+      reader = PurchaseQuestionText.reading(text)&.purchase_question.to_h
+      return false if reader["amount"].present?
+      text.match?(FINANCING_PATTERN) || reader["item"].present?
+    end
+
+    def monthly_payment_quoted? = self.class.monthly_payment_question?(message)
 
     def purchase_plan_answer
       return if essential_purchase? || normalized_message.match?(SCREENSHOT_PURCHASE_TERMS)
@@ -1278,7 +1295,7 @@ module HouseholdFinance
     def purchase_comparison_amount_cents
       amount = PurchaseQuestionText.reading(message)&.purchase_question.to_h["amount"]
       return ParticipantMessageReader.amount_cents(amount) if amount.present?
-      return if PurchaseQuestionText.for_comparison(message).needs_clarification
+      return if PurchaseQuestionText.for_comparison(message).needs_clarification || monthly_payment_quoted?
 
       text = purchase_comparison_text
       # "The shoes are $90. Can I get them?" states the price just before the
@@ -1292,11 +1309,10 @@ module HouseholdFinance
       return if text.match?(/#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}\s+(?:in|into|from|left in)\s+(?:(?:my|our|the)\s+)?(?:checking|savings|accounts?)\b/i)
       return if text.match?(/\b(?:checking|savings|accounts?)\s+(?:only\s+)?(?:has|have|had|is|shows?|holds?)\b[^.?!]*#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}/i)
 
-      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).map { |found| Money.chat_cents(found.first) } - PurchaseQuestionText.payment_cents(message)
       return unless amounts.one?
 
-      amount = Money.chat_cents(amounts.first.first)
-      amount if amount.positive?
+      amounts.first if amounts.first.positive?
     end
 
     def recurring_purchase_amount?(clause)

@@ -15,9 +15,14 @@ module HouseholdFinance
     CARD_LABELS = { "household_name" => "Household name", "primary_goal" => "Main goal", "primary_income" => "Monthly income",
       "fixed_expenses" => "Fixed essentials", "flexible_spend" => "Everyday spending", "debt_payment" => "Debts" }.freeze
     FILLER_WORDS = %w[the my our bill payment payments monthly].freeze
-    CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck" }.freeze
+    CADENCE_NOTES = { "weekly" => "a week", "biweekly" => "every two weeks", "yearly" => "a year", "per_paycheck" => "a paycheck", "quarterly" => "a quarter", "twice_yearly" => "twice a year", "twice_monthly" => "twice a month" }.freeze
 
     NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long].freeze
+    PAYCHECKS_A_YEAR = { "weekly" => 52, "biweekly" => 26, "quarterly" => 4, "twice_yearly" => 2, "yearly" => 1 }.freeze
+    # One figure with no named bills inside it. Changing a bill can only ask
+    # for a new total, because nothing says how much of it that bill was.
+    LUMP_KINDS = %w[saved_total total paychecks].freeze
+    CHANGED_WORDS = /\b(?:went\s+(?:up|down)|gone\s+(?:up|down)|raised|increased|dropped|lowered|changed|more\s+like|now)\b/i
     PLACEHOLDER_DEBT = "Debt payments".freeze
 
     Update = Data.define(:field, :action, :label, :cents, :note) do
@@ -47,7 +52,7 @@ module HouseholdFinance
     def rebase_all = fields.each_key { |field| rebase(field) }
 
     def unresolved_field_keys
-      FIELDS.select { |field| unresolved?(field) || (field == DEBT_FIELD && debts_without_minimum.any?) }
+      FIELDS.select { |field| unresolved?(field) || (field == DEBT_FIELD && debts_without_minimum.any? && !only_unknown_minimums_left?) }
     end
 
     # What must survive a partial Apply: only rows still waiting on an amount.
@@ -69,10 +74,82 @@ module HouseholdFinance
     def carry_parts_from(previous_state)
       saved = saved_totals
       previous_state.to_h["fields"].to_h.slice(*MONEY_FIELDS).each do |field, value|
+        next if @carried[field]
         parts = Array(value["parts"]).select { |part| part["counted"] }
-        next unless parts.any? && saved[field] && parts.sum { |part| part["cents"].to_i } == saved[field]
+        next unless parts.any? && parts.all? { |part| part["kind"] == "part" } && saved[field] && parts.sum { |part| part["cents"].to_i } == saved[field]
         @carried[field] = parts
       end
+    end
+
+    # The bills she can change by name once setup is done.
+    def saved_bill_labels
+      %w[fixed_expenses flexible_spend].select { |field| saved_totals[field] }.index_with { |field| Array(@carried[field]).map { |part| part["label"] } }
+    end
+
+    # A figure that isn't monthly can be worked out, but only she can count it.
+    def proposable_part(field)
+      Array(fields.dig(field, "parts")).find { |part| !part["counted"] && part["stated_cents"] && PAYCHECKS_A_YEAR.key?(part["cadence"]) }
+    end
+
+    def propose_monthly(field)
+      part = proposable_part(field)
+      return unless part
+      times = PAYCHECKS_A_YEAR.fetch(part["cadence"])
+      monthly = ((part["stated_cents"] * times / 12.0) / 100).round * 100
+      part["proposed_cents"] = monthly
+      part["note"] = "#{stated_note(part['stated_cents'], part['cadence'])}, about #{money(monthly)} a month if that's right"
+      { stated_cents: part["stated_cents"], cadence: part["cadence"], times: times, monthly_cents: monthly }
+    end
+
+    def needs_frequency?(field) = Array(fields.dig(field, "parts")).any? { |part| !part["counted"] && part["needs_frequency"] }
+
+    def proposal_field = MONEY_FIELDS.find { |field| Array(fields.dig(field, "parts")).any? { |part| part["proposed_cents"] } }
+
+    def confirm_proposed_monthly(field)
+      part = Array(fields.dig(field, "parts")).find { |row| row["proposed_cents"] }
+      return unless part
+      part.replace(part.except("proposed_cents").merge("cents" => part["proposed_cents"], "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil))
+      rebase(field)
+      sole = Array(fields.dig(field, "parts")).one?
+      updates << Update.new(field: field, action: sole ? :total : :changed, label: part["label"], cents: part["cents"])
+    end
+
+    # She said she doesn't have it. The row still says so, but Mia stops asking.
+    def mark_minimum_unknown(names)
+      Array(debt_state["parts"]).each { |part| part["minimum_unknown"] = true if names.include?(part["name"]) && part["minimum_cents"].nil? }
+    end
+
+    def only_unknown_minimums_left?
+      pending = Array(debt_state["parts"]).reject { |part| part["removed"] || part["minimum_cents"] }
+      pending.any? && pending.all? { |part| part["minimum_unknown"] }
+    end
+
+    # A paycheck amount given before she has said how often it comes.
+    def set_paycheck_cadence(field, cadence)
+      part = Array(fields.dig(field, "parts")).find { |row| !row["counted"] && row["stated_cents"] }
+      return unless part && cadence
+      part.replace(part.except("needs_frequency").merge("cadence" => cadence, "note" => stated_note(part["stated_cents"], cadence)))
+      rebase(field)
+    end
+
+    def mark_paycheck_unclear(field)
+      part = Array(fields.dig(field, "parts")).find { |row| row["counted"] && row["kind"] == "total" }
+      return false unless part
+      cents = part["cents"]
+      fields[field] = { "parts" => [ money_part({ "label" => default_label(field), "amount_cents" => cents, "cadence" => "unclear" }) ] }
+      true
+    end
+
+    # Counted paychecks are plain multiplication of what she said, like a
+    # stated "2 paychecks of 1400".
+    def count_paychecks(field, count)
+      part = Array(fields.dig(field, "parts")).find { |row| !row["counted"] && row["stated_cents"] }
+      return unless part
+      cents = part["stated_cents"] * count
+      note = paycheck_note("count" => count, "amount_cents" => part["stated_cents"]) if count > 1
+      replace_with_total(field, cents, kind: "paychecks", note: note)
+      rebase(field)
+      Update.new(field: field, action: :total, cents: cents, note: note).tap { |update| updates << update }
     end
 
     def apply_changes(changes)
@@ -227,6 +304,7 @@ module HouseholdFinance
     def apply_money_part(field, entry)
       return apply_removal(field, entry["label"]) if entry["op"] == "remove"
       state = fields[field] ||= { "parts" => [] }
+      seeded = state["parts"].empty?
       existing = carried_or_saved_parts(field, state)
       unlabeled = entry["label"].blank?
       label = entry["label"].presence || "#{default_label(field)} #{existing.length + 1}"
@@ -242,9 +320,9 @@ module HouseholdFinance
         index = state["parts"].index(match)
         new_part["id"] = match["id"]
         state["parts"][index] = new_part
-      elsif entry["op"] == "replace" && saved_totals[field] && existing.none? { |part| part["kind"] != "saved_total" }
-        fields.delete(field) if state["parts"].empty?
-        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
+      elsif lump_only?(existing) && !unlabeled && (entry["op"] == "replace" || entry["source"].to_s.match?(CHANGED_WORDS))
+        fields.delete(field) if seeded
+        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: existing.sum { |part| part["cents"].to_i })
       else
         state["parts"] << new_part
       end
@@ -254,9 +332,14 @@ module HouseholdFinance
 
     def apply_removal(field, label)
       state = fields[field] ||= { "parts" => [] }
+      seeded = state["parts"].empty?
       existing = carried_or_saved_parts(field, state)
       match = matching_part(existing, label, exact: false)
       unless match
+        if lump_only?(existing)
+          fields.delete(field) if seeded
+          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: existing.sum { |part| part["cents"].to_i })
+        end
         fields.delete(field) if state["parts"].empty?
         return updates << Update.new(field: field, action: :not_found, label: label)
       end
@@ -283,13 +366,26 @@ module HouseholdFinance
       state["parts"]
     end
 
+    def lump_only?(parts) = parts.any? && parts.all? { |part| LUMP_KINDS.include?(part["kind"]) }
+
     def money_part(entry, forced_unclear: false)
       cadence = forced_unclear ? "unclear" : entry["cadence"]
-      counted = cadence == "monthly"
       cents = entry["amount_cents"]
-      { "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
-        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) }
+      # "groceries 150 twice a month" is a known count, so it is a month.
+      count = entry["count"].to_i if cadence == "per_paycheck" && entry["count"].to_i.positive?
+      return counted_part(entry, cents * count, count_note(cents, count)) if count
+
+      counted = cadence == "monthly"
+      extra = entry["needs_frequency"] && !counted ? { "needs_frequency" => true } : {}
+      extra.merge({ "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
+        "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) })
     end
+
+    def counted_part(entry, cents, note)
+      { "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "part", "stated_cents" => nil, "note" => note }
+    end
+
+    def count_note(cents, count) = count == 2 ? "#{money(cents)} twice a month" : "#{count} times #{money(cents)} a month"
 
     def stated_note(cents, cadence)
       cadence == "unclear" ? "#{money(cents)}, not sure it's monthly" : "#{money(cents)} #{CADENCE_NOTES.fetch(cadence)}"
@@ -409,7 +505,7 @@ module HouseholdFinance
       if part_id.present?
         part = state["parts"].find { |row| row["id"] == part_id }
         raise ArgumentError, "That row changed. Look at your card again." unless part
-        part.replace(part.merge("cents" => cents, "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil, "kind" => part["kind"] == "saved_total" ? "part" : part["kind"]))
+        part.replace(part.except("proposed_cents", "needs_frequency").merge("cents" => cents, "cadence" => "monthly", "counted" => true, "note" => nil, "stated_cents" => nil, "kind" => part["kind"] == "saved_total" ? "part" : part["kind"]))
       else
         state["parts"] = [ { "id" => new_id, "label" => TOTAL_LABEL, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "total" } ]
       end
