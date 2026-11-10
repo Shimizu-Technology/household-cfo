@@ -575,7 +575,9 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
 
   test "a payment that hasn't gone through outside the app is not an unbacked change claim" do
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "my rent payment hasnt gone through", answer_packet: { kind: "coaching", write_state: "no_write", fallback_response: "fallback" }, api_key: "")
-    assert_nil narrator.send(:narration_rejection_reason, "If your rent payment hasn't gone through by Friday, call your landlord.")
+    [ "If your rent payment hasn't gone through by Friday, call your landlord.", "Your rent payment is pending; if it hasn't gone through, call your landlord." ].each do |reply|
+      assert_nil narrator.send(:narration_rejection_reason, reply), reply
+    end
   end
 
   test "a saving reported with a question about quitting is not answered as only the quit question" do
@@ -584,6 +586,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     @user, @household = @savings_user, @savings_household
     body = say("I put $50 aside today, how do i quit the challenge?", legacy(question: true, facts: [ { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" } ]))
     refute_equal SavingsChallenge::ParticipantHelp::ANSWER, text(body)
+    assert_equal 5000, body.dig("savings_intake", "amount_cents")
   end
 
   test "one reply never carries two questions" do
