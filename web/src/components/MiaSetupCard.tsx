@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { MiaActionDraft, MiaSetupCardEdit, MiaSetupCardPart, MiaSetupCardRow } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 
@@ -41,10 +41,25 @@ export function MiaSetupCard({
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [saving, setSaving] = useState(false)
   const rowButtons = useRef(new Map<string, HTMLButtonElement>())
+  const keepButton = useRef<HTMLButtonElement>(null)
+  const notNowButton = useRef<HTMLButtonElement>(null)
+  const confirmShown = useRef(false)
+  // The confirmation replaces the focused button, so focus moves with it.
+  useEffect(() => {
+    if (confirmingCancel) {
+      confirmShown.current = true
+      keepButton.current?.focus()
+    } else if (confirmShown.current) {
+      confirmShown.current = false
+      notNowButton.current?.focus()
+    }
+  }, [confirmingCancel])
   if (!card) return null
   const locked = !isRealWorkspace || disabled || Boolean(action) || saving
-  // Only answers typed on this card can be lost; saved rows stay either way.
-  const hasAnswers = card.rows.some((item) => item.status === 'entered' || item.status === 'needs_monthly')
+  // Only answers typed on this card can be lost, including one still in an
+  // open edit; saved rows stay either way.
+  const hasAnswers = card.rows.some((item) => item.status === 'entered' || item.status === 'needs_monthly') ||
+    (Boolean(editing) && value.trim() !== '')
 
   function open(row: MiaSetupCardRow, part?: MiaSetupCardPart) {
     const key = `${row.key}:${part?.id ?? ''}`
@@ -156,7 +171,7 @@ export function MiaSetupCard({
           <>
             <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
             <div className="mia-action-draft-actions">
-              <button type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
+              <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
               <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
                 {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
               </button>
@@ -168,7 +183,7 @@ export function MiaSetupCard({
             <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
               {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
             </button>
-            <button type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
+            <button ref={notNowButton} type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
               {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
             </button>
           </div>

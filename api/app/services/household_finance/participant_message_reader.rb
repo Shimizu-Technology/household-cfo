@@ -443,7 +443,8 @@ module HouseholdFinance
       # A quote can only be one of the two, and a balance must never read as a minimum.
       balance = setup_debt_balance(part["balance"], part["source"])
       minimum = setup_debt_minimum(part["minimum"], part["source"])
-      return if minimum.empty? && balance.nil? && op != "add"
+      # A bare name is a debt she has only in a statement, never in a question.
+      return if minimum.empty? && balance.nil? && (op != "add" || @question)
       { "op" => op, "name" => name, "balance_cents" => balance }.merge(minimum)
     end
 
@@ -497,13 +498,10 @@ module HouseholdFinance
         @message.match?(MiaIntentResolver::SETUP_FIELD_PATTERNS.fetch(field.to_sym, /(?!) /))
     end
 
-    PAYMENT_AFTER = /\A\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
-
     # Financing quotes a payment; only the price can be compared with the plan.
     def purchase_question_without_payment(question)
       amount = question["amount"].to_s
-      offset = amount.present? && @message.index(amount)
-      return question unless offset && @message[(offset + amount.length)..].match?(PAYMENT_AFTER) && !@message.match?(PurchaseQuestionText::RECURRING_COST)
+      return question unless amount.present? && PurchaseQuestionText.payment_only?(@message, self.class.amount_cents(amount))
       question.merge("amount" => "")
     end
 

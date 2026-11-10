@@ -477,6 +477,36 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a payment worded before the amount, or beside income, is still a payment" do
+    [ [ "Can I buy a phone with a monthly payment of $45?", "phone" ], [ "My salary is $3,000. Can I buy a TV with payments of $45 a month?", "TV" ],
+      [ "should i finance a new iphone 15, 45 a month", "iphone" ] ].each do |message, item|
+      assert HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message), message
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+        transport: ->(_) { legacy(question: true, purchase_question: { amount: "45", item: item }).to_json })
+      assert_equal "", reading.purchase_question["amount"], message
+    end
+  end
+
+  test "a stated full price stays comparable next to a payment" do
+    message = "Could I buy a $1,000 TV with payments of $45 a month?"
+    assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message)
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+      transport: ->(_) { legacy(question: true, purchase_question: { amount: "1,000", item: "TV" }).to_json })
+    assert_equal "1,000", reading.purchase_question["amount"]
+    finish_setup
+    body = say(message, legacy(question: true, reply_intent: "purchase_question", purchase_question: { amount: "1,000", item: "TV" }))
+    refute_match(/full price/, text(body))
+    assert_match(/\$1,000/, text(body))
+  end
+
+  test "an amount is a payment only where every mention of it is one" do
+    [ [ "I make $4,500 a month. Can I afford a $4,500 stroller?", "4,500", "stroller" ], [ "should i finance a phone for 450, 45 a month", "450", "phone" ] ].each do |message, amount, item|
+      reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+        transport: ->(_) { legacy(question: true, purchase_question: { amount: amount, item: item }).to_json })
+      assert_equal amount, reading.purchase_question["amount"], message
+    end
+  end
+
   test "a one-off price stays a price" do
     reading = HouseholdFinance::ParticipantMessageReader.call(message: "can i get a 650 tv on the card",
       transport: ->(_) { legacy(question: true, purchase_question: { amount: "650", item: "tv" }).to_json })
@@ -490,6 +520,34 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/Take your time/, text(body))
     assert_not_nil body["transaction_draft"]
     assert_equal 8000, body.dig("transaction_draft", "amount_cents")
+  end
+
+  test "saying keep going does not swallow a purchase in the same message" do
+    start_care
+    message = "ok lets keep going, i spent 80 at payless"
+    body = say(message, read(care_status: "ongoing", facts: [ { kind: "purchase", amount: "80", merchant: "payless", item: "", day: "", source_text: "i spent 80 at payless" } ]))
+    refute_equal HouseholdFinance::MiaSetupCardTurn::RESUMED, text(body)
+    assert_equal 8000, body.dig("transaction_draft", "amount_cents")
+  end
+
+  test "a debt named only in a question is not added" do
+    message = "does my car loan count as a debt?"
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+      transport: ->(_) { read(question: true, setup: changes(debt_payment: debts(parts: [ debt("car loan", "", source: "my car loan") ]))).to_json })
+    assert_empty Array(reading.setup_changes.to_h.dig("debt_payment", "parts"))
+  end
+
+  test "a payment that hasn't gone through outside the app is not an unbacked change claim" do
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "my rent payment hasnt gone through", answer_packet: { kind: "coaching", write_state: "no_write", fallback_response: "fallback" }, api_key: "")
+    assert_nil narrator.send(:narration_rejection_reason, "If your rent payment hasn't gone through by Friday, call your landlord.")
+  end
+
+  test "a saving reported with a question about quitting is not answered as only the quit question" do
+    setup_savings_context
+    with_savings_runtime { savings_enroll }
+    @user, @household = @savings_user, @savings_household
+    body = say("I put $50 aside today, how do i quit the challenge?", legacy(question: true, facts: [ { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" } ]))
+    refute_equal SavingsChallenge::ParticipantHelp::ANSWER, text(body)
   end
 
   test "one reply never carries two questions" do

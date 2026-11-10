@@ -132,7 +132,7 @@ module HouseholdFinance
         return work_out_plan(field, next_field)
       end
       return help_plan(changes["help_topic"], next_field) if changes["help_topic"]
-      return if !@resuming && (@reading.question || @reading.facts.any? || !asked)
+      return if @reading.question || @reading.facts.any? || (!@resuming && !asked)
       composed_plan(@resuming ? RESUMED : KEEP_GOING, nil, next_field, asked)
     end
 

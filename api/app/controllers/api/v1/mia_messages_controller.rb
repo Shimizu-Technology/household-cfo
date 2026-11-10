@@ -200,7 +200,7 @@ module Api
           end
           care_current.recent_care = nil unless @care_topic
           care_current.care_topic = nil unless @care_topic
-          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && (help = SavingsChallenge::ParticipantHelp.answer(content))
+          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && @participant_reading.facts.empty? && !@participant_reading.correction && (help = SavingsChallenge::ParticipantHelp.answer(content))
             return render_household_read_response(session, content, help, message_request: message_request)
           end
           if (@setup_card_context || @participant_reading.setup_changes.present?) && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))

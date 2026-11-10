@@ -42,7 +42,7 @@ module HouseholdFinance
     # Without a card on this turn, nothing was added or is on its way.
     UNBACKED_CHANGE_CLAIMS = [
       /\bthanks for (?:adding|putting)\b/i,
-      /\b(?:hasn['’]?t|has not|not)\s+gone through\b/i,
+      /\b(?:change|changes|update|edit|card|draft|that|it)\s+(?:hasn['’]?t|has not|haven['’]?t|have not|isn['’]?t|is not)\s+(?:gone|been put)\s+through\b/i,
       /\byou didn['’]?t answer\b/i
     ].freeze
 

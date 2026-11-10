@@ -69,6 +69,18 @@ describe('MiaSetupCard', () => {
     expect(empty.onCancel).toHaveBeenCalledTimes(1)
   })
 
+  it('warns before Not now drops a typed edit, and moves focus with the confirmation', () => {
+    const { onCancel } = setup([row('primary_income', { label: 'Monthly income' })], false)
+    fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '4200' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Not now' }))
+    expect(onCancel).not.toHaveBeenCalled()
+    expect(document.activeElement?.textContent).toBe('Keep my card')
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my card' }))
+    expect(document.activeElement?.textContent).toBe('Not now')
+    expect((screen.getByRole('textbox') as HTMLInputElement).value).toBe('4200')
+  })
+
   it('edits and removes one part', async () => {
     const { onEdit } = setup([row('fixed_expenses', { label: 'Fixed essentials', status: 'entered', total_cents: 150000, parts: [{ id: 'p1', label: 'Rent', cents: 150000, counted: true }] })])
     expect(screen.getAllByText('$1,500')).toHaveLength(2)

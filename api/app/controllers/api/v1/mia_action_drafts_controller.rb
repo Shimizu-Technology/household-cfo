@@ -142,6 +142,8 @@ module Api
         return if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
 
         session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
+      rescue StandardError => e
+        Rails.logger.warn("Setup question was not advanced draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
       end
 
       def carried_setup_card(carried) = carried && HouseholdFinance::MiaSetupCard.new(carried.household, state: carried.metadata["setup_card"])

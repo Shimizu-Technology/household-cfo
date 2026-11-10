@@ -1191,7 +1191,7 @@ module HouseholdFinance
         end
       end
       rejected_amounts = rejected_money_cents(scenario_text)
-      amounts = participant_amounts - rejected_amounts
+      amounts = participant_amounts - rejected_amounts - PurchaseQuestionText.payment_cents(user_message)
       return unless amounts.one? && amounts.first.positive?
 
       raw_amount = (BigDecimal(amounts.first.to_s) / 100).to_s("F").sub(/\.0+\z/, "")

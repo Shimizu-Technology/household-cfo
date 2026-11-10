@@ -1135,17 +1135,16 @@ module HouseholdFinance
     end
 
     FULL_PRICE_QUESTION = "What's the full price, and how many months would you be paying it off?".freeze
-    MONTHLY_PAYMENT_PATTERN = /\d\s*(?:(?:dollars?|bucks?)\s+)?(?:(?:a|per|each|every)\s+month|monthly|\/\s*mo(?:nth)?\b)/i
     FINANCING_PATTERN = /\b(?:financ\w*|payments?|installments?|payment plan|lease|layaway)\b/i
 
     # A payment is what financing costs each month; it says nothing about the
-    # price. Income or a subscription quoted by the month is not a financed payment.
+    # price. This asks for the price only when she gave a payment and no price.
     def self.monthly_payment_question?(message)
       text = message.to_s
-      return false unless text.match?(MONTHLY_PAYMENT_PATTERN)
-      return false if text.match?(Regexp.union(PurchaseQuestionText::INCOME_TOPIC, PurchaseQuestionText::MONTHLY_INCOME, PurchaseQuestionText::RECURRING_COST))
+      return false if PurchaseQuestionText.payment_cents(text).empty? || PurchaseQuestionText.price_quoted?(text)
       reader = PurchaseQuestionText.reading(text)&.purchase_question.to_h
-      text.match?(FINANCING_PATTERN) || (reader["item"].present? && reader["amount"].blank?)
+      return false if reader["amount"].present?
+      text.match?(FINANCING_PATTERN) || reader["item"].present?
     end
 
     def monthly_payment_quoted? = self.class.monthly_payment_question?(message)
@@ -1310,11 +1309,10 @@ module HouseholdFinance
       return if text.match?(/#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}\s+(?:in|into|from|left in)\s+(?:(?:my|our|the)\s+)?(?:checking|savings|accounts?)\b/i)
       return if text.match?(/\b(?:checking|savings|accounts?)\s+(?:only\s+)?(?:has|have|had|is|shows?|holds?)\b[^.?!]*#{Money::CHAT_DOLLAR_AMOUNT_PATTERN.source}/i)
 
-      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN)
+      amounts = text.scan(Money::CHAT_DOLLAR_AMOUNT_PATTERN).map { |found| Money.chat_cents(found.first) } - PurchaseQuestionText.payment_cents(message)
       return unless amounts.one?
 
-      amount = Money.chat_cents(amounts.first.first)
-      amount if amount.positive?
+      amounts.first if amounts.first.positive?
     end
 
     def recurring_purchase_amount?(clause)
