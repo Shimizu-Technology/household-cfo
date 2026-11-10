@@ -370,12 +370,22 @@ module HouseholdFinance
 
     def money_part(entry, forced_unclear: false)
       cadence = forced_unclear ? "unclear" : entry["cadence"]
-      counted = cadence == "monthly"
       cents = entry["amount_cents"]
+      # "groceries 150 twice a month" is a known count, so it is a month.
+      count = entry["count"].to_i if cadence == "per_paycheck" && entry["count"].to_i.positive?
+      return counted_part(entry, cents * count, count_note(cents, count)) if count
+
+      counted = cadence == "monthly"
       extra = entry["needs_frequency"] && !counted ? { "needs_frequency" => true } : {}
       extra.merge({ "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => counted ? cents : nil, "cadence" => cadence, "counted" => counted, "kind" => "part",
         "stated_cents" => counted ? nil : cents, "note" => counted ? nil : stated_note(cents, cadence) })
     end
+
+    def counted_part(entry, cents, note)
+      { "id" => new_id, "label" => entry["label"].to_s.sub(/\A./, &:upcase), "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "part", "stated_cents" => nil, "note" => note }
+    end
+
+    def count_note(cents, count) = count == 2 ? "#{money(cents)} twice a month" : "#{count} times #{money(cents)} a month"
 
     def stated_note(cents, cadence)
       cadence == "unclear" ? "#{money(cents)}, not sure it's monthly" : "#{money(cents)} #{CADENCE_NOTES.fetch(cadence)}"

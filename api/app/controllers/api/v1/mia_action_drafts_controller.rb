@@ -134,14 +134,17 @@ module Api
       end
 
       # A row she just filled in is no longer the question waiting for an answer.
+      # A savepoint keeps a database error here from aborting the row edit's transaction.
       def advance_setup_question(card)
-        session = current_chat_session
-        asked = HouseholdFinance::MiaSetupCardTurn.active_field(session)
-        return unless asked
-        household = current_household.reload
-        return if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
+        ActiveRecord::Base.transaction(requires_new: true) do
+          session = current_chat_session
+          asked = HouseholdFinance::MiaSetupCardTurn.active_field(session)
+          next unless asked
+          household = current_household.reload
+          next if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
 
-        session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
+          session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
+        end
       rescue StandardError => e
         Rails.logger.warn("Setup question was not advanced draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
       end

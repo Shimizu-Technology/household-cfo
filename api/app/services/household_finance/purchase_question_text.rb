@@ -29,8 +29,8 @@ module HouseholdFinance
         next unless cents.positive?
 
         before, after = text[0...match.begin(0)], text[match.end(0)..].to_s
-        clause = [ before.split(CLAUSE_BREAK, -1).last, after.split(CLAUSE_BREAK, 2).first ].join(" ")
-        sentence = [ before.split(SENTENCE_BREAK, -1).last, after.split(SENTENCE_BREAK, 2).first ].join(" ")
+        clause = [ before.split(CLAUSE_BREAK, -1).last, match[0], after.split(CLAUSE_BREAK, 2).first ].join(" ")
+        sentence = [ before.split(SENTENCE_BREAK, -1).last, match[0], after.split(SENTENCE_BREAK, 2).first ].join(" ")
         other = clause.match?(Regexp.union(INCOME_TOPIC, MONTHLY_INCOME)) || sentence.match?(RECURRING_COST)
         Amount.new(cents, !other && (after.match?(PAYMENT_AFTER) || before.match?(PAYMENT_BEFORE)), other)
       end

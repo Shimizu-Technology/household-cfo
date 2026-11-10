@@ -309,6 +309,25 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal 422_500, row(body, "primary_income")["total_cents"]
   end
 
+  test "a database error while advancing the question keeps the row edit" do
+    say("Help me set up my household", read)
+    first = say("i get 1950 every 2 weeks after taxes", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "biweekly", total_source: "i get 1950 every 2 weeks after taxes"))))
+    income = row(first, "primary_income")["parts"].first
+    original = ChatSession.instance_method(:update!)
+    ChatSession.define_method(:update!) do |*args, **kwargs|
+      # A real database error, which aborts the surrounding transaction.
+      self.class.connection.execute("SELECT 1/0") if kwargs.key?(:active_topic) || args.first.to_h.key?(:active_topic)
+      original.bind_call(self, *args, **kwargs)
+    end
+    begin
+      patch_card(card_of(first), field: "primary_income", action_name: "set", part_id: income["id"], value: "4225")
+    ensure
+      ChatSession.define_method(:update!, original)
+    end
+    draft = MiaActionDraft.find(card_of(first)["id"])
+    assert_equal 422_500, draft.metadata.dig("setup_card", "fields", "primary_income", "parts", 0, "cents")
+  end
+
   test "an edit to a different row leaves the open question alone" do
     say("Help me set up my household", read)
     first = say("we are the reyes, rent 1000", read(setup: changes(fixed_expenses: money(parts: [ part("add", "rent", "1000") ]))))
@@ -487,6 +506,22 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "income in a comma clause and a payment term are read for what they are" do
+    assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?("Can I buy a TV, I make $3,000 a month?")
+    assert_empty HouseholdFinance::PurchaseQuestionText.payment_cents("Can I buy a TV, I make $3,000 a month?")
+    message = "Can I buy a TV with payments of $45 for 12 months?"
+    assert_equal [ 4500 ], HouseholdFinance::PurchaseQuestionText.payment_cents(message)
+    assert HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message)
+  end
+
+  test "a bill paid twice a month counts both payments" do
+    say("Help me set up my household", read)
+    body = say("groceries 150 twice a month", read(setup: changes(flexible_spend: money(parts: [ part("add", "groceries", "150", source: "groceries 150 twice a month") ]))))
+    flexible = row(body, "flexible_spend")
+    assert_equal 30_000, flexible["total_cents"]
+    assert_match(/\$150 twice a month/, flexible["parts"].first["note"].to_s)
+  end
+
   test "a stated full price stays comparable next to a payment" do
     message = "Could I buy a $1,000 TV with payments of $45 a month?"
     assert_not HouseholdFinance::MiaCoachAnswerer.monthly_payment_question?(message)
@@ -532,8 +567,9 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
 
   test "a debt named only in a question is not added" do
     message = "does my car loan count as a debt?"
-    reading = HouseholdFinance::ParticipantMessageReader.call(message: message,
+    reading = HouseholdFinance::ParticipantMessageReader.call(message: message, setup_context: { saved: {}, draft: {}, skipped: [], last_asked: "debt_payment" },
       transport: ->(_) { read(question: true, setup: changes(debt_payment: debts(parts: [ debt("car loan", "", source: "my car loan") ]))).to_json })
+    assert_not_nil reading.setup_changes
     assert_empty Array(reading.setup_changes.to_h.dig("debt_payment", "parts"))
   end
 
