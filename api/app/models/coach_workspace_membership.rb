@@ -11,8 +11,15 @@ class CoachWorkspaceMembership < ApplicationRecord
   validate :member_is_staff
 
   before_update :mark_role_change_as_explicit
+  # Losing a place on the workspace ends the person's preview seats in its groups.
+  # After the commit, because ending a seat takes the person's household lock.
+  after_commit :end_preview_seats, on: :destroy
 
   private
+
+  def end_preview_seats
+    PreviewSeats.release_unavailable!(user) if user
+  end
 
   def mark_role_change_as_explicit
     self.cohort_managed = false if will_save_change_to_role?

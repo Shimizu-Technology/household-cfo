@@ -80,7 +80,7 @@ module Api
           ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '2s'") if action_name == "request_status"
           current_household.lock!
           membership = current_cohort_membership || raise(SavingsChallenge::AccessPolicy::Unavailable, "Select an available savings challenge")
-          @enrollment = SavingsEnrollment.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
+          @enrollment = SavingsEnrollment.in_use.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
           SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: @enrollment.cohort, enrollment: @enrollment).call!
           CohortReleases::OperationAccess.require!(household: current_household, user: current_user, key: "savings.evidence.attach", cohort: @enrollment.cohort)
           yield

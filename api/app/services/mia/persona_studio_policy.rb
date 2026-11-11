@@ -9,9 +9,13 @@ module Mia
       @workspace = workspace
     end
 
+    def can_view?
+      global_admin? || workspace&.allows?(user, :view) == true
+    end
+
     def visible_personas
       return CoachPersona.all if global_admin?
-      return CoachPersona.none unless workspace&.allows?(user, :view)
+      return CoachPersona.none unless can_view?
 
       CoachPersona.where(coach_workspace: workspace)
     end

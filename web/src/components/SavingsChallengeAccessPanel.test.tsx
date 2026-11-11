@@ -90,7 +90,7 @@ describe('SavingsChallengeAccessPanel', () => {
     render(<SavingsChallengeAccessPanel cohort={cohortWith({ state: 'not_set_up', label: 'Not set up', can_open: false, can_change: false, blockers: ['Prepare and launch a version first.'] })} busy={false} onChanged={vi.fn()} />)
     expect(screen.getByText('Prepare and launch a version first.')).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByText(/Only a platform administrator/)).toBeTruthy()
+    expect(screen.getByText(/Only this group’s program owner or a platform administrator/)).toBeTruthy()
   })
 
   it('lists the audit trail', () => {

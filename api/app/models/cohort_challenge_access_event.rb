@@ -12,7 +12,7 @@ class CohortChallengeAccessEvent < ApplicationRecord
 
   validates :action, inclusion: { in: ACTIONS }
   validates :from_state, :to_state, inclusion: { in: STATES }
-  validates :actor_role_snapshot, inclusion: { in: %w[platform_admin] }
+  validates :actor_role_snapshot, inclusion: { in: %w[platform_admin program_owner] }
   validates :reason, length: { minimum: 5, maximum: 500 }
   validates :request_key, presence: true, length: { maximum: 255 }, uniqueness: { scope: :cohort_id }
   validates :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }

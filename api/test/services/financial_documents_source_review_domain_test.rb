@@ -172,9 +172,9 @@ class FinancialDocumentsSourceReviewDomainTest < ActiveSupport::TestCase
     draft = stage(@source[:events].first)
     operation = OPS::DraftApprove.new(@household, user: @user)
     prepared = operation.prepare(draft_input(draft))
-    @user.update!(role: "coach")
+    @user.update!(invitation_status: "revoked")
     assert_raises(ArgumentError) { operation.execute!(prepared, source: "manual") }
-    @user.update!(role: "participant")
+    @user.update!(invitation_status: "accepted")
     approved = approve(draft)
     @household.household_memberships.find_by!(user: @user).update!(role: "coach_viewer")
     assert_raises(ArgumentError) { operation.authorize_replay!(approved) }

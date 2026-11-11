@@ -9,10 +9,10 @@ module ChallengePrivacy
 
       def call
         ApplicationRecord.transaction do
-          enrollments = SavingsEnrollment.where(cohort: @cohort).order(:id).to_a
+          enrollments = SavingsEnrollment.counted.where(cohort: @cohort).order(:id).to_a
           households = Household.where(id: enrollments.map(&:household_id)).order(:id).lock.index_by(&:id)
           @cohort = Cohort.find(@cohort.id)
-          Access.staff!(@cohort, @actor)
+          Access.roster!(@cohort, @actor)
           # Reload after acquiring the same household lock as the single reader.
           enrollments = SavingsEnrollment.where(id: enrollments.map(&:id)).order(:id).to_a
           users = User.where(id: enrollments.map(&:user_id)).order(:id).lock.index_by(&:id)
@@ -69,7 +69,7 @@ module ChallengePrivacy
 
       def runtime_allowed?(enrollment, member)
         release = release_for(member)
-        accepted = @accepted_releases ||= CohortRelease.where(id: SavingsEnrollment.where(cohort: @cohort).select(:accepted_cohort_release_id)).pluck(:id, :cohort_id).to_h
+        accepted = @accepted_releases ||= CohortRelease.where(id: SavingsEnrollment.counted.where(cohort: @cohort).select(:accepted_cohort_release_id)).pluck(:id, :cohort_id).to_h
         @cohort.savings_challenge_enabled? && !@cohort.savings_challenge_release_hold? && @cohort.status.in?(%w[enrolling active completed]) &&
           enrollment.status.in?(%w[active completed]) && accepted[enrollment.accepted_cohort_release_id] == @cohort.id && valid_release?(release)
       end

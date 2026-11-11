@@ -32,10 +32,13 @@ class ApiV1ChallengeCohortsControllerTest < ActionDispatch::IntegrationTest
       get path("participants"), headers: auth(actor)
       assert_response :forbidden
       get path("sponsor_exports"), headers: auth(actor)
-      assert_response :forbidden
+      # A platform administrator may read the coarse reports (and cannot save one); no one else outside the team.
+      assert_response actor.admin? ? :success : :forbidden
     end
     CoachWorkspaceMembership.where(user: @savings_owner).delete_all
     get path("participants"), headers: auth(@savings_owner)
+    assert_response :forbidden
+    get path("sponsor_exports"), headers: auth(@savings_owner)
     assert_response :forbidden
   end
 

@@ -9,7 +9,7 @@ module ChallengeReminders
       limit = Integer(limit).clamp(1, MAX_BATCH)
       # Read bounded chunks without starving later programs behind the first
       # hundred rows. Dispatch has its own strict total batch bound.
-      SavingsEnrollment.where(status: "active").find_each(batch_size: limit) { |enrollment| schedule(enrollment.id) }
+      SavingsEnrollment.counted.where(status: "active").find_each(batch_size: limit) { |enrollment| schedule(enrollment.id) }
     end
 
     def schedule(enrollment_id)

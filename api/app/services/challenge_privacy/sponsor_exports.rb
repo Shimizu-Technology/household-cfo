@@ -44,10 +44,17 @@ module ChallengePrivacy
       end
     end
 
+    # A program's owner or reviewer reads a sealed report as part of the program.
+    # A platform administrator may read it too: it is the same coarse report (a
+    # group of at least five), and each participant it covers gets an audit record.
+    # Sealing a report stays with the program's owner and reviewer.
     def read(export_id)
       ApplicationRecord.transaction do
-        lock_scope!
-        read_locked(ChallengeSponsorExport.where(cohort: @cohort).find(export_id))
+        access = lock_scope!(read_only: true)
+        record = ChallengeSponsorExport.where(cohort: @cohort).find(export_id)
+        report = read_locked(record)
+        audit_platform_admin_read!(record) if access == :platform_admin
+        report
       end
     end
 
@@ -67,7 +74,7 @@ module ChallengePrivacy
 
     private
     def fingerprint(value) = HouseholdFinance::Operations::PreparedOperation.fingerprint(value)
-    def enrollments = SavingsEnrollment.where(cohort: @cohort).order(:household_id, :id)
+    def enrollments = SavingsEnrollment.counted.where(cohort: @cohort).order(:household_id, :id)
     def eligible_enrollments
       enrollments.select do |enrollment|
         grant = ChallengePrivacyGrant.find_by(savings_enrollment: enrollment, kind: "sponsor_aggregate", recipient_user_id: nil)
@@ -84,16 +91,24 @@ module ChallengePrivacy
       membership = enrollment.cohort.cohort_memberships.find_by(user_id: enrollment.user_id, role: "participant")
       membership && SavingsChallenge::AccessPolicy.runtime_allowed?(user: enrollment.user, membership: membership) == true
     end
-    def lock_scope!
+    def lock_scope!(read_only: false)
       # All participant mutations take household before cohort. Freeze that same
       # complete household set before acquiring the cohort/export identity lock.
       ids = enrollments.reorder(nil).distinct.pluck(:household_id).sort
       Household.where(id: ids).order(:id).lock.load
       @cohort.lock!
       raise Access::Denied, "Participant scope changed; retry the fixed report review" unless ids == enrollments.reorder(nil).distinct.pluck(:household_id).sort
-      Access.staff!(@cohort, @user, export: true)
+      access = read_only ? Access.export_reader!(@cohort, @user) : (Access.staff!(@cohort, @user, export: true) && :program)
       unless @cohort.savings_challenge_enabled && !@cohort.savings_challenge_release_hold && @cohort.status.in?(%w[enrolling active completed])
         raise Access::Denied, "Sponsor reporting is unavailable for this program right now"
+      end
+      access
+    end
+
+    def audit_platform_admin_read!(record)
+      enrollments.each do |enrollment|
+        ChallengePrivacyRead.create!(household: enrollment.household, savings_enrollment: enrollment, participant_user: enrollment.user,
+          actor_user: @user, purpose: "admin_sponsor_report", record_type: "ChallengeSponsorExport", record_id: record.id, created_at: Time.current)
       end
     end
     def current_provenance

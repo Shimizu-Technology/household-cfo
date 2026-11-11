@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_130100) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1527,11 +1527,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
     t.string "role", default: "participant", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["cohort_id", "user_id"], name: "index_cohort_memberships_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id", "user_id", "role"], name: "index_cohort_memberships_on_cohort_id_and_user_id_and_role", unique: true, where: "((role)::text <> 'preview_ended'::text)"
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying::text, 'coach'::character varying::text, 'admin'::character varying::text])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying, 'preview'::character varying, 'preview_ended'::character varying]::text[])", name: "cohort_memberships_role_valid"
   end
 
   create_table "cohort_persona_assignments", force: :cascade do |t|
@@ -3105,13 +3105,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
     t.integer "lock_version", default: 0, null: false
     t.datetime "membership_started_at", null: false
     t.string "policy_version", null: false
+    t.boolean "staff_preview", default: false, null: false
     t.date "starts_on", null: false
     t.string "status", default: "active", null: false
     t.string "time_zone", default: "Pacific/Guam", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["accepted_cohort_release_id"], name: "index_savings_enrollments_on_accepted_cohort_release_id"
-    t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true, where: "(NOT (staff_preview AND ((status)::text = 'withdrawn'::text)))"
     t.index ["cohort_id"], name: "index_savings_enrollments_on_cohort_id"
     t.index ["household_id"], name: "index_savings_enrollments_on_household_id"
     t.index ["user_id"], name: "index_savings_enrollments_on_user_id"
@@ -4747,7 +4748,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
         IF version.id IS DISTINCT FROM card.current_version_id OR version.savings_debt_card_id<>card.id OR version.terms IS DISTINCT FROM NEW.terms OR version.previous_version_id IS DISTINCT FROM NEW.base_version_id OR ROW(version.source_tracked_account_id,version.source_account_identity_version_id,version.source_revision_approval_id,version.source_fingerprint,version.source_snapshot) IS DISTINCT FROM ROW(NEW.source_tracked_account_id,NEW.source_account_identity_version_id,NEW.source_revision_approval_id,NEW.source_fingerprint,NEW.source_snapshot) THEN RAISE EXCEPTION 'card approval does not match reviewed draft'; END IF;
         RETURN NEW;
       END IF;
-      IF enrollment.status<>'active' OR NOT EXISTS (SELECT 1 FROM users WHERE id=enrollment.user_id AND role='participant' AND invitation_status<>'revoked') THEN RAISE EXCEPTION 'card review participant unavailable'; END IF;
+      IF enrollment.status<>'active' OR NOT EXISTS (SELECT 1 FROM users WHERE id=enrollment.user_id AND invitation_status<>'revoked' AND (role='participant' OR EXISTS (SELECT 1 FROM cohort_memberships preview_seat WHERE preview_seat.id=enrollment.accepted_cohort_membership_id AND preview_seat.user_id=users.id AND preview_seat.role='preview'))) THEN RAISE EXCEPTION 'card review participant unavailable'; END IF;
       IF TG_TABLE_NAME='savings_debt_versions' THEN
         IF NEW.approved_by_user_id<>enrollment.user_id OR NEW.previous_version_id IS DISTINCT FROM card.current_version_id THEN RAISE EXCEPTION 'card approval actor or prior head invalid'; END IF;
         IF NEW.previous_version_id IS NULL THEN
@@ -5027,8 +5028,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
     BEGIN
       IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'savings identity cannot be deleted'; END IF;
       IF TG_TABLE_NAME = 'savings_enrollments' THEN
-        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted)
-          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
+        IF ROW(NEW.user_id,NEW.household_id,NEW.cohort_id,NEW.accepted_cohort_membership_id,NEW.membership_started_at,NEW.accepted_at,NEW.accepted_local_on,NEW.starts_on,NEW.ends_on,NEW.time_zone,NEW.policy_version,NEW.late_start_accepted,NEW.staff_preview)
+          IS DISTINCT FROM ROW(OLD.user_id,OLD.household_id,OLD.cohort_id,OLD.accepted_cohort_membership_id,OLD.membership_started_at,OLD.accepted_at,OLD.accepted_local_on,OLD.starts_on,OLD.ends_on,OLD.time_zone,OLD.policy_version,OLD.late_start_accepted,OLD.staff_preview) THEN RAISE EXCEPTION 'savings enrollment identity is frozen'; END IF;
         IF NEW.current_accepted_plan_version_id IS DISTINCT FROM OLD.current_accepted_plan_version_id AND NOT EXISTS (
           SELECT 1 FROM savings_plan_versions v WHERE v.id = NEW.current_accepted_plan_version_id AND v.previous_version_id IS NOT DISTINCT FROM OLD.current_accepted_plan_version_id
         ) THEN RAISE EXCEPTION 'savings plan head must advance'; END IF;

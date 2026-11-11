@@ -4,14 +4,14 @@ module CohortReleases
     def self.require!(household:, user:, key:, cohort: nil, membership: nil)
       actor = user && User.find_by(id: user.id)
       writable = actor && household.household_memberships.find_by(user_id: actor.id)&.role.in?(%w[owner partner])
-      raise SavingsChallenge::AccessPolicy::Unavailable, "This tool is unavailable for this participant" unless actor&.participant? && !actor.revoked? && writable
+      raise SavingsChallenge::AccessPolicy::Unavailable, "This tool is unavailable for this participant" unless actor&.household_seat_in?(household) && !actor.revoked? && writable
       user = actor
       membership = if membership
-        CohortMembership.where(user_id: user.id, role: "participant").find(membership.id)
+        CohortMembership.seats.where(user_id: user.id, role: user.seat_role).find(membership.id)
       elsif cohort
-        cohort.cohort_memberships.find_by(user_id: user.id, role: "participant")
+        cohort.cohort_memberships.seats.find_by(user_id: user.id, role: user.seat_role)
       else
-        Mia::EffectiveCohortResolver.new(user: user, role: "participant").call
+        Mia::EffectiveCohortResolver.new(user: user, role: user.seat_role).call
       end
       if membership
         runtime = Mia::ParticipantRuntimeResolver.new(user: user, cohort_membership: membership).call

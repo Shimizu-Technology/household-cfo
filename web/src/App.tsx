@@ -9,7 +9,6 @@ export { IncomeSourceManager } from './components/IncomeSourceManager'
 export { AnnualIncomePlanner } from './components/AnnualIncomePlanner'
 import { useMiaEntryAnchor } from './components/useMiaEntryAnchor'
 import { useMiaHistoryPosition } from './components/useMiaHistoryPosition'
-import type { CurrentUser } from './api'
 import './styles/participantFlows.css'
 import { scheduleFirstSessionComposerFocus } from './components/firstSessionComposerFocus'
 import { EnterpriseSettings } from './components/EnterpriseSettings'
@@ -31,7 +30,7 @@ import { PausedDocumentImportPanel } from './components/PausedDocumentImportPane
 import { DocumentSourcePreview } from './components/DocumentSourcePreview'
 import { usePilotDialog } from './lib/usePilotDialog'
 import { formatFileSize } from './lib/fileSize'
-import { confirmAction, confirmDiscard } from './lib/confirmAction'
+import { confirmAction } from './lib/confirmAction'
 import { useDialogViewport } from './lib/useDialogViewport'
 import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
@@ -74,8 +73,9 @@ import { bulkConfirmPhraseMismatchMessage, transactionCategoryWarningCopy, trans
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackDialog } from './components/PilotFeedbackDialog'
-import { AdminConsole } from './components/AdminConsole'
-import { CoachStudio } from './components/CoachStudio'
+import { AdminApp } from './admin/AdminApp'
+import { UseAppAs } from './components/UseAppAs'
+import { adminPath, adminSectionsOf, legacyStaffRedirect, navigateTo, parseAdminRoute, rememberMode, restoredMode, useLocationPath } from './lib/appRoutes'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
 import {
   CategoryPressureList,
@@ -214,11 +214,9 @@ const monthNameFormatter = new Intl.DateTimeFormat('en-US', { month: 'long' })
 
 const sections = PARTICIPANT_SECTIONS
 const sectionCapabilityIds = SECTION_CAPABILITY_IDS
-const COACH_STUDIO_SECTION = 'Coach Studio'
-const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 type UnavailableModuleNotice = { moduleId: string; message: string }
-const allSections = [...sections, 'Statements', COACH_STUDIO_SECTION, ADMIN_SECTION]
+const allSections = [...sections, 'Statements']
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 8_000
 const MIA_MESSAGE_LENGTH_WARNING_AT = 1_000
@@ -554,110 +552,43 @@ function visibleChatTrigger(...candidates: (HTMLButtonElement | null)[]) {
   return candidates.find(element => element?.isConnected && element.getClientRects().length > 0) ?? candidates.find(Boolean) ?? null
 }
 
+// Set once the first signed-in render has had its chance to restore the last side.
+let landingChecked = false
+
 function App() {
   useDialogViewport()
   const auth = useAuthContext()
+  const path = useLocationPath()
   const clearRetainedDocumentFiles = useClearRetainedDocumentFiles()
   const [restartNonce, setRestartNonce] = useState(0)
   const [restartNotice, setRestartNotice] = useState<string | null>(null)
-  const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:${auth.activeCoachWorkspaceId ?? 'participant'}`
-  if (auth.currentUser?.is_staff && !auth.currentUser.is_participant) return <StaffWorkspaceApp key={identity} currentUser={auth.currentUser} />
-  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)}>
+  // The app is the same for everyone. A coach's or admin's own household does not
+  // depend on which coaching program they are working in on the Admin side.
+  const identity = `${auth.authProvider}:${auth.authIdentityId ?? 'preview'}:${auth.currentUser?.id ?? 'pending'}:app`
+  const staffUser = auth.currentUser && adminSectionsOf(auth.currentUser).length > 0 ? auth.currentUser : null
+  const onAdminRoute = Boolean(parseAdminRoute(path))
+  // Old #Admin and #Coach Studio links open the matching section; and opening the
+  // site again returns staff to the side they last used. Only a fresh page load
+  // does that, so Back from Admin to the app stays on the app.
+  useLayoutEffect(() => {
+    if (!staffUser || onAdminRoute) return
+    const legacy = legacyStaffRedirect(window.location)
+    if (legacy) { landingChecked = true; navigateTo(legacy, { replace: true }); return }
+    if (landingChecked) return
+    landingChecked = true
+    const remembered = restoredMode(staffUser)
+    if (window.location.pathname === '/' && !window.location.hash && remembered.mode === 'admin' && adminSectionsOf(staffUser).some(item => item.key === remembered.section) && !hasPendingPlaidOAuthReturn()) navigateTo(adminPath(remembered.section), { replace: true })
+  }, [onAdminRoute, staffUser])
+  if (onAdminRoute) return <AdminApp key={`${identity}:${auth.activeCoachWorkspaceId ?? 'platform'}`} />
+  return <ParticipantProgramSession identity={identity} authIdentityId={auth.authProvider === 'workos' ? `${auth.authProvider}:${auth.authIdentityId}` : auth.authIdentityId} legacyAuthIdentityId={auth.authProvider === 'workos' ? auth.currentUser?.clerk_id : undefined} actorId={auth.currentUser?.id} participant>
     {selection => <WorkspaceApp key={`${identity}:${selection.selectedCohortId ?? 'default'}:${restartNonce}`} {...selection} restartNotice={restartNotice} onDismissRestartNotice={() => setRestartNotice(null)} onFinancialRestart={message => { clearRetainedDocumentFiles(); setRestartNotice(message); setRestartNonce(value => value + 1) }} />}
   </ParticipantProgramSession>
 }
 
-/** Staff without a participant seat never mount the household loader or its tools. */
-export function StaffWorkspaceApp({ currentUser }: { currentUser: CurrentUser }) {
-  const auth = useAuthContext()
-  const { brand } = useBrand()
-  const sections = useMemo(() => currentUser.is_admin ? [COACH_STUDIO_SECTION, ADMIN_SECTION] : [COACH_STUDIO_SECTION], [currentUser.is_admin])
-  const requestedSection = useCallback(() => {
-    try { return decodeURIComponent(window.location.hash.slice(1)) } catch { return '' }
-  }, [])
-  const defaultSection = currentUser.is_admin && currentUser.coach_workspaces?.length === 0 ? ADMIN_SECTION : COACH_STUDIO_SECTION
-  const [active, setActive] = useState(() => sections.includes(requestedSection()) ? requestedSection() : defaultSection)
-  const activeSection = sections.includes(active) ? active : COACH_STUDIO_SECTION
-  const [dirty, setDirty] = useState(false)
-  const [notice, setNotice] = useState('')
-  const [unavailableRoute, setUnavailableRoute] = useState(false)
-  const [guideOpen, setGuideOpen] = useState(false)
-  const [feedbackOpen, setFeedbackOpen] = useState(false)
-  const [enterpriseOpen, setEnterpriseOpen] = useState(false)
-  const accountRef = useRef<HTMLDetailsElement>(null)
-  const ready = !auth.isVerifyingApi && !auth.isLoading && !auth.authError && (!auth.isAuthEnabled || auth.isSignedIn)
-  useLayoutEffect(() => { setActiveParticipantCohortId(null) }, [])
-  const canonicalUrl = useCallback((section: string) => hasPendingPlaidOAuthReturn() ? clearPlaidOAuthStateFromUrl(section) : `${window.location.pathname}${window.location.search}${sectionHash(section)}`, [])
-  const focusHeading = useCallback(() => requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })), [])
-  const navigate = useCallback((section: string, browserNavigation = false) => {
-    // A hash traversal can dispatch both popstate and hashchange. The second
-    // event must not erase the explanation after an unavailable route is fixed.
-    if (browserNavigation && section === activeSection && window.location.hash === sectionHash(activeSection) && !hasPendingPlaidOAuthReturn()) return
-    const target = sections.includes(section) ? section : defaultSection
-    const proceed = () => {
-      if (target !== activeSection) setDirty(false)
-      setActive(target)
-      const unavailable = Boolean(section && !sections.includes(section))
-      setUnavailableRoute(unavailable)
-      setNotice(unavailable ? 'Your coaching workspace is ready. Choose People to manage your groups.' : `${target} screen loaded.`)
-      if (browserNavigation || target === activeSection) window.history.replaceState({ ...window.history.state, section: target }, '', canonicalUrl(target))
-      else pushHistoryEntry({ section: target }, canonicalUrl(target))
-      focusHeading()
-    }
-    if (target !== activeSection && dirty) {
-      // Keep the address on the current screen while the question is open.
-      window.history.replaceState({ ...window.history.state, section: activeSection }, '', canonicalUrl(activeSection))
-      void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => { if (discard) proceed() })
-      return
-    }
-    proceed()
-  }, [activeSection, canonicalUrl, defaultSection, dirty, focusHeading, sections])
-  useLayoutEffect(() => {
-    if (!ready) return
-    historyPosition()
-    const follow = () => navigate(requestedSection(), true)
-    if (window.location.hash !== sectionHash(activeSection) || !sections.includes(active) || hasPendingPlaidOAuthReturn()) follow()
-    window.addEventListener('popstate', follow)
-    window.addEventListener('hashchange', follow)
-    return () => { window.removeEventListener('popstate', follow); window.removeEventListener('hashchange', follow) }
-  }, [active, activeSection, navigate, ready, requestedSection, sections])
-  useEffect(() => {
-    if (!dirty) return
-    const leave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
-    window.addEventListener('beforeunload', leave)
-    return () => window.removeEventListener('beforeunload', leave)
-  }, [dirty])
-  const closeHelp = (close: () => void) => { close(); requestAnimationFrame(() => accountRef.current?.querySelector<HTMLElement>('summary')?.focus()) }
-
-  if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && (auth.authErrorStatus === 503 || auth.authErrorStatus === 409)) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
-  // Keep the same verified account’s Studio mounted while its name refreshes.
-  if (auth.isLoading || (auth.isVerifyingApi && !auth.currentUser)) return <WorkspaceOpening status="Signing you in securely…" onRetry={() => window.location.reload()} recovery={!auth.isLoading && auth.isSignedIn ? <SignOutButton /> : undefined} />
-  if (auth.isAuthEnabled && !auth.isSignedIn) return <AuthLanding />
-  if (auth.authError) return <AccessDenied message={auth.authError} onSignOut={auth.signOut} onRetry={auth.refreshCurrentUser} />
-  return <>
-    {auth.isVerifyingApi && <WorkspaceOpening status="Checking your program access…" onRetry={() => window.location.reload()} />}
-    <main className="app staff-app" hidden={auth.isVerifyingApi} inert={auth.isVerifyingApi}>
-    <SeoManager section={activeSection} />
-    <header className="shell-header"><div className="shell-brand"><BrandLogo brand={brand} /><div className="shell-brand-copy"><h1>{brand.short_name}</h1></div></div>
-      <AccountMenu menuRef={accountRef}>
-        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setGuideOpen(true) }}>Guide</Button>
-        <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFeedbackOpen(true) }}>Report a problem</Button>
-        {(currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseOpen(true) }}>Organization access</Button>}
-      </AccountMenu>
-    </header>
-    <ParticipantTabs staffOnly sections={sections} activeSection={activeSection} onChange={navigate} />
-    {notice && <p role="status" className={unavailableRoute ? 'document-alert' : 'sr-only'}>{notice}</p>}
-    {activeSection === ADMIN_SECTION && currentUser.is_admin ? <AdminConsole currentUser={currentUser} /> : <CoachStudio currentUser={currentUser} onDirtyChange={setDirty} />}
-    <BrandFooter />
-    {guideOpen && <PilotGuideDialog staffOnly onClose={() => closeHelp(() => setGuideOpen(false))} />}
-    {feedbackOpen && <PilotFeedbackDialog initialWorkflow={activeSection === ADMIN_SECTION ? 'admin' : 'other'} onClose={() => closeHelp(() => setFeedbackOpen(false))} onSubmit={submitPilotFeedback} />}
-    {enterpriseOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setEnterpriseOpen(false)} />}
-  </main></>
-}
-
-function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
+function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onProgramVerified, onProgramUnavailable, selectionNotice, onFinancialRestart, restartNotice, onDismissRestartNotice}: {onFinancialRestart: (message: string) => void; restartNotice: string | null; onDismissRestartNotice: () => void; selectedCohortId?: number; onChooseProgram: (cohortId: number) => void; onChooseHousehold: () => void; onProgramVerified: (cohortId: number) => void; onProgramUnavailable: () => void; selectionNotice: string | null}) {
   const auth = useAuthContext()
   const participantActorId = auth.currentUser?.id
+  const signedInUser = participantActorId !== undefined
   const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isAuthEnabled || Boolean(auth.currentUser))
   const [{ data, homeBudget, budgets, homeBudgetStale, dataBudgetStale }, dispatchWorkspaceData] = useReducer(workspaceViewReducer, { data: null, homeBudget: null, budgets: {} })
   const financialMutationGenerationRef = useRef(0)
@@ -684,12 +615,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const profileFocusSequenceRef = useRef(0)
-  // A coach or admin without a household seat starts in Coach Studio. An
-  // explicit section link still wins, so only an empty address changes.
-  const staffOnly = Boolean(auth.currentUser?.is_staff && !auth.currentUser?.is_participant)
-  const [active, setActive] = useState(() => {
-    return staffOnly && !window.location.hash && !hasPendingPlaidOAuthReturn() ? COACH_STUDIO_SECTION : sectionFromLocation()
-  })
+  const [active, setActive] = useState(sectionFromLocation)
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
   const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
@@ -750,8 +676,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const hasUnsavedMoneyChanges = Object.values(moneyDrafts).some(Boolean)
   const hasUnsavedIncomeChanges = hasUnsavedIncomeSourceChanges || hasUnsavedIncomeScheduleChanges
   const incomeMutationPending = Boolean(budgetAction?.includes('income'))
-  const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
-  const coachDiscardConfirmedRef = useRef(false)
   const [pendingBudgetView, setPendingBudgetView] = useState<{ requestId: number; scope: string; year: number } | null>(null)
   const budgetViewRequestRef = useRef(0)
   const budgetViewScopeRef = useRef('')
@@ -840,12 +764,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const [evidenceRefreshToken, setEvidenceRefreshToken] = useState(0)
   const [savingsIntake,setSavingsIntake] = useState<{scope:string;intake:SavingsIntake;nonce:string}|null>(null)
   const challengeIntakeScope = `${auth.authIdentityId}:${auth.currentUser?.id}:${data?.workspace.household_id}:${data?.workspace.cohort?.id}`
-  const challengeParticipantScope = useMemo(() => auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data?.workspace.household_id ? {user_id:auth.currentUser.id,household_id:data.workspace.household_id} : undefined, [auth.currentUser?.is_participant,auth.currentUser?.id,auth.activeCoachWorkspaceId,data?.workspace.household_id])
+  const challengeParticipantScope = useMemo(() => participantActorId !== undefined && data?.workspace.household_id ? {user_id:participantActorId,household_id:data.workspace.household_id} : undefined, [participantActorId,data?.workspace.household_id])
   useLayoutEffect(() => {
-    const cohortId = canLoadWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? selectedCohortId ?? (data?.workspace.mode === 'real' ? data.workspace.cohort?.id ?? null : null) : null
+    const cohortId = canLoadWorkspace && signedInUser ? selectedCohortId ?? (data?.workspace.mode === 'real' ? data.workspace.cohort?.id ?? null : null) : null
     setActiveParticipantCohortId(cohortId)
     if (data?.workspace.mode === 'real' && (data.workspace.cohort?.id ?? null) === cohortId) setApiFinancialGeneration(data.workspace.financial_generation ?? 0)
-  }, [canLoadWorkspace, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id, data?.workspace.financial_generation])
+  }, [canLoadWorkspace, signedInUser, selectedCohortId, data?.workspace.mode, data?.workspace.cohort?.id, data?.workspace.financial_generation])
   const stageSavingsIntake = useCallback((entryId: number, cardId: number) => setSavingsIntake(current => current?.intake.chat_card_id === cardId ? { ...current, intake: { ...current.intake, staged_entry_id: entryId } } : current), [])
   const clearSavingsIntake = useCallback(() => setSavingsIntake(null), [])
   const challengeIntakeScopeRef = useRef(challengeIntakeScope)
@@ -1025,10 +949,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         statementsAvailable: !data.workspace.capabilities.modules.some((module) => module.id === 'statements' && !module.enabled),
       })
       : []
-    const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
-    const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    return [...participantSections, ...staffSections, ...adminSections]
-  }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
+    return participantSections
+  }, [data])
   const moneyTopic = selectedMoneyTopic === 'statements' ? 'income' : selectedMoneyTopic
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   useEffect(() => {
@@ -1059,12 +981,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const visibleDailyReports = [...challengeCards.reports, ...miaDailyReports.filter(card => !card.nonce.startsWith('server-card-') && !challengeCards.reports.some(row => row.nonce === card.nonce))]
   const transactionNotice = transactionResult?.section === activeSection ? transactionResult.text : null
   activeSectionRef.current = activeSection
-  // Name the staff starting section in the address so reload and back agree.
-  useLayoutEffect(() => {
-    if (activeSection !== COACH_STUDIO_SECTION || window.location.hash) return
-    window.history.replaceState({ ...window.history.state, section: COACH_STUDIO_SECTION }, '', `${window.location.pathname}${window.location.search}${sectionHash(COACH_STUDIO_SECTION)}`)
-    lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
-  }, [activeSection])
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find(documentNeedsReview) ?? documentImports[0] ?? null
@@ -1307,6 +1223,39 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     onChooseProgram(cohortId)
   }
 
+  function chooseHousehold() {
+    if (data?.workspace.cohort === undefined || data?.workspace.cohort === null) return
+    if (blockFinancialTransition('switching to your household')) return
+    if (hasUnsavedBudgetChanges) {
+      setBudgetError('You have unsaved budget changes. Save or cancel them before switching.')
+      setRouteAnnouncement('Save or cancel your budget changes before switching.')
+      return
+    }
+    if (canResumePlaidOAuthReturn) {
+      setRouteAnnouncement('Finish the bank connection before switching.')
+      return
+    }
+    if (shellAccountMenuRef.current) shellAccountMenuRef.current.open = false
+    onChooseHousehold()
+  }
+
+  // The Admin side opens where the person last was in it, or their first section.
+  function openAdmin() {
+    if (blockFinancialTransition('opening Admin')) return
+    if (hasUnsavedBudgetChanges) {
+      setBudgetError('You have unsaved budget changes. Save or cancel them before opening Admin.')
+      setRouteAnnouncement('Save or cancel your budget changes before opening Admin.')
+      return
+    }
+    const sections = adminSectionsOf(auth.currentUser)
+    const remembered = restoredMode(auth.currentUser)
+    const section = remembered.mode === 'admin' && sections.some(item => item.key === remembered.section) ? remembered.section : sections[0]?.key
+    if (!section) return
+    if (shellAccountMenuRef.current) shellAccountMenuRef.current.open = false
+    rememberMode(auth.currentUser, { mode: 'admin', section })
+    navigateTo(adminPath(section))
+  }
+
   function refreshSpendingReportForBudget(budget: BudgetData | null | undefined, monthIndex = selectedBudgetMonthIndex) {
     const month = budget?.annual_plan?.months[monthIndex]
     if (!month) return
@@ -1320,7 +1269,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     const generation = financialMutationGenerationRef.current
     let cancelled = false
 
-    const selectionCheck = selectedCohortId !== undefined && participantActorId !== undefined && shouldUseRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId
+    const selectionCheck = selectedCohortId !== undefined && participantActorId !== undefined && shouldUseRealWorkspace && signedInUser
       ? fetchParticipantPrograms().then(programs => {
           if (cancelled) return false
           if (!verifiedParticipantProgram(programs, participantActorId, selectedCohortId)) { onProgramUnavailable(); return false }
@@ -1354,10 +1303,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, auth.currentUser?.id, auth.currentUser?.is_participant, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
+  }, [canLoadWorkspace, signedInUser, auth.currentUser?.id, auth.activeCoachWorkspaceId, shouldUseRealWorkspace, workspaceLoadAttempt, selectedCohortId, onProgramVerified, onProgramUnavailable, participantActorId, setData])
 
   useEffect(() => {
-    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges && !hasUnsavedFirstSetupChanges && !hasUnsavedCoachChanges && !question.trim() && pendingMiaAttachments.length === 0 && !setupSaving && !miaLoading && !uploadingKind && !budgetAction && !documentAction) return
+    if (!hasUnsavedBudgetChanges && !hasUnsavedIncomeChanges && !incomeMutationPending && !hasUnsavedMoneyChanges && !hasUnsavedProfileChanges && !hasUnsavedFirstSetupChanges && !question.trim() && pendingMiaAttachments.length === 0 && !setupSaving && !miaLoading && !uploadingKind && !budgetAction && !documentAction) return
 
     const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
       event.preventDefault()
@@ -1365,7 +1314,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
     }
     window.addEventListener('beforeunload', preventUnsavedNavigation)
     return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
-  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges, hasUnsavedCoachChanges, question, pendingMiaAttachments.length, setupSaving, miaLoading, uploadingKind, budgetAction, documentAction])
+  }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges, question, pendingMiaAttachments.length, setupSaving, miaLoading, uploadingKind, budgetAction, documentAction])
 
   const documentsVisible = activeSection === 'Statements' || activeSection === 'Ask Mia' || isFirstSessionUpload
   const spendingVisible = activeSection === 'Review' || activeSection === 'Budget'
@@ -1785,22 +1734,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
       return false
     }
-    if (activeSection === COACH_STUDIO_SECTION && targetSection !== COACH_STUDIO_SECTION && hasUnsavedCoachChanges) {
-      if (!coachDiscardConfirmedRef.current) {
-        void confirmDiscard('Discard your unsaved Coach Studio changes and leave this screen?').then((discard) => {
-          if (!discard) return
-          coachDiscardConfirmedRef.current = true
-          setHasUnsavedCoachChanges(false)
-          // Back already moved the address bar and the guard then put the old screen's
-          // entry back on top, so a confirmed leave rewrites that entry. Otherwise a
-          // reload would open the screen the person just left.
-          const confirmed = options.source === 'history' ? { ...options, historyMode: 'replace' as const } : options
-          try { switchSection(section, confirmed) } finally { coachDiscardConfirmedRef.current = false }
-        })
-        return false
-      }
-      setHasUnsavedCoachChanges(false)
-    }
     if (canResumePlaidOAuthReturn && targetSection !== 'My Money') {
       setRouteAnnouncement('Finish the bank connection before leaving My Money.')
       return false
@@ -1850,7 +1783,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       else window.history.replaceState({ ...window.history.state, section: targetSection }, '', sectionHash(targetSection))
     }
     return true
-  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedCoachChanges, visibleSections])
+  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, visibleSections])
 
   useEffect(() => {
     historyPosition()
@@ -1890,7 +1823,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       const requestedSection = sectionFromLocation()
       if (hasPendingPlaidOAuthReturn()) setMoneyTopic('accounts')
-      if (requestedSection === ADMIN_SECTION && auth.isAuthEnabled && !auth.currentUser) return
       lastHandledLocationRef.current = locationKey
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
       if (unavailableCapability) {
@@ -2208,7 +2140,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   }
 
   // After a statement is saved the next step is what Mia notices in it: ask the question for her.
-  const askMiaAboutPatterns = isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && visibleSections.includes('Ask Mia') && !challengeNotOpen
+  const askMiaAboutPatterns = isRealWorkspace && auth.currentUser && visibleSections.includes('Ask Mia') && !challengeNotOpen
     ? () => {
         if (!switchSection('Ask Mia', { focusHeading: false })) return
         // A message or files she already has waiting are hers: asking for patterns must not send them or wipe them.
@@ -3866,8 +3798,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       setError(null)
       setWorkspaceLoadAttempt(attempt => attempt + 1)
     }}>
-      {error && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} hideWhenEmpty />}
-      <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
+      {error && auth.currentUser && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={selectedCohortId} onChoose={chooseParticipantProgram} hideWhenEmpty />}
+      <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser)} />
     </WorkspaceOpening>
   }
 
@@ -3878,18 +3810,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
   const brand = runtimeBrand.config
   // Plain words for the household plan Mia reads; savings participants don't need it.
   const miaPlanLabel = `Using your ${monthNameFormatter.format(new Date(selectedBudgetYear, selectedBudgetMonthIndex, 1))} ${selectedBudgetYear} plan`
-  const showMiaMemoryAction = !isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant)
+  const showMiaMemoryAction = !isFirstSessionSetup
+  const staffPreviewing = Boolean(auth.currentUser?.is_staff && data.workspace.cohort)
+  const hasAdminSide = adminSectionsOf(auth.currentUser).length > 0
 
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
                     })}
                     {isSavingsExperience && !safetyHold && challengeCards.goals.map(card => <MiaChallengeGoal key={card.id} card={card} onDone={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onChangeAmount={amount => void handleAskMia(`Let's do $${amount} instead`)} />)}
-                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
+                    {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
   </> : null
 
   const workspace = (
@@ -3903,17 +3837,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             {brandHeaderByline(brand) && <p className="eyebrow">{brandHeaderByline(brand)}</p>}
             <h1>{isSavingsExperience ? data.workspace.cohort?.name || 'Bank of Guam 90-Day Challenge' : brand.short_name}</h1>
           </div>
-          {data.workspace?.cohort && !(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId) && <span className="cohort-brand-chip">{data.workspace.cohort.name}</span>}
+          {staffPreviewing && <p className="shell-using-note" role="status">Using: {data.workspace.cohort?.name} · Preview</p>}
         </div>
         <div className="shell-actions">
+          {hasAdminSide && <a className="shell-admin-link" href={adminPath()} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); openAdmin() }}>Admin</a>}
           <AccountMenu participantLabel={isSavingsExperience ? 'Challenge participant' : undefined} menuRef={shellAccountMenuRef} onOpen={() => setAccountProgramsOpen(true)} onClose={() => setAccountProgramsOpen(false)}>
-              {accountProgramsOpen && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} hideWhenSingle />}
-              <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} savingsChallenge={isSavingsExperience} householdId={data.workspace.household_id} />
+              {hasAdminSide && <a className="button button--secondary button--compact shell-admin-menu-link" href={adminPath()} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); openAdmin() }}>Admin</a>}
+              {auth.currentUser?.is_staff && <UseAppAs user={auth.currentUser} currentCohortId={data.workspace.cohort?.id} onChooseHousehold={chooseHousehold} onChooseGroup={chooseParticipantProgram} />}
+              {accountProgramsOpen && auth.currentUser && !auth.currentUser.is_staff && <ParticipantProgramPicker actorId={auth.currentUser.id} currentCohortId={data.workspace.cohort?.id} onChoose={chooseParticipantProgram} hideWhenSingle />}
+              <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser)} savingsChallenge={isSavingsExperience} householdId={data.workspace.household_id} />
               {(brand.support.url || brand.support.email) && <a className="button button--ghost button--compact" href={brand.support.url ?? `mailto:${brand.support.email}`} target={brand.support.url ? '_blank' : undefined} rel={brand.support.url ? 'noreferrer' : undefined}>{brand.support.label ?? 'Support'}</a>}
               <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotGuideOpen(true) }}><GuideIcon /> Guide</Button>
               {isRealWorkspace && <Button variant="ghost" size="compact" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setPilotFeedbackOpen(true) }}><FeedbackIcon /> Report a problem</Button>}
               {isRealWorkspace && auth.currentUser && (auth.currentUser.is_admin || auth.currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => {event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseSettingsOpen(true)}}>Organization access</Button>}
-              {isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
+              {isRealWorkspace && auth.currentUser?.is_admin && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
           </AccountMenu>
         </div>
       </header>
@@ -3921,7 +3858,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
       {transactionNotice && ['Ask Mia', 'Statements'].includes(activeSection) && <p data-review-result tabIndex={-1} role="status" className="document-alert success">{transactionNotice}</p>}
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
-      <ParticipantTabs customModuleOrder={Boolean(data.workspace.capabilities.module_order?.length)} staffOnly={staffOnly} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
+      <ParticipantTabs customModuleOrder={Boolean(data.workspace.capabilities.module_order?.length)} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
 
 
       {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your records just changed. Totals will update in a moment.</p>}
@@ -3934,7 +3871,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         : <ChallengeOpensSoon />)}
 
       {activeSection === 'Home' && data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && (
-        <SavingsChallengeHome onIntakeStaged={stageSavingsIntake} onIntakeCleared={clearSavingsIntake} dailyRefreshToken={dailyRefreshKey} onDay={date => { setChallengeDay(date); setChallengeDailySection('today'); setDailyOpen(true) }} onCheckpoint={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined} privacyAccess={<ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} householdId={data.workspace.household_id} />} onEnrollmentKnown={handleSavingsEnrollmentKnown} checkedInToday={todayCheckIn.checkedIn === true} onCheckIn={auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? openDailyCheckIn : undefined} />
+        <SavingsChallengeHome onIntakeStaged={stageSavingsIntake} onIntakeCleared={clearSavingsIntake} dailyRefreshToken={dailyRefreshKey} onDay={date => { setChallengeDay(date); setChallengeDailySection('today'); setDailyOpen(true) }} onCheckpoint={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} key={`${auth.authIdentityId}:${auth.currentUser?.id}:${auth.activeCoachWorkspaceId}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} participantScope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onOptionalDebt={challengeParticipantScope && data.workspace.cohort?.id ? () => setOptionalDebtOpen(true) : undefined} evidenceRefreshToken={evidenceRefreshToken} onReviewEvidence={challengeParticipantScope && data.workspace.cohort?.id ? (entryVersionId) => setEvidenceReview({scope:challengeIntakeScope,entryVersionId}) : undefined} onAskMia={() => switchSection('Ask Mia')} onReviewStatements={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)} initialSavingsIntake={savingsIntake?.scope===challengeIntakeScope?savingsIntake.intake:null} onToday={auth.currentUser ? () => {setDailyIntake(null);setDailyOpen(true)} : undefined} onReviewBaseline={auth.currentUser ? () => setBaselineOpen(true) : undefined} privacyAccess={<ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser)} householdId={data.workspace.household_id} />} onEnrollmentKnown={handleSavingsEnrollmentKnown} checkedInToday={todayCheckIn.checkedIn === true} onCheckIn={auth.currentUser ? openDailyCheckIn : undefined} />
       )}
 
       {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
@@ -4004,7 +3941,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
                     : !isSavingsExperience && <p className="chat-period-context">{miaPlanLabel}</p>}
                 </div>
                 <div className="chat-actions">
-                  {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
+                  {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
                   <button
                     type="button"
                     className="chat-suggestions-button chat-inline-action"
@@ -4486,7 +4423,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             </div>
           )}
 
-          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <ProfileDisclosure label="Memory & personalization"><MiaMemoryPanel enabled={Boolean(isRealWorkspace)} /></ProfileDisclosure>}
+          {!isFirstSessionSetup && <ProfileDisclosure label="Memory & personalization"><MiaMemoryPanel enabled={Boolean(isRealWorkspace)} /></ProfileDisclosure>}
 
           {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm
@@ -4511,7 +4448,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
           {isFirstSessionUpload && <DocumentImportWorkspace
             uploadBlocked={statementUploadBlocked ?? (challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : undefined)}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
-            onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
             sectionRef={documentImportsRef}
@@ -4556,7 +4493,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         <DocumentImportWorkspace
             uploadBlocked={statementUploadBlocked ?? (challengeNotOpen ? (data.workspace.challenge_state === 'not_open' ? 'Your coach is still setting up your program. You can upload statements once it opens.' : CHALLENGE_UPLOADS_CLOSED) : undefined)}
             uploadScope={`${auth.activeCoachWorkspaceId ?? 'participant'}:${selectedCohortId ?? 'default'}`}
-            onReviewBaseline={isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId ? () => setBaselineOpen(true) : undefined}
+            onReviewBaseline={isRealWorkspace && auth.currentUser ? () => setBaselineOpen(true) : undefined}
             onAskMia={askMiaAboutPatterns}
             onStatementSaved={() => { setSelectedImportId(selectedImport?.id ?? null); void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
             onReturnToStart={isFirstSessionSetup ? startManualFirstSession : undefined}
@@ -4742,14 +4679,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
         </section>
       )}
 
-      {activeSection === ADMIN_SECTION && auth.currentUser?.is_admin && (
-        <AdminConsole currentUser={auth.currentUser} />
-      )}
-
-      {activeSection === COACH_STUDIO_SECTION && auth.currentUser?.is_staff && (
-        <CoachStudio currentUser={auth.currentUser} onDirtyChange={setHasUnsavedCoachChanges} />
-      )}
-
       {activeSection !== 'Ask Mia' && <BrandFooter />}
 
       {bulkConfirmRequest && (
@@ -4795,8 +4724,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
 
       {optionalDebtOpen && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && data.workspace.cohort?.id && <OptionalDebtReview key={challengeIntakeScope} actorScope={challengeParticipantScope} cohortId={data.workspace.cohort.id} onClose={() => setOptionalDebtOpen(false)} />}
       {evidenceReview?.scope === challengeIntakeScope && challengeParticipantScope && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && <SavingsEvidenceDialog key={`${challengeIntakeScope}:${evidenceReview.entryVersionId}`} actorScope={challengeParticipantScope} entryVersionId={evidenceReview.entryVersionId} onClose={() => setEvidenceReview(null)} onChanged={() => setEvidenceRefreshToken(value => value + 1)} />}
-      {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <ChallengeToday initialDate={challengeDay} initialSection={challengeDailySection} key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} cardHandoff={dailyIntake?.scope===challengeIntakeScope?dailyIntake.handoff:undefined} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setChallengeDay(undefined);setChallengeDailySection('today');setDailyIntake(null);setDailyRefreshKey((value) => value + 1)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
-      {baselineOpen && isRealWorkspace && auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
+      {dailyOpen && isRealWorkspace && data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && data.workspace.household_id && <ChallengeToday initialDate={challengeDay} initialSection={challengeDailySection} key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} cohortId={data.workspace.cohort?.id} initialPurchase={dailyIntake?.scope===challengeIntakeScope?dailyIntake.intake:null} cardHandoff={dailyIntake?.scope===challengeIntakeScope?dailyIntake.handoff:undefined} scope={{user_id:auth.currentUser.id,household_id:data.workspace.household_id}} onClose={() => {setDailyOpen(false);setChallengeDay(undefined);setChallengeDailySection('today');setDailyIntake(null);setDailyRefreshKey((value) => value + 1)}} onStatements={() => { setDailyOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} onBaseline={() => { setDailyOpen(false); setBaselineOpen(true) }} />}
+      {baselineOpen && isRealWorkspace && auth.currentUser && data.workspace.household_id && <BaselineReview key={`${auth.authIdentityId}:${auth.currentUser.id}:${data.workspace.household_id}:${data.workspace.cohort?.id}`} scope={{ user_id: auth.currentUser.id, household_id: data.workspace.household_id }} onClose={() => setBaselineOpen(false)} onReviewStatements={() => { setBaselineOpen(false); openDocumentReview(documentImports.find(documentNeedsReview)?.id) }} />}
       {earlierConversationsOpen && <EarlierMiaConversations key={chatStorageKey} onClose={() => setEarlierConversationsOpen(false)} />}
       {setupHelpOpen && isRealWorkspace && auth.currentUser && data.workspace.household_id && <SetupHelpDialog key={chatStorageKey} scopeKey={restartScopeKey} userId={auth.currentUser.id} householdId={data.workspace.household_id}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind || question.trim() || voiceRecording || voiceTranscribing ? 'Save or cancel your open edits, finish or clear your draft message, and let current requests finish before reviewing a restart.' : null}
@@ -4842,7 +4771,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onProgramVerified, onP
             <h1>This program is temporarily unavailable.</h1>
             <p role="alert">The active program release could not be verified. Try again or contact your coach.</p>
             <button type="button" onClick={() => setWorkspaceLoadAttempt((attempt) => attempt + 1)}>Try again</button>
-            <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser?.is_participant && !auth.activeCoachWorkspaceId)} />
+            <ParticipantPrivacyAccess userId={auth.currentUser?.id ?? null} participant={Boolean(auth.currentUser)} />
           </section>
         </main>
       )}
@@ -5102,13 +5031,11 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   if (section === 'My Profile') return 'setup'
   if (section === 'Statements') return 'statement_upload'
   if (section === 'Budget') return 'budget'
-  if (section === COACH_STUDIO_SECTION) return 'admin'
-  if (section === ADMIN_SECTION) return 'admin'
   if (section === 'Home') return 'home'
   return 'other'
 }
 
-function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false }: { onClose: () => void; savingsChallenge?: boolean; staffOnly?: boolean }) {
+function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
   const { assistantName } = useBrand()
   const dialogRef = usePilotDialog(onClose)
 
@@ -5118,17 +5045,13 @@ function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false
       <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
-            <h2 id="pilot-guide-title">{staffOnly ? 'Your coaching workspace.' : savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
+            <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
-          {staffOnly ? <>
-            <li><span>1</span><div><strong>Start in People.</strong><p>Choose a group and review who needs help.</p></div></li>
-            <li><span>2</span><div><strong>Open a participant with permission.</strong><p>Use only the information that participant has shared for coaching.</p></div></li>
-            <li><span>3</span><div><strong>Set up your assistant, then go live.</strong><p>Use Your assistant for voice, teaching, tools and appearance. Review changes in Go live.</p></div></li>
-          </> : savingsChallenge ? <>
+          {savingsChallenge ? <>
             <li><span>1</span><div><strong>Join and choose an affordable target.</strong><p>Review the participation notice on Home. The suggested $500 over 90 days is a starting point; protect essentials and choose a smaller target or choose later.</p></div></li>
             <li><span>2</span><div><strong>Use Today for a quick check-in.</strong><p>Report purchases when useful, distinguish no spending from unknown spending, and return for your Day 30, 60 and 90 checkpoints. Feelings are optional.</p></div></li>
             <li><span>3</span><div><strong>Report money you actually set aside.</strong><p>On Home, choose Report savings, check its date and funding source, then approve your reviewed record. A plan or pending proposal does not count as savings. Ask {assistantName} for a comfortable next step.</p></div></li>
@@ -5137,10 +5060,10 @@ function PilotGuideDialog({ onClose, savingsChallenge = false, staffOnly = false
           <li><span>3</span><div><strong>Compare with your statement.</strong><p>Upload in Statements, check each line and approve the changes you want.</p></div></li></>}
 
         </ol>
-        {!staffOnly && <div className="pilot-guide-power-path">
+        <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
           <p>{savingsChallenge ? "Statements can help you understand spending, but they are optional. Use Statements to upload and review. A credit card, full budget and bank connection are not required. Uploading does not grant your coach access to your private statements." : <>If a file would save time, try one budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask {assistantName} or Statements.</>}</p>
-        </div>}
+        </div>
         <footer>
           <ShieldIcon />
           <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>

@@ -23,7 +23,7 @@ module HouseholdFinance
           end
 
           def subject_for(input, lock:)
-            enrollment = SavingsEnrollment.find_by!(household_id: household.id, user_id: user.id, cohort_id: input[:cohort_id])
+            enrollment = SavingsEnrollment.current_for(household_id: household.id, user_id: user.id, cohort_id: input[:cohort_id])
             SavingsChallenge::Daily::ReadPolicy.erase!(enrollment, user: user, lock: lock)
             enrollment.lock! if lock
             reflection = SavingsDailyReflection.where(savings_enrollment: enrollment).find(input[:reflection_id])

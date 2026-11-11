@@ -51,13 +51,7 @@ module Api
           return render json: body, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
-        unless result.replayed?
-          carried = carry_unresolved_setup(result.draft)
-          status_message = applied_message(result.draft, carried)
-          append_chat_status_message(status_message)
-          update_conversation_action_status(result.draft.status, status_message)
-          remember_setup_question(result.draft, carried)
-        end
+        narrate_applied(result.draft) unless result.replayed?
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
@@ -141,6 +135,11 @@ module Api
           asked = HouseholdFinance::MiaSetupCardTurn.active_field(session)
           next unless asked
           household = current_household.reload
+          # She answered Mia's question on the card herself. That question is
+          # done, and the next unlabelled number can't land on the row she set.
+          if params[:field].to_s == asked && params[:action_name].to_s == "set"
+            next session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => nil, "setup_card_work_out" => nil, "setup_card_superseded" => asked))
+          end
           next if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
 
           session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
@@ -171,6 +170,25 @@ module Api
         current_data_presenter(household: current_household.reload, annual_plan: annual_plan).app_data
       end
 
+      # The changes are already saved when this runs, so a failure here must
+      # never turn a successful Apply into a 500: fall back to a plain "Done."
+      def narrate_applied(draft)
+        carried = carry_unresolved_setup(draft)
+        status_message = applied_message(draft, carried)
+        append_chat_status_message(status_message)
+        update_conversation_action_status(draft.status, status_message)
+        remember_setup_question(draft, carried)
+      rescue StandardError => e
+        Rails.logger.error("[MiaActionDrafts] Apply narration failed after commit for draft #{draft.id}: #{e.class}: #{e.message}")
+        Sentry.capture_exception(e, tags: { mia_action_draft_id: draft.id }) if defined?(Sentry) && Sentry.initialized?
+        begin
+          append_chat_status_message("Done.")
+          update_conversation_action_status(draft.status, "Done.")
+        rescue StandardError => fallback_error
+          Rails.logger.error("[MiaActionDrafts] Apply fallback status failed for draft #{draft.id}: #{fallback_error.class}")
+        end
+      end
+
       def applied_message(draft, carried = nil)
         if draft.status == "partially_applied"
           remaining = draft.mia_action_items.count { |item| item.applied_at.blank? }
@@ -183,6 +201,9 @@ module Api
         when "income_schedule"
           "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
         when "household_setup"
+          state = draft.metadata.to_h["setup_card"]
+          changed = !carried && state && state["change_mode"] && HouseholdFinance::MiaSetupCardReply.applied_sentence(HouseholdFinance::MiaSetupCard.new(draft.household, state: state))
+          return changed if changed
           base = "Your household details are saved."
           card = carried_setup_card(carried)
           next_step = if (field = card&.unresolved_field_keys&.first)

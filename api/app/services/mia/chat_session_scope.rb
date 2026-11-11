@@ -34,7 +34,7 @@ module Mia
       return unless cohort_id
 
       cohort = Cohort.find(cohort_id)
-      enrollment = SavingsEnrollment.find_by(household: @household, user: @user, cohort: cohort)
+      enrollment = SavingsEnrollment.in_use.find_by(household: @household, user: @user, cohort: cohort)
       membership = SavingsChallenge::AccessPolicy.new(household: @household, user: @user, cohort: cohort, enrollment: enrollment).call!
       fresh = SavingsChallenge::AccessPolicy.runtime_for(user: @user, membership: membership)
       unless membership.id == @membership.id && (!@runtime || fresh&.release_id == @runtime.release_id)

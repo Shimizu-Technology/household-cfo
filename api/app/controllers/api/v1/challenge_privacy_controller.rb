@@ -65,7 +65,7 @@ module Api
       def controls
         records = ApplicationRecord.transaction do
           current_household.lock!
-          scope = SavingsEnrollment.where(household: current_household, user: current_user).order(:id)
+          scope = SavingsEnrollment.in_use.where(household: current_household, user: current_user).order(:id)
           scope = scope.where("id > ?", SavingsChallenge::Inputs.id!(params[:cursor])) if params[:cursor].present?
           rows = scope.includes(:cohort).limit(51).to_a
           rows.each { |record| ChallengePrivacy::Access.participant!(current_household, current_user, record) }

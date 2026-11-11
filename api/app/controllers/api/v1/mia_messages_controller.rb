@@ -167,8 +167,7 @@ module Api
           pending = action[:setup_updates].to_h.keys.sole.to_s if action[:setup_updates].to_h.keys.one? && thread[:status] == "pending_review"
           pending = "primary_income" if action[:type] == "schedule_income_change" && thread[:status] == "pending_review"
           @setup_card_context = setup_card_reader_context(session)
-          saved_bills = saved_bills_reader_context(session) unless @setup_card_context
-          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, saved_bills: saved_bills, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.read_once(message: content, recent_care: @care_topic, setup_field: field, pending_field: pending, last_answer_field: HouseholdFinance::ParticipantMessageReader.last_answer_field(thread), setup_context: @setup_card_context, goal_conversation: (savings_program_selected? && SavingsChallenge::ChatTurn.goal_conversation?(session)) || action[:type].in?(%w[create_goal update_goal]))
           HouseholdFinance::ParticipantMessageReader::Current.message = content
           # The care label on a plain skip varies between reads. Skipping is a
           # setup answer unless the message also discloses something new.
@@ -294,7 +293,9 @@ module Api
         ).call
         intent_context[:available_product_modules] = module_guidance.context
         intent_context[:participant_reading] = @participant_reading
-        intent_context[:setup_card_open] = @setup_card_context.present? || @setup_card_turn.present?
+        # Setup in progress or a change card waiting: the card is the only
+        # setup path. Otherwise a change found here still goes on a new card.
+        intent_context[:setup_card_open] = @setup_card_turn.present? || (@setup_card_context.present? && HouseholdFinance::MiaSetupCardTurn.open?(current_household, user: current_user, session: session))
         intent_result = prompt_injection_intent_result(content, intent_context: intent_context) || setup_guide_intent_result(content)
         intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
@@ -307,7 +308,25 @@ module Api
             topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic"
           )
         end
-        intent_result = setup_card_coaching_turn(intent_result, content) if (@setup_card_context || @setup_card_turn) && setup_write_intent?(intent_result)
+        if (@setup_card_context || @setup_card_turn) && setup_write_intent?(intent_result)
+          if @participant_reading&.facts.to_a.any? { |fact| fact["kind"].in?(HouseholdFinance::MiaSetupCardTurn::MONEY_EVENT_KINDS) }
+            # She reported something she did ("paid 120 for the power bill"). A
+            # plan-change label from the model never turns that figure into her
+            # bills, and it can't be logged from that label either.
+            # A purchase she reported still goes to review, beside any change the card took.
+            purchase = HouseholdFinance::MiaIntentResolver.participant_purchase_result_for(user_message: content, context: intent_context)
+            intent_result = purchase || setup_card_coaching_turn(intent_result, content, clarify: true, reply: unlogged_event_reply)
+          elsif non_card_setup_intent?(intent_result)
+            # Debt tracking and restoring a debt aren't card rows; they keep their
+            # own review, as before.
+          else
+            # A household change the reader missed still goes on the one change
+            # card. When the card already took this message, it is not repeated.
+            routed_turn = setup_card_turn_from_intent(session, content, intent_result) unless @setup_card_turn
+            return render_setup_card_turn(session, content, routed_turn, message_request: message_request) if routed_turn
+            intent_result = setup_card_coaching_turn(intent_result, content, clarify: @setup_card_turn.nil?)
+          end
+        end
         allowed_household_intent = @savings_household_read ? ::Mia::HouseholdPlanRequest.allowed_read_intent?(intent_result) : ::Mia::HouseholdPlanRequest.allowed_intent?(intent_result)
         if @savings_household_request && intent_result && !allowed_household_intent
           return render_household_scope_clarification(session, content, message_request: message_request)
@@ -636,42 +655,62 @@ module Api
         end
       end
 
-      # While a setup card is open the card is the only way setup changes. A
-      # model intent that wants to write setup becomes a plain answer instead.
+      # Household details change only through the change card. A model intent
+      # that wants to write them is turned into card changes.
       def setup_write_intent?(intent_result)
         return false unless intent_result&.actionable?
         actions = [ intent_result.action, *Array(intent_result.write_plan.to_h[:actions]).map { |item| item[:action] } ]
         actions.any? { |action| action.to_h[:type].to_s.in?(%w[update_household_setup update_debt_tracking create_debt update_debt archive_debt restore_debt]) }
       end
 
-      def setup_card_coaching_turn(_intent_result, content)
-        HouseholdFinance::MiaIntentResolver::Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: content,
-          needs_clarification: false, clarification: "", topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
+      def non_card_setup_intent?(intent_result)
+        actions = [ intent_result.action, *Array(intent_result.write_plan.to_h[:actions]).map { |item| item[:action] } ]
+        actions.map { |action| action.to_h[:type].to_s }.any? { |type| type.in?(%w[update_debt_tracking restore_debt]) } &&
+          actions.map { |action| action.to_h[:type].to_s }.none? { |type| type.in?(HouseholdFinance::MiaSetupCardIntent::TYPES) }
       end
 
-      # Once setup is done, one named bill can still change. Challenge
-      # participants keep their single household reviews.
-      def saved_bills_reader_context(session)
-        return if savings_program_selected?
+      def setup_card_turn_from_intent(session, content, intent_result)
+        return unless @participant_reading&.available && !@participant_reading.care?
+        changes = HouseholdFinance::MiaSetupCardIntent.new(current_household, message: content).changes(intent_result)
+        return unless changes
+        turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session,
+          reading: @participant_reading.with(setup_changes: changes, question: false), message: content)
+        turn if turn.plan
+      end
 
-        HouseholdFinance::MiaSetupCardTurn.saved_bills(current_household, user: current_user, session: session)
+      # What it couldn't put on the card, it asks about rather than guessing.
+      def unlogged_event_reply
+        if @setup_card_turn&.plan&.update_text.present?
+          "I haven't logged what you paid yet. Tell me where it was and I'll set it up as a purchase for you to review. Nothing saves until you check the card and tap Apply."
+        else
+          "That sounds like something you paid, not a change to your bills, so I left your plan as it is. Tell me where it was and I'll set it up as a purchase for you to review. Nothing changed."
+        end
+      end
+
+      def setup_card_coaching_turn(_intent_result, content, clarify:, reply: "Tell me the new amount and what it's for, and I'll put it on a card for you to check. Nothing changed.")
+        clarification = clarify ? reply : ""
+        HouseholdFinance::MiaIntentResolver::Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: content,
+          needs_clarification: clarify, clarification: clarification, topic: {}, action: { type: "none" }, read_only_plan: {}, source: "deterministic")
       end
 
       def setup_card_reader_context(session)
-        return unless setup_card_mode?(session)
+        return unless setup_card_mode?
 
         HouseholdFinance::MiaSetupCardTurn.reader_context(current_household, user: current_user, session: session)
       end
 
-      # Challenge participants keep their single household reviews; setup by
-      # chat belongs to the household program.
-      def setup_card_mode?(session)
-        return false unless HouseholdFinance::MiaSetupCardTurn.open?(current_household, user: current_user, session: session)
-        !savings_program_selected?
-      end
+      # Every household participant sets up and changes household details on
+      # the one change card, before setup is finished and after. Challenge
+      # participants keep their single household reviews.
+      def setup_card_mode? = !savings_program_selected?
 
       def setup_card_resumed_content(assistant_content, session, intent_result, content)
-        return assistant_content if @setup_card_guide_turn || @participant_reading&.care? || intent_result&.actionable? || intent_result&.needs_clarification || (!@participant_reading&.available && HouseholdFinance::ParticipantCare.required?(content))
+        # What she changed on the card is always said, even when another review
+        # (a purchase she mentioned) is the main answer.
+        lead = @setup_card_turn&.plan&.update_text
+        if @setup_card_guide_turn || @participant_reading&.care? || intent_result&.actionable? || intent_result&.needs_clarification || (!@participant_reading&.available && HouseholdFinance::ParticipantCare.required?(content))
+          return [ lead, assistant_content ].compact_blank.join(" ")
+        end
         active = HouseholdFinance::MiaSetupCardTurn.active_field(session)
         return assistant_content unless @setup_card_turn || active
 
@@ -682,7 +721,7 @@ module Api
         question = nil if field && HouseholdFinance::MiaSetupCardReply::QUESTIONS.fetch(field).any? { |variant| assistant_content.include?(variant) }
         # One question per reply: the coach already asked one.
         question = nil if assistant_content.to_s.rstrip.end_with?("?")
-        [ @setup_card_turn&.plan&.update_text, assistant_content, question ].compact_blank.join(" ")
+        [ lead, assistant_content, question ].compact_blank.join(" ")
       end
 
       def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil)
@@ -713,7 +752,7 @@ module Api
 
       def require_savings_chat_access!
         cohort = current_cohort_membership.cohort.reload
-        enrollment = SavingsEnrollment.find_by(household: current_household, user: current_user, cohort: cohort)
+        enrollment = SavingsEnrollment.in_use.find_by(household: current_household, user: current_user, cohort: cohort)
         SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: cohort, enrollment: enrollment).call!
         enrollment
       end

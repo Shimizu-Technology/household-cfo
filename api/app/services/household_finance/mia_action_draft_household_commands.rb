@@ -39,6 +39,8 @@ module HouseholdFinance
     def structured_household_setup_proposal
       requested = command.fetch(:setup_updates, {}).to_h.symbolize_keys.slice(*SETUP_KEYS)
         .select { |_key, value| value.to_s.strip.present? }
+      @setup_bills = requested_setup_bills
+      @setup_bills.each { |key, bills| requested[key] = Money.dollars(bills.fetch("keep").sum { |bill| bill.fetch("cents") }).to_s }
       return validation_result("Tell me which household number or goal you want to update. Nothing changed.") if requested.empty?
 
       ambiguous_income = { primary_income: "job", business_income: "business" }.find do |key, source_type|
@@ -56,7 +58,7 @@ module HouseholdFinance
       changed = normalized.filter_map do |key, value|
         before = normalized_setup_value(key, before_values.fetch(key))
         requires_confirmation = key.in?(SetupStatus::REQUIRED_FIELDS) && !confirmed_fields.include?(key.to_s)
-        next if before == value && !requires_confirmation
+        next if before == value && !requires_confirmation && !setup_bills_changed?(key)
 
         [ key, before, value, requires_confirmation ]
       end
@@ -358,6 +360,7 @@ module HouseholdFinance
     end
 
     def setup_domain_item(key, before, after)
+      return setup_bill_items(key) if @setup_bills.to_h.key?(key)
       return if before == after
       return setup_profile_items(key, before, after) if key.in?(SETUP_TEXT_KEYS)
       return setup_income_item(key, after) if key.in?(%i[primary_income business_income])
@@ -436,6 +439,59 @@ module HouseholdFinance
       item = setup_item_from_command(command)
       item.payload[:carry_forward] = true if item.is_a?(MiaActionDraftBuilder::Item)
       item
+    end
+
+    # Named bills from the change card: { keep: [{label, cents, saved_label,
+    # saved_cents}], remove: [saved_label] }. Each bill is its own budget row
+    # in its Expense Stack layer.
+    def requested_setup_bills
+      command.fetch(:setup_bills, {}).to_h.each_with_object({}) do |(key, bills), requested|
+        key = key.to_sym
+        next unless HouseholdFieldRegistry::BILL_KEYS.include?(key.to_s)
+        bills = bills.to_h.stringify_keys
+        keep = Array(bills["keep"]).map { |bill| bill.to_h.stringify_keys.slice("label", "cents", "saved_label", "saved_cents") }
+        next if keep.any? { |bill| bill["label"].to_s.squish.blank? || !bill["cents"].is_a?(Integer) || bill["cents"].negative? }
+        requested[key] = { "keep" => keep, "remove" => Array(bills["remove"]).map(&:to_s) }
+      end
+    end
+
+    def setup_bills_changed?(key)
+      bills = @setup_bills.to_h[key]
+      return false unless bills
+      bills.fetch("remove").any? || bills.fetch("keep").any? { |bill| bill["saved_label"].blank? || bill["cents"] != bill["saved_cents"] }
+    end
+
+    def setup_bill_items(key)
+      bills = @setup_bills.fetch(key)
+      stack_key = HouseholdFieldRegistry.stack_key(key)
+      months = PlanCoverage.new(household).month_numbers(annual_budget_manager.year)
+      # A bill is found only in its own layer, so a same-named row elsewhere in
+      # the budget is never archived or reallocated by mistake.
+      in_layer = household.budget_categories.active.where(stack_key: stack_key)
+      items = bills.fetch("remove").map do |name|
+        category = in_layer.where("LOWER(name) = ?", name.downcase).first
+        next validation_result("#{name} isn't in your budget any more. Nothing changed.") unless category
+        next validation_result("#{category.name} has a purchase waiting for your review. Review that purchase first, then ask me again. Nothing changed.") if category.purchases_waiting?
+        setup_item_from_command(type: "archive_category", category_id: category.id, category_name: category.name)
+      end
+      bills.fetch("keep").each do |bill|
+        next if bill["saved_label"].present? && bill["cents"] == bill["saved_cents"]
+        name = bill["saved_label"].presence || bill.fetch("label").to_s.squish
+        category = in_layer.where("LOWER(name) = ?", name.downcase).first
+        saved = category && household.expense_items.where(active: true, stack_key: stack_key).where("LOWER(label) = ?", name.downcase).sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
+        next if category && saved == bill.fetch("cents")
+        if category
+          items << setup_item_from_command(type: "set_allocation", category_id: category.id, category_name: category.name, amount: Money.dollars(bill.fetch("cents")).to_s, months: months, year: annual_budget_manager.year)
+        elsif (other = household.budget_categories.where("LOWER(name) = ?", name.downcase).first)
+          items << validation_result(other.active? ? "#{name} is already a row elsewhere in your budget. Give this one a different name. Nothing changed." : "#{name} was taken off earlier and stays in your history under that name. Give this one a different name. Nothing changed.")
+        else
+          items << setup_item_from_command(type: "create_category", new_name: name, stack_key: stack_key, amount: Money.dollars(bill.fetch("cents")).to_s, months: months, year: annual_budget_manager.year)
+        end
+      end
+      failed = items.find { |item| item.is_a?(MiaActionDraftBuilder::Result) }
+      return failed if failed
+      items.each { |item| item.payload[:carry_forward] = true if item.action_type.in?(%w[create_category update_allocation]) }
+      items
     end
 
     def setup_account_item(key, after)

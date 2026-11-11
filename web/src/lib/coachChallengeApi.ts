@@ -56,6 +56,8 @@ export type SponsorIndex = {
   actor_scope: CoachChallengeScope
   cohort_id: number
   today_on?: string
+  // False for a platform administrator who reads reports but is not on the group's team.
+  can_seal?: boolean
   scheduled_checkpoints: Array<{ day: number; cutoff_on: string | null; sealable?: boolean }>
   records: Array<{ id: number; checkpoint_day: number; resolved_cutoff_on: string; created_at: string }>
   next_cursor: number | null

@@ -4,8 +4,9 @@ require "digest"
 require "json"
 
 module SavingsChallenge
-  # Audited, platform-admin-only control that opens or pauses a cohort's savings
-  # challenge. It is the only supported way to change the cohort's
+  # Audited control that platform administrators and the owner of the group's
+  # coach workspace use to open or pause a cohort's savings challenge. It is the
+  # only supported way to change the cohort's
   # savings_challenge_enabled / savings_challenge_release_hold flags; participant
   # access itself is still decided by SavingsChallenge::AccessPolicy.
   class LaunchControl
@@ -16,6 +17,18 @@ module SavingsChallenge
 
     Result = Data.define(:event, :replayed) # event is nil for a no-op pause
     OPEN_STATUSES = %w[enrolling active].freeze
+
+    # "platform_admin", "program_owner", or nil when this person may not change it.
+    def self.actor_role(user, cohort)
+      return unless user&.staff? && !user.revoked?
+      return "platform_admin" if user.admin?
+
+      "program_owner" if cohort.coach_workspace.membership_for(user)&.role == "owner"
+    end
+
+    def self.can_change?(user, cohort)
+      actor_role(user, cohort).present?
+    end
 
     def initialize(cohort:, actor: nil)
       @cohort = cohort
@@ -68,9 +81,8 @@ module SavingsChallenge
 
       cohort.with_lock do
         locked_actor = User.lock.find_by(id: actor&.id)
-        unless locked_actor&.admin? && !locked_actor.revoked?
-          raise NotAuthorized, "Only a platform administrator can open or pause the savings challenge."
-        end
+        actor_role = self.class.actor_role(locked_actor, cohort)
+        raise NotAuthorized, "Only this group's program owner or a platform administrator can open or pause the savings challenge." unless actor_role
 
         fingerprint = Digest::SHA256.hexdigest(JSON.generate(
           "schema" => "cohort_challenge_access_request_v1", "cohort_id" => cohort.id, "action" => action,
@@ -106,7 +118,7 @@ module SavingsChallenge
         end
         event = cohort.cohort_challenge_access_events.create!(
           coach_workspace_id: cohort.coach_workspace_id, actor_user: locked_actor, cohort_release_id: cohort.active_cohort_release_id,
-          action: action, actor_role_snapshot: "platform_admin", reason: text,
+          action: action, actor_role_snapshot: actor_role, reason: text,
           from_state: from_state, to_state: state_for(cohort, blockers),
           enabled_before: before[:enabled], hold_before: before[:hold],
           enabled_after: cohort.savings_challenge_enabled, hold_after: cohort.savings_challenge_release_hold,

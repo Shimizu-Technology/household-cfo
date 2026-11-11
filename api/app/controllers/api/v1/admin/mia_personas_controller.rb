@@ -255,6 +255,7 @@ module Api
             id: cohort.id,
             name: cohort.name,
             status: cohort.status,
+            coach_workspace_id: cohort.coach_workspace_id,
             assignable: mutable,
             blocked_reason: mutable ? nil : "Completed and archived cohorts are read-only.",
             persona_assignment: assignment && Mia::PersonaStudioSerializer.new(assignment.coach_persona, policy: policy).serialize_assignment(assignment)

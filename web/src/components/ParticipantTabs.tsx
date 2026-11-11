@@ -9,7 +9,6 @@ export type ParticipantTabsProps = {
   sections: string[]
   activeSection: string
   onChange: (section: string) => void
-  staffOnly?: boolean
   savingsChallenge?: boolean
   customModuleOrder?: boolean
 }
@@ -24,8 +23,6 @@ const sectionDescriptions: Record<string, string> = {
   Wealth: 'See debt, assets, and long-range capacity.',
   'CFO Filter': 'Pressure-test a purchase before money moves.',
   Optionality: 'Compare choices against stability and runway.',
-  'Coach Studio': 'Daily coaching and program settings.',
-  Admin: 'Manage pilot access and cohort operations.',
 }
 
 const sectionIconPaths: Record<string, string> = {
@@ -63,19 +60,7 @@ function sectionHref(section: string) {
 }
 
 export function ParticipantTabs(props: ParticipantTabsProps) {
-  return props.staffOnly ? <StaffNavigation sections={props.sections} activeSection={props.activeSection} onChange={props.onChange} /> : <ParticipantNavigation {...props} />
-}
-
-/** W5 supplies role-filtered routes and the initial staff route; this component only renders navigation. */
-export function StaffNavigation({ sections, activeSection, onChange }: Pick<ParticipantTabsProps, 'sections' | 'activeSection' | 'onChange'>) {
-  const destinations = sections.filter(section => section === 'Coach Studio' || section === 'Admin')
-  return <nav className="staff-navigation" aria-label="Staff sections">
-    {destinations.map(section => <a key={section} href={sectionHref(section)} aria-current={activeSection === section ? 'page' : undefined} onClick={event => {
-      if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-      event.preventDefault()
-      onChange(section)
-    }}>{section}</a>)}
-  </nav>
+  return <ParticipantNavigation {...props} />
 }
 
 function ParticipantNavigation({ sections, activeSection, onChange, savingsChallenge = false, customModuleOrder = false }: ParticipantTabsProps) {

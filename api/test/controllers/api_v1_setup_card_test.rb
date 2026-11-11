@@ -68,7 +68,8 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     assert_equal 4, row(first, "fixed_expenses")["parts"].length
     assert_match(/Added rent \$1,000, power \$140, water \$30, and internet \$85/, first.dig("assistant_message", "content"))
     assert_match(/Fixed essentials are \$1,255 so far/, first.dig("assistant_message", "content"))
-    assert_equal "missing", row(first, "primary_income")["status"]
+    assert_nil row(first, "primary_income"), "only the rows she is changing are on the card"
+    assert_includes card.dig("setup_card", "still_to_add"), "Monthly income"
     assert_nil HouseholdFinance::SetupStatus.new(@household.reload).confirmed_field_keys.find { |key| key == "fixed_expenses" }
 
     second = say("take out the internet, landlord covers it now",
@@ -85,7 +86,7 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
 
   test "nothing saves before Apply and partial Apply leaves unknown unknown" do
     first = say("hi this is marie, camacho ohana. i bring home 3200", read(setup: changes(household_name: "camacho ohana", primary_income: money(total_amount: "3200", total_cadence: "monthly", total_source: "i bring home 3200"))))
-    assert_equal "missing", row(first, "fixed_expenses")["status"]
+    assert_includes card_of(first).dig("setup_card", "still_to_add"), "Fixed essentials"
     assert_equal [], HouseholdFinance::SetupStatus.new(@household.reload).confirmed_field_keys
     applied = apply(card_of(first))
     values = applied.dig("workspace", "workspace", "setup_values")
@@ -126,7 +127,8 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     assert_match(/money to do/, body.dig("assistant_message", "content"))
     assert_equal [ "household_name" ], @household.reload.setup_skipped_fields
     second = say("we bring home 4000", read(setup: changes(primary_income: money(total_amount: "4000", total_cadence: "monthly", total_source: "we bring home 4000"))))
-    assert_equal "skipped", row(second, "household_name")["status"]
+    assert_equal [ "Household name" ], card_of(second).dig("setup_card", "skipped")
+    assert_not_includes card_of(second).dig("setup_card", "still_to_add"), "Household name"
     apply(card_of(second))
     assert_not_includes last_reply, "call your household"
     assert_match(/money to do/, last_reply)
@@ -153,7 +155,8 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     row_ = row(body, "flexible_spend")
     assert_equal "needs_monthly", row_["status"]
     assert_equal 8_000, row_["total_cents"]
-    assert_equal "$200 a week", row_["parts"].first["note"]
+    assert_equal "$200 a week, about $867 a month if that's right", row_["parts"].first["note"]
+    assert_match(/That's about \$867 a month \(200 × 52 ÷ 12\)\. Use \$867\?\z/, body.dig("assistant_message", "content"))
     assert_includes card_of(body).fetch("items").flat_map { |item| item.dig("payload", "confirmed_fields").to_a }, "flexible_spend"
     edited = patch_card(card_of(body), field: "flexible_spend", action_name: "set", part_id: row_["parts"].first["id"], value: "860")
     updated = edited["mia_action_draft"]["setup_card"]["rows"].find { |item| item["key"] == "flexible_spend" }
@@ -482,7 +485,7 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     assert body
     card = card_of(say("groceries 200 a week", read(setup: changes(flexible_spend: money(parts: [ part("add", "groceries", "200", source: "groceries 200 a week") ])))))
     unskip = patch_card(card, field: "primary_goal", action_name: "unskip")
-    assert_equal "missing", unskip["mia_action_draft"]["setup_card"]["rows"].find { |item| item["key"] == "primary_goal" }["status"]
+    assert_includes unskip["mia_action_draft"]["setup_card"]["still_to_add"], "Main goal"
     assert_equal [], @household.reload.setup_skipped_fields
     @household.mia_action_drafts.find(card["id"]).update!(status: "canceled")
     patch "/api/v1/mia_action_drafts/#{card['id']}/setup_card", params: { field: "primary_income", action_name: "set", value: "100" }, headers: auth, as: :json
@@ -502,7 +505,7 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     row_ = result["mia_action_draft"]["setup_card"]["rows"].find { |item| item["key"] == "household_name" }
     assert_equal "Camacho Ohana", row_["value_text"]
     skip = patch_card(card, field: "primary_goal", action_name: "skip")
-    assert_equal "skipped", skip["mia_action_draft"]["setup_card"]["rows"].find { |item| item["key"] == "primary_goal" }["status"]
+    assert_equal [ "Main goal" ], skip["mia_action_draft"]["setup_card"]["skipped"]
     assert_equal [ "primary_goal" ], @household.reload.setup_skipped_fields
     patch "/api/v1/mia_action_drafts/#{card['id']}/setup_card", params: { field: "fixed_expenses", action_name: "set", part_id: "nope", value: "abc" }, headers: auth, as: :json
     assert_response :unprocessable_entity

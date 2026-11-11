@@ -74,6 +74,9 @@ class User < ApplicationRecord
     dependent: :restrict_with_exception, inverse_of: :actor_user
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
+  has_many :preview_seats, -> { previews }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :user
+  # A left seat that an enrollment still points at stays as history, but never blocks deleting the person.
+  has_many :ended_preview_seats, -> { with_previews.where(role: CohortMembership::ENDED_PREVIEW_ROLE) }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :user
   has_many :coach_workspace_memberships, dependent: :restrict_with_exception, inverse_of: :user
   has_many :coach_workspaces, through: :coach_workspace_memberships
   has_many :created_coach_workspaces, class_name: "CoachWorkspace", foreign_key: :created_by_user_id,
@@ -102,6 +105,25 @@ class User < ApplicationRecord
 
   def staff?
     admin? || coach?
+  end
+
+  # Everyone who can sign in has their own household and uses the same app a
+  # participant does; `role` only decides what else they may manage. Whether the
+  # household is theirs to write is the owner/partner membership each caller
+  # already checks.
+  def household_seat?
+    !revoked?
+  end
+
+  # Anyone may use their own household. The exception is a participant's pilot
+  # household: only the participant uses it, so staff never reach one.
+  def household_seat_in?(household)
+    household_seat? && !(staff? && ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household))
+  end
+
+  # The cohort membership role this person sits in the app with.
+  def seat_role
+    CohortMembership.seat_role_for(self)
   end
 
   def invitation_pending?

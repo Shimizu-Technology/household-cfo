@@ -273,3 +273,22 @@ describe('sealing a checkpoint report explains why it is unavailable', () => {
     expect(button.getAttribute('aria-describedby')).toBeNull()
   })
 })
+
+describe('the Reports section', () => {
+  it('shows only a group’s checkpoint reports, never its people list, and lets a platform administrator read but not save', async () => {
+    vi.mocked(coachChallengeApi.exports).mockResolvedValue({
+      actor_scope: { user_id: 10, coach_workspace_id: 77 }, cohort_id: 1, next_cursor: null, can_seal: false,
+      records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-11-30', created_at: '2026-11-30T00:00:00Z' }],
+      scheduled_checkpoints: [{ day: 30, cutoff_on: '2026-11-30', sealable: true }, { day: 60, cutoff_on: null }, { day: 90, cutoff_on: null }],
+    })
+    // No program chosen (an administrator across programs): the group names its own program.
+    render(<CoachChallengeDashboard userId={10} workspaceId={null} cohorts={[{ id: 1, name: 'Synthetic cohort', coach_workspace_id: 77 }]} reportsOnly />)
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '1' } })
+    fireEvent.click(await screen.findByText('Review scheduled reports'))
+    expect(await screen.findByText(/You can read saved reports here/)).toBeTruthy()
+    expect(screen.getByText(/Read saved Day 30/)).toBeTruthy()
+    expect(screen.queryByText('Save reviewed Day 30 report')).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(coachChallengeApi.daily).not.toHaveBeenCalled()
+  })
+})

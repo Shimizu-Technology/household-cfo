@@ -172,7 +172,7 @@ module Api
       def require_savings_access!
         raise SavingsChallenge::AccessPolicy::Unavailable, "Select an available savings challenge" unless current_cohort_membership
         @savings_cohort = current_cohort_membership.cohort
-        @savings_enrollment = SavingsEnrollment.find_by(household_id: current_household.id, user_id: current_user.id, cohort_id: @savings_cohort.id)
+        @savings_enrollment = SavingsEnrollment.in_use.find_by(household_id: current_household.id, user_id: current_user.id, cohort_id: @savings_cohort.id)
         SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: @savings_cohort, enrollment: @savings_enrollment).call!
       end
 
@@ -208,7 +208,7 @@ module Api
           operation_key: operation_key, input: input.merge(cohort_id: @savings_cohort.id, **server_fields), idempotency_key: key
         )
         card&.update!(status: "closed", state: { entry_draft_id: result.subject.id })
-        @savings_enrollment = SavingsEnrollment.find_by!(household_id: current_household.id, user_id: current_user.id, cohort_id: @savings_cohort.id)
+        @savings_enrollment = SavingsEnrollment.in_use.find_by!(household_id: current_household.id, user_id: current_user.id, cohort_id: @savings_cohort.id)
         render json: { record: SavingsChallenge::ParticipantSerializer.record(result.subject), replayed: result.replayed?, challenge: challenge_data }
       end
 

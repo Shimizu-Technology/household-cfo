@@ -24,6 +24,21 @@ class SavingsDebtPostgresqlTest < ActiveSupport::TestCase
     end
   end
 
+  test "a staff member's preview enrollment can stage and approve an optional card, and a withdrawn one cannot" do
+    with_savings_runtime do
+      admin = User.create!(clerk_id: "clerk_preview_#{SecureRandom.hex(6)}", email: "preview-#{SecureRandom.hex(6)}@example.com", role: "admin", invitation_status: "accepted")
+      seat = PreviewSeats.join!(user: admin, cohort_id: @savings_cohort.id)
+      @savings_user, @savings_household = admin, HouseholdFinance::WorkspaceResolver.new(admin).household
+      digest = SavingsChallenge::EnrollmentOffer.call(cohort: @savings_cohort.reload, user: admin, membership: seat).fetch(:acceptance_digest)
+      @savings_enrollment = savings_run("enrollment.accept", { participation_accepted: true, policy_version: "1", late_start_accepted: true, expected_acceptance_digest: digest }).subject
+      assert @savings_enrollment.preview?
+      version = debt_approve(debt_stage)
+      assert_equal admin.id, version.savings_debt_card.user_id
+      @savings_enrollment.update!(status: "withdrawn")
+      assert_raises(SavingsChallenge::AccessPolicy::Unavailable) { debt_stage }
+    end
+  end
+
   test "PostgreSQL terms contract rejects float currency hidden fields and false paid-off claims" do
     normalized = SavingsChallenge::Debt::Terms.normalize(debt_terms)
     bad = [ normalized.merge("balance_cents" => 1.5), normalized.merge("apr_bps" => -1), normalized.merge("status" => nil), normalized.merge("status" => "paid_off"), normalized.merge("currency" => "USD"), normalized.merge("as_of_on" => "2026-02-30") ]
