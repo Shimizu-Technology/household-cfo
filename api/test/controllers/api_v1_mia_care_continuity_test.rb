@@ -169,7 +169,9 @@ class ApiV1MiaCareContinuityTest < ActionDispatch::IntegrationTest
     assert_equal "crisis", @household.chat_sessions.order(:id).last.active_topic.fetch("care_kind")
     [ "thanks", "idk" ].each do |text|
       ask(text)
-      refute_match(/Glad to help|setup|purchase|debt minimum/i, reply)
+      refute_match(/Glad to help|Next setup question|Start with one purchase|debt minimum/i, reply)
+      assert_includes reply, "988"
+      assert_includes reply, "Put distance between you and"
       assert_match(/trust/, reply)
     end
     ask("wish i was dead")

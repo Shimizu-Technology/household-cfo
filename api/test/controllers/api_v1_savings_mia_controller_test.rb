@@ -297,11 +297,15 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_nil response.parsed_body["savings_intake"], kind
     end
     post "/api/v1/mia/messages", params: { message: "No spending today", request_id: "safety-after" }, headers: auth, as: :json
-    assert_equal false, response.parsed_body.dig("assistant_message", "safety_reply")
+    assert_equal true, response.parsed_body.dig("assistant_message", "safety_reply"), "a money report cannot end unresolved crisis care"
+    assert_equal true, response.parsed_body.dig("assistant_message", "care_hold")
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "988"
+    assert_nil response.parsed_body["savings_intake"]
+    assert_nil response.parsed_body["challenge_chat_card"]
     get "/api/v1/mia/messages", headers: auth
     assert_response :success
     flags = response.parsed_body.fetch("messages").select { |row| row["role"] == "assistant" }.map { |row| row["safety_reply"] }
-    assert_equal [ true, true, false ], flags.last(3)
+    assert_equal [ true, true, true ], flags.last(3)
   end
 
   test "goal changes prepare a review card without writing a plan, and saved money gets a plain reply" do
