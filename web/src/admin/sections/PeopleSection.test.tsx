@@ -202,6 +202,8 @@ describe('one person', () => {
     api.fetchAdminUsers.mockResolvedValue([ana, rae])
     expect(await screen.findByText('The invitation for Bea Bounced was cancelled.')).toBeTruthy()
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // The row the dialog came from is gone, so focus goes to the People heading rather than the page body.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'People' })))
   })
   it('shows a failed cancel plainly and keeps the person', async () => {
     api.cancelAdminUserInvitation.mockRejectedValue(new Error('This person already joined, so there is no invitation to cancel.'))

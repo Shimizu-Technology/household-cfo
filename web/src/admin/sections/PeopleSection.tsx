@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AdminUser, CurrentUser, UserRole } from '../../api'
 import { Button } from '../../components/Button'
 import { useMatchMedia } from '../../lib/useMatchMedia'
@@ -33,6 +33,9 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
   const [inviting, setInviting] = useState(false)
   const [shown, setShown] = useState(PAGE)
   const [note, setNote] = useState<string | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  // When a person leaves the list the dialog's own row is gone, so the page heading takes focus once the dialog has closed.
+  useEffect(() => { if (note) heading.current?.focus({ preventScroll: true }) }, [note])
   // Only platform administrators see whether an email arrived; for everyone else the chip would always read 0.
   const showsDelivery = people.some(person => person.invite_email.status !== 'hidden')
   const mixedRoles = people.some(person => person.role !== 'participant')
@@ -68,7 +71,7 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
 
   return <section className="admin-section" aria-busy={loading}>
     <header className="admin-section-head">
-      <div><h2 data-page-heading tabIndex={-1}>People</h2><p>Everyone you coach, and who has joined.</p></div>
+      <div><h2 ref={heading} data-page-heading tabIndex={-1}>People</h2><p>Everyone you coach, and who has joined.</p></div>
       <Button onClick={() => setInviting(true)} disabled={loading}>Invite people</Button>
     </header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
