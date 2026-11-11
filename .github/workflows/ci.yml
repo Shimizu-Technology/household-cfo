@@ -199,9 +199,10 @@ jobs:
         # GitHub's Ubuntu image already carries the libraries Chromium and WebKit need, and the browser
         # itself downloads from Playwright's CDN, not the Ubuntu archive.
         run: |
+          # apt can hang rather than fail when the archive is unreachable, so each attempt is time-boxed.
           for attempt in 1 2; do
-            if npx playwright install --with-deps ${{ matrix.browser }}; then exit 0; fi
-            echo "::warning::playwright install --with-deps failed (attempt $attempt)"
+            if timeout 300 npx playwright install --with-deps ${{ matrix.browser }}; then exit 0; fi
+            echo "::warning::playwright install --with-deps failed or timed out (attempt $attempt)"
             sleep 20
           done
           echo "::warning::Falling back to installing ${{ matrix.browser }} without system packages"
