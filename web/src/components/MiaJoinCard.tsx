@@ -81,7 +81,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
   if (alreadyIn) return null
   if (loadFailed) {
-    return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss" onClick={onDone}>Not now</button></div></section>
+    return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setRefreshing(true); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss" onClick={onDone}>Not now</button></div></section>
   }
   if (!challenge || !offer) return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge" aria-busy="true"><h3>Join the 90-day savings challenge</h3><p role="status">Getting your joining details…</p></section>
 

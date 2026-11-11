@@ -39,6 +39,16 @@ class AllowPurchaseChangeReviewsTest < ActiveSupport::TestCase
     assert_equal 1, purchase.reload.mia_action_items.count
   end
 
+  test "rollback refuses on a change_purchase item alone, with no purchase_change draft" do
+    draft = create_draft("asset_plan")
+    item = draft.mia_action_items.create!(action_type: "change_purchase", position: 0, label: "Change Target")
+    assert_not MiaActionDraft.exists?(draft_type: "purchase_change")
+
+    error = assert_raises(ActiveRecord::IrreversibleMigration) { AllowPurchaseChangeReviews.new.migrate(:down) }
+    assert_includes error.message, "Purchase change reviews exist"
+    assert MiaActionItem.exists?(item.id)
+  end
+
   private
 
   def create_draft(type)

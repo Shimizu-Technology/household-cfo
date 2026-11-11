@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AppData, MiaActionDraft } from '../api'
-import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './workspaceView'
+import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer } from './workspaceView'
 
 function workspace(year: number, householdId = 1, actual = 25): AppData {
   return {
@@ -145,4 +145,28 @@ it('recognizes local and shared financial commits without treating ordinary hydr
   state = workspaceViewReducer(state, { type: 'financial_mutation', update: workspace(2026, 1, 90) })
   expect(state.budgets[2027]).toBeDefined()
   expect(state.homeBudget?.annual_plan?.rows[0].months[0].actual).toBe(90)
+})
+
+describe('choosing a purchase from another budget year', () => {
+  const draftIn = (year: number, mode: 'choose' | 'confirm') => ({ id: 5, year, purchase_change: { mode } })
+  const withDraft = (year: number, mode: 'choose' | 'confirm') => {
+    const data = workspace(year)
+    ;(data.budget.annual_plan as unknown as { pending_mia_action_drafts: unknown[] }).pending_mia_action_drafts = [draftIn(year, mode)]
+    return data
+  }
+
+  it('shows the returned year, whose review is the confirmation step, not the cached choice', () => {
+    let state = workspaceViewReducer({ data: null, homeBudget: null, budgets: {} }, withDraft(2026, 'choose'))
+    const returned = withDraft(2025, 'confirm')
+    state = workspaceViewReducer(state, { type: 'financial_mutation', update: returned })
+    const view = budgetViewForWorkspace(returned, 3)
+    expect(view).toEqual({ year: 2025, monthIndex: 3 })
+    const shown = state.budgets[view!.year].annual_plan as unknown as { pending_mia_action_drafts: Array<{ purchase_change: { mode: string } }> }
+    expect(shown.pending_mia_action_drafts[0].purchase_change.mode).toBe('confirm')
+    expect((state.budgets[2026].annual_plan as unknown as { pending_mia_action_drafts: Array<{ purchase_change: { mode: string } }> }).pending_mia_action_drafts[0].purchase_change.mode).toBe('choose')
+  })
+
+  it('leaves the view alone when the workspace has no plan', () => {
+    expect(budgetViewForWorkspace({ budget: { annual_plan: null } } as unknown as AppData, 0)).toBeNull()
+  })
 })

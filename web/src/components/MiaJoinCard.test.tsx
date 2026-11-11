@@ -120,3 +120,23 @@ it('while the changed offer is being fetched, the old one cannot be accepted, an
   await waitFor(() => expect(enrollSavingsChallenge).toHaveBeenCalledTimes(2))
   expect(vi.mocked(enrollSavingsChallenge).mock.calls[1][0]).toMatchObject({ expected_acceptance_digest: 'digest-2' })
 })
+
+it('keeps the old offer locked while Try again is loading, and unchecks it if the offer changed', async () => {
+  let resolveRetry: (value: ReturnType<typeof challenge>) => void = () => {}
+  vi.mocked(fetchSavingsChallenge)
+    .mockResolvedValueOnce(challenge())
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockReturnValueOnce(new Promise(resolve => { resolveRetry = resolve }))
+  render(<MiaJoinCard onJoined={vi.fn()} onDone={vi.fn()} />)
+  await screen.findByText(/Your 90 days/)
+  vi.mocked(enrollSavingsChallenge).mockRejectedValueOnce(new ApiRequestError('changed', { status: 409 }))
+  fireEvent.click(screen.getByLabelText(/I’ve read this/))
+  fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
+  await screen.findByText(/couldn’t load the joining details/)
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.getByLabelText(/I’ve read this/).closest('fieldset')?.disabled).toBe(true)
+  resolveRetry(challenge({ offer: offer({ acceptance_digest: 'new-digest' }) }))
+  await waitFor(() => expect(screen.getByLabelText(/I’ve read this/).closest('fieldset')?.disabled).toBe(false))
+  expect((screen.getByLabelText(/I’ve read this/) as HTMLInputElement).checked).toBe(false)
+})

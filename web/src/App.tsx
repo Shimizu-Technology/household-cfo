@@ -101,7 +101,7 @@ import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './
 import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/householdDate'
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
-import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
+import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
@@ -2970,6 +2970,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     try {
       const workspace = await chooseMiaPurchase(draft.id, option)
       setData({ type: 'financial_mutation', update: workspace })
+      const view = budgetViewForWorkspace(workspace, selectedBudgetMonthIndex)
+      if (view) setBudgetView(view)
       return true
     } catch (caught) {
       const message = participantErrorMessage(caught, 'I couldn’t open that purchase. Nothing changed.')
