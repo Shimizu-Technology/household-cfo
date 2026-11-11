@@ -53,6 +53,16 @@ describe('staff operation hierarchy', { timeout: 30_000 }, () => {
     await screen.findByText('Request #91: In review.')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Participants & access' })).toHaveProperty('disabled', false))
   })
+  it('opens Support on setup requests for a program owner, who cannot read the platform problem inbox', async () => {
+    supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [], next_cursor: null })
+    const owner = { id: 3, is_admin: false, coach_workspaces: [{ id: 2, name: 'Mel coaching' }] } as CurrentUser
+    render(<AdminConsole currentUser={owner} view="feedback" />)
+    await screen.findByRole('button', { name: 'Setup requests' })
+    expect(screen.queryByRole('button', { name: 'Problems reported' })).toBeNull()
+    expect(screen.queryByText('Private support inbox')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Setup requests' }).getAttribute('aria-pressed')).toBe('true')
+    await waitFor(() => expect(supportMocks.fetchSetupSupportRequests).toHaveBeenCalled())
+  })
   it('pages thirty participants in fifteen compact access rows and separates support from the participant task', async () => {
     render(<AdminConsole currentUser={actor} />)
     await screen.findAllByText('Participant 00', {}, { timeout: 3000 })

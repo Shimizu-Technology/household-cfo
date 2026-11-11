@@ -21,20 +21,33 @@ import { SetupSupportInbox } from './SetupSupportInbox'
 import { DisabledReason } from './DisabledReason'
 import './CoachChallengeDashboard.css'
 
-type Props = { userId: number; workspaceId: number; cohorts: Array<{ id: number; name: string }>; selectedCohortId?: number | null }
-export function CoachChallengeDashboard(props: Props) {
-  return <Dashboard key={`${props.userId}:${props.workspaceId}`} {...props} />
+type Props = {
+  userId: number
+  workspaceId: number | null
+  cohorts: Array<{ id: number; name: string; coach_workspace_id?: number }>
+  selectedCohortId?: number | null
+  // The Reports section: the group's saved checkpoint reports only, not the daily people list.
+  reportsOnly?: boolean
 }
-function Dashboard({ userId, workspaceId, cohorts, selectedCohortId }: Props) {
+export function CoachChallengeDashboard(props: Props) {
+  return <Dashboard key={`${props.userId}:${props.workspaceId ?? 'platform'}`} {...props} />
+}
+function Dashboard({ userId, workspaceId, cohorts, selectedCohortId, reportsOnly }: Props) {
   const [localCohortId, setCohortId] = useState<number | null>(null)
   const cohortId = selectedCohortId === undefined ? localCohortId : selectedCohortId
+  // A platform administrator reads groups of any program; the report names the group's own program.
+  const scopeWorkspaceId = cohorts.find((row) => row.id === cohortId)?.coach_workspace_id ?? workspaceId
   return (
     <section className="coach-challenge" aria-label="Daily coaching">
       {selectedCohortId === undefined && <label>Group<select value={cohortId ?? ''} onChange={(event) => setCohortId(event.target.value ? Number(event.target.value) : null)}>
         <option value="">Choose a group</option>
         {cohorts.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
       </select></label>}
-      {cohortId ? <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: workspaceId }} cohortId={cohortId} showHeading={selectedCohortId === undefined} /> : <p>Choose a group to see who needs you.</p>}
+      {cohortId && scopeWorkspaceId !== null
+        ? reportsOnly
+          ? <SponsorReports key={cohortId} scope={{ user_id: userId, coach_workspace_id: scopeWorkspaceId }} cohortId={cohortId} />
+          : <Group key={cohortId} scope={{ user_id: userId, coach_workspace_id: scopeWorkspaceId }} cohortId={cohortId} showHeading={selectedCohortId === undefined} />
+        : <p>{reportsOnly ? 'Choose a group to see its reports.' : 'Choose a group to see who needs you.'}</p>}
     </section>
   )
 }
@@ -531,6 +544,9 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
               ))}
             </select>
           </label>
+          {index.can_seal === false
+            ? <p>You can read saved reports here. The group’s owner or reviewer saves new ones.</p>
+            : <>
           <label className="coach-challenge-check">
             <input
               type="checkbox"
@@ -558,6 +574,7 @@ function SponsorReports({ scope, cohortId }: { scope: CoachChallengeScope; cohor
             Save reviewed Day {day} report
           </button>
           <DisabledReason id="seal-reason">{sealReason}</DisabledReason>
+            </>}
           {index.records.map((row) => (
             <button
               key={row.id}

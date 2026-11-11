@@ -42,7 +42,7 @@ assert.ok(
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
-assert.ok(app.includes('<h1>{brand.short_name}</h1>'), 'every participant destination should use the release-pinned product header')
+assert.ok(app.includes(": brand.short_name}</h1>"), 'every participant destination should use the release-pinned product header')
 assert.ok(!app.includes('compactShell'), 'participant destinations should not switch shell geometry')
 assert.ok(assistPanel.includes('Update my information') && assistPanel.includes('Ask a question') && app.includes('onChoosePrompt={prepareMiaUpdate}'), 'Mia prompt groups should use consistent prepare-first behavior')
 assert.ok(!assistPanel.includes('More prompts') && assistCss.includes('.mia-assist-prompts { display: grid'), 'all prompt choices should be visible without a misleading horizontal cue')

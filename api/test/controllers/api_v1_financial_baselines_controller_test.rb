@@ -54,17 +54,20 @@ class ApiV1FinancialBaselinesControllerTest < ActionDispatch::IntegrationTest
     assert_empty FinancialBaselineVersion.where(household: @household)
   end
 
-  test "private baseline paths reject coach admin and downgraded member access" do
+  test "private baseline paths reject revoked and downgraded member access, and staff use their own household" do
     %w[coach admin].each do |role|
       @user.update!(role: role)
-      %w[financial_baseline financial_baseline/history financial_baseline/context].each do |path|
-        get "/api/v1/#{path}", headers: auth_headers
-        assert_response :forbidden
-      end
-      post "/api/v1/financial_baseline/preview", params: { request: @baseline_request }, headers: auth_headers, as: :json
-      assert_response :forbidden
+      get "/api/v1/financial_baseline", headers: auth_headers
+      assert_response :success
     end
-    @user.update!(role: "participant")
+    @user.update!(role: "participant", invitation_status: "revoked")
+    %w[financial_baseline financial_baseline/history financial_baseline/context].each do |path|
+      get "/api/v1/#{path}", headers: auth_headers
+      assert_includes [ 401, 403 ], response.status
+    end
+    post "/api/v1/financial_baseline/preview", params: { request: @baseline_request }, headers: auth_headers, as: :json
+    assert_includes [ 401, 403 ], response.status
+    @user.update!(invitation_status: "accepted")
     @household.household_memberships.find_by!(user: @user).update!(role: "coach_viewer")
     get "/api/v1/financial_baseline", headers: auth_headers
     assert_response :forbidden
@@ -105,11 +108,11 @@ class ApiV1FinancialBaselinesControllerTest < ActionDispatch::IntegrationTest
       assert_empty response.parsed_body.fetch("records")
       assert_includes response.headers["Cache-Control"], "no-store"
     end
-    @user.update!(role: "coach")
+    @user.update!(invitation_status: "revoked")
     get "/api/v1/financial_baseline/observations", headers: auth_headers
-    assert_response :forbidden
+    assert_includes [ 401, 403 ], response.status
     get "/api/v1/financial_baseline/request_status?approval_action=approve", headers: auth_headers.merge("Idempotency-Key" => "recovery")
-    assert_response :forbidden
+    assert_includes [ 401, 403 ], response.status
   end
 
   private

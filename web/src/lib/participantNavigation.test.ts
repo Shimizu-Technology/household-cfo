@@ -45,9 +45,9 @@ describe('participant navigation', () => {
 
 })
 
-it('keeps staff sections in More when a custom order enables fewer than four participant tabs', () => {
- expect(partitionParticipantSections(['Ask Mia', 'Home', 'Coach Studio', 'Admin'], false, true)).toEqual({primary:['Ask Mia','Home'],secondary:['Coach Studio','Admin']})
- expect(partitionParticipantSections(['Home','Ask Mia','Statements','Coach Studio'], true, true)).toEqual({primary:['Home','Ask Mia','Statements'],secondary:['Coach Studio']})
+it('uses up to four tabs for a coach\u2019s custom order and keeps the rest in More', () => {
+ expect(partitionParticipantSections(['Ask Mia', 'Home', 'Budget', 'Review', 'Wealth'], false, true)).toEqual({primary:['Ask Mia','Home','Budget','Review'],secondary:['Wealth']})
+ expect(partitionParticipantSections(['Home','Ask Mia','Statements','Wealth'], true, true)).toEqual({primary:['Home','Ask Mia','Statements','Wealth'],secondary:[]})
 })
 
 it('hides Statements on an old profile-based experience when the review contract denies it', () => {

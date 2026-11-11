@@ -7,11 +7,11 @@ module SetupHelp
       raise Denied, "This account cannot review this household setup. Nothing changed." unless allowed
       ChallengePrivacy::PrivateFinanceAccess.authorize!(household, user: actor)
       if cohort_membership
-        selected = Mia::EffectiveCohortResolver.new(user: actor, role: "participant", requested_cohort_id: cohort_membership.cohort_id).call
+        selected = Mia::EffectiveCohortResolver.new(user: actor, role: actor.seat_role, requested_cohort_id: cohort_membership.cohort_id).call
         unless selected&.id == cohort_membership.id && selected.created_at == cohort_membership.created_at
           raise Denied, "Choose your current coaching program before reviewing setup. Nothing changed."
         end
-        enrollment = SavingsEnrollment.lock.find_by(user: actor, cohort: selected.cohort)
+        enrollment = SavingsEnrollment.in_use.lock.find_by(user: actor, cohort: selected.cohort)
         if selected.cohort.savings_challenge_enabled || enrollment
           SavingsChallenge::AccessPolicy.new(household: household, user: actor, cohort: selected.cohort, enrollment: enrollment, lock: true).call!
         end

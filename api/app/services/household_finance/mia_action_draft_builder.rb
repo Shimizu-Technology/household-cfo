@@ -131,7 +131,7 @@ module HouseholdFinance
 
       def supersede_debt_reviews!(replacement, source_message)
         return unless items.any? { |item| item.target_record_type == "Debt" }
-        membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+        membership = source_message.chat_session.cohort&.cohort_memberships&.seats&.find_by(user: user, role: user.seat_role)
         household.mia_action_drafts.pending.where(requested_by_user: user).where.not(id: replacement.id)
           .joins(:source_chat_message).where(chat_messages: { chat_session_id: source_message.chat_session_id }).each do |previous|
           next unless previous.mia_action_items.any? && previous.mia_action_items.all? do |prior|
@@ -144,7 +144,7 @@ module HouseholdFinance
 
       def supersede_income_reviews!(replacement, source_message)
         return unless draft_type == "income_schedule"
-        membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+        membership = source_message.chat_session.cohort&.cohort_memberships&.seats&.find_by(user: user, role: user.seat_role)
         household.mia_action_drafts.pending.where(draft_type: "income_schedule", requested_by_user: user)
           .where.not(id: replacement.id).joins(:source_chat_message)
           .where(chat_messages: { chat_session_id: source_message.chat_session_id }).each do |previous|
@@ -188,7 +188,7 @@ module HouseholdFinance
           # A card that also proposes a tracked goal must not lose that goal.
           next unless previous.mia_action_items.reject { |item| item.action_type == "confirm_household_setup" }.all? { |item| replacement_covers_item?(item) }
 
-          membership = source_message.chat_session.cohort&.cohort_memberships&.find_by(user: user)
+          membership = source_message.chat_session.cohort&.cohort_memberships&.seats&.find_by(user: user, role: user.seat_role)
           result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: membership).call(idempotency_key: "superseded:#{previous.id}:#{replacement.id}")
           raise ArgumentError, result.errors.join(", ") unless result.success?
         end

@@ -195,7 +195,7 @@ module Api
           brand_workspace = participant_brand_workspace
           membership = ::Mia::EffectiveCohortResolver.new(
             user: current_user,
-            role: "participant",
+            role: CohortMembership.seat_role_for(current_user),
             requested_cohort_id: request&.headers&.[]("X-Cohort-Id"),
             coach_workspace: brand_workspace
           ).call

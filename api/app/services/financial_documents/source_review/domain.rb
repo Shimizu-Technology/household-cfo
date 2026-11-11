@@ -15,7 +15,7 @@ module FinancialDocuments
       def authorize!(subject = nil)
         actor = user && User.lock.find_by(id: user.id)
         membership = actor && household.household_memberships.lock.find_by(user_id: actor.id)
-        allowed = actor&.participant? && membership&.role.in?(%w[owner partner])
+        allowed = actor&.household_seat_in?(household) && membership&.role.in?(%w[owner partner])
         allowed &&= subject.household_id == household.id if subject
         raise ArgumentError, "Only a current participant with writable household access can approve source records." unless allowed
       end

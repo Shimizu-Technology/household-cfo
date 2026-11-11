@@ -157,7 +157,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyCh
           )}
         </div>
       ) : (
-        <p className="admin-muted">Only a platform administrator can open or pause the challenge.</p>
+        <p className="admin-muted">Only this group’s program owner or a platform administrator can open or pause the challenge.</p>
       )}
 
       {(pending || busy) && <p className="admin-muted" role="status">{pending ? 'Saving the challenge change…' : 'Wait for the current change to finish.'}</p>}

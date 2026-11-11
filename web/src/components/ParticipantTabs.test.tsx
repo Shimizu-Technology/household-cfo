@@ -69,21 +69,6 @@ it('identifies the active More destination and opens its tool group', () => {
   fireEvent.click(screen.getByRole('button', { name: 'More' }))
   expect(screen.getByRole('link', { name: 'Wealth' }).getAttribute('aria-current')).toBe('page')
 })
-it('shows only staff destinations for a staff-only shell and preserves modified links', () => {
-  const change = vi.fn()
-  render(<ParticipantTabs staffOnly sections={['Home', 'Budget', 'Coach Studio', 'Admin']} activeSection="Coach Studio" onChange={change} />)
-  expect(screen.getByRole('navigation', { name: 'Staff sections' })).toBeTruthy()
-  expect(screen.queryByRole('link', { name: 'Home' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
-  const studio = screen.getByRole('link', { name: 'Coach Studio' })
-  expect(studio.getAttribute('aria-current')).toBe('page')
-  expect(studio.getAttribute('href')).toBe('#Coach%20Studio')
-  fireEvent.click(studio, { ctrlKey: true })
-  expect(change).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole('link', { name: 'Admin' }))
-  expect(change).toHaveBeenCalledWith('Admin')
-})
-
 it('returns to More when the parent keeps the current route after a guarded selection', async () => {
   render(<ParticipantTabs sections={['Home', 'Ask Mia', 'Budget', 'Review', 'My Money']} activeSection="Home" onChange={vi.fn()} />)
   const more = screen.getByRole('button', { name: 'More' })

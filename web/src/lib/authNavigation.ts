@@ -5,7 +5,10 @@ export function safeAuthReturnTo(value: unknown, origin = window.location.origin
   if (typeof value !== 'string' || value.length > 2048) return `${origin}/`
   try {
     const url = new URL(value, origin)
-    if (url.origin !== origin || !['/', '/login', '/organization-access'].includes(url.pathname) || url.username || url.password) return `${origin}/`
+    if (url.username || url.password) return `${origin}/`
+    // A deep link to a section of the Admin side survives sign-in; nothing else about it does.
+    if (url.origin === origin && /^\/admin(?:\/(?:today|people|groups|coaching|reports|support|settings))?$/.test(url.pathname)) return `${origin}${url.pathname}`
+    if (url.origin !== origin || !['/', '/login', '/organization-access'].includes(url.pathname)) return `${origin}/`
     if (url.pathname === '/organization-access' || url.searchParams.get('enterprise') === '1') return `${origin}/organization-access`
     const destination = new URL('/', origin)
     const section = decodeURIComponent(url.hash.slice(1))

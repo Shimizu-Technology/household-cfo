@@ -1,16 +1,74 @@
 class CohortMembership < ApplicationRecord
-  ROLES = %w[participant coach admin].freeze
+  PREVIEW_ROLE = "preview".freeze
+  # A preview seat that was left keeps its row, because a challenge enrollment
+  # accepted through it still points at it. It is never a seat again.
+  ENDED_PREVIEW_ROLE = "preview_ended".freeze
+  PREVIEW_ROLES = [ PREVIEW_ROLE, ENDED_PREVIEW_ROLE ].freeze
+  ROLES = (%w[participant coach admin] + PREVIEW_ROLES).freeze
+
+  # A preview seat is not a member of the program. It fails closed: every query
+  # that goes through this model, `user.cohort_memberships` or
+  # `cohort.cohort_memberships` leaves previews out, so a roster, count, report
+  # or export that forgets about them still excludes them. Code that must see a
+  # preview asks for it by name with `seats`, `previews` or `with_previews`.
+  default_scope { where.not(role: PREVIEW_ROLES) }
+  scope :with_previews, -> { unscope(where: :role) }
+  scope :previews, -> { with_previews.where(role: PREVIEW_ROLE) }
+  scope :all_previews, -> { with_previews.where(role: PREVIEW_ROLES) }
+  # A preview seat is honoured only while its holder may still preview that group:
+  # still an unrevoked coach or admin, the group not archived, and (for a coach)
+  # still on the group's coach workspace. Every reader of a seat goes through
+  # `seats` or `live_previews`, so a seat that outlives that right is simply not
+  # there, whatever else still holds the row.
+  LIVE_PREVIEW_SQL = <<~SQL.squish.freeze
+    cohort_memberships.role = 'preview' AND EXISTS (
+      SELECT 1 FROM cohorts seat_cohort INNER JOIN users seat_user ON seat_user.id = cohort_memberships.user_id
+      WHERE seat_cohort.id = cohort_memberships.cohort_id AND seat_cohort.status <> 'archived'
+        AND seat_user.role IN ('coach', 'admin') AND seat_user.invitation_status <> 'revoked'
+        AND (seat_user.role = 'admin' OR EXISTS (
+          SELECT 1 FROM coach_workspace_memberships seat_workspace
+          WHERE seat_workspace.user_id = seat_user.id AND seat_workspace.coach_workspace_id = seat_cohort.coach_workspace_id)))
+  SQL
+  scope :live_previews, -> { with_previews.where(LIVE_PREVIEW_SQL) }
+  scope :seats, -> { with_previews.where("cohort_memberships.role = 'participant' OR (#{LIVE_PREVIEW_SQL})") }
 
   belongs_to :cohort
   belongs_to :user
 
   validates :role, inclusion: { in: ROLES }
-  validates :user_id, uniqueness: { scope: :cohort_id }
+  # One row per person, group and role. Ended preview seats are history, not seats, so
+  # a person who leaves and previews again keeps one of them per earlier seat.
+  validates :user_id, uniqueness: { scope: %i[cohort_id role] }, unless: :ended_preview?
+  validate :preview_is_for_staff
 
-  after_save :reconcile_workspace_access
-  after_destroy :reconcile_destroyed_workspace_access
+  after_save :reconcile_workspace_access, unless: :preview?
+  after_destroy :reconcile_destroyed_workspace_access, unless: :preview?
+
+  def preview?
+    role == PREVIEW_ROLE
+  end
+
+  def ended_preview?
+    role == ENDED_PREVIEW_ROLE
+  end
+
+  # Ends a preview seat: gone if nothing refers to it, kept as history if an enrollment does.
+  def end_preview!
+    raise ArgumentError, "Only a preview seat can end" unless preview?
+
+    SavingsEnrollment.exists?(accepted_cohort_membership_id: id) ? update!(role: ENDED_PREVIEW_ROLE) : destroy!
+  end
+
+  # The membership role a person sits in the app with.
+  def self.seat_role_for(user)
+    user&.staff? ? PREVIEW_ROLE : "participant"
+  end
 
   private
+
+  def preview_is_for_staff
+    errors.add(:role, "preview seats are only for coaches and admins") if preview? && !user&.staff?
+  end
 
   def reconcile_workspace_access
     affected_access_pairs.each { |workspace, member| self.class.reconcile_workspace_access!(workspace, member) }

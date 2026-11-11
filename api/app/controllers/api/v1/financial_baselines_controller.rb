@@ -146,7 +146,7 @@ module Api
 
       def require_private_participant!
         membership = current_household.household_memberships.find_by(user: current_user)
-        return if current_user.participant? && membership&.role.in?(%w[owner partner])
+        return if current_user.household_seat_in?(current_household) && membership&.role.in?(%w[owner partner])
         render json: { errors: [ "Only a current participant can inspect their private spending baseline." ] }, status: :forbidden
       end
 

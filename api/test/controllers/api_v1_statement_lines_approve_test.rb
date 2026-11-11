@@ -386,12 +386,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "2026-07-31", identity.statement_facts["period_end_on"]
   end
 
-  test "only the participant who owns the household can approve" do
-    %w[coach admin].each do |role|
-      @user.update!(role: role)
-      approve_lines({ lines: [ { event_id: @events.fetch("Payroll").id, decision: "as_read" } ] })
-      assert_response :forbidden
-    end
+  test "only the person who owns the household can approve, and a revoked account cannot" do
+    @user.update!(invitation_status: "revoked")
+    approve_lines({ lines: [ { event_id: @events.fetch("Payroll").id, decision: "as_read" } ] })
+    assert_includes [ 401, 403 ], response.status
     assert_equal 0, SourceReviewVersion.where(household: @household).count
   end
 

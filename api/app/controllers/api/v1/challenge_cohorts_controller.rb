@@ -20,12 +20,13 @@ module Api
       end
 
       def participants
-        ChallengePrivacy::Access.staff!(cohort, current_user)
         if params[:view] == "daily"
+          ChallengePrivacy::Access.roster!(cohort, current_user)
           result = ChallengePrivacy::CoachDailyRoster.new(cohort, user: current_user).call(search: params[:search], filter: params[:filter], offset: params[:offset])
           return render json: { **staff_scope, cohort_id: cohort.id, **result }
         end
-        rows = page(SavingsEnrollment.where(cohort: cohort).includes(:user))
+        ChallengePrivacy::Access.staff!(cohort, current_user)
+        rows = page(SavingsEnrollment.counted.where(cohort: cohort).includes(:user))
         records = rows.first(50).filter_map do |enrollment|
           basic = ChallengePrivacy::SharedReader.new(enrollment, user: current_user).basic
           { **basic, participant: { id: enrollment.user_id, name: enrollment.user.full_name.presence || enrollment.user.email } }
@@ -36,9 +37,11 @@ module Api
       end
 
       def exports
-        ChallengePrivacy::Access.staff!(cohort, current_user, export: true)
+        ChallengePrivacy::Access.export_reader!(cohort, current_user)
         rows = page(ChallengeSponsorExport.where(cohort: cohort))
+        # A platform administrator reads reports; only the program's owner or reviewer seals them.
         render json: { **staff_scope, cohort_id: cohort.id, today_on: Date.current.iso8601,
+          can_seal: ChallengePrivacy::Access.staff_allowed?(cohort, current_user, export: true),
           scheduled_checkpoints: [ 30, 60, 90 ].map { |day| { day: day, cutoff_on: cohort.starts_on && (cohort.starts_on + day - 1).iso8601, sealable: cohort.starts_on.present? && cohort.starts_on + day - 1 <= Date.current } },
           records: rows.first(50).map { |record| record.attributes.slice("id", "checkpoint_day", "resolved_cutoff_on", "policy_version", "created_at") }, next_cursor: rows.length > 50 ? rows[49].id : nil }
       end

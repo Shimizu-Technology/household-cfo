@@ -6,6 +6,8 @@ type Selection = {
   selectedCohortId?: number
   selectionNotice: string | null
   onChooseProgram: (cohortId: number) => void
+  // Staff only: go back to their own household (no group chosen).
+  onChooseHousehold: () => void
   onProgramVerified: (cohortId: number) => void
   onProgramUnavailable: () => void
 }
@@ -34,6 +36,12 @@ function ProgramSession({ authIdentityId, legacyAuthIdentityId, actorId, partici
     setCohortId(nextCohortId)
     setNotice(null)
   }, [participant, authIdentityId, actorId])
+  const chooseHousehold = useCallback(() => {
+    setActiveParticipantCohortId(null)
+    storeParticipantProgram(authIdentityId, actorId, undefined)
+    setCohortId(undefined)
+    setNotice(null)
+  }, [authIdentityId, actorId])
   const programVerified = useCallback((verifiedCohortId: number) => {
     // Only a program the participant chose (or restored from their own earlier choice, including a
     // migrated identity) is persisted. A server-picked default is never stored: it would pin the
@@ -51,6 +59,7 @@ function ProgramSession({ authIdentityId, legacyAuthIdentityId, actorId, partici
     selectedCohortId: participant ? cohortId : undefined,
     selectionNotice: notice,
     onChooseProgram: chooseProgram,
+    onChooseHousehold: chooseHousehold,
     onProgramVerified: programVerified,
     onProgramUnavailable: programUnavailable,
   })

@@ -1684,6 +1684,7 @@ export type AdminPersonaVersionResponse = {
 export type AdminPersonaAssignableCohort = {
   id: number
   name: string
+  coach_workspace_id?: number
   status: AdminCohortStatus
   assignable: boolean
   blocked_reason: string | null
@@ -1827,6 +1828,9 @@ export type CurrentUser = {
   is_staff: boolean
   coach_workspaces?: CoachWorkspaceSummary[]
   active_coach_workspace?: CoachWorkspaceSummary | null
+  // Chosen by the server for this person; see lib/appRoutes and lib/previewGroups.
+  admin_sections?: Array<{ key: 'today' | 'people' | 'groups' | 'coaching' | 'reports' | 'support' | 'settings'; label: string; access: 'full' | 'read_only' }>
+  preview_groups?: Array<{ cohort_id: number; name: string; status: 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'; program_name: string; seated: boolean; available: boolean; challenge: boolean; challenge_joined: boolean }>
 }
 
 export type CoachWorkspaceSummary = {
@@ -2836,6 +2840,20 @@ async function apiRequestError(response: Response, fallback: string) {
     conflicts,
     payload,
   })
+}
+
+export type PreviewGroupsResponse = { message?: string; preview_groups: NonNullable<CurrentUser['preview_groups']> }
+
+/** Take a seat in a group, to use the app as one of its members. Staff only; never counted by the program. */
+export function joinPreviewSeat(cohortId: number): Promise<PreviewGroupsResponse> {
+  return fetchJson<PreviewGroupsResponse>('/api/v1/preview_seats', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cohort_id: cohortId }),
+  })
+}
+
+/** Leave the group. An open challenge preview ends as a withdrawal, and the answer says so in plain words. */
+export function leavePreviewSeat(cohortId: number): Promise<PreviewGroupsResponse> {
+  return fetchJson<PreviewGroupsResponse>(`/api/v1/preview_seats/${cohortId}`, { method: 'DELETE' })
 }
 
 export async function fetchCurrentUser(signal?: AbortSignal): Promise<CurrentUser> {
