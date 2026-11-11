@@ -131,6 +131,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   const [records, setRecords] = useState<CoachDailyPerson[]>(filter === 'needs_help' ? overview.records : [])
   const [counts, setCounts] = useState(overview.counts)
   const [next, setNext] = useState<number | null>(filter === 'needs_help' ? overview.next_offset : null)
+  const [total, setTotal] = useState(overview.total)
   const [busy, setBusy] = useState(filter !== 'needs_help')
   const [more, setMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -150,7 +151,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
       coachChallengeApi.daily(group.id, search, filter, 0, controller.signal).then(page => {
         if (mine !== request.current) return
         if (page.cohort_id !== group.id) throw new Error('The group changed. Open Today again.')
-        setRecords(page.records); setCounts(page.counts); setNext(page.next_offset); setBusy(false)
+        setRecords(page.records); setCounts(page.counts); setTotal(page.total); setNext(page.next_offset); setBusy(false)
       }).catch(caught => {
         if (mine !== request.current || controller.signal.aborted) return
         setError(caught instanceof Error ? caught.message : 'These people couldn’t be loaded.'); setRecords([]); setNext(null); setBusy(false)
@@ -165,7 +166,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
     const mine = ++request.current
     try {
       const page = await coachChallengeApi.daily(group.id, search, filter, 0, new AbortController().signal)
-      if (mine === request.current && page.cohort_id === group.id) { setRecords(page.records); setCounts(page.counts); setNext(page.next_offset) }
+      if (mine === request.current && page.cohort_id === group.id) { setRecords(page.records); setCounts(page.counts); setTotal(page.total); setNext(page.next_offset) }
     } catch { /* The list on screen is still right; the next change reads it again. */ }
   }
 
@@ -178,7 +179,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
       if (mine !== request.current) return
       // A person who moved between pages is shown once.
       setRecords(current => [...current, ...page.records.filter(row => !current.some(item => item.participant.id === row.participant.id))])
-      setCounts(page.counts); setNext(page.next_offset)
+      setCounts(page.counts); setTotal(page.total); setNext(page.next_offset)
     } catch (caught) { if (mine === request.current) setError(caught instanceof Error ? caught.message : 'More people couldn’t be loaded.') }
     finally { setMore(false) }
   }
@@ -200,7 +201,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
           <span>{savings ? savingsStatus(row) : householdStatus(row)}</span></div>
         <Button variant="secondary" aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} onClick={() => setOpen(row)}>{row.needs_help ? 'View help' : 'View person'}</Button>
       </li>)}</ul>}
-    {!busy && next !== null && <Button variant="secondary" disabled={more} onClick={() => void showMore()}>{more ? 'Loading…' : `Show more (${Math.max(0, (counts[filter] ?? 0) - records.length)} left)`}</Button>}
+    {!busy && next !== null && <Button variant="secondary" disabled={more} onClick={() => void showMore()}>{more ? 'Loading…' : `Show more (${Math.max(0, total - records.length)} left)`}</Button>}
 
     {open && <AdminDialog title={open.participant.name} labelId="admin-need-title" onClose={() => { setOpen(null); void quietRefresh() }}>
       <p className="admin-muted">{group.name}</p>

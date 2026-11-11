@@ -38,6 +38,7 @@ window.fetch = async (input, init) => {
           more_help_requests: false,
         },
       ],
+      total: 2,
       next_offset: null,
     })
   if (path.endsWith('/scopes'))

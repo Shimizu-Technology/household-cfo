@@ -26,6 +26,8 @@ export type CoachDailyPage = {
   can_invite: boolean
   counts: Record<DailyFilter, number>
   records: CoachDailyPerson[]
+  /** People matching the current filter and search, so "left" counts the same list the person is looking at. */
+  total: number
   next_offset: number | null
 }
 export function formatCoachTime(value: string) {

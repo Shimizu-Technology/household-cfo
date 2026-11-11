@@ -13537,7 +13537,7 @@ async function mockDaily(page: Page, people: ReturnType<typeof dailyPerson>[], p
     return route.fulfill({ json: {
       actor_scope: { user_id: 902, coach_workspace_id: 1 }, cohort_id: 41, program_type: 'household', can_invite: true,
       counts: { all: people.length, needs_help: people.filter(person => person.needs_help).length, checked_in: 0, not_checked_in: 0, invited: 0, joined: people.length, setup_done: people.length },
-      records, next_offset: offset + pageSize < matching.length ? offset + pageSize : null,
+      records, total: matching.length, next_offset: offset + pageSize < matching.length ? offset + pageSize : null,
     } })
   })
   return requests

@@ -18,7 +18,7 @@ const household = group(3, 'Mel’s Household Group', { status: 'active' })
 const row = (id: number, name: string, over = {}) => ({ participant: { id, name }, needs_help: true, setup_help: [{ id: 1, reason: 'upload_problem', status: 'requested' }], help_requests: [], shared_items: [], enrollment_id: null, check_in: null, membership_status: 'joined', setup_status: 'complete', ...over })
 const quiet = (id: number, name: string) => row(id, name, { needs_help: false, setup_help: [], enrollment_id: 40 + id, check_in: { completed: false } })
 const counts = (over = {}) => ({ all: 0, needs_help: 0, checked_in: 4, not_checked_in: 0, invited: 0, joined: 0, setup_done: 0, ...over })
-const page = (id: number, records: unknown[], over: Record<string, unknown> = {}) => ({ cohort_id: id, program_type: 'savings', counts: counts({ needs_help: records.length, all: records.length }), records, next_offset: null, ...over })
+const page = (id: number, records: unknown[], over: Record<string, unknown> = {}) => ({ cohort_id: id, program_type: 'savings', counts: counts({ needs_help: records.length, all: records.length }), records, total: records.length, next_offset: null, ...over })
 const light = (id: number, name: string, status = 'enrolling') => ({ id, name, status, assignable: true, blocked_reason: null, persona_assignment: null })
 
 beforeEach(() => {
@@ -139,7 +139,7 @@ describe('the daily list', () => {
     daily.daily.mockImplementation((id: number, _search: string, filter: string, offset: number) => {
       if (id !== 2) return Promise.resolve(page(3, [], { program_type: 'household' }))
       const records = offset === 0 ? (filter === 'needs_help' ? [row(7, 'Pat Needs')] : twenty) : rest
-      return Promise.resolve(page(2, records, { counts: counts({ all: 25, needs_help: 1, not_checked_in: 25 }), next_offset: offset === 0 && filter === 'all' ? 20 : null }))
+      return Promise.resolve(page(2, records, { counts: counts({ all: 25, needs_help: 1, not_checked_in: 25 }), total: filter === 'all' ? 25 : 1, next_offset: offset === 0 && filter === 'all' ? 20 : null }))
     })
     render(<TodaySection currentUser={staff()} />)
     await screen.findByText('Pat Needs')
@@ -150,6 +150,19 @@ describe('the daily list', () => {
     expect(screen.getAllByRole('button', { name: /^View / })).toHaveLength(25)
     expect(screen.queryByRole('button', { name: /Show more/ })).toBeNull()
     expect(daily.daily).toHaveBeenCalledWith(2, '', 'all', 20, expect.anything())
+  })
+
+  it('counts what is left from the people who match the search, not from everyone', async () => {
+    const twenty = Array.from({ length: 20 }, (_, index) => quiet(300 + index, `Ana ${String(index).padStart(2, '0')}`))
+    daily.daily.mockImplementation((id: number, search: string, filter: string) => {
+      if (id !== 2) return Promise.resolve(page(3, [], { program_type: 'household' }))
+      if (!search && filter === 'needs_help') return Promise.resolve(page(2, [row(7, 'Pat Needs')]))
+      return Promise.resolve(page(2, twenty, { counts: counts({ all: 60, needs_help: 1 }), total: 23, next_offset: 20 }))
+    })
+    render(<TodaySection currentUser={staff()} />)
+    await screen.findByText('Pat Needs')
+    fireEvent.change(screen.getByLabelText('Find someone'), { target: { value: 'ana' } })
+    expect(await screen.findByRole('button', { name: 'Show more (3 left)' })).toBeTruthy()
   })
 
   it('offers View person for anyone on the list, not only people who asked for help', async () => {
