@@ -1,0 +1,44 @@
+/* Mia's statement cards: what she read, the few lines that need an answer, then one way to approve the rest. */
+.mia-statement-cards { display: grid; gap: 12px; min-width: 0; max-width: 36rem; }
+.mia-statement-more { margin: 0; color: var(--muted, #66625b); font-size: var(--text-sm, 0.875rem); }
+
+.mia-statement-card {
+  display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-md, 14px);
+  background: var(--paper, #fffdf8); color: var(--ink, #1f2421);
+}
+.mia-statement-card h3 { margin: 0; font-size: var(--text-lg, 1.125rem); line-height: 1.3; overflow-wrap: anywhere; }
+.mia-statement-card p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.mia-statement-card.is-approved h3 { color: var(--status-green, #4f6d53); }
+.mia-statement-read { font-weight: var(--weight-bold, 700); font-variant-numeric: tabular-nums; }
+.mia-statement-muted { color: var(--muted, #66625b); font-size: var(--text-sm, 0.875rem); }
+
+.mia-statement-notice { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-md, 14px); }
+.mia-statement-question { display: grid; gap: 8px; }
+
+.mia-statement-exceptions { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.mia-statement-exceptions > li { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line, #e2d9cb); }
+.mia-statement-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: baseline; }
+.mia-statement-merchant { font-weight: var(--weight-bold, 700); overflow-wrap: anywhere; }
+.mia-statement-amount { font-weight: var(--weight-bold, 700); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mia-statement-meta { grid-column: 1 / -1; color: var(--muted, #66625b); font-size: var(--text-sm, 0.875rem); }
+
+.mia-statement-card .statement-question { font-weight: var(--weight-semibold, 600); }
+.mia-statement-card .statement-answers :is(.button, select) { width: 100%; min-width: 0; }
+.mia-statement-card .statement-answers select { text-overflow: ellipsis; font-weight: var(--weight-semibold, 600); }
+
+.mia-statement-actions, .mia-statement-next { display: grid; gap: 8px; }
+.mia-statement-card .button, .mia-statement-next .button { min-height: 44px; }
+.mia-statement-next {
+  padding: 16px; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-md, 14px); background: var(--paper, #fffdf8);
+}
+.mia-statement-next p { margin: 0; line-height: 1.5; }
+
+@media (min-width: 601px) {
+  .mia-statement-actions { grid-template-columns: repeat(auto-fit, minmax(10rem, max-content)); }
+}
+@media (max-width: 520px) {
+  .mia-statement-card, .mia-statement-next { padding: 14px 12px; }
+}
+
+/* While a card waits for an answer, the floating "Latest" pill moves to the top of the chat so it never covers the buttons. */
+.mia-chat-shell:has(.mia-statement-card:not(.is-approved)) .chat-scroll-bottom-button { top: 12px; bottom: auto; }

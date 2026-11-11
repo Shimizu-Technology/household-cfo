@@ -43,6 +43,7 @@ import { useChallengeChatCards } from './lib/useChallengeChatCards'
 import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
+import { MiaStatementCards } from './components/MiaStatementCards'
 import { ChallengeToday } from './components/ChallengeToday'
 import { setDailyExpectedUser } from './lib/dailyRecovery'
 import { BaselineReview } from './components/BaselineReview'
@@ -3826,6 +3827,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
   </> : null
 
+  // Mia's card for each statement she has read: approve it here, without leaving the chat.
+  const statementCards = isRealWorkspace && !safetyHold ? <MiaStatementCards
+    imports={documentImports}
+    assistantName={assistantName}
+    challenge={Boolean(isSavingsExperience)}
+    onReview={openDocumentReview}
+    onRetry={(documentImport) => void handleReprocessDocumentImport(documentImport)}
+    onSaved={() => { void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+    onAskPatterns={askMiaAboutPatterns}
+  /> : null
+
   const workspace = (
     <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
       <SeoManager section={activeSection} />
@@ -4030,9 +4042,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   onOpenReview={() => switchSection('Review')}
                   pendingPurchaseCount={pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   reviewCount={pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
-                  emptyReviewContent={isSavingsExperience ? challengeReviewContent : undefined}
+                  emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
                     {challengeReviewContent}
+                    {statementCards}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
