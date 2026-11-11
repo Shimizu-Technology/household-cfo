@@ -193,9 +193,9 @@ class SetupBillBackfillTest < ActiveSupport::TestCase
     flexible = [ [ "Groceries", 40_000 ], [ "Gas", 20_000 ] ].map { |label, cents| { "id" => SecureRandom.hex(4), "label" => label, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "part" } }
     draft.update!(metadata: { "setup_card" => { "fields" => draft.metadata.dig("setup_card", "fields").merge("flexible_spend" => { "parts" => flexible }) } })
     broken = HouseholdFinance::AnnualBudgetManager.instance_method(:create_category_inside_household_lock!)
-    calls = 0
+    # Fail on the first flexible bill, after fixed essentials has split, whatever order the fields run in.
     HouseholdFinance::AnnualBudgetManager.define_method(:create_category_inside_household_lock!) do |**options|
-      raise ActiveRecord::RecordInvalid, BudgetCategory.new if (calls += 1) == 4 # the first flexible bill, after fixed essentials split
+      raise ActiveRecord::RecordInvalid, BudgetCategory.new if options[:stack_key] == "discretionary"
       broken.bind_call(self, **options)
     end
     log = StringIO.new
