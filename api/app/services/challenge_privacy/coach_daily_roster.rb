@@ -27,7 +27,7 @@ module ChallengePrivacy
       audit_platform_admin_read!(page) if access == :platform_admin
       { program_type: @cohort.savings_challenge_enabled? ? "savings" : "household", counts: counts,
         can_invite: @user.admin? || @cohort.coach_workspace.membership_for(@user)&.role == "owner",
-        records: page, next_offset: offset + 20 < rows.length ? offset + 20 : nil }
+        records: page, total: rows.length, next_offset: offset + 20 < rows.length ? offset + 20 : nil }
     end
 
     private

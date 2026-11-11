@@ -113,6 +113,6 @@ any group: coarse, groups of five or more, and each participant covered gets an
 audit record (`admin_sponsor_report`). Sealing a report stays with the group's owner
 and reviewer.
 
-Each section's own APIs still enforce their permissions (see
+What is inside each section is described in `docs/admin-console.md`. Each section's own APIs still enforce their permissions (see
 `api_v1_admin_role_matrix_test.rb`). Old `#Admin` and `#Coach Studio` links redirect
 to their sections.

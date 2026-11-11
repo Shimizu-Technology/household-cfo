@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { coachingStep, coachingUrl, openAdminSection, openProgramLook } from './helpers/adminNav'
 const fixtures = process.env.HCFO_W16_FIXTURES ? JSON.parse(readFileSync(process.env.HCFO_W16_FIXTURES, 'utf8')) : null
 const live = process.env.HCFO_W16_WEB
 const api = process.env.HCFO_W16_API
@@ -40,13 +41,13 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
     return route.continue({headers:requestHeaders})
   })
   if(info.project.name==='desktop-chrome') await page.setViewportSize({width:1366,height:900})
-  await page.goto(`${live}/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio`)
+  await page.goto(coachingUrl(live!, 'coach'))
   await expect(page.getByLabel('Program',{exact:true})).toBeVisible()
   await page.getByLabel('Program',{exact:true}).selectOption(String(fixture.workspace_id))
-  await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Go live',exact:true}).click()
+  await coachingStep(page,'live').click()
   await expect(page.getByText('Review before going live')).toBeVisible({timeout:60_000})
-  await expect(page.getByText('Savings · Mia · Statements · More',{exact:true})).toBeVisible()
-  await expect(page.getByText(/program team still needs to open/)).toBeVisible()
+  await expect(page.getByText(/Savings · Mia · Statements · More/)).toBeVisible()
+  await expect(page.getByText(/Open the savings challenge from Groups when you are ready/)).toBeVisible()
   const screenshot=async(name:string)=>{if(evidence){await mkdir(evidence,{recursive:true});await page.screenshot({path:`${evidence}/${info.project.name}-${name}.png`,fullPage:true,scale:'css'})}}
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
   await screenshot('review')
@@ -58,13 +59,13 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
   await screenshot('recovery')
   await page.reload()
   await page.getByLabel('Program',{exact:true}).selectOption(String(fixture.workspace_id))
-  await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Go live',exact:true}).click()
+  await coachingStep(page,'live').click()
   const finish=page.getByRole('button',{name:'Finish going live'})
   await expect(finish).toBeVisible({timeout:60_000})
   await finish.click()
   await expect(page.getByRole('status').filter({hasText:'Live for'})).toBeVisible({timeout:60_000})
   await expect(page.getByText(/Preview and approve your assistant’s voice before/)).toHaveCount(0)
-  await expect(page.getByRole('status').filter({hasText:'Live for'})).toContainText('program team still needs to open')
+  await expect(page.getByRole('status').filter({hasText:'Live for'})).toContainText('open the savings challenge from Groups when you are ready')
   await screenshot('success')
   expect(launchCount).toBe(2)
   for(const id of fixture.group_ids) {
@@ -77,18 +78,17 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
     const response = await request.get(`${api}/api/v1/admin/cohorts/${id}/launch`, {headers})
     return (await response.json()).launch.active_release_id
   }))
-  const areas = page.getByRole('navigation',{name:'Coach Studio areas'})
-  await areas.getByRole('button',{name:'Your assistant',exact:true}).click()
-  await page.getByText('More settings',{exact:true}).click()
-  await page.getByRole('button',{name:'Appearance',exact:true}).click()
+  await openProgramLook(page)
   const appName = `Updated ${info.project.name}`
   await page.getByLabel('App name',{exact:true}).fill(appName)
   const brandSaved = page.waitForResponse(response => response.url().endsWith('/brand') && response.request().method()==='PATCH')
   await page.getByRole('button',{name:'Save brand draft',exact:true}).click()
   expect((await brandSaved).status()).toBe(200)
+  // Leaving before the screen has taken the save in would ask whether to discard it.
+  await expect(page.getByRole('status').filter({hasText:'Brand draft saved'})).toBeVisible()
   await screenshot('appearance-edit')
-  await page.getByText('Advanced / history',{exact:true}).click()
-  await page.getByRole('button',{name:'Open advanced settings',exact:true}).click()
+  await openAdminSection(page,'Coaching')
+  await page.getByRole('button',{name:'Open history',exact:true}).click()
   await page.getByRole('button',{name:/Guided setup.*Short steps/}).click()
   const assistantName = `Mia ${info.project.name}`
   await page.getByLabel('Assistant name',{exact:true}).fill(assistantName)
@@ -98,8 +98,8 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
   expect(savedVoice.status()).toBe(200)
   expect((await savedVoice.json()).persona.preview).toBeNull()
   await screenshot('voice-edit')
-  await page.getByRole('button',{name:'Back to simple setup',exact:true}).click()
-  await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Go live',exact:true}).click()
+  await page.getByRole('button',{name:'Back to Coaching',exact:true}).click()
+  await coachingStep(page,'live').click()
   await page.getByRole('button',{name:'Preview answers',exact:true}).click()
   await expect(page.getByText('Review before going live')).toBeVisible({timeout:90_000})
   const brandReview = await request.get(`${api}/api/v1/admin/brand`,{headers})
@@ -130,8 +130,10 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
   const voiceVersion = await request.get(`${api}/api/v1/admin/personas/${fixture.persona_id}/versions/${voiceId}`,{headers})
   expect((await voiceVersion.json()).version.config.identity.assistant_name).toBe(assistantName)
   await screenshot('updated-live')
-  await page.getByRole('link',{name:'Admin',exact:true}).click()
-  await page.getByRole('button',{name:'Programs & rules',exact:true}).click()
+  // A new program is started with no program chosen, from Settings.
+  await page.getByLabel('Program',{exact:true}).selectOption('platform')
+  await openAdminSection(page,'Settings')
+  await page.locator('summary',{hasText:'Programs'}).click()
   await page.getByRole('button',{name:'Create program',exact:true}).click()
   const name=`W16 created ${info.project.name}`
   await page.getByLabel('Program name',{exact:true}).fill(name)
@@ -146,7 +148,7 @@ test('Coach Studio live follow-ups recover a lost atomic launch response then ed
   const payload=await response.json()
   const workspace=payload.coach_workspace ?? payload.workspace
   await page.reload()
-  await expect(page.getByRole('combobox',{name:/^Admin workspace/})).toHaveValue(String(workspace.id))
+  await expect(page.getByLabel('Program',{exact:true})).toHaveValue(String(workspace.id))
   await expect(page.getByText(`${name} was created and selected. You can now set up its assistant, appearance and groups.`,{exact:true})).toHaveCount(0)
   const saved=await request.get(`${api}/api/v1/admin/coach_workspaces/${workspace.id}`,{headers:{...headers,'X-Coach-Workspace-Id':String(workspace.id)}})
   expect(saved.status()).toBe(200)
@@ -166,9 +168,9 @@ test('Coach Studio live voice proposal labels exact coach wording and suggestion
   return route.continue({headers})
  })
  if(info.project.name==='desktop-chrome') await page.setViewportSize({width:1366,height:900})
- await page.goto(`${live}/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio`)
+ await page.goto(coachingUrl(live!, 'coach'))
  await page.getByLabel('Program',{exact:true}).selectOption(String(voice.workspace_id))
- await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Your assistant',exact:true}).click()
+ await coachingStep(page,'voice').click()
  await expect(page.getByText('Your voice suggestions')).toBeVisible({timeout:60_000})
  await page.getByText('Review each suggestion',{exact:true}).click()
  await expect(page.getByText('Coach said',{exact:true}).first()).toBeVisible()
@@ -210,9 +212,9 @@ for (const recovery of ['server failures', 'expired access']) {
    return route.continue({headers:authorized})
   })
   if(info.project.name==='desktop-chrome') await page.setViewportSize({width:1366,height:900})
-  await page.goto(`${live}/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio`)
+  await page.goto(coachingUrl(live!, 'coach'))
   await page.getByLabel('Program',{exact:true}).selectOption(String(fixture.workspace_id))
-  await page.getByRole('navigation',{name:'Coach Studio areas'}).getByRole('button',{name:'Go live',exact:true}).click()
+  await coachingStep(page,'live').click()
   await expect(page.getByText('Review before going live')).toBeVisible({timeout:60_000})
   await page.getByRole('button',{name:'Approve and go live',exact:true}).click()
   await expect(page.getByRole('alert').filter({hasText:'could not confirm'})).toBeVisible({timeout:60_000})

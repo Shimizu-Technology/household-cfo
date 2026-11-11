@@ -76,11 +76,11 @@ export function CohortReleaseStudio({
     try {
       const next = await fetchCohortReleaseStudio(cohortId, abortController.signal)
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
-      if (next.cohort.id !== cohortId) throw new Error('Release records returned the wrong cohort. Reload and try again.')
+      if (next.cohort.id !== cohortId) throw new Error('Release records returned the wrong group. Reload and try again.')
       setStudio(next)
     } catch (caught) {
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
-      setError(releaseErrorMessage(caught, 'Cohort release records could not be loaded.'))
+      setError(releaseErrorMessage(caught, 'Group release records could not be loaded.'))
     } finally {
       if (requestId === loadRequestRef.current) {
         loadAbortControllerRef.current = null
@@ -172,7 +172,7 @@ export function CohortReleaseStudio({
     if (!confirmation || !studio || pendingAction || mutationLifecycle.pending) return
     if (confirmation.kind === 'seal' && !studio.candidate) return
     if (confirmation.kind === 'restore' && (!confirmation.release || restoreExpectedLatestReleaseId === null)) {
-      setActionError('The latest release evidence is unavailable. Cancel this review, reload the cohort, and try again.')
+      setActionError('The latest release evidence is unavailable. Cancel this review, reload the group, and try again.')
       return
     }
     const cohortId = studio.cohort.id
@@ -215,12 +215,12 @@ export function CohortReleaseStudio({
       if (caught instanceof ApiRequestError && caught.status === 409) {
         setConfirmation(null)
         await loadStudio(cohortId)
-        setError('Readiness changed before the version was saved. Review the latest cohort evidence before trying again.')
+        setError('Readiness changed before the version was saved. Review the latest group evidence before trying again.')
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else if (caught instanceof ApiRequestError && caught.status === 403) {
         setConfirmation(null)
         await loadStudio(cohortId)
-        setError('Your release permission changed. The latest cohort view is loaded below.')
+        setError('Your release permission changed. The latest group view is loaded below.')
         window.requestAnimationFrame(() => restoreFocusRef.current?.focus())
       } else if (caught instanceof ApiRequestError && caught.status >= 400 && caught.status < 500) {
         setConfirmation(null)
@@ -238,7 +238,7 @@ export function CohortReleaseStudio({
   }
 
   if (cohortsLoading && cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable cohorts…</article>
+    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable groups…</article>
   }
 
   if (cohorts.length === 0) {
@@ -260,10 +260,10 @@ export function CohortReleaseStudio({
         <div>
           
           <h3>Review the appearance, Mia voice, and tools together</h3>
-          <p>Choose a cohort to check the exact published versions and preserve an immutable record.</p>
+          <p>Choose a group to check the exact published versions and preserve an immutable record.</p>
         </div>
         <label>
-          <span>Cohort</span>
+          <span>Group</span>
           <select value={selectedCohortId ?? ''} disabled={pendingAction !== null || mutationLifecycle.pending} onChange={(event) => chooseCohort(Number(event.target.value))}>
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {titleize(cohort.status)}</option>)}
           </select>
@@ -288,7 +288,7 @@ export function CohortReleaseStudio({
             <header>
               <div>
 
-                <h3 ref={releaseStateHeadingRef} tabIndex={-1}>{alreadyPrepared ? 'Settings already prepared' : studio.candidate?.ready ? 'Ready to prepare' : 'Settings need attention'}</h3>
+                <h3 ref={releaseStateHeadingRef} tabIndex={-1}>{alreadyPrepared ? 'Already saved as a version' : studio.candidate?.ready ? 'Ready to prepare' : 'Settings need attention'}</h3>
               </div>
               <span className={`cohort-release-state ${studio.candidate?.ready ? 'is-ready' : ''}`}>{alreadyPrepared ? 'Prepared' : studio.candidate?.ready ? 'Ready' : 'Needs attention'}</span>
             </header>
@@ -319,7 +319,7 @@ export function CohortReleaseStudio({
             )}
 
             {studio.candidate && (
-              <details><summary>Version details</summary><dl className="cohort-release-evidence">
+              <details><summary>What this version contains</summary><dl className="cohort-release-evidence">
                 <div><dt>Brand version</dt><dd>{brandEvidenceLabel(studio.candidate.brand_mode, studio.candidate.brand_version_id)}</dd></div>
                 <div><dt>Assistant version</dt><dd>{studio.candidate.persona_version_id === null ? 'Neutral built-in voice' : `Version ${studio.candidate.persona_version_id}`} </dd></div>
                 <div><dt>Participant tools version</dt><dd>{studio.candidate.experience_version_id === null ? 'Safe default tools' : `Version ${studio.candidate.experience_version_id}`} </dd></div>
@@ -335,7 +335,7 @@ export function CohortReleaseStudio({
                   onClick={requestSeal}
                   disabled={!studio.candidate?.ready || !studio.candidate.seal_needed || studio.latest_release_match || pendingAction !== null || mutationLifecycle.pending}
                 >
-                  {pendingAction === 'seal' ? 'Preparing version' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Settings already prepared' : 'Review and prepare version'}
+                  {pendingAction === 'seal' ? 'Preparing version' : studio.latest_release_match || !studio.candidate?.seal_needed ? 'Already saved as a version' : 'Review and prepare version'}
                 </Button>
               ) : <p className="coach-read-only">You can review version details, but this group or your role does not allow preparing versions.</p>}
               {(studio.latest_release_match || studio.candidate?.seal_needed === false) && <p className="cohort-release-noop" role="status">The latest version already includes these settings. Use the launch review above, or choose Update group to check for a pending update.</p>}
@@ -460,7 +460,7 @@ function ReleaseConfirmationDialog({
         <h3 id="cohort-release-modal-title">{restoring ? `Restore version ${confirmation.release?.release_number}` : 'Prepare this version?'}</h3>
         <p id="cohort-release-modal-copy">This saves a fixed version of the reviewed settings for {cohortName}. Participants keep their current settings until you launch or update the group.</p>
         <dl className="cohort-rollout-confirmation-summary">
-          <div><dt>Cohort</dt><dd>{cohortName}</dd></div>
+          <div><dt>Group</dt><dd>{cohortName}</dd></div>
           <div><dt>{restoring ? 'Historical brand' : 'Brand version'}</dt><dd>{brandLabel}</dd></div>
           {experienceLabel && <div><dt>Participant experience</dt><dd>{experienceLabel}</dd></div>}
         </dl>

@@ -48,11 +48,11 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
     try {
       const next = await fetchCohortInitialLaunch(id, controller.signal)
       if (controller.signal.aborted || request !== requestRef.current || cohortRef.current !== id) return
-      if (next.cohort.id !== id) throw new Error('The launch review returned a different cohort. Reload and try again.')
+      if (next.cohort.id !== id) throw new Error('The launch review returned a different group. Reload and try again.')
       setState(next)
     } catch (caught) {
       if (controller.signal.aborted || request !== requestRef.current || cohortRef.current !== id) return
-      setError(messageFor(caught, 'The cohort launch review could not be loaded.'))
+      setError(messageFor(caught, 'The group launch review could not be loaded.'))
     } finally {
       if (request === requestRef.current) setLoading(false)
     }
@@ -82,7 +82,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
     try {
       const result = await launchCohortRelease(id, review.input, review.requestId)
       if (!mutationLifecycle.isCurrent(ticket) || cohortRef.current !== id) return
-      if (result.launch.cohort.id !== id) throw new Error('The launch response returned a different cohort. Reload before continuing.')
+      if (result.launch.cohort.id !== id) throw new Error('The launch response returned a different group. Reload before continuing.')
       setState(result.launch)
       setReview(null)
       setNotice('Group launched. Participants now use the reviewed appearance, Mia voice, and tools. Choose Update group for future changes.')
@@ -117,7 +117,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
         <h4 ref={reviewHeadingRef} tabIndex={-1}>Review first group launch</h4>
         <p><strong>{state.cohort.name} · Version {state.release?.release_number}</strong></p>
         <p>{state.participant_experience ? `${state.participant_experience.label} experience` : 'The reviewed appearance, Mia voice, and tools become available to this group together.'}</p>
-        {state.participant_experience?.mode === 'savings_challenge' && <p>Launching does not open the challenge. Participants see it only after an administrator opens it from Admin &gt; Cohorts.</p>}
+        {state.participant_experience?.mode === 'savings_challenge' && <p>Launching does not open the challenge. Participants see it only after an administrator opens it from Admin &gt; Groups.</p>}
         <p>{state.cohort.participant_count} current {state.cohort.participant_count === 1 ? 'participant' : 'participants'} will use this version. New participants will use it too.</p>
         <div className="initial-launch-actions">
           <Button disabled={mutationLifecycle.pending || !state.can_launch} onClick={() => void launch()}>{mutationLifecycle.pending ? 'Launching…' : 'Launch group now'}</Button>
@@ -130,7 +130,7 @@ export function InitialCohortLaunch({ cohortId, mutationLifecycle, onLaunch, bef
     </>}
     {state?.active_release_id && <p>{state.cohort.participant_count} {state.cohort.participant_count === 1 ? 'participant' : 'participants'} in this group.</p>}
     {mutationLifecycle.pending && <p role="status">Wait for the current action to finish.</p>}
-    {!review && <Button variant="ghost" disabled={mutationLifecycle.pending || loading} onClick={() => void load(cohortId)}>Refresh launch state</Button>}
+    {!review && <Button variant="ghost" disabled={mutationLifecycle.pending || loading} onClick={() => void load(cohortId)}>Check again</Button>}
   </article>
 }
 

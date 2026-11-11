@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
 import { NEUTRAL_BRAND } from '../contexts/brandContextValue'
-import { BrandWelcomePreview, CoachProgramSettings, CreateCoachProgram } from './CoachProgramSettings'
+import { BrandHistory, BrandWelcomePreview, CoachProgramSettings, CreateCoachProgram } from './CoachProgramSettings'
 import type { CurrentUser, WorkspaceBrandConfiguration, CoachWorkspaceSettings } from '../api'
 
 vi.mock('../api', async (importOriginal) => ({
@@ -37,7 +37,7 @@ describe('program settings', () => {
 
   it('opens simple program creation with the current coach and selects the saved program', async () => {
     vi.mocked(api.createCoachWorkspace).mockResolvedValue(workspace)
-    render(<CoachProgramSettings simple workspaceId={null} currentUser={{ ...actor, is_admin: true }} mutationLifecycle={lifecycle} onDirtyChange={vi.fn()} />)
+    render(<CoachProgramSettings workspaceId={null} currentUser={{ ...actor, is_admin: true }} mutationLifecycle={lifecycle} onDirtyChange={vi.fn()} />)
     expect(screen.getByLabelText('Coach display name')).toHaveProperty('value', 'Mrs. Mel')
     await userEvent.type(screen.getByLabelText('Program name'), 'Island program')
     await userEvent.click(screen.getByRole('button', { name: 'Create program' }))
@@ -45,25 +45,24 @@ describe('program settings', () => {
     expect(api.createCoachWorkspace).toHaveBeenCalledWith(expect.objectContaining({ coach_profile: expect.objectContaining({ display_name: 'Mrs. Mel' }) }), expect.any(String))
   })
 
-  it('requires the exact saved preview before publication and explains release pinning', async () => {
+  it('saves the look as a draft and previews the saved draft, with no publish button of its own', async () => {
     const user = userEvent.setup()
     const saved = { ...configuration, draft: { ...draft, product_name: 'Mel Money' }, draft_revision: 2 }
     const previewed = { ...saved, preview_required: false, preview: { digest: 'exact', draft_revision: 2, generated_at: '2026-10-04T00:00:00Z' } }
     vi.mocked(api.saveWorkspaceBrand).mockResolvedValue(saved)
     vi.mocked(api.previewWorkspaceBrand).mockResolvedValue({ brand_configuration: previewed, preview: { ...previewed.preview, brand: saved.draft } })
-    vi.mocked(api.publishWorkspaceBrand).mockResolvedValue({ brand_configuration: { ...previewed, published_version: { ...configuration.published_version!, id: 2, number: 2 } }, published_version: { ...configuration.published_version!, id: 2, number: 2 } })
     renderSettings()
     const name = await screen.findByLabelText('App name')
-    expect((screen.getByRole('button', { name: 'Publish branding' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull()
+    expect(screen.queryByText(/Brand version history/)).toBeNull()
     await user.clear(name); await user.type(name, 'Mel Money')
     expect((screen.getByRole('button', { name: 'Preview welcome screen' }) as HTMLButtonElement).disabled).toBe(true)
     await user.click(screen.getByRole('button', { name: 'Save brand draft' }))
     await waitFor(() => expect(api.saveWorkspaceBrand).toHaveBeenCalledWith(saved.draft, 1))
+    expect(await screen.findByText(/take it live in Coaching → Go live/)).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Preview welcome screen' }))
     await screen.findByRole('heading', { name: 'Welcome screen preview' })
-    await user.click(screen.getByRole('button', { name: 'Publish branding' }))
-    await waitFor(() => expect(api.publishWorkspaceBrand).toHaveBeenCalledWith({ draft_revision: 2, preview_digest: 'exact', expected_published_version_id: 1 }, expect.any(String)))
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Participants keep the appearance saved for their group'))
+    expect(screen.queryByRole('button', { name: /Publish/ })).toBeNull()
   })
 
   it('reviewers can preview but cannot edit program identity or brand fields', async () => {
@@ -75,7 +74,6 @@ describe('program settings', () => {
     expect(screen.getByLabelText('Program name').closest('fieldset')?.disabled).toBe(true)
     expect(screen.getByText('Ask a program owner to change the name or coach profile.')).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Preview welcome screen' }) as HTMLButtonElement).disabled).toBe(false)
-    expect((screen.getByRole('button', { name: 'Publish branding' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('a stale save preserves unsaved input until explicit reload', async () => {
@@ -212,15 +210,7 @@ describe('program settings', () => {
     expect(screen.getByText('Fonts and support details').closest('details')).toHaveProperty('open', false)
   })
 
-  it('explains actual publishing permission even when a saved preview exists on the server', async () => {
-    vi.mocked(api.fetchWorkspaceBrand).mockResolvedValue({ ...configuration, preview_required: false, preview: { digest: 'old', draft_revision: 1, generated_at: '2026-10-22' }, permissions: { ...configuration.permissions, publish: false } })
-    renderSettings()
-    await screen.findByLabelText('App name')
-    expect(screen.getByText('A program owner or reviewer must publish this appearance.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Publish branding' })).toHaveProperty('disabled', true)
-  })
-
-  it('uploads a logo into the saved draft and requires a new preview before publishing', async () => {
+  it('uploads a logo into the saved draft and requires a new preview', async () => {
     const user = userEvent.setup()
     const previewed = { ...configuration, preview_required: false, preview: { digest: 'before', draft_revision: 1, generated_at: '2026-11-02' } }
     vi.mocked(api.fetchWorkspaceBrand).mockResolvedValue(previewed)
@@ -234,12 +224,10 @@ describe('program settings', () => {
     expect(screen.getByText('More colours').closest('details')?.querySelectorAll('input[type="color"]')).toHaveLength(12)
     await user.click(screen.getByRole('button', { name: 'Preview welcome screen' }))
     await screen.findByRole('heading', { name: 'Welcome screen preview' })
-    expect(screen.getByRole('button', { name: 'Publish branding' })).toHaveProperty('disabled', false)
     const file = new File(['png bytes'], 'logo.png', { type: 'image/png' })
     await user.upload(input, file)
     await waitFor(() => expect(api.uploadWorkspaceBrandLogo).toHaveBeenCalledWith(file, 1))
-    await screen.findByText('Logo saved to your appearance draft. Preview it before publishing.')
-    expect(screen.getByRole('button', { name: 'Publish branding' })).toHaveProperty('disabled', true)
+    await screen.findByText(/Logo saved to your appearance draft/)
     expect(screen.queryByRole('heading', { name: 'Welcome screen preview' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Save brand draft' })).toHaveProperty('disabled', true)
     expect(document.querySelector('.shell-brand-logo')).toHaveProperty('src', uploaded.draft.logo_url)
@@ -319,3 +307,46 @@ describe('welcome screen preview', () => {
     expect(screen.getByText('Run your home well')).toBeTruthy()
   })
 })
+
+describe('earlier looks (Coaching → History)', () => {
+  const version = (id: number, number: number) => ({ id, number, digest: `d${id}`, published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Mrs. Mel' } })
+  const published = { ...configuration, published_version: version(2, 2), versions: [version(2, 2), version(1, 1)] }
+  beforeEach(() => {
+    vi.resetAllMocks()
+    lifecycle.begin.mockReturnValue({ id: 1, workspaceId: 1 }); lifecycle.isCurrent.mockReturnValue(true)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(api.fetchWorkspaceBrand).mockResolvedValue(published)
+  })
+  afterEach(() => { cleanup(); vi.restoreAllMocks() })
+
+  it('lists earlier looks and goes back to one after asking', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.restoreWorkspaceBrandVersion).mockResolvedValue({ brand_configuration: published, published_version: version(3, 3) })
+    render(<BrandHistory workspaceId={1} mutationLifecycle={lifecycle} />)
+    expect(await screen.findByText('Version 2')).toBeTruthy()
+    expect(screen.getByText('Current')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Go back to this look' }))
+    await waitFor(() => expect(api.restoreWorkspaceBrandVersion).toHaveBeenCalledWith(1, { draft_revision: 1, expected_published_version_id: 2 }, expect.any(String)))
+    expect(await screen.findByText(/Version 1 is back, saved as version 3/)).toBeTruthy()
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('Participants keep the appearance saved for their group'))
+  })
+
+  it('does not go back when the person says not yet', async () => {
+    const user = userEvent.setup()
+    vi.mocked(window.confirm).mockReturnValue(false)
+    render(<BrandHistory workspaceId={1} mutationLifecycle={lifecycle} />)
+    await user.click(await screen.findByRole('button', { name: 'Go back to this look' }))
+    expect(api.restoreWorkspaceBrandVersion).not.toHaveBeenCalled()
+  })
+
+  it('says who can go back, and offers a retry when the looks cannot be opened', async () => {
+    vi.mocked(api.fetchWorkspaceBrand).mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ ...published, permissions: { ...published.permissions, rollback: false } })
+    const user = userEvent.setup()
+    render(<BrandHistory workspaceId={1} mutationLifecycle={lifecycle} />)
+    expect((await screen.findByRole('alert')).textContent).toContain('couldn’t be opened')
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('A program owner or reviewer can go back to an earlier look.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Go back to this look' })).toHaveProperty('disabled', true)
+  })
+})
+

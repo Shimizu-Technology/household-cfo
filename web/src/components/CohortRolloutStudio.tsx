@@ -62,7 +62,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
         fetchCohortReleaseStudio(selectedCohortId, abortController.signal).catch(() => null),
       ])
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
-      if (next.cohort.id !== selectedCohortId) throw new Error('Update records returned the wrong cohort. Reload and try again.')
+      if (next.cohort.id !== selectedCohortId) throw new Error('Update records returned the wrong group. Reload and try again.')
       const previous = versions?.releases.find((release) => release.id === next.active_release?.id && release.bundle_digest === next.active_release.bundle_digest)
       const target = versions?.releases.find((release) => release.id === next.latest_release?.id && release.bundle_digest === next.latest_release.bundle_digest)
       setReleaseChanges(previous && target ? [
@@ -79,7 +79,7 @@ export function CohortRolloutStudio({ cohortId, mutationLifecycle, onDirtyChange
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return false
       setStudio(null)
       setDraft(null)
-      setError(errorMessage(caught, 'Cohort update records could not be loaded.'))
+      setError(errorMessage(caught, 'Group update records could not be loaded.'))
       return false
     } finally {
       if (requestId === loadRequestRef.current) {
@@ -451,7 +451,7 @@ function RolloutConfirmationDialog({ confirmation, rollout, studio, plan, pendin
     <section ref={dialogRef} className="cohort-release-modal" tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="cohort-rollout-modal-title" aria-describedby="cohort-rollout-modal-copy" onKeyDown={trapFocus}>
       <h3 id="cohort-rollout-modal-title">{copy.title}</h3><p id="cohort-rollout-modal-copy">{copy.body}</p>
       <dl className="cohort-rollout-confirmation-summary">
-        <div><dt>Cohort</dt><dd>{studio.cohort.name}</dd></div>
+        <div><dt>Group</dt><dd>{studio.cohort.name}</dd></div>
         {details.map((detail) => <div key={`${detail.label}-${detail.value}`}><dt>{detail.label}</dt><dd>{detail.value}</dd></div>)}
       </dl>
       {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
@@ -474,7 +474,7 @@ function confirmationCopy(action: Action, rollout: CohortRolloutRecord | null, s
     const body = legacy
       ? 'This pre-cutover action only advances the earlier history. It does not change participant settings.'
       : completing
-        ? `Completing makes version ${rollout?.target_release.release_number} the cohort default immediately.`
+        ? `Completing makes version ${rollout?.target_release.release_number} the group default immediately.`
         : `This immediately moves ${wave.participant_count} participant${wave.participant_count === 1 ? '' : 's'} in ${wave.name} to version ${rollout?.target_release.release_number}.`
     return { title: rollout?.status === 'planned' ? 'Start this update?' : wave ? `Advance to wave ${wave.position}?` : 'Complete this update?', body, confirm: rollout?.status === 'planned' ? 'Start update' : wave ? `Advance to wave ${wave.position}` : 'Complete update', danger: false }
   }
@@ -513,7 +513,7 @@ function confirmationDetails(action: Action, rollout: CohortRolloutRecord | null
       { label: 'Completed waves', value: `${rollout.wave_count}` },
       { label: 'Target version', value: `Version ${rollout.target_release.release_number}` },
       { label: 'Target brand', value: brandEvidenceLabel(rollout.target_release) },
-      { label: 'Effect on participants', value: rollout.runtime_mode === 'release_runtime_v2' ? 'Becomes the cohort default immediately' : 'History only · no participant settings change' },
+      { label: 'Effect on participants', value: rollout.runtime_mode === 'release_runtime_v2' ? 'Becomes the group default immediately' : 'History only · no participant settings change' },
     ]
   }
   if (action === 'rollback') return [
@@ -557,7 +557,7 @@ function successMessage(action: Action, result: CohortRolloutMutationResponse, p
   }
   if (transition.event_type === 'completed') {
     return runtimeEnabled && transition.participant_runtime_changed
-      ? `Update completed. Version ${rollout.target_release.release_number} is now the cohort default.`
+      ? `Update completed. Version ${rollout.target_release.release_number} is now the group default.`
       : 'Legacy update completed. Participant settings did not change.'
   }
   if (transition.event_type === 'rolled_back') {

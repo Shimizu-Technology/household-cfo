@@ -62,6 +62,19 @@ class ApiV1CoachDailyRosterTest < ActionDispatch::IntegrationTest
     assert_equal 3, response.parsed_body["records"].length
   end
 
+  test "total counts the people matching the search and filter, so the next page's remainder is right" do
+    @savings_user.update!(first_name: "Zoe")
+    23.times { |i| add_person("Ana #{i}") }
+    get route, params: { view: "daily", search: "ana" }, headers: auth(@savings_owner)
+    body = response.parsed_body
+    assert_equal 20, body["records"].size
+    assert_equal 23, body["total"]
+    assert_equal 24, body.dig("counts", "all")
+    assert_equal 20, body["next_offset"]
+    get route, params: { view: "daily", search: "ana", offset: "20" }, headers: auth(@savings_owner)
+    assert_equal [ 3, 23, nil ], [ response.parsed_body["records"].size, response.parsed_body["total"], response.parsed_body["next_offset"] ]
+  end
+
   test "shared item hints expire and never share amounts or records without current grants" do
     grant = ChallengeSupportTicket.create!(savings_enrollment: @savings_enrollment, household: @savings_household,
       participant_user: @savings_user, recipient_user: @savings_owner, message: "Help", issue_kind: "coaching", status: "resolved")

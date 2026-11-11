@@ -3,6 +3,7 @@ import type { CurrentUser } from '../api'
 import { AccountMenu } from '../components/AccountMenu'
 import { BrandFooter, BrandLogo } from '../components/BrandChrome'
 import { Button } from '../components/Button'
+import { useWorkspaceMutationInFlight } from '../components/coachWorkspaceMutationLifecycle'
 import { EnterpriseSettings } from '../components/EnterpriseSettings'
 import { PilotFeedbackDialog } from '../components/PilotFeedbackDialog'
 import { SeoManager } from '../components/SeoManager'
@@ -27,8 +28,8 @@ type Props = {
 const descriptions: Record<string, string> = {
   today: 'Who needs you right now',
   people: 'Everyone you coach, and invitations',
-  groups: 'Dates, status and opening the challenge',
-  coaching: 'Your assistant’s voice, teaching and tools',
+  groups: 'Dates, tools and opening the challenge',
+  coaching: 'Your coach’s voice and teaching',
   reports: 'Day 30, 60 and 90 reports',
   support: 'Problems and setup help to look at',
   settings: 'Program look, team and access',
@@ -43,6 +44,7 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [enterpriseOpen, setEnterpriseOpen] = useState(false)
   const accountRef = useRef<HTMLDetailsElement>(null)
+  const saving = useWorkspaceMutationInFlight()
   const workspaces = currentUser.coach_workspaces ?? []
   const showProgram = workspaces.length > 1 || (currentUser.is_admin && workspaces.length > 0)
   const activeWorkspaceId = auth.activeCoachWorkspaceId
@@ -90,7 +92,7 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
 
   const programPicker = showProgram && <label className="admin-program-picker">
     <span>Program</span>
-    <select aria-label="Program" value={activeWorkspaceId ?? 'platform'} onChange={async event => {
+    <select aria-label="Program" value={activeWorkspaceId ?? 'platform'} disabled={saving} onChange={async event => {
       const chosen = event.target.value === 'platform' ? null : Number(event.target.value)
       if (!(await confirmLeave())) return
       onDirtyChange(false)
@@ -119,7 +121,8 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
         <AccountMenu menuRef={accountRef} participantLabel="Coach">
           <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setGuideOpen(true) }}>Guide</Button>
           <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFeedbackOpen(true) }}>Report a problem</Button>
-          {(currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseOpen(true) }}>Organization access</Button>}
+          {/* Settings holds Organization access for anyone who has it; this is only for an organization IT admin who does not. */}
+          {!sections.some(section => section.key === 'settings') && (currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)) && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setEnterpriseOpen(true) }}>Organization access</Button>}
         </AccountMenu>
         <details className="admin-section-menu">
           <summary aria-label="Admin sections"><span>{active?.label ?? 'Admin'}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>

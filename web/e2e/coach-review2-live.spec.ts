@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { coachingStep, coachingUrl, openAdminSection, openProgramLook } from './helpers/adminNav'
 const fixtures = process.env.HCFO_W16_FIXTURES ? JSON.parse(readFileSync(process.env.HCFO_W16_FIXTURES, 'utf8')) : null
 const live = process.env.HCFO_W16_WEB
 const api = process.env.HCFO_W16_API
@@ -38,10 +39,9 @@ test('Coach Studio pending and revoked invitations allow updates with an accepte
     await page.screenshot({ path: `${evidence}/${info.project.name}-${name}.png`, fullPage: true, scale: 'css' })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
-  await page.goto(`${live}/?pilot_e2e_role=admin&pilot_e2e_live_api=true#Coach%20Studio`)
+  await page.goto(coachingUrl(live!, 'admin'))
   await page.getByLabel('Program', { exact: true }).selectOption(String(fixture.workspace_id))
-  const areas = page.getByRole('navigation', { name: 'Coach Studio areas' })
-  await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+  await coachingStep(page, 'live').click()
   await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
   await shot('pending-review')
   await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()
@@ -51,18 +51,19 @@ test('Coach Studio pending and revoked invitations allow updates with an accepte
   await shot('first-live')
   const added = await request.patch(`${api}/api/v1/admin/users/${fixture.accepted_id}`, { headers: { Authorization: headers.Authorization }, data: { user: { cohort_ids: [fixture.group_ids[0]] } } })
   expect(added.status(), await added.text()).toBe(200)
-  await areas.getByRole('button', { name: 'Your assistant', exact: true }).click()
-  await page.getByText('More settings', { exact: true }).click()
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await openProgramLook(page)
   const name = `Updated program ${info.project.name}`
   await page.getByLabel('App name', { exact: true }).fill(name)
   const saving = page.waitForResponse(response => response.url().endsWith('/brand') && response.request().method() === 'PATCH')
   await page.getByRole('button', { name: 'Save brand draft', exact: true }).click()
   expect((await saving).status()).toBe(200)
+  // Wait for the screen to take the save in: leaving before it does would ask whether to discard the edit.
+  await expect(page.getByRole('status').filter({ hasText: 'Brand draft saved' })).toBeVisible()
   await shot('edited-brand')
   await page.reload()
   await expect(page.getByLabel('Program', { exact: true })).toHaveValue(String(fixture.workspace_id))
-  await areas.getByRole('button', { name: 'Go live', exact: true }).click()
+  await openAdminSection(page, 'Coaching')
+  await coachingStep(page, 'live').click()
   await expect(page.getByText('Review before going live')).toBeVisible({ timeout: 60_000 })
   await shot('update-review')
   await page.getByRole('button', { name: 'Approve and go live', exact: true }).click()

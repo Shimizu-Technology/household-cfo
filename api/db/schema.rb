@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_11_130100) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_143000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2672,6 +2672,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_130100) do
     t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "mia_message_requests_status_valid"
   end
 
+  create_table "participant_invitation_cancellations", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "actor_user_id", null: false
+    t.bigint "subject_user_id", null: false
+    t.string "subject_email", null: false
+    t.jsonb "groups", default: [], null: false
+    t.datetime "created_at", null: false
+    t.index ["actor_user_id"], name: "index_participant_invitation_cancellations_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "idx_on_coach_workspace_id_ed38c4bca1"
+    t.index ["subject_user_id"], name: "index_participant_invitation_cancellations_on_subject_user_id"
+  end
+
   create_table "pilot_feedback_reports", force: :cascade do |t|
     t.text "actual", null: false
     t.text "attempted", null: false
@@ -4276,6 +4288,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_130100) do
   add_foreign_key "mia_action_items", "mia_action_drafts"
   add_foreign_key "mia_action_items", "users", column: "canceled_by_user_id"
   add_foreign_key "mia_message_requests", "chat_sessions"
+  add_foreign_key "participant_invitation_cancellations", "coach_workspaces"
+  add_foreign_key "participant_invitation_cancellations", "users", column: "actor_user_id"
+  add_foreign_key "participant_invitation_cancellations", "users", column: "subject_user_id"
   add_foreign_key "pilot_feedback_reports", "households"
   add_foreign_key "pilot_feedback_reports", "users"
   add_foreign_key "plaid_accounts", "plaid_items"
@@ -4528,6 +4543,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_130100) do
   SQL
   execute <<~SQL
     CREATE TRIGGER financial_baseline_versions_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER participant_invitation_cancellations_immutable BEFORE DELETE OR UPDATE ON public.participant_invitation_cancellations FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER source_account_identity_versions_immutable BEFORE DELETE OR UPDATE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
