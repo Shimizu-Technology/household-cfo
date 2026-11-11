@@ -122,7 +122,8 @@ test('BOG UI chat savings approval preserves its Saved notice and open entry pan
     return route.fulfill({ json: { records: staged && !approved ? [draft] : [], next_cursor: null, actor_scope: actor, cohort_id: 1, enrollment_id: 1 } })
   })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
-  await page.getByRole('button', { name: 'Review savings', exact: true }).click()
+  // The chat card approves in place; Open in Savings is the way to the full entry form.
+  await page.getByRole('button', { name: 'Open in Savings', exact: true }).click()
   const home = page.getByRole('region', { name: 'Savings challenge', exact: true })
   await expect(home.getByLabel('Amount in US dollars', { exact: true })).toHaveValue('25.00')
   await home.getByLabel(/This was new money/).check()

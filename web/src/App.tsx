@@ -43,6 +43,9 @@ import { useChallengeChatCards } from './lib/useChallengeChatCards'
 import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
+import { MiaPurchaseChangeCard } from './components/MiaPurchaseChangeCard'
+import { MiaJoinCard } from './components/MiaJoinCard'
+import { MiaCheckpointCard } from './components/MiaCheckpointCard'
 import { MiaStatementCards } from './components/MiaStatementCards'
 import { statementCardEntries } from './lib/statementCards'
 import { ChallengeToday } from './components/ChallengeToday'
@@ -98,7 +101,7 @@ import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './
 import { formatHouseholdDay, formatHouseholdMonth, guamTodayIso } from './lib/householdDate'
 import { changedElsewhereMessage, latestAllocation, latestCategory } from './lib/budgetConflict'
 import { changedWorkspaceSetupValues, moneyInputProblem } from './lib/workspaceSetupForm'
-import { isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
+import { budgetViewForWorkspace, isFinancialWorkspaceCommit, miaDraftChangesSharedFinancialRecords, sameOptionalMoneyValue, workspaceViewReducer, type WorkspaceViewAction } from './lib/workspaceView'
 import { documentNeedsReview, uploadStatusLabel, itemNeedsPayFrequency, latestAppliedImport, selectedApplyItemIds, transactionReviewCoverage } from './lib/documentReview'
 import { budgetMonthsFromPayload, payloadHas, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
@@ -112,6 +115,7 @@ import {
   bulkIgnoreTransactionDrafts,
   cancelMiaActionDraft,
   updateMiaSetupCard,
+  chooseMiaPurchase,
   clearMiaMessages,
   confirmTransactionDraft,
   createBudgetCategory,
@@ -761,6 +765,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [dailyIntake,setDailyIntake] = useState<{scope:string;intake:SavingsIntake;handoff?:{nonce:string;rowId:number}}|null>(null)
   const [miaDailyReports,setMiaDailyReports] = useState<{scope:string;report:DailyReportIntake;nonce:string}[]>([])
   const [dailyRefreshKey,setDailyRefreshKey] = useState(0)
+  const [joinCardOpen, setJoinCardOpen] = useState(false)
   const pendingCheckInPrompt = useRef<string | null>(null)
   const [checkInPromptScope, setCheckInPromptScope] = useState<string | null>(null)
   const [composerHint,setComposerHint] = useState<string|null>(null)
@@ -886,6 +891,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const handleSavingsEnrollmentKnown = useCallback((enrolled: boolean) => {
     if (savingsEnrollmentScope) setSavingsEnrollment({ scope: savingsEnrollmentScope, enrolled, source: 'home' })
   }, [savingsEnrollmentScope])
+  // Stable, so the join card's effect never re-fires because the parent re-rendered.
+  const onJoinCardJoined = useCallback(() => { handleSavingsEnrollmentKnown(true); setDailyRefreshKey(value => value + 1) }, [handleSavingsEnrollmentKnown])
+  const closeJoinCard = useCallback(() => setJoinCardOpen(false), [])
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
   const safetyHold = latestReplyIsSafety(currentMessages)
@@ -2333,6 +2341,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         const pair = [userMessageWithPreviews, response.assistant_message].filter((message) => !message.id || !present.has(message.id))
         return [...rest, ...(response.conversation_persisted === false && challengeNotOpen ? markLocalOnly(pair) : pair)]
       })
+      if (response.challenge_join) setJoinCardOpen(true)
       if (response.setup_help?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setSetupHelpOpen(true) }
       if (auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && response.financial_restart?.available && activeSectionRef.current === 'Ask Mia') { setAssistPanel(null); setFinancialRestartOpen(true) }
       if (response.transaction_draft) {
@@ -2944,6 +2953,28 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return true
     } catch (caught) {
       const message = participantErrorMessage(caught, 'That change didn’t save. Please try again.')
+      setBudgetError(message)
+      setMiaError(message)
+      return false
+    } finally {
+      endBudgetAction()
+    }
+  }
+
+  // She picked which confirmed purchase Mia meant; the card becomes the change to approve.
+  async function handleChoosePurchaseForChange(draft: MiaActionDraft, option: number) {
+    if (!isRealWorkspace || budgetYearLoading) return false
+    if (!beginBudgetAction(`choose-purchase:${draft.id}`)) return false
+    setBudgetError(null)
+    setMiaError(null)
+    try {
+      const workspace = await chooseMiaPurchase(draft.id, option)
+      setData({ type: 'financial_mutation', update: workspace })
+      const view = budgetViewForWorkspace(workspace, selectedBudgetMonthIndex)
+      if (view) setBudgetView(view)
+      return true
+    } catch (caught) {
+      const message = participantErrorMessage(caught, 'I couldn’t open that purchase. Nothing changed.')
       setBudgetError(message)
       setMiaError(message)
       return false
@@ -3847,11 +3878,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
+                    {isSavingsExperience && !challengeNotOpen && joinCardOpen && !safetyHold && auth.currentUser && <MiaJoinCard onJoined={onJoinCardJoined} onDone={closeJoinCard} />}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && !safetyHold && auth.currentUser && challengeParticipantScope && data.workspace.cohort?.id && <MiaCheckpointCard actor={challengeParticipantScope} cohortId={data.workspace.cohort.id} refreshKey={dailyRefreshKey} onDone={() => setDailyRefreshKey(value => value + 1)} onOpenCheckpoints={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} />}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
                     {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
-                      return intake ? <MiaSavingsReview key={card.id} intake={intake} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
+                      return intake ? <MiaSavingsReview key={card.id} intake={intake} card={card} onApproved={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onDismissed={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
                     })}
                     {isSavingsExperience && !safetyHold && challengeCards.goals.map(card => <MiaChallengeGoal key={card.id} card={card} onDone={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onChangeAmount={amount => void handleAskMia(`Let's do $${amount} instead`)} />)}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
@@ -4086,6 +4119,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         onApply={handleApplyMiaActionDraft}
                         onCancel={handleCancelMiaActionDraft}
                         onEditSetupCard={handleEditMiaSetupCard}
+                        onChoosePurchase={handleChoosePurchaseForChange}
                         onEditManually={openManualControls}
                         onAskFresh={askForFreshDraft}
                       />
@@ -4275,6 +4309,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     onApply={handleApplyMiaActionDraft}
                     onCancel={handleCancelMiaActionDraft}
                     onEditSetupCard={handleEditMiaSetupCard}
+                    onChoosePurchase={handleChoosePurchaseForChange}
                     onEditManually={openManualControls}
                     onAskFresh={askForFreshDraft}
                   />
@@ -7075,6 +7110,7 @@ export function MiaActionDraftReviewStack({
   onApply,
   onCancel,
   onEditSetupCard,
+  onChoosePurchase,
   onEditManually,
   onAskFresh,
 }: {
@@ -7087,13 +7123,16 @@ export function MiaActionDraftReviewStack({
   onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
   onEditSetupCard?: (draft: MiaActionDraft, edit: MiaSetupCardEdit) => Promise<boolean>
+  onChoosePurchase?: (draft: MiaActionDraft, option: number) => Promise<boolean>
   onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
   onAskFresh?: (draft: MiaActionDraft) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
-      {drafts.map((draft) => draft.setup_card && onEditSetupCard ? (
+      {drafts.map((draft) => draft.purchase_change && onChoosePurchase ? (
+        <MiaPurchaseChangeCard key={draft.id} draft={draft} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onChoose={onChoosePurchase} />
+      ) : draft.setup_card && onEditSetupCard ? (
         <MiaSetupCard key={draft.id} draft={draft} isRealWorkspace={isRealWorkspace} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onEdit={onEditSetupCard} />
       ) : (
         <MiaActionDraftReviewCard

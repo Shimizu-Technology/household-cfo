@@ -659,6 +659,7 @@ export type MiaActionItem = {
     | 'update_transition_policy'
     | 'update_household_profile'
     | 'confirm_household_setup'
+    | 'change_purchase'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -691,7 +692,7 @@ export type MiaActionDraft = {
   scope_note?: string | null
   id: number
   status: 'pending' | 'partially_applied' | 'applied' | 'canceled'
-  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan' | 'action_plan'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan' | 'action_plan' | 'purchase_change'
   year: number
   title: string
   summary: string
@@ -718,6 +719,20 @@ export type MiaActionDraft = {
   stale_message?: string | null
   items: MiaActionItem[]
   setup_card?: MiaSetupCardData
+  purchase_change?: MiaPurchaseChangeData
+}
+
+// A confirmed purchase Mia can change, recategorize or take out of spending.
+export type MiaPurchaseChangeData = {
+  mode: 'choose' | 'confirm'
+  merchant?: string
+  date_label?: string
+  amount?: string
+  void: boolean
+  rows: { label: string; before: string; after: string }[]
+  effects: string[]
+  note?: string | null
+  options: { index: number; label: string }[]
 }
 
 export type MiaSetupCardPart = {
@@ -4034,6 +4049,8 @@ export type MiaMessageResponse = {
   spending_report?: SpendingReport | null
   // false when the server answered without saving the conversation (closed challenge, crisis guidance).
   conversation_persisted?: boolean
+  // Mia explained how to join and the join card should show in the chat.
+  challenge_join?: boolean
 }
 
 export type FinancialRestartReview = {
@@ -4660,6 +4677,16 @@ export async function updateMiaSetupCard(id: number, edit: MiaSetupCardEdit): Pr
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(edit),
+  })
+  return payload.workspace
+}
+
+// She picked which purchase Mia meant; the card turns into the change to approve.
+export async function chooseMiaPurchase(id: number, option: number): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/purchase_choice`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ option }),
   })
   return payload.workspace
 }
@@ -5301,6 +5328,6 @@ export async function changeSavingsChallengeAccess(
 export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('./lib/challengeChatCards').ChallengeChatCards> {
   return fetchJson('/api/v1/savings_challenge/chat_cards', { signal, cache: 'no-store' })
 }
-export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
+export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }

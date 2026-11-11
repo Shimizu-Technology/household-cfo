@@ -53,3 +53,11 @@ export function isFinancialWorkspaceCommit(action: WorkspaceViewAction) {
   return typeof action === 'object' && action !== null && 'type' in action &&
     (action.type === 'shared_financial_commit' || action.type === 'shared_financial_mutation' || action.type === 'financial_mutation')
 }
+
+// A card's answer can belong to another budget year than the one on screen
+// (a purchase from last year). Follow the returned year so the review shows
+// the card as it now stands instead of a cached copy of the old step.
+export function budgetViewForWorkspace(workspace: AppData, monthIndex: number) {
+  const year = workspace.budget.annual_plan?.year
+  return year == null ? null : { year, monthIndex }
+}

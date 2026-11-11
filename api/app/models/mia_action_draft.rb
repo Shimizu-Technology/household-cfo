@@ -1,7 +1,7 @@
 class MiaActionDraft < ApplicationRecord
   include CurrentFinancialPicture
   STATUSES = %w[pending partially_applied applied canceled].freeze
-  DRAFT_TYPES = %w[budget_edit household_setup income_schedule debt_plan asset_plan goal_plan action_plan].freeze
+  DRAFT_TYPES = %w[budget_edit household_setup income_schedule debt_plan asset_plan goal_plan action_plan purchase_change].freeze
 
   belongs_to :household
   belongs_to :requested_by_user, class_name: "User"
@@ -24,7 +24,7 @@ class MiaActionDraft < ApplicationRecord
   scope :pending, -> { where(status: "pending") }
   scope :reviewable, -> { where(status: %w[pending partially_applied]) }
   scope :for_budget_year, ->(year) do
-    timeless_types = %w[household_setup debt_plan]
+    timeless_types = %w[household_setup debt_plan purchase_change]
     year_dependent_operations = HouseholdFinance::MiaActionPlanBuilder::YEAR_DEPENDENT_OPERATION_KEYS
     where(
       <<~SQL.squish,

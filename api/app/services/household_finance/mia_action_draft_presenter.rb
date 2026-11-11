@@ -43,7 +43,10 @@ module HouseholdFinance
         canceled_item_count: draft.mia_action_items.count { |item| item.canceled_at.present? },
         remaining_item_count: draft.mia_action_items.count { |item| item.applied_at.blank? && item.canceled_at.blank? },
         items: action_items
-      }.tap { |payload| payload[:setup_card] = setup_card if setup_card }
+      }.tap do |payload|
+        payload[:setup_card] = setup_card if setup_card
+        payload[:purchase_change] = purchase_change if purchase_change
+      end
     end
 
     private
@@ -52,6 +55,15 @@ module HouseholdFinance
 
     def setup_card
       @setup_card ||= presented_setup_card
+    end
+
+    def purchase_change
+      @purchase_change ||= begin
+        detail = draft.metadata.to_h["purchase_change"]
+        detail && { mode: detail["mode"], merchant: detail["merchant"], date_label: detail["date_label"], amount: detail["amount"], void: detail["void"] == true,
+          rows: Array(detail["rows"]), effects: Array(detail["effects"]), note: detail["note"],
+          options: Array(detail["options"]).each_with_index.map { |option, index| { index: index, label: option["label"] } } }
+      end
     end
 
     def presented_setup_card
