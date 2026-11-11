@@ -1,0 +1,17 @@
+.use-app-as { display: grid; gap: 4px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.use-app-as legend { padding: 0 0 6px; font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
+.use-app-as-row { display: flex; align-items: stretch; gap: 8px; border-radius: var(--radius-sm); }
+.use-app-as-row label { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 12px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer; }
+.use-app-as-row input { flex: 0 0 auto; width: 20px; height: 20px; margin: 0; accent-color: var(--mauve); }
+.use-app-as-row span { min-width: 0; display: grid; gap: 2px; }
+.use-app-as-row strong { overflow-wrap: anywhere; font-size: var(--text-sm); line-height: 1.3; }
+.use-app-as-row small { color: var(--muted); font-size: var(--text-xs); }
+.use-app-as-row.is-selected label { background: var(--paper-warm); }
+.use-app-as-leave { flex: 0 0 auto; min-height: 44px; padding: 0 12px; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: var(--text-sm); text-decoration: underline; cursor: pointer; transition: transform 140ms var(--ease-out); }
+.use-app-as-leave:active { transform: scale(0.97); }
+.use-app-as-now, .use-app-as-message { margin: 4px 0 0; font-size: var(--text-sm); color: var(--muted); }
+.use-app-as-message.is-error { color: var(--color-danger); }
+@media (hover: hover) and (pointer: fine) {
+  .use-app-as-row label:hover { background: var(--paper-warm); }
+  .use-app-as-leave:hover { color: var(--ink, inherit); }
+}

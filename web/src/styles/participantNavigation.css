@@ -5,33 +5,10 @@
   cursor: pointer;
   font-weight: var(--weight-semibold);
 }
-.tabs-tools-group > summary:focus-visible,
-.staff-navigation a:focus-visible {
+.tabs-tools-group > summary:focus-visible {
   outline: 3px solid var(--brand-focus);
   outline-offset: 3px;
 }
-.staff-navigation {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-block: 8px 16px;
-}
-.staff-navigation a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  padding: 8px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  color: var(--ink);
-  text-decoration: none;
-}
-.staff-navigation a[aria-current="page"] {
-  color: var(--brand-on-primary);
-  background: var(--emerald);
-  border-color: var(--emerald);
-}
-.staff-navigation a:active,
 .tabs-tools-group > summary:active { transform: scale(0.97); }
 
 /* Native WebKit selects need an explicit height, not just min-height. */
@@ -79,6 +56,5 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .staff-navigation a:active,
   .tabs-tools-group > summary:active { transform: none; }
 }

@@ -17,7 +17,7 @@ const published = {...persona,has_unpublished_changes:false,published_version:{i
 const group = {id:42,name:'Practice people',assignable:true,persona_assignment:null,status:'active' as const,blocked_reason:null}
 const ready = {ready:true,candidate:{manifest_digest:'candidate',draft_revision:1},evaluation_run:{id:4,run_digest:'run',passed:true},behavioral_preview_evidence:{valid:true,digest:'behavior',candidate_digest:'candidate',output:'Take one small step.'},approval:{valid:true,approval_digest:'approved'},phrase_audience_reviews:[{artifact_id:'phrase',artifact_fingerprint:'fingerprint',review_state:'missing',phrase:{text:'One small step',meaning:'Make progress gently',allowed_contexts:['general'],frequency:'rare',caution:'Never in crisis.'}}]}
 const configuration = { draft_revision: 2, published_version: null, preview: {digest:'settings'} }
-function Harness({onChange=vi.fn()}:{onChange?:(value:AdminPersonaDetail)=>void}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={onChange} /> }
+function Harness({onChange=vi.fn(),canOpenChallenge=false}:{onChange?:(value:AdminPersonaDetail)=>void;canOpenChallenge?:boolean}) { const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={onChange} canOpenChallenge={canOpenChallenge} /> }
 async function review() { fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));await screen.findByText('Review before going live') }
 async function approve() { await review(); fireEvent.click(screen.getByRole('button',{name:'Approve and go live'})) }
 beforeEach(() => {
@@ -109,12 +109,19 @@ it('CR21 shows actual Savings navigation and the unopened challenge before appro
  api.postCoachLaunch.mockResolvedValue({persona:published,launch:{groups:[{...group,challenge_closed:true}]}})
  render(<Harness/>);await review();expect(screen.getByText('Savings · Mia · Statements · More: My Profile')).toBeTruthy();expect(screen.queryByText(/Tools included:/)).toBeNull()
  expect(screen.getByText('This update adds Statements')).toBeTruthy()
- expect(screen.getByText(/program team still needs to open/)).toBeTruthy()
- fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('program team still needs to open')
+ expect(screen.getByText(/program owner still needs to open/)).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('program owner still needs to open')
+})
+it('tells the program owner to open it from Groups instead of waiting for someone else',async()=>{
+ settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:false,modules:[]}}]})
+ api.postCoachLaunch.mockResolvedValue({persona:published,launch:{groups:[{...group,challenge_closed:true}]}})
+ render(<Harness canOpenChallenge/>);await review();expect(screen.getByText(/Open the savings challenge from Groups when you are ready\./)).toBeTruthy()
+ expect(screen.queryByText(/still needs to open/)).toBeNull()
+ fireEvent.click(screen.getByRole('button',{name:'Approve and go live'}));expect((await screen.findByText(/^Live for Practice people/)).textContent).toContain('open the savings challenge from Groups when you are ready')
 })
 it('does not claim an already open challenge still needs opening',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:true,modules:[]}}]})
- render(<Harness/>);await review();expect(screen.queryByText(/program team still needs to open/)).toBeNull()
+ render(<Harness/>);await review();expect(screen.queryByText(/still needs to open/)).toBeNull()
 })
 it('honors custom participant navigation order and independently hidden Statements',async()=>{
  settingsApi.reviewCoachSettings.mockResolvedValue({brand:{configuration,preview:{brand:{}}},tools:[{configuration:{...configuration,cohort:group,draft:{schema_version:4,experience_mode:'savings_challenge'}},preview:{challenge_open:true,module_order:['wealth','ask_mia','home'],modules:[{id:'home',enabled:true},{id:'ask_mia',enabled:true},{id:'wealth',enabled:true},{id:'statements',enabled:false}]}}]})

@@ -10604,3 +10604,15 @@ body:has(.app.is-chat-page) { overflow: hidden; }
 .app:not(.staff-app) :is(a.button, a[role="button"], nav a[href]) { display: inline-flex; align-items: center; }
 /* Safari's native select ignores min-height unless height is explicit. */
 .app:not(.staff-app) select { box-sizing: border-box; height: 44px; font-size: max(16px, 1em); }
+
+/* Staff use the same app a participant does: the group they are using, and the way to the Admin side. */
+.shell-using-note { margin: 0; flex-basis: 100%; color: var(--muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.shell-brand { flex-wrap: wrap; }
+.shell-admin-link { display: none; align-items: center; min-height: 44px; padding: 0 12px; border-radius: var(--radius-md); color: var(--mauve); font-weight: var(--weight-semibold); text-decoration: none; transition: transform var(--duration-press) var(--ease-out); }
+.shell-admin-link:active { transform: scale(0.97); }
+.shell-account-panel .shell-admin-menu-link { width: 100%; justify-content: center; text-decoration: none; }
+@media (min-width: 1024px) {
+  .shell-admin-link { display: inline-flex; }
+  .shell-account-panel .shell-admin-menu-link { display: none; }
+}
+@media (hover: hover) and (pointer: fine) { .shell-admin-link:hover { text-decoration: underline; } }

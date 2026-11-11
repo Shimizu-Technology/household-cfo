@@ -35,16 +35,21 @@ const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
   participants_active: null,
 }
 
-export function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
+type ConsoleArea = 'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'
+
+// `view` puts one area of the console inside a section of the Admin side; the
+// shell supplies the program picker and the section navigation, so both go.
+// Without it the console shows all its areas, as before.
+export function AdminConsole({ currentUser, view }: { currentUser: CurrentUser; view?: ConsoleArea }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
-  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
+  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} view={view} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
 }
 
-function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUser; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
+function AdminPanel({ currentUser, view, onProgramCreated }: { currentUser: CurrentUser; view?: ConsoleArea; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
-  const [area, setArea] = useState<'participants' | 'cohorts' | 'feedback' | 'programs' | 'health'>(currentUser.is_admin && coachWorkspaces.length === 0 ? 'programs' : 'participants')
+  const [area, setArea] = useState<ConsoleArea>(view ?? (currentUser.is_admin && coachWorkspaces.length === 0 ? 'programs' : 'participants'))
   const [supportView, setSupportView] = useState<'problems' | 'setup'>('problems')
   const [supportBusy, setSupportBusy] = useState(false)
   const [feedbackBusy, setFeedbackBusy] = useState(false)
@@ -455,9 +460,9 @@ function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUse
 
   return (
     <section className="screen-grid admin-screen">
-      <header className="screen-heading admin-heading"><h2 data-page-heading tabIndex={-1}>Program operations</h2></header>
+      <header className={view ? 'sr-only' : 'screen-heading admin-heading'}><h2 data-page-heading tabIndex={-1}>{view ? ({ participants: 'People', cohorts: 'Groups', feedback: 'Support', programs: 'Programs and rules', health: 'Bank connections' })[view] : 'Program operations'}</h2></header>
 
-      {currentUser.is_admin && coachWorkspaces.length > 0 && (
+      {!view && currentUser.is_admin && coachWorkspaces.length > 0 && (
         <label className="coach-workspace-picker">
           <span>Admin workspace</span>
           <select
@@ -475,9 +480,9 @@ function AdminPanel({ currentUser, onProgramCreated }: { currentUser: CurrentUse
       {error && <p className="admin-alert error" role="alert">{error}</p>}
       {notice && <p className="admin-alert success" role="status">{notice}</p>}
 
-      <nav className="admin-area-nav" aria-label="Administration areas">
+      {!view && <nav className="admin-area-nav" aria-label="Administration areas">
         {(['participants', 'cohorts', 'feedback', 'programs', 'health'] as const).map((value) => <button type="button" key={value} aria-pressed={area === value} disabled={adminMutationPending} onClick={() => setArea(value)}>{({ participants: 'Participants & access', cohorts: 'Cohorts', feedback: 'Support inbox', programs: 'Programs & rules', health: 'Bank health' })[value]}</button>)}
-      </nav>
+      </nav>}
       {cohortScopeVisible && <label className="admin-current-cohort">Cohort scope<select disabled={adminMutationPending} value={selectedCohortId ?? ''} onChange={(event) => selectCohort(event.target.value ? Number(event.target.value) : null)}><option value="">All users</option>{displayCohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
       {adminMutationPending && <p className="admin-muted" role="status">{loading ? 'Loading program data…' : 'Please wait for the current change to finish before continuing.'}</p>}
 
