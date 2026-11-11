@@ -42,7 +42,12 @@ module HouseholdFinance
         row = row.to_h.stringify_keys
         { "content" => content(row["content"]), "created_at" => row["created_at"].to_s.first(40) }
       end.reject { |row| row["content"].blank? }.uniq { |row| row["content"] }
-      pinned = FACTS.values.filter_map { |pattern| entries.find { |row| row["content"].match?(pattern) } }.uniq
+      safety_start = entries.index { |row| row["content"].match?(Regexp.union(FACTS[:means], FACTS[:intent])) } || 0
+      pinned = FACTS.filter_map do |kind, pattern|
+        # An earlier rent/food date is not the first crisis plan or timing.
+        candidates = kind == :plan ? entries.drop(safety_start) : entries
+        candidates.find { |row| row["content"].match?(pattern) }
+      end.uniq
       pinned.unshift(entries.first) if entries.first
       pinned.uniq!
       recent = (entries - pinned).last(LIMIT - pinned.size)

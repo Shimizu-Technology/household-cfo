@@ -2,7 +2,7 @@ require "test_helper"
 
 class CareDisclosuresTest < ActiveSupport::TestCase
   test "first means plan and intent survive sixty two turns even when hardship came first" do
-    contents = [ "Rent is late.", "I have a gun in my room.", "I want to die.", "I plan to act at 9 tonight." ] + Array.new(58) { |i| "Still here #{i}." }
+    contents = [ "Rent is due today.", "I have a gun in my room.", "I want to die.", "I plan to act at 9 tonight." ] + Array.new(58) { |i| "Still here #{i}." }
     topic = HouseholdFinance::CareDisclosures.bound_topic("disclosures" => contents.map { |text| { "content" => text } })
     assert_equal 12, topic["disclosures"].size
     contents.first(4).each { |fact| assert_includes topic.to_json, fact }
