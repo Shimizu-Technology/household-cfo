@@ -618,10 +618,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert body["challenge_chat_card"].present?, "the saving still gets its card"
     assert_match(/\$50 /, text(body), "the saving is named without .00")
     refute_match(/\$50\.00/, text(body))
-    assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD, "the quit question is answered too"
-    request = SetupSupportRequest.find_by!(household: @household, reason: "leave_challenge")
-    assert_equal "requested", request.status
-    assert_equal @savings_cohort.id, request.cohort_id
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::EXPLANATION, "the quit question is answered too"
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge"), "a procedural question is not consent to notify"
   end
 
   test "one reply never carries two questions" do
