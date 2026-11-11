@@ -194,7 +194,18 @@ jobs:
         run: npm ci
 
       - name: Install browser dependencies
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
+        # archive (it happened for hours on 2026-11-12), retry once, then install only the browser:
+        # GitHub's Ubuntu image already carries the libraries Chromium and WebKit need, and the browser
+        # itself downloads from Playwright's CDN, not the Ubuntu archive.
+        run: |
+          for attempt in 1 2; do
+            if npx playwright install --with-deps ${{ matrix.browser }}; then exit 0; fi
+            echo "::warning::playwright install --with-deps failed (attempt $attempt)"
+            sleep 20
+          done
+          echo "::warning::Falling back to installing ${{ matrix.browser }} without system packages"
+          npx playwright install ${{ matrix.browser }}
 
       - name: Run browser checks
         run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
