@@ -156,6 +156,23 @@ describe('Mia’s statement cards in the chat', () => {
     expect(props.onSaved).not.toHaveBeenCalled()
   })
 
+  it('says when patterns will be offered after she answers "Something’s missing"', async () => {
+    const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [] })
+    serve(review(done))
+    const missing = { ...progress(27), coverage: { question: 'Is every line from this statement here?', answer: 'something_missing' as const } }
+    const props = mount([statement(1, { statement_review: missing })])
+    expect(await screen.findByText('I’ll offer to look for patterns once the missing lines are in.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /See what Mia notices|Yes, look for patterns/ })).toBeNull()
+    expect(props.onAskPatterns).not.toHaveBeenCalled()
+  })
+
+  it('does not promise patterns while lines still need her, or when patterns cannot be asked for', async () => {
+    serve(review(planWith([question(4010, 'Shop 4010', 'no_category')])))
+    mount([statement(1)])
+    await screen.findByRole('region', { name: /Statement: / })
+    expect(screen.queryByText(/once the missing lines are in/)).toBeNull()
+  })
+
   it('says so when the statement has no lines to approve', async () => {
     serve(review(planWith([], { total: 0, ready: [], ready_event_ids: [] })))
     const props = mount([statement(1)])

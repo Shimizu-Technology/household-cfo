@@ -24,6 +24,12 @@ function stageOf(documentImport: FinancialDocumentImport): StatementCardStage | 
   return documentNeedsReview(documentImport) ? 'review' : 'approved'
 }
 
+/** She approved every line but said something is missing, so the statement stays open until the missing lines are in. */
+export function waitsOnMissingLines(entry: StatementCardEntry): boolean {
+  const progress = entry.documentImport.statement_review
+  return entry.stage === 'review' && progress?.coverage.answer === 'something_missing' && progress.done >= progress.total && !entry.documentImport.transaction_drafts.some((draft) => draft.status === 'pending')
+}
+
 /** By the month each covers, so three months read August, September, October wherever they were uploaded from. */
 export function statementCardEntries(imports: FinancialDocumentImport[], now: number): StatementCardEntry[] {
   return imports.flatMap((documentImport): StatementCardEntry[] => {
