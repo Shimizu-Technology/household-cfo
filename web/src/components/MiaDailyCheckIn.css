@@ -94,7 +94,7 @@
 .mia-daily-date input { min-width: 0; min-height: 44px; font-size: 16px; flex: 1; }
 
 /* Mia's cards for a confirmed purchase, joining, savings and checkpoints. */
-.mia-action-card { max-width: 40rem; }
+.mia-action-card { max-width: 40rem; scroll-margin-bottom: 24px; }
 .mia-purchase-card { scroll-margin-bottom: 80px; }
 .mia-purchase-which { color: var(--muted, #66625b); font-variant-numeric: tabular-nums; }
 .mia-purchase-options { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }

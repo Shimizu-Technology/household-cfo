@@ -22,8 +22,11 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
   const mode = change?.mode
   const first = useRef(true)
   // A card Mia just made scrolls into view; one reloaded with the history stays where it is.
-  const fresh = draft.created_at ? Date.now() - Date.parse(draft.created_at) < 90_000 : false
-  useEffect(() => { if (fresh) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [fresh])
+  const createdAt = draft.created_at
+  useEffect(() => {
+    const fresh = createdAt ? Date.now() - Date.parse(createdAt) < 90_000 : false
+    if (fresh) card.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [createdAt])
   // The card turns into the change card after a choice; keep her place on it.
   useEffect(() => {
     if (first.current) { first.current = false; return }

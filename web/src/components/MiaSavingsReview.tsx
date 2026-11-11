@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { updateChallengeChatCard } from '../api'
 import type { ChallengeChatCard } from '../lib/challengeChatCards'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
@@ -30,6 +30,7 @@ type Props = {
 
 export function MiaSavingsReview({ intake, today, onReview, card, onApproved, onDismissed }: Props) {
   const [busy, setBusy] = useState(false)
+  const section = useRef<HTMLElement>(null)
   const [saved, setSaved] = useState(false)
   const [newMoney, setNewMoney] = useState(false)
   const [error, setError] = useState('')
@@ -39,6 +40,8 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   const title = original ? `Replace ${savingsDollars(original.signed_cents)} with ${amount}` : intake.kind === 'purchase' ? `${amount} at ${intake.merchant}` : withdrawal ? `${amount} taken out` : `${amount} set aside`
   const inPlace = Boolean(card) && intake.kind !== 'purchase' && Boolean(intake.effective_on) && !intake.date_required
   const needsNewMoney = inPlace && !withdrawal && !intake.correction
+  // A card Mia just made shows its question and its answer without scrolling.
+  useEffect(() => { if (inPlace) section.current?.scrollIntoView?.({ block: 'nearest' }) }, [inPlace])
 
   async function act(action: 'approve_savings' | 'dismiss') {
     if (!card || busy) return
@@ -63,7 +66,7 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   }
 
   if (inPlace) {
-    return <section className="mia-daily-card mia-action-card" aria-label="Savings to check" aria-busy={busy}>
+    return <section ref={section} className="mia-daily-card mia-action-card" aria-label="Savings to check" aria-busy={busy}>
       <h3>{title} · {plainDay(intake.effective_on, today)}</h3>
       <p>{withdrawal ? 'This takes the money out of your challenge total. Nothing changes until you tap Yes.' : original ? 'This replaces the earlier amount in your total. Nothing changes until you tap Yes.' : 'Only new money you set aside counts. Nothing is saved until you tap Yes.'}</p>
       {needsNewMoney && <label className="mia-card-check"><input type="checkbox" checked={newMoney} disabled={busy} onChange={event => setNewMoney(event.target.checked)} /><span>This was new money I set aside after expenses, not borrowed or money I already had.</span></label>}

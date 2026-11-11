@@ -31,6 +31,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   const [celebrate, setCelebrate] = useState<CheckpointSnapshot | null>(null)
   const keys = useRef({ stage: crypto.randomUUID(), approve: crypto.randomUUID() })
   const heading = useRef<HTMLHeadingElement>(null)
+  const card = useRef<HTMLElement>(null)
   const mutation = useDailyMutation(due?.scope, () => undefined)
 
   useEffect(() => {
@@ -47,6 +48,9 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   }, [actor, cohortId, refreshKey])
 
   const snapshot = draft?.snapshot
+  // Keep the card in view as it grows from the offer to the look back.
+  const shown = Boolean(due) && !dismissed && !finished
+  useEffect(() => { if (shown) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [shown, snapshot])
   const lines = useMemo(() => snapshot ? facts(snapshot) : [], [snapshot])
   if (celebrate) {
     return <BibaCard title={celebrate.milestone_day === 90 && celebrate.final_confirmation_status !== 'confirmed' ? 'Biba! Your Day 90 review is saved.' : `Biba! Day ${celebrate.milestone_day} is done.`} actionLabel="Keep going" onAction={() => { setCelebrate(null); setDue(null); onDone() }}>{bibaSentence(celebrate)}</BibaCard>
@@ -91,7 +95,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   }
 
   if (!draft || !snapshot) {
-    return <section className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+    return <section ref={card} className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
       <h3 ref={heading} tabIndex={-1}>Day {day} is ready to look back on</h3>
       <p>I can show what you set aside and what you noticed through {formatDay(scope && due.localToday, { year: false })}, next to your target. Nothing is saved until you approve it.</p>
       {day === 90 && <label className="mia-card-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my 90 days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
@@ -104,7 +108,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
     </section>
   }
 
-  return <section className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+  return <section ref={card} className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
     <h3 ref={heading} tabIndex={-1}>Day {day}: here’s your look back</h3>
     <p className="mia-daily-hint">Through {formatDay(snapshot.cutoff_on, { year: true })}, from the amounts and check-ins you already saved.</p>
     <dl className="mia-card-facts">{lines.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>
