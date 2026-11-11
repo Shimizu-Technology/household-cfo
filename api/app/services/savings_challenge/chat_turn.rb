@@ -448,7 +448,7 @@ module SavingsChallenge
       reviewed = SavingsCheckpoint.where(savings_enrollment: @enrollment).where.not(current_version_id: nil).pluck(:milestone_day)
       ready = (due - reviewed).first
       dates = calendar[:checkpoints].map { |day, date| "Day #{day}: #{Date.iso8601(date).strftime('%b %-d')}" }.join("; ")
-      @answer = "#{amount}#{target}. #{dates}. #{ready ? "Day #{ready} is ready to review: open Today, then Checkpoints, to look back at what you saved and noticed." : 'At each checkpoint you can look back at your saved amounts and check-ins in Today → Checkpoints.'} Estimates and spending cuts are separate from money you actually set aside."
+      @answer = "#{amount}#{target}. #{dates}. #{ready ? "Day #{ready} is ready to review. The card below shows what you set aside and noticed, and you can approve it right there." : 'At each checkpoint you can look back at your saved amounts and check-ins, right here in the chat or in Today → Checkpoints.'} Estimates and spending cuts are separate from money you actually set aside."
       true
     end
   end
