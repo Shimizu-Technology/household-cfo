@@ -41,12 +41,6 @@ import {
 } from '../lib/personaDraft'
 import { DisabledReason } from './DisabledReason'
 import { Button } from './Button'
-import { CoachProgramSettings } from './CoachProgramSettings'
-import { WorkspaceCollaborators } from './WorkspaceCollaborators'
-import { CoachGroupsParticipants } from './CoachGroupsParticipants'
-import { CoachChallengeDashboard } from './CoachChallengeDashboard'
-import { SetupSupportInbox } from './SetupSupportInbox'
-import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
@@ -70,12 +64,12 @@ type EditorMode = 'setup' | 'guided' | 'advanced'
 type AssistantStage = 'draft' | 'sources' | 'release' | 'history' | 'assign'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
-type StudioSection = 'settings' | 'groups' | 'assistants' | 'library' | 'participant_tools' | 'cohort_releases'
+type StudioSection = 'assistants' | 'library' | 'cohort_releases'
 
 export type CoachFormProposal = { description: string; draft_config: PersonaConfiguration; personaId: number; workspaceId: number; draftRevision: number }
 
-export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'groups', embedded = false, proposedState, onGroupsChanged, onPendingChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; embedded?: boolean; proposedState?: CoachFormProposal; onGroupsChanged?: () => void; onPendingChange?: (pending: boolean) => void }) {
-  const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
+export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection = 'assistants', proposedState, onPendingChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void; initialSection?: StudioSection; proposedState?: CoachFormProposal; onPendingChange?: (pending: boolean) => void }) {
+  const { activeCoachWorkspaceId: activeWorkspaceId } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
   const workspaceRole = workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role
   const workspaceCreationNeedsSelection = currentUser.is_admin && activeWorkspaceId === null
@@ -107,20 +101,12 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   const [createDescription, setCreateDescription] = useState('')
   const [pendingSelectionId, setPendingSelectionId] = useState<number | null>(null)
   const [pendingLibraryReturn, setPendingLibraryReturn] = useState(false)
-  const [experienceDirty, setExperienceDirty] = useState(false)
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [studioSection, setStudioSection] = useState<StudioSection>(initialSection)
-  const [setupSupportOpen, setSetupSupportOpen] = useState(false)
-  const [groupsNotice, setGroupsNotice] = useState<string | null>(null)
-  const [groupsDirty, setGroupsDirty] = useState(false)
-  const [groupsAccessVisited, setGroupsAccessVisited] = useState(false)
-  const [groupsAccessOpen, setGroupsAccessOpen] = useState(false)
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const [setupDirty, setSetupDirty] = useState(false)
   const [rolloutDirty, setRolloutDirty] = useState(false)
-  const [settingsDirty, setSettingsDirty] = useState(false)
-  const [collaboratorsDirty, setCollaboratorsDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const proposalCopied = useRef(false)
@@ -142,7 +128,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
   const createDirty = createOpen && Boolean(createName.trim() || createDescription.trim())
-  const studioDirty = createDirty || groupsDirty || dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty || settingsDirty || collaboratorsDirty
+  const studioDirty = createDirty || dirty || libraryDirty || personaSourcesDirty || setupDirty || rolloutDirty
   const personaDirty = dirty || personaSourcesDirty || setupDirty
   const createDisabled = workspaceCreateDisabled || loading || detailLoading || pendingAction !== null || workspaceMutations.pending
 
@@ -231,7 +217,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     } catch (caught) {
       if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
         personasWorkspaceRef.current = undefined
-        setError(errorMessage(caught, 'Coach Studio could not load.'))
+        setError(errorMessage(caught, 'Your coaching history could not load.'))
       }
     } finally {
       if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setLoading(false)
@@ -247,7 +233,6 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       const nextCohorts = await fetchAdminPersonaAssignableCohorts()
       if (requestId !== loadAssignableGroupsRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setCohorts(nextCohorts)
-      if (embedded && nextCohorts.length === 0) { setGroupsAccessVisited(true); setGroupsAccessOpen(true) }
       setSelectedCohortId((current) => nextCohorts.some((cohort) => cohort.id === current) ? current : nextCohorts[0]?.id ?? null)
     } catch (caught) {
       if (requestId === loadAssignableGroupsRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
@@ -256,7 +241,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     } finally {
       if (requestId === loadAssignableGroupsRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setCohortsLoading(false)
     }
-  }, [activeWorkspaceId, embedded])
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     queueMicrotask(() => void loadCohorts())
@@ -310,7 +295,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   async function chooseStudioSection(next: StudioSection): Promise<boolean> {
     if (next === studioSection) return true
     if (pendingAction || workspaceMutations.pending) return false
-    if (studioDirty && !(await confirmDiscard('Discard unsaved Coach Studio changes and switch views?'))) return false
+    if (studioDirty && !(await confirmDiscard('Discard your unsaved changes and switch views?'))) return false
     if (dirty && selectedPersona) {
       setDraft(selectedPersona.draft ?? null)
       setDescription(selectedPersona.description)
@@ -318,53 +303,12 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     setCreateOpen(false)
     setCreateName('')
     setCreateDescription('')
-    setExperienceDirty(false)
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
     setSetupDirty(false)
     setRolloutDirty(false)
-    setSettingsDirty(false)
-    setCollaboratorsDirty(false)
-    setGroupsDirty(false)
-    setGroupsNotice(null)
-    setGroupsAccessVisited(false)
     setStudioSection(next)
     return true
-  }
-
-  async function chooseWorkspace(nextId: number | null) {
-    if (nextId === activeWorkspaceId || pendingAction || workspaceMutations.pending) return
-    if (studioDirty && !(await confirmDiscard('Discard unsaved Coach Studio changes and switch workspaces?'))) return
-
-    setGroupsNotice(null)
-    setGroupsAccessVisited(false)
-    personasWorkspaceRef.current = undefined
-    selectCoachWorkspace(nextId)
-    // Ignore an assistant detail response that began in the workspace we are leaving.
-    loadPersonaRequestRef.current += 1
-    loadPersonasRequestRef.current += 1
-    loadAssignableGroupsRequestRef.current += 1
-    selectedIdRef.current = null
-    setPersonas([])
-    setCohorts([])
-    setSelectedCohortId(null)
-    setSelectedPersona(null)
-    setDraft(null)
-    setPreview(null)
-    setPreviewEvidence(null)
-    setDescription('')
-    setError(null)
-    setCohortsError(null)
-    setConflict(null)
-    setNotice(null)
-    setExperienceDirty(false)
-    setLibraryDirty(false)
-    setPersonaSourcesDirty(false)
-    setSetupDirty(false)
-    setRolloutDirty(false)
-    setSettingsDirty(false)
-    setCollaboratorsDirty(false)
-    setGroupsDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -625,7 +569,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   async function handleAssignment(cohort: AdminPersonaAssignableCohort) {
     if (!selectedPersona?.published_version || pendingAction || !cohort.assignable) return
     if (personaDirty) {
-      setConflict('Save or discard your unsaved changes before changing cohort assignments.')
+      setConflict('Save or discard your unsaved changes before changing group assignments.')
       return
     }
     const mutation = beginMutation('assignment')
@@ -642,7 +586,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setNotice(`${selectedPersona.name} is assigned to ${cohort.name}.`)
     } catch (caught) {
       if (mutationIsCurrent(mutation)) {
-        handleMutationError(caught, 'The cohort assignment could not be changed.')
+        handleMutationError(caught, 'The group assignment could not be changed.')
         await refreshCohorts(mutation)
       }
     } finally {
@@ -654,7 +598,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
     const assignedPersonaId = cohort.persona_assignment?.persona.id
     if (!assignedPersonaId || !selectedPersona || pendingAction) return
     if (personaDirty) {
-      setConflict('Save or discard your unsaved changes before changing cohort assignments.')
+      setConflict('Save or discard your unsaved changes before changing group assignments.')
       return
     }
     if (!(await confirmAction('Participants with a saved group version keep its voice until you launch or update their group. Groups without a saved version use the neutral voice.', { title: `Remove the assistant from ${cohort.name}?`, confirmLabel: 'Remove', cancelLabel: 'Keep it', caution: true }))) return
@@ -668,7 +612,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       setNotice(`The coaching assistant was removed from ${cohort.name}.`)
     } catch (caught) {
       if (mutationIsCurrent(mutation)) {
-        handleMutationError(caught, 'The cohort assignment could not be removed.')
+        handleMutationError(caught, 'The group assignment could not be removed.')
         await refreshCohorts(mutation)
       }
     } finally {
@@ -682,7 +626,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       if (mutation && !mutationIsCurrent(mutation)) return
       setCohorts(nextCohorts)
     } catch (caught) {
-      if (!mutation || mutationIsCurrent(mutation)) setError(errorMessage(caught, 'Cohort assignments could not be refreshed.'))
+      if (!mutation || mutationIsCurrent(mutation)) setError(errorMessage(caught, 'Group assignments could not be refreshed.'))
     }
   }
 
@@ -771,74 +715,22 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
 
   return (
     <section className="screen-grid coach-studio-screen" aria-busy={cohortsLoading || ((studioSection === 'assistants' || studioSection === 'library') && (loading || detailLoading)) || pendingAction !== null || workspaceMutations.pending}>
-      <header hidden={embedded} className="screen-heading coach-studio-heading">
-        <div>
-          {/* A coach whose only destination is Coach Studio already sees it named in the navigation. */}
-          <h2 data-page-heading tabIndex={-1} className={currentUser.is_staff && !currentUser.is_participant && !currentUser.is_admin ? 'sr-only' : undefined}>Coach Studio</h2>
-        </div>
-        <div className="coach-workspace-heading-tools">
-          {workspaceOptions.length === 1 && !currentUser.is_admin && activeWorkspaceId === workspaceOptions[0].id ? <p className="coach-single-workspace">{workspaceOptions[0].name}</p> : workspaceOptions.length > 0 && (
-            <label className="coach-workspace-picker">
-              <span>Coach workspace</span>
-              <select disabled={pendingAction !== null || workspaceMutations.pending} value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
-                {currentUser.is_admin && <option value="platform">All workspaces / Platform</option>}
-                {workspaceOptions.map((workspace) => (
-                  <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-                ))}
-              </select>
-              {studioSection !== 'groups' && <small>{activeWorkspaceId === null
-                ? 'Platform administrator · all workspaces'
-                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${formatWorkspaceRole(workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role)}`}</small>}
-            </label>
-          )}
-        </div>
+      <header className="screen-heading coach-studio-heading">
+        <div><h2 data-page-heading tabIndex={-1}>History</h2><p>Earlier versions of your coach’s voice, the teaching library and group updates.</p></div>
       </header>
 
-      <nav hidden={embedded} className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
-        <button type="button" role="tab" id="coach-studio-tab-groups" aria-controls="coach-studio-panel-groups" aria-selected={studioSection === 'groups'} tabIndex={studioSection === 'groups' ? 0 : -1} data-studio-section="groups" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('groups')}>
-          <strong>Daily coaching</strong>
-        </button>
-        <button type="button" role="tab" id="coach-studio-tab-settings" aria-controls="coach-studio-panel-settings" aria-selected={studioSection === 'settings'} tabIndex={studioSection === 'settings' ? 0 : -1} data-studio-section="settings" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('settings')}>
-          <strong>Program settings</strong>
-        </button>
-        <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
-          <strong>Assistant voice</strong>
-        </button>
-        <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
-          <strong>Coaching Library</strong>
-        </button>
-        <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
-          <strong>Participant tools</strong>
-        </button>
-        <button type="button" role="tab" id="coach-studio-tab-cohort-releases" aria-controls="coach-studio-panel-cohort-releases" aria-selected={studioSection === 'cohort_releases'} tabIndex={studioSection === 'cohort_releases' ? 0 : -1} data-studio-section="cohort_releases" disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('cohort_releases')}>
-          <strong>Release &amp; rollout</strong>
-        </button>
+      <nav className="coach-studio-section-tabs" role="tablist" aria-label="History">
+        {([['assistants', 'Voice versions', 'assistants'], ['library', 'Teaching library', 'library'], ['cohort_releases', 'Group updates', 'cohort-releases']] as const).map(([section, label, slug]) => (
+          <button type="button" role="tab" key={section} id={`coach-studio-tab-${slug}`} aria-controls={`coach-studio-panel-${slug}`} aria-selected={studioSection === section} tabIndex={studioSection === section ? 0 : -1} data-studio-section={section} disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection(section)}>
+            <strong>{label}</strong>
+          </button>
+        ))}
       </nav>
 
       {error && <div className="coach-studio-alert is-error" role="alert" tabIndex={-1} ref={errorAlertRef}><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {cohortsError && <div className="coach-studio-alert is-error" role="alert"><span>{cohortsError}</span><button type="button" onClick={() => void loadCohorts()}>Retry</button></div>}
 
-      {studioSection === 'settings' ? (
-        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-settings" aria-labelledby="coach-studio-tab-settings" tabIndex={0}>
-          <CoachProgramSettings key={activeWorkspaceId ?? 'platform'} workspaceId={activeWorkspaceId} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setSettingsDirty} />
-          {activeWorkspaceId !== null && <details className="coach-access-disclosure"><summary>Team collaborators &amp; access</summary><WorkspaceCollaborators workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setCollaboratorsDirty} /></details>}
-        </div>
-      ) : studioSection === 'groups' ? (
-        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-groups" aria-labelledby="coach-studio-tab-groups" tabIndex={0}>
-          {cohorts.length > 0 && <label className="coach-group-context"><span>Who needs me today?</span><span className="sr-only">Choose a group</span><select value={selectedCohortId ?? ''} disabled={pendingAction !== null || workspaceMutations.pending || cohortsLoading} onChange={async (event) => { const nextId = Number(event.target.value); if (groupsDirty && !(await confirmDiscard('Discard unsaved group or invitation changes?'))) return; setGroupsDirty(false); setGroupsNotice(null); setSelectedCohortId(nextId) }}>{cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}</select></label>}
-          {groupsNotice && <p className="coach-studio-alert is-success" role="status">{groupsNotice}</p>}
-          {activeWorkspaceId !== null && <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeWorkspaceId} cohorts={cohorts} selectedCohortId={selectedCohortId} />}
-          <div className="setup-support-disclosure">
-            <Button className="setup-support-disclosure-button" variant="secondary" aria-expanded={setupSupportOpen} aria-controls="coach-setup-support-inbox" disabled={pendingAction !== null || workspaceMutations.pending} onClick={() => setSetupSupportOpen((open) => !open)}>Setup help requests</Button>
-            {setupSupportOpen && <div id="coach-setup-support-inbox">{activeWorkspaceId !== null && selectedCohortId !== null
-              ? <SetupSupportInbox actorId={currentUser.id} workspaceId={activeWorkspaceId} cohortId={selectedCohortId} isAdmin={currentUser.is_admin} disabled={pendingAction !== null || cohortsLoading} mutationLifecycle={workspaceMutations} />
-              : <p className="coach-studio-muted">Choose a workspace and group to view setup help requests.</p>}</div>}
-          </div>
-          <details className="coach-access-disclosure" open={groupsAccessOpen} onToggle={(event) => { setGroupsAccessOpen(event.currentTarget.open); if (event.currentTarget.open) setGroupsAccessVisited(true) }}><summary>Group invitations &amp; access</summary>
-          {groupsAccessVisited && <CoachGroupsParticipants onContextNotice={setGroupsNotice} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} key={activeWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} onDirtyChange={setGroupsDirty} onGroupsChanged={() => { void loadCohorts(); onGroupsChanged?.() }} />}
-          </details>
-        </div>
-      ) : studioSection === 'library' ? (
+      {studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
           <CoachContentLibrary
             key={activeWorkspaceId ?? 'legacy'}
@@ -851,10 +743,6 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
               setNotice('Reviewed phrase added to the selected assistant draft. Run a fresh preview before publishing.')
             }}
           />
-        </div>
-      ) : studioSection === 'participant_tools' ? (
-        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
-          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={cohortsLoading} mutationLifecycle={workspaceMutations} onDirtyChange={setExperienceDirty} selectedCohortId={selectedCohortId} onSelectedCohortIdChange={setSelectedCohortId} />
         </div>
       ) : studioSection === 'cohort_releases' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-cohort-releases" aria-labelledby="coach-studio-tab-cohort-releases" tabIndex={0}>
@@ -885,7 +773,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
             <Button size="compact" disabled={createDisabled} onClick={openCreateForm}>Create</Button>
           </div>
 
-          {workspaceCreationNeedsSelection && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
+          {workspaceCreationNeedsSelection && <p className="coach-content-note">Choose a program at the top of the page before creating an assistant.</p>}
           {workspaceCreationNeedsEditor && <p className="coach-content-note">Your collaborator role can view assistants but cannot create drafts. Ask a workspace owner or editor to create one.</p>}
 
           {createOpen && (
@@ -895,8 +783,8 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
                 <input ref={createNameRef} required maxLength={80} value={createName} onChange={(event) => setCreateName(event.target.value)} placeholder="Coach Lani" />
               </label>
               <label>
-                <span>Internal description</span>
-                <textarea rows={2} value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder="Mrs. Mel's first cohort voice" />
+                <span>Note for your team</span>
+                <textarea rows={2} value={createDescription} onChange={(event) => setCreateDescription(event.target.value)} placeholder="Mrs. Mel's first group voice" />
               </label>
               <div>
                 <Button size="compact" type="submit" disabled={createDisabled}>{pendingAction === 'create' ? 'Creating' : 'Create safe draft'}</Button>
@@ -935,7 +823,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
                 >
                   <span><strong>{persona.name}</strong><StatusBadge status={persona.status} /></span>
                   <small>{persona.role}</small>
-                  <small>{persona.visible_assignment_count} cohort assignment{persona.visible_assignment_count === 1 ? '' : 's'}{persona.has_unpublished_changes ? ' · Unpublished changes' : ''}</small>
+                  <small>{persona.visible_assignment_count} group assignment{persona.visible_assignment_count === 1 ? '' : 's'}{persona.has_unpublished_changes ? ' · Unpublished changes' : ''}</small>
                 </button>
               ))}
             </div>
@@ -963,7 +851,7 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
                     <button type="button" className="coach-mobile-back" disabled={pendingAction !== null} onClick={requestLibraryReturn}>← All assistants</button>
                     
                     <h3 ref={editorHeadingRef} tabIndex={-1}>{selectedPersona.name}</h3>
-                    <p>{selectedPersona.description || (draft ? 'Add an internal description so other staff understand where this voice belongs.' : 'Published assistant assigned to a cohort you manage.')}</p>
+                    <p>{selectedPersona.description || (draft ? 'Add an internal description so other staff understand where this voice belongs.' : 'Published assistant assigned to a group you manage.')}</p>
                   </div>
                   <div className="coach-editor-status">
                     <StatusBadge status={selectedPersona.status} />
@@ -1028,8 +916,8 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
 
                     {mode !== 'setup' && <div className={`coach-save-bar${dirty ? ' is-floating' : ''}`}>
                       <div>
-                        <strong>{dirty ? 'Draft changes are local to this browser.' : 'Draft matches the latest server revision.'}</strong>
-                        <small>{dirty ? 'Save before previewing so the exact revision is checked.' : `Draft revision ${selectedPersona.draft_revision ?? 'read-only'}`}</small>
+                        <strong>{dirty ? 'You have changes that aren’t saved yet.' : 'Everything is saved.'}</strong>
+                        <small>{dirty ? 'Save before you preview.' : `Saved draft ${selectedPersona.draft_revision ?? '(read-only)'}`}</small>
                       </div>
                       {selectedPersona.permissions.edit && <Button onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null}>{pendingAction === 'save' ? 'Saving draft' : 'Save draft'}</Button>}
                     </div>}
@@ -1105,10 +993,6 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
       </div>}
     </section>
   )
-}
-
-function formatWorkspaceRole(role: string | null | undefined) {
-  return (role ?? 'viewer').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function guidedStepForPersonaPath(path: string | null): GuidedStep {
@@ -1229,11 +1113,11 @@ function renderEditorSection(
         <TextInput label="Assistant name" personaPath="identity.assistant_name" value={draft.identity.assistant_name} maxLength={80} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_name: value } })} />
         <TextInput label="Human coach name" personaPath="identity.human_coach_name" value={draft.identity.human_coach_name} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_name: value } })} />
         <TextInput label="Human coach title" personaPath="identity.human_coach_title" value={draft.identity.human_coach_title} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_title: value } })} />
-        <TextInput label="Participant term" personaPath="identity.client_term" value={draft.identity.client_term} maxLength={80} help="For example: participant, household, member, or client." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, client_term: value } })} />
-        <TextArea label="Internal description" personaPath="description" value={description} rows={2} help="Visible to staff in the assistant library." onChange={onDescriptionChange} />
+        <TextInput label="What you call your people" personaPath="identity.client_term" value={draft.identity.client_term} maxLength={80} help="For example: participant, household, member, or client." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, client_term: value } })} />
+        <TextArea label="Note for your team" personaPath="description" value={description} rows={2} help="Visible to staff in the assistant library." onChange={onDescriptionChange} />
         <TextArea label="Audience" personaPath="identity.audience" value={draft.identity.audience} maxLength={500} rows={3} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, audience: value } })} />
         <TextArea label="Assistant relationship" personaPath="identity.assistant_relationship" value={draft.identity.assistant_relationship} maxLength={400} rows={3} help="Must clearly say this is a digital or AI assistant." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_relationship: value } })} />
-        <TextArea label="Disclosure shown to the model" personaPath="identity.disclosure" value={draft.identity.disclosure} maxLength={500} rows={3} help="Keep the digital assistant identity explicit. This cannot be replaced by a human impersonation." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, disclosure: value } })} />
+        <TextArea label="What Mia tells people she is" personaPath="identity.disclosure" value={draft.identity.disclosure} maxLength={500} rows={3} help="Keep the digital assistant identity explicit. This cannot be replaced by a human impersonation." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, disclosure: value } })} />
       </EditorFieldset>
     )
   }
@@ -1265,7 +1149,7 @@ function renderEditorSection(
     return (
       <EditorFieldset legend="What community context has the coach approved?" copy="Locale is a label for context. It never generates dialect, accent, slang, values, or stereotypes. Add only language and realities the coach has explicitly authored.">
         <div className="coach-culture-boundary" role="note"><strong>Coach authored only.</strong> Choosing Guam, the South, or another place does not add phrases automatically.</div>
-        <TextInput label="Locale label" personaPath="culture.locale_label" value={draft.culture.locale_label} maxLength={120} help="For example: Guam families in Mrs. Mel's first cohort, or No locale selected." onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, locale_label: value } })} />
+        <TextInput label="Locale label" personaPath="culture.locale_label" value={draft.culture.locale_label} maxLength={120} help="For example: Guam families in Mrs. Mel's first group, or No locale selected." onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, locale_label: value } })} />
         <TextArea label="Cultural and community context" personaPath="culture.context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
         <LineList label="Local realities" personaPath="culture.local_realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
         <LineList label="Approved references" personaPath="culture.references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
@@ -1346,7 +1230,7 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft
           : <Button variant="danger" aria-describedby={dirty || !persona.permissions.archive ? 'archive-reason' : undefined} disabled={dirty || !persona.permissions.archive || pendingAction !== null} onClick={onArchive}>{pendingAction === 'archive' ? 'Archiving' : 'Archive assistant'}</Button>}
         {persona.status === 'archived'
           ? <DisabledReason id="restore-reason">{!persona.permissions.restore ? 'Your role cannot restore assistants. Ask a program owner.' : null}</DisabledReason>
-          : <DisabledReason id="archive-reason">{dirty ? 'Save or discard your draft changes first.' : !persona.permissions.archive ? (persona.permissions.edit ? 'Remove this assistant from every draft, enrolling, or active cohort before archiving.' : 'Your role cannot archive assistants. Ask a program owner.') : null}</DisabledReason>}
+          : <DisabledReason id="archive-reason">{dirty ? 'Save or discard your draft changes first.' : !persona.permissions.archive ? (persona.permissions.edit ? 'Remove this assistant from every draft, enrolling, or active group before archiving.' : 'Your role cannot archive assistants. Ask a program owner.') : null}</DisabledReason>}
       </div>
     </article>
   )
@@ -1362,11 +1246,11 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
 }) {
   return (
     <article className="panel coach-assignments">
-      <header><div><h3>Choose the assistant for each cohort.</h3><p>Assignments prepare the next group version. Participants with a saved group version keep its assistant until you launch or update their group. Groups without a saved version use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
+      <header><div><h3>Choose the assistant for each group.</h3><p>Assignments prepare the next group version. Participants with a saved group version keep its assistant until you launch or update their group. Groups without a saved version use the current published assignment.</p></div><span>{persona.assignments.length} visible assignment{persona.assignments.length === 1 ? '' : 's'}</span></header>
       {!persona.published_version ? (
-        <p className="coach-empty">Publish the first version before assigning this assistant to a cohort.</p>
+        <p className="coach-empty">Publish the first version before assigning this assistant to a group.</p>
       ) : cohorts.length === 0 ? (
-        <p className="coach-empty">No manageable cohorts are available.</p>
+        <p className="coach-empty">No manageable groups are available.</p>
       ) : (
         <div className="coach-cohort-list">
           {cohorts.map((cohort) => {
@@ -1377,7 +1261,7 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
                 {(() => {
                   const reason = dirty ? 'Save or discard your draft changes first.'
                     : !assignedHere && !persona.permissions.assign ? 'Your role cannot assign assistants. Ask a program owner.'
-                    : !cohort.assignable ? (cohort.blocked_reason ? null : 'This cohort cannot take an assistant change right now.')
+                    : !cohort.assignable ? (cohort.blocked_reason ? null : 'This group cannot take an assistant change right now.')
                     : null
                   const reasonId = `assign-reason-${cohort.id}`
                   const describedBy = reason || (!cohort.assignable && cohort.blocked_reason) ? reasonId : undefined
@@ -1393,7 +1277,7 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
           })}
         </div>
       )}
-      {dirty && <p className="coach-inline-note">Save or discard this draft before changing cohort assignments.</p>}
+      {dirty && <p className="coach-inline-note">Save or discard this draft before changing group assignments.</p>}
     </article>
   )
 }

@@ -69,7 +69,7 @@ export function legacyStaffRedirect(location: Pick<Location, 'hash' | 'search'>)
   if (hash !== 'Coach Studio') return null
   const params = new URLSearchParams(location.search)
   const area = params.get('coach_area')
-  const target = area === 'assistant' || area === 'live' ? 'coaching' : 'today'
+  const target = area === 'people' ? 'today' : 'coaching'
   return `${adminPath(target)}${location.search}`
 }
 

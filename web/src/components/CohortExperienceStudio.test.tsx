@@ -100,7 +100,7 @@ describe('CohortExperienceStudio experience choice', () => {
     expect(screen.getByText('Preview required')).toBeTruthy()
     expect(screen.getByText('Preview navigation to enable publishing.')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Publish tool version' })).toHaveProperty('disabled', true)
-    expect(screen.getByText('Included tools and financial controls').closest('details')).toHaveProperty('open', false)
+    expect(screen.getByRole('switch', { name: 'Include Budget' })).toBeTruthy()
     expect(screen.getByText('Tool choices saved. Change a choice to save again.')).toBeTruthy()
   })
 
@@ -200,7 +200,7 @@ describe('CohortExperienceStudio experience choice', () => {
     const expected = { ...custom.draft, module_order: [] }
     apiMocks.updateCohortExperienceConfiguration.mockResolvedValue(configuration(expected))
     renderStudio()
-    await user.click(await screen.findByRole('button', { name: 'Use default order' }))
+    await user.click(await screen.findByRole('button', { name: 'Use the usual order' }))
     expect(screen.getByRole('switch', { name: 'Include Wealth' })).toHaveProperty('checked', false)
     const summary = screen.getByLabelText('Navigation participants will see')
     expect(within(summary).getAllByText(/Home|Ask Mia|Budget|Review/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Home', 'Ask Mia', 'Budget', 'Review'])

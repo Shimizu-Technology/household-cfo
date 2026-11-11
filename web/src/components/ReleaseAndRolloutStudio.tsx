@@ -48,7 +48,7 @@ export function ReleaseAndRolloutStudio({
   }, [onDirtyChange])
 
   if (cohortsLoading && cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable cohorts…</article>
+    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable groups…</article>
   }
   if (cohorts.length === 0) {
     return <article className="panel coach-empty coach-empty-main"><h3>No groups available yet.</h3><p>Assign this coach to a group before preparing a version or planning an update.</p></article>

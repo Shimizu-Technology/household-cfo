@@ -240,7 +240,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
           </div>
           <p id="program-brand-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.edit ? 'Your role cannot save appearance changes.' : !brandDirty ? 'Appearance draft saved. Change a field to save again.' : 'Save your appearance changes first.'}</p>
           <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen before publishing.'}</p>
-          <p hidden={simple} id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Release & rollout.'}</p>
+          <p hidden={simple} id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Group updates.'}</p>
         </form>
         {preview && <BrandWelcomePreview config={preview.brand} />}
         <details hidden={simple} className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
@@ -286,7 +286,7 @@ function BrandFields({ draft, onChange, onLogoUpload, logoUploadDisabled, upload
     <div className="program-wide"><details><summary>More names and text</summary><div className="program-fields program-advanced">
     <label>Short name<input required maxLength={32} value={draft.short_name} onChange={(event) => field('short_name', event.target.value)} /></label>
     <label>Organization<input required maxLength={100} value={draft.organization_name} onChange={(event) => field('organization_name', event.target.value)} /></label>
-    <label>Participant term<input required maxLength={48} value={draft.participant_role_term} onChange={(event) => field('participant_role_term', event.target.value)} /></label>
+    <label>What you call your people<input required maxLength={48} value={draft.participant_role_term} onChange={(event) => field('participant_role_term', event.target.value)} /></label>
     <label className="program-wide">Tagline<input maxLength={180} value={draft.tagline ?? ''} onChange={(event) => field('tagline', event.target.value)} /></label>
     </div></details></div>
     <label className="program-wide">Welcome heading<input maxLength={120} value={draft.welcome_heading ?? ''} onChange={(event) => field('welcome_heading', event.target.value)} /></label>

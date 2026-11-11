@@ -260,8 +260,8 @@ describe('CohortReleaseStudio', () => {
   it('shows the changed settings without treating an already-prepared version as a new task', async () => {
     apiMocks.fetchCohortReleaseStudio.mockResolvedValue({ ...studioFixture, latest_release_match: true, candidate: { ...studioFixture.candidate!, seal_needed: false } })
     renderStudio()
-    await screen.findByRole('heading', { name: 'Settings already prepared' })
-    expect(screen.getByRole('button', { name: 'Settings already prepared' })).toHaveProperty('disabled', true)
+    await screen.findByRole('heading', { name: 'Already saved as a version' })
+    expect(screen.getByRole('button', { name: 'Already saved as a version' })).toHaveProperty('disabled', true)
     expect(screen.getByText('Readiness checks').closest('details')).toHaveProperty('open', false)
     expect(screen.queryByRole('heading', { name: 'Ready to prepare' })).toBeNull()
   })

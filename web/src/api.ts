@@ -4181,7 +4181,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
   const cohortId = releaseInteger(rawCohort.id)
   const cohortName = releaseString(rawCohort.name)
 
-  if (!cohortId || !cohortName) throw new Error('Cohort release data was incomplete. Reload Coach Studio and try again.')
+  if (!cohortId || !cohortName) throw new Error('Group release data was incomplete. Reload this page and try again.')
 
   const status = releaseString(rawCohort.status)
   const knownStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
@@ -4285,7 +4285,7 @@ function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
   const cohortName = releaseString(cohort.name)
   const changesParticipantRuntime = releaseBoolean(runtimeTruth.changes_participant_runtime)
 
-  if (!cohortId || !cohortName) throw new Error('Cohort rollout data was incomplete. Reload Coach Studio and try again.')
+  if (!cohortId || !cohortName) throw new Error('Group rollout data was incomplete. Reload this page and try again.')
   const status = releaseString(cohort.status)
   const knownStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
 
@@ -4300,7 +4300,7 @@ function normalizeCohortRolloutStudio(payload: unknown): CohortRolloutStudio {
       changes_participant_runtime: changesParticipantRuntime,
       participant_runtime_changed: releaseBoolean(runtimeTruth.participant_runtime_changed),
       message: releaseString(runtimeTruth.message) || (changesParticipantRuntime
-        ? 'Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the cohort default; rollback restores the captured baseline.'
+        ? 'Each advanced wave receives the sealed Mia persona and participant tools together. Completing the rollout makes that release the group default; rollback restores the captured baseline.'
         : 'This pre-cutover rollout is record only and cannot change participant runtime.'),
     },
     permissions: {
@@ -4475,7 +4475,7 @@ function normalizeCohortRolloutMutation(payload: unknown): CohortRolloutMutation
   const studio = normalizeCohortRolloutStudio(root)
   const rollout = normalizeRolloutRecord(root.rollout)
   const transition = normalizeRolloutTransition(root.transition)
-  if (!rollout || !transition) throw new Error('The rollout action response was incomplete. Reload Coach Studio before continuing.')
+  if (!rollout || !transition) throw new Error('The rollout action response was incomplete. Reload this page before continuing.')
   return { rollout, transition, replayed: releaseBoolean(root.replayed), cohort_rollout_studio: studio }
 }
 

@@ -31,7 +31,7 @@ export function getSectionSeo(section: string, brand?: BrandConfig, assistantNam
     Wealth: { title: title('Wealth'), description: 'Review household assets, debts, net worth, and financial runway.', robots: 'noindex,nofollow' },
     'CFO Filter': { title: title('CFO Filter'), description: `Use ${assistantName} to sort urgent household money decisions from noise.`, robots: 'noindex,nofollow' },
     Optionality: { title: title('Optionality'), description: `Model optionality and runway for the next household decision with ${assistantName}.`, robots: 'noindex,nofollow' },
-    Admin: { title: title('Admin'), description: `Secure cohort, user, and invitation management for ${siteName} staff.`, robots: 'noindex,nofollow' },
+    Admin: { title: title('Admin'), description: `Secure group, people, and invitation management for ${siteName} staff.`, robots: 'noindex,nofollow' },
   }
   return sectionSeo[section] || sectionSeo.Home
 }

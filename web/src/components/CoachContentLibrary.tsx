@@ -139,7 +139,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
 
       <div className="coach-content-explainer">
         <div><h3>Build reusable coaching material</h3><p>Write teaching, approve it, then publish a collection to use with Mia.</p></div>
-        <details><summary>How teaching reaches participants</summary><p>Attach a published collection to Mia’s draft, then preview and publish her voice. Existing groups may also need an update in Release & rollout.</p><p>Location labels never create slang, accents, or cultural assumptions.</p><p>Teaching cannot change financial records or approvals.</p></details>
+        <details><summary>How teaching reaches participants</summary><p>Attach a published collection to Mia’s draft, then preview and publish her voice. Existing groups may also need an update in Group updates.</p><p>Location labels never create slang, accents, or cultural assumptions.</p><p>Teaching cannot change financial records or approvals.</p></details>
       </div>
 
       <nav className="coach-library-areas" aria-label="Coaching library workflow">{(['items', 'packs', 'sources'] as const).map((area) => <button type="button" key={area} disabled={busy || mutationLifecycle.pending} aria-pressed={libraryArea === area} onClick={() => setLibraryArea(area)}>{({ sources: 'Private sources', items: 'Teaching items', packs: 'Collections' })[area]}</button>)}</nav>

@@ -55,7 +55,7 @@ export function serializeCohortRolloutPlan(
   const unknownAssignments = Object.keys(draft.participantWaveKeys)
     .map(Number)
     .filter((userId) => !participantIds.includes(userId))
-  if (unknownAssignments.length > 0) errors.push('The participant list changed. Reload the cohort before planning.')
+  if (unknownAssignments.length > 0) errors.push('The participant list changed. Reload the group before planning.')
 
   for (const participant of studio.current_roster.participants) {
     if (!waveKeys.has(draft.participantWaveKeys[participant.user_id])) {
