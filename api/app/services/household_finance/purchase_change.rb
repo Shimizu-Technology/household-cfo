@@ -147,6 +147,13 @@ module HouseholdFinance
       end
 
       new_cents = request.void ? nil : (request.new_cents || draft.total_amount_cents)
+      # A purchase can't be confirmed at $0 or past the money limit; "$0" means she wants it gone.
+      if !request.void && !new_cents.positive?
+        return reply_only("A purchase can't be $0. If it shouldn't count, tell me to remove the #{draft.merchant} purchase from #{day_label(draft.occurred_on)}. Nothing changed.")
+      end
+      if !request.void && new_cents > HouseholdFinance::Money::MAX_AMOUNT_CENTS
+        return reply_only("That amount is larger than I can save for one purchase. Nothing changed.")
+      end
       new_category = request.void ? nil : (category || split&.budget_category)
       unless request.void
         return reply_only("That purchase needs a category before I can move it. Tell me which one. Nothing changed.") if new_category.nil?

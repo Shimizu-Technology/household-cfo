@@ -278,6 +278,31 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal 0, MiaActionDraft.where(draft_type: "purchase_change").count
   end
 
+  test "a date in an instead-of correction is never read as the new amount" do
+    confirmed("Target", "46", Date.new(2026, 11, 9), @shopping)
+
+    [ "the Target on Nov 9 charged 64 instead of 46", "the Target on Nov 9, 2026 charged 64 instead of 46" ].each do |message|
+      body = say(message)
+      rows = body.dig("mia_action_draft", "purchase_change", "rows")
+      assert rows, "a card for: #{message}"
+      assert_equal [ "$46", "$64" ], rows.first.values_at("before", "after"), message
+      MiaActionDraft.where(draft_type: "purchase_change").destroy_all
+    end
+  end
+
+  test "a $0 or too-large amount gets no card the save would refuse" do
+    purchase = confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+
+    zero = say("change the target purchase to $0")
+    assert_nil zero["mia_action_draft"], "no card for $0"
+    assert_includes zero.dig("assistant_message", "content"), "can't be $0"
+
+    huge = say("change the target purchase to $50,000,000")
+    assert_nil huge["mia_action_draft"], "no card past the money limit"
+    assert_equal "confirmed", purchase.reload.status
+    assert_equal 0, MiaActionDraft.where(draft_type: "purchase_change").count
+  end
+
   test "conflicting days stay a constraint: a same-amount purchase from another day gets no card" do
     purchase = confirmed("Starbucks", "12", Date.new(2026, 11, 9), @dining)
 

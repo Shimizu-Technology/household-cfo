@@ -13,7 +13,7 @@ module HouseholdFinance
     CORRECTION_CUE = /\b(?:actually|really|should (?:have )?(?:be|been)|supposed to (?:be|have been)|(?:change|make|set|update|fix|correct|edit|adjust|switch)\b[^.?!]{0,60}?\bto)\s+(?:only\s+|about\s+|like\s+)?\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?!\w)/.freeze
     DOLLAR_BEFORE_WORD = /\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s*(?:dollar|buck)s?\b|\$\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?=\s+[a-z])/.freeze
     # Dates and times carry numbers that are not money ("the Starbucks on Nov 9", "around 2pm").
-    DATE_NUMBERS = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.freeze
+    DATE_NUMBERS = /\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?(?:,?\s+\d{4})?\b|\b\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/.freeze
     CATEGORY_CUE = /(?:\bshould(?:n['’]?t)?\s+(?:(?:really|actually|probably|just)\s+)?(?:be|go|have been)(?:\s+(?:in|under|on|to|filed under|counted (?:as|in)))?|\b(?:put|move|file|switch|change|recategori[sz]e|categori[sz]e|reclassify|count|log|mark)\b[^.?!]{0,50}?\b(?:to|as|in|under|into|on)|\b(?:is|was)\s+(?:really|actually)(?:\s+(?:in|under|for))?|\bbelongs?\s+(?:in|under|to))\s+(?:the\s+|my\s+|a\s+|an\s+)?(?<name>[a-z][a-z &\/'-]{1,40})/.freeze
 
     def self.parse(message, today: Date.current)
@@ -63,7 +63,8 @@ module HouseholdFinance
 
       # "it cost 64 not 46", "they charged 64 instead of 46": two figures and a "not" settle which is which.
       if old
-        other = text.scan(AMOUNT).map { |whole, fraction| cents(whole, fraction) }.find { |value| value != cents(old[1], old[2]) }
+        # Dates are masked first, so "on Nov 9 charged 64 instead of 46" never proposes $9.
+        other = text.gsub(DATE_NUMBERS, " ").scan(AMOUNT).map { |whole, fraction| cents(whole, fraction) }.find { |value| value != cents(old[1], old[2]) }
         return [ other, cents(old[1], old[2]) ] if other
       end
 
