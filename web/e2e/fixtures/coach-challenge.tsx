@@ -1,14 +1,26 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { CoachChallengeDashboard } from '../../src/components/CoachChallengeDashboard'
+import { TodaySection } from '../../src/admin/sections/TodaySection'
+import { ReportsSection } from '../../src/admin/sections/ReportsSection'
+import type { CurrentUser } from '../../src/api'
 import { ChallengeExport } from '../../src/components/ChallengeExport'
 import '../../src/App.css'
 let revoked = false
+;(window as unknown as { __revoke: () => void }).__revoke = () => { revoked = true }
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 window.fetch = async (input, init) => {
   const url = new URL(String(input), 'http://localhost')
   const path = url.pathname
+  const group = (id: number, name: string, savings: boolean) => ({
+    id, name, status: 'active', starts_on: '2026-11-01', ends_on: null, notes: '', member_count: 1, participant_count: 1, staff_count: 0, setup_complete_count: 0,
+    savings_challenge: { state: savings ? 'open' : 'not_set_up', label: 'Open', enabled: savings, on_hold: false, capacity: 30, participant_count: 1, can_open: false, can_pause: savings, can_change: true, participants_can_join: true, blockers: [], recent_events: [] },
+    operational_summary: { available: false, period_days: 7, mia_requests: null, mia_failures: null, average_mia_latency_ms: null, uploads: null, upload_failures: null, participants_active: null },
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', created_by: { id: 10, email: 'c@example.invalid', full_name: 'Coach' },
+  })
+  if (path.endsWith('/admin/cohorts')) return response({ cohorts: [group(1, 'Fictional savings group', true), group(2, 'Household group', false)] })
+  if (path.endsWith('/admin/users')) return response({ users: [] })
+  if (path.endsWith('/setup_support_requests')) return response({ records: [], next_cursor: null })
   if (path.endsWith('/participants'))
     return response({
       actor_scope: { user_id: 10, coach_workspace_id: 20 },
@@ -57,9 +69,9 @@ window.fetch = async (input, init) => {
           cohort_id: 1,
           records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-01-30' }],
           scheduled_checkpoints: [
-            { day: 30, cutoff_on: '2026-01-30' },
-            { day: 60, cutoff_on: '2026-03-01' },
-            { day: 90, cutoff_on: '2026-03-31' },
+            { day: 30, cutoff_on: '2026-01-30', sealable: true },
+            { day: 60, cutoff_on: '2026-03-01', sealable: true },
+            { day: 90, cutoff_on: '2099-03-31', sealable: false },
           ],
           next_cursor: null,
         })
@@ -67,6 +79,7 @@ window.fetch = async (input, init) => {
     return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
   return response({ errors: ['Unsupported synthetic request'] }, 422)
 }
+const coach = { id: 10, is_admin: false, is_staff: true, role: 'coach' } as CurrentUser
 export function Fixture() {
   return (
     <main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>
@@ -78,7 +91,8 @@ export function Fixture() {
       >
         Synthetic revoke sharing
       </button>
-      <CoachChallengeDashboard userId={10} workspaceId={20} cohorts={[{ id: 1, name: 'Fictional savings cohort' }, { id: 2, name: 'Household group' }]} />
+      <TodaySection currentUser={coach} />
+      <ReportsSection currentUser={coach} />
       <ChallengeExport cohortId={1} scope={{ user_id: 3, household_id: 9 }} />
     </main>
   )
