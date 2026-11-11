@@ -43,7 +43,9 @@ class ApiV1W25RoundThreeTest < ActionDispatch::IntegrationTest
         post "/api/v1/mia/messages", params: { message: message }, headers: headers, as: :json
         assert_response :created
         text = response.parsed_body.dig("assistant_message", "content")
-        refute_match(/Glad to help|category, amount|setup/i, text)
+        refute_match(/Glad to help|category, amount|Next setup question|Start with one purchase/i, text)
+        assert_includes text, "988"
+        assert_includes text, "Put distance between you and"
         assert_match(/trust/, text)
         assert_equal "crisis", household.chat_sessions.order(:id).last.active_topic["care_kind"]
       end
