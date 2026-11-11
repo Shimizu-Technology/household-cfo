@@ -394,7 +394,7 @@
 }
 
 /* The setup card is one flat list: a row per answer, a sub-row per part. */
-.setup-card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); overflow-wrap: anywhere; }
+.setup-card { --setup-card-pad: 16px; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; padding: var(--setup-card-pad); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); overflow-wrap: anywhere; }
 .setup-card h4 { margin: 0 0 4px; font-family: var(--font-body); font-size: var(--text-lg); color: var(--ink); }
 .setup-card-rows { display: grid; }
 .setup-card-group { border-top: 1px solid var(--line); padding: 4px 0; }
@@ -417,6 +417,25 @@
 .setup-card-edit-actions button { flex: 1 1 auto; min-height: 44px; transition: transform 140ms var(--ease-out); }
 .setup-card-edit-actions button:active { transform: scale(0.97); }
 .setup-card-promise { margin: 10px 0 0; font-size: var(--text-sm); color: var(--muted); }
+.setup-card-promise + .setup-card-promise { margin-top: 6px; }
+.setup-card-line.is-removed .setup-card-label, .setup-card-line.is-removed .setup-card-value { color: var(--muted); }
+.setup-card-pending { margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--text-sm); color: var(--ink-soft); }
+/* A long card keeps Apply in reach: the actions stick to the bottom of the
+   chat while the rows scroll behind them. */
+.setup-card .setup-card-actions { position: sticky; bottom: 0; z-index: 1; display: flex; align-items: center; gap: 8px; margin: 10px calc(var(--setup-card-pad) * -1) calc(var(--setup-card-pad) * -1); padding: 10px var(--setup-card-pad) var(--setup-card-pad); border-top: 1px solid var(--line); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--paper); }
+.setup-card .setup-card-actions .mia-action-draft-actions { width: auto; margin: 0; }
+.setup-card-apply button { min-height: 44px; }
+@media (max-width: 620px) {
+  .setup-card { --setup-card-pad: 14px; padding: 12px var(--setup-card-pad); }
+  /* The wrapper steps aside so Apply sticks within the whole card. */
+  .setup-card .setup-card-actions { display: contents; }
+  .setup-card .setup-card-actions .setup-card-apply { position: sticky; bottom: 0; z-index: 1; display: block; width: auto; margin: 8px calc(var(--setup-card-pad) * -1) 0; padding: 6px var(--setup-card-pad); border-top: 1px solid var(--line); background: var(--paper); }
+  .setup-card .setup-card-actions .setup-card-secondary { display: block; margin: 2px 0 0; }
+  .setup-card .mia-action-draft-actions > button { width: 100%; min-width: 0; }
+  .setup-card .mia-action-draft-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .setup-card-row { min-height: 44px; padding: 4px 0; }
+  .setup-card-group { padding: 2px 0; }
+}
 @media (hover: hover) and (pointer: fine) {
   .setup-card-row:hover .setup-card-label { color: var(--mauve); }
 }

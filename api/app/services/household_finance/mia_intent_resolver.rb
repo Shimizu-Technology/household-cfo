@@ -205,6 +205,13 @@ module HouseholdFinance
       resolver.deterministic_scenario_result
     end
 
+    # The reader's purchase report as a draft request, whatever the model said.
+    def self.participant_purchase_result_for(user_message:, context:)
+      resolver = allocate
+      resolver.__send__(:initialize, user_message: user_message, context: context, api_key: nil)
+      resolver.__send__(:participant_purchase_result)
+    end
+
     def initialize(user_message:, context:, api_key: ENV["OPENROUTER_API_KEY"], model: AiModels.text, transport: nil)
       @raw_user_message = user_message.to_s
       @user_message = @raw_user_message.squish
@@ -337,11 +344,17 @@ module HouseholdFinance
         action: { type: "update_goal", goal_id: goal[:id], target_amount: ParticipantMessageReader.amount_text(amount) })
     end
 
+    def setup_change_stated?(reading)
+      reading.setup_changes.to_h.except("skips", "help_topic", "work_out", "confirm_monthly").values.any?(&:present?)
+    end
+
     def participant_purchase_result
       reading = context[:participant_reading]
       return unless reading&.available && !reading.care? && !ParticipantCare.required?(raw_user_message)
       return if MiaCoachAnswerer.prompt_injection?(raw_user_message) || reading.savings_correction.present? || raw_user_message.match?(ParticipantMoneyIntent::NO_CARD)
-      return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i) && Array(context[:pending_transaction_reviews]).any?
+      # "change that one to 90" edits the review waiting; a message that also
+      # states a household change on the card is still her purchase report.
+      return if user_message.match?(/\b(?:actually|instead|correct|change|update|split)\b/i) && Array(context[:pending_transaction_reviews]).any? && !setup_change_stated?(reading)
       purchases = reading.facts.select { |fact| fact["kind"] == "purchase" }
       thread = context.dig(:conversation, :active_thread).to_h
       prior = thread[:action].to_h

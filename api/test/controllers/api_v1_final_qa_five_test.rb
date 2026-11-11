@@ -229,14 +229,16 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal [], HouseholdFinance::SetupStatus.new(@household.reload).missing_field_keys
   end
 
+  # After setup the reader still fills the change card; a saved bill is named
+  # by its saved label.
   def bill_edit(operation, item, amount, field: "fixed_expenses", source: nil)
-    legacy(correction: true, setup_details: { field: field, cadence: "", count: "", partial: true, components: [], edit: { operation: operation, item: item, amount: amount, source: source || item } })
+    read(setup: changes(field.to_sym => money(parts: [ { op: operation, label: item, amount: amount, cadence: amount.empty? ? "" : "monthly", count: "", source: source || item } ])))
   end
 
   test "removing a saved bill after Apply reopens the breakdown on a new card" do
     finish_setup
     body = say("we cancelled the insurance so take that off", bill_edit("remove", "insurance", "", source: "we cancelled the insurance"))
-    assert_includes @last_reader_options[:saved_bills]["fixed_expenses"], "Insurance"
+    assert_includes @last_reader_options[:setup_context][:saved_bills]["fixed_expenses"], "Insurance $120"
     fixed = row(body, "fixed_expenses")
     assert_equal 183_000, fixed["total_cents"]
     assert_match(/Took out insurance/, text(body))
@@ -251,7 +253,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal 200_000, row(body, "fixed_expenses")["total_cents"]
     assert_match(/Changed rent to \$1,700/, text(body))
     card = card_of(body)
-    assert_equal "saved", row(body, "primary_income")["status"]
+    assert_nil row(body, "primary_income"), "only the changed row is on the card"
 
     second = say("we cancelled the insurance so take that off", read(setup: changes(fixed_expenses: money(parts: [ { op: "remove", label: "insurance", amount: "", cadence: "", count: "", source: "we cancelled the insurance" } ]))))
     assert_equal card["id"], card_of(second)["id"]
@@ -282,16 +284,18 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "with no breakdown Mia asks for the new total plainly and promises nothing" do
-    finish_setup
-    @household.mia_action_drafts.where("metadata ? 'setup_card'").find_each { |draft| draft.update!(metadata: draft.metadata.except("setup_card")) }
-    body = say("we cancelled the insurance so take that off", bill_edit("remove", "insurance", "", source: "we cancelled the insurance"))
-    assert_nil card_of(body)
-    assert_match(/What should the new total be\?/, text(body))
-    refute_match(/gone through|tap Apply|Look over your card/, text(body))
-    assert_equal 0, @household.mia_action_drafts.pending.count
-    body = say("the rent went up to 1700", bill_edit("replace", "rent", "1700", source: "the rent went up to 1700"))
-    assert_match(/What should the new total be\?/, text(body))
+  test "a form-only household can add a bill by chat on top of its saved total" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "Form Ohana", primary_goal: "steady", primary_income: "5200", fixed_expenses: "1950", flexible_spend: "600", credit_card_debt: "0", debt_payment: "0").call
+    assert_equal [], HouseholdFinance::SetupStatus.new(@household.reload).missing_field_keys
+    body = say("add phone 60", bill_edit("add", "phone", "60", source: "add phone 60"))
+    fixed = row(body, "fixed_expenses")
+    assert_equal 201_000, fixed["total_cents"]
+    assert_equal [ "Phone" ], fixed["parts"].map { |part| part["label"] }
+    assert_equal "Your changes", card_of(body)["title"]
+    apply(card_of(body))
+    assert_equal 2010.0, saved_fixed
+    assert_equal [ "Fixed essentials", "Phone" ], @household.budget_categories.active.where(stack_key: "non_discretionary").order(:id).pluck(:name)
+    assert_match(/Done: phone is \$60 and fixed essentials are \$2,010 a month\./, ChatMessage.where(role: "assistant").order(:id).last.content)
   end
 
   # F4
@@ -301,12 +305,21 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     assert_equal "primary_income", session.reload.active_topic["setup_card_field"]
     income = row(first, "primary_income")["parts"].first
     patch_card(card_of(first), field: "primary_income", action_name: "set", part_id: income["id"], value: "4225")
-    assert_not_equal "primary_income", session.reload.active_topic["setup_card_field"]
-    assert_equal "household_name", session.reload.active_topic["setup_card_field"]
+    assert_nil session.reload.active_topic["setup_card_field"], "the question she answered on the card is done"
+    assert_equal "primary_income", session.reload.active_topic["setup_card_superseded"]
 
-    body = say("not sure, maybe 700 or 800", read(setup: changes(flexible_spend: money(total_amount: "800", total_cadence: "unclear", total_source: "maybe 700 or 800"))))
-    assert_not_equal "primary_income", @last_reader_options[:setup_context][:last_asked]
+    # The reader puts the vague number on income; her own row wins and Mia asks.
+    body = say("not sure, maybe 700 or 800", read(setup: changes(primary_income: money(total_amount: "800", total_cadence: "unclear", total_source: "maybe 700 or 800"))))
+    assert_equal "", @last_reader_options[:setup_context][:last_asked]
     assert_equal 422_500, row(body, "primary_income")["total_cents"]
+    assert_match(/You set income to \$4,225 on the card, so I kept it\. What's the \$700 to \$800 for, your household name or something else\?/, text(body))
+
+    # Placed on everyday spending instead, it becomes one plain offer.
+    spending = say("everyday is maybe 700 or 800", read(setup: changes(flexible_spend: money(total_amount: "800", total_cadence: "unclear", total_source: "maybe 700 or 800"))))
+    assert_equal 422_500, row(spending, "primary_income")["total_cents"]
+    assert_match(/Want to use \$750 for now\? You can change it any time\./, text(spending))
+    yes = say("yes", read(setup: changes))
+    assert_equal 75_000, row(yes, "flexible_spend")["total_cents"]
   end
 
   test "a database error while advancing the question keeps the row edit" do
@@ -369,9 +382,23 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
 
   test "the same question is not asked again when she cannot answer it" do
     biweekly_income
-    body = say("idk how to figure that out", read(setup: changes))
+    body = say("idk how to figure that out", read(setup: changes(help_topic: "primary_income", work_out: true)))
     refute_match(/I only have it as/, text(body))
-    assert_match(/\$4,225/, text(body))
+    assert_match(/\$1,950 × 26 = \$50,700 a year/, text(body))
+    # Moving past the offer twice parks it instead of asking a third time.
+    parked = say("hmm", read(setup: changes))
+    assert_match(/I'll leave income as \$1,950 every two weeks for now/, text(parked))
+    refute_match(/Use \$4,225\?/, text(parked))
+    assert_equal "needs_monthly", row(parked, "primary_income")["status"]
+  end
+
+  test "pay every two weeks is one question with the monthly figure" do
+    biweekly_income
+    body = ChatMessage.where(role: "assistant").order(:id).last.content
+    assert_match(/That's about \$4,225 a month \(1,950 × 26 ÷ 12\)\. Use \$4,225\?\z/, body)
+    assert_equal 1, body.count("?")
+    number = say("its 4300", income_read("4300", "monthly", "its 4300"))
+    assert_equal 430_000, row(number, "primary_income")["total_cents"]
   end
 
   test "with nothing to work from Mia asks the amount and how often first" do
@@ -396,9 +423,10 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     say("help me work it out", read(setup: changes(help_topic: "primary_income", work_out: true)))
     say("1950", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "monthly", total_source: "1950"))))
     body = say("twice a month", read(setup: changes))
-    assert_equal 390_000, row(body, "primary_income")["total_cents"]
-    assert_match(/2 paychecks of \$1,950/, text(body))
+    assert_nil row(body, "primary_income")["total_cents"]
+    assert_match(/That's \$3,900 a month \(1,950 × 2\)\. Use \$3,900\?/, text(body))
     assert_nil session.reload.active_topic["setup_card_work_out"]
+    assert_equal 390_000, row(say("yes", read(setup: changes)), "primary_income")["total_cents"]
 
     @user = User.create!(clerk_id: "qa5b_#{SecureRandom.hex(8)}", email: "qa5b-#{SecureRandom.hex(8)}@example.invalid", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
@@ -431,7 +459,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     say("i get 1950 every 2 weeks", read(setup: changes(primary_income: money(total_amount: "1950", total_cadence: "biweekly", total_source: "i get 1950 every 2 weeks"))))
     body = say("whats take home mean", read(setup: changes(help_topic: "primary_income")))
     assert_match(/after taxes/, text(body))
-    refute_match(/26/, text(body))
+    assert_equal 1, text(body).scan("Use $4,225?").length
   end
 
   test "skipping an unresolved row stops asking about it" do
@@ -773,7 +801,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
   test "a frequency she states is kept, and bi-weekly is not weekly" do
     say("Help me set up my household", read)
     body = say("i get 1950 bi-weekly", income_read("1950", "biweekly", "i get 1950 bi-weekly"))
-    assert_equal "$1,950 every two weeks", row(body, "primary_income")["parts"].first["note"]
+    assert_equal "$1,950 every two weeks, about $4,225 a month if that's right", row(body, "primary_income")["parts"].first["note"]
   end
 
   [ [ "car insurance 600 quarterly", "yearly", 20_000, /× 4/ ], [ "car insurance 600 twice a year", "yearly", 10_000, /× 2/ ], [ "car insurance 600 a year", "yearly", 5_000, /÷ 12/ ] ].each do |message, cadence, monthly, sum|
@@ -800,8 +828,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     test "#{answer} after how often counts two paychecks" do
       waiting_for_frequency
       body = say(answer, read(setup: changes))
-      assert_equal 390_000, row(body, "primary_income")["total_cents"]
-      assert_match(/2 paychecks of \$1,950/, text(body))
+      assert_match(/That's \$3,900 a month \(1,950 × 2\)\. Use \$3,900\?/, text(body))
+      assert_equal 390_000, row(say("yes", read(setup: changes)), "primary_income")["total_cents"]
     end
   end
 
@@ -813,14 +841,15 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
       assert_nil row(body, "primary_income")["total_cents"]
       assert_match(/twice a month|every two months/i, text(body))
       answered = say("twice a month", read(setup: changes))
-      assert_equal 390_000, row(answered, "primary_income")["total_cents"]
+      assert_match(/Use \$3,900\?/, text(answered))
     end
   end
 
   test "semi monthly in one message counts two, even if the reader says monthly" do
     say("Help me set up my household", read)
     body = say("i get 1950 semi monthly", income_read("1950", "monthly", "i get 1950 semi monthly"))
-    assert_equal 390_000, row(body, "primary_income")["total_cents"]
+    assert_match(/That's \$3,900 a month \(1,950 × 2\)\. Use \$3,900\?/, text(body))
+    assert_equal 390_000, row(say("yes", read(setup: changes)), "primary_income")["total_cents"]
   end
 
   test "a typed row is not overwritten by an earlier proposal" do

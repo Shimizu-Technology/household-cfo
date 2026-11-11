@@ -37,6 +37,9 @@ module HouseholdFinance
       REQUIRED_FIELDS.map(&:to_s) - confirmed_field_keys
     end
 
+    # Nothing left to ask: every required field is known or she skipped it.
+    def settled? = open_field_keys.empty?
+
     # What is still worth asking in chat. A skipped question stays unknown, and
     # Home keeps showing it as still to add, but Mia does not ask it again.
     def open_field_keys

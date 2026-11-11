@@ -48,31 +48,43 @@ module HouseholdFinance
     def build_proposal(source_prompt:)
       blocked, items = build_items
       MiaActionDraftBuilder::Proposal.new(household: household, user: user, year: Date.current.year,
-        draft_type: "household_setup", title: MiaSetupCardTurn::TITLE, summary: MiaSetupCardTurn::TITLE, rationale: "", source_prompt: source_prompt,
-        items: items, metadata: { source: "mia_chat", parser: "setup_card", setup_card: card.to_h.merge("blocked" => blocked, "revision" => card.revision + 1) }.merge(card.spending_preferences.any? ? { spending_preferences: card.spending_preferences } : {}))
+        draft_type: "household_setup", title: title, summary: title, rationale: "", source_prompt: source_prompt,
+        items: items, metadata: { source: "mia_chat", parser: "setup_card", setup_card: card.to_h.merge("blocked" => blocked, "revision" => card.revision + 1, "change_mode" => change_mode?) }.merge(card.spending_preferences.any? ? { spending_preferences: card.spending_preferences } : {}))
     end
 
     attr_reader :household, :user, :card
 
+    # Once setup is done the same card only carries changes.
+    def change_mode? = @change_mode.nil? ? (@change_mode = card.to_h["change_mode"] || SetupStatus.new(household).settled?) : @change_mode
+    def title = change_mode? ? MiaSetupCardTurn::CHANGE_TITLE : MiaSetupCardTurn::TITLE
+
+    # One reviewed setup change for every whole value and named bill. If one
+    # field can't be prepared, the rest still can, and that row says why.
     def setup_items(blocked)
       updates = card.setup_updates
-      return [] if updates.empty?
-      result = builder(type: "update_household_setup", setup_updates: updates, spending_preferences: card.spending_preferences.presence)
+      bills = card.bill_changes
+      return [] if updates.empty? && bills.empty?
+      result = setup_builder(updates, bills)
       return result.proposal.items if result&.proposal
 
-      workable = updates.select do |field, value|
-        single = builder(type: "update_household_setup", setup_updates: { field => value })
+      fields = updates.keys.map(&:to_s) + bills.keys
+      workable = fields.select do |field|
+        single = setup_builder(updates.slice(field.to_sym), bills.slice(field))
         next true if single&.proposal
-        blocked[field.to_s] = single&.response.to_s unless single&.response.to_s.start_with?("Those household values")
+        blocked[field] = single&.response.to_s unless single&.response.to_s.start_with?("Those household values")
         false
       end
       return [] if workable.empty?
-      builder(type: "update_household_setup", setup_updates: workable, spending_preferences: card.spending_preferences.presence)&.proposal&.items.to_a
+      setup_builder(updates.slice(*workable.map(&:to_sym)), bills.slice(*workable))&.proposal&.items.to_a
+    end
+
+    def setup_builder(updates, bills)
+      builder(type: "update_household_setup", setup_updates: updates, setup_bills: bills, spending_preferences: card.spending_preferences.presence)
     end
 
     def debt_items(blocked)
       state = card.debt_state
-      return [] if state.empty? || !card.debts_changed?
+      return debt_balance_items(blocked) if state.empty? || !card.debts_changed?
       commands = if state["none"]
         [ { type: "update_debt_tracking", debt_tracking_mode: "summary", amount: "0", minimum_payment: "0" } ]
       elsif state["total_cents"]
@@ -87,6 +99,22 @@ module HouseholdFinance
         blocked[MiaSetupCard::DEBT_FIELD] = result&.response.to_s
         []
       end
+    end
+
+    # The total owed, when debts are kept as one summary rather than one by one.
+    def debt_balance_items(blocked)
+      cents = card.debt_balance_cents
+      return [] unless cents && !card.stale?("credit_card_debt")
+      portfolio = DebtPortfolio.new(household)
+      if portfolio.mode == "individual" && portfolio.active_debts.any?
+        blocked["credit_card_debt"] = "Your debts are saved one by one, so tell me which debt's balance changed."
+        return []
+      end
+      result = builder(type: "update_debt_tracking", debt_tracking_mode: "summary", amount: Money.dollars(cents).to_s,
+        minimum_payment: portfolio.minimum_payment_known? ? Money.dollars(portfolio.monthly_minimum_cents).to_s : "unknown")
+      return result.proposal.items if result&.proposal
+      blocked["credit_card_debt"] = result&.response.to_s
+      []
     end
 
     def named_debt_commands(state)
