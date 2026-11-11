@@ -25,8 +25,8 @@
 
 .admin-program-picker { display: grid; gap: 4px; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--muted); }
 .admin-program-picker select { box-sizing: border-box; height: 44px; min-width: 0; width: 100%; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); font: inherit; font-size: max(16px, 1em); }
-.admin-phone-program { margin-top: 8px; }
-.admin-phone-program:empty { display: none; }
+.admin-program { margin-top: 8px; max-width: 360px; }
+.admin-program:empty { display: none; }
 .admin-unavailable { display: grid; gap: 12px; justify-items: start; }
 .admin-unavailable h2 { margin: 0; }
 .admin-readonly { margin: 0; padding: 0; border: 0; min-width: 0; }
@@ -47,7 +47,7 @@
   .admin-sidebar-nav a:active { transform: scale(0.97); }
   .admin-main { padding-top: 16px; }
   .admin-header { grid-template-columns: minmax(0, 1fr) auto; }
-  .admin-home-link--phone, .admin-section-menu, .admin-phone-program { display: none; }
+  .admin-home-link--phone, .admin-section-menu { display: none; }
   .admin-header::before { content: ""; }
   .admin-content { max-width: 1120px; }
 }

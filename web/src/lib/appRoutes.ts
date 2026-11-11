@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { CurrentUser } from '../api'
+import { pushHistoryEntry } from './browserHistory'
 
 // The app lives at "/" and the Admin side at "/admin/<section>". Sections come
 // from the server (`admin_sections` on /auth/me); the client never works out
@@ -39,8 +40,11 @@ function withLocalQaParams(path: string) {
 
 export function navigateTo(rawPath: string, { replace = false }: { replace?: boolean } = {}) {
   const path = withLocalQaParams(rawPath)
-  if (replace) window.history.replaceState({ ...window.history.state }, '', path)
-  else window.history.pushState({ ...window.history.state }, '', path)
+  // The Admin side's unsaved-changes marker belongs to the entry that set it, not to where we go next.
+  const state = { ...(window.history.state ?? {}) } as Record<string, unknown>
+  delete state.adminLeaveGuard
+  if (replace) window.history.replaceState(state, '', path)
+  else pushHistoryEntry(state, path)
   window.dispatchEvent(new Event(NAVIGATE_EVENT))
 }
 

@@ -40,12 +40,12 @@ type ConsoleArea = 'participants' | 'cohorts' | 'feedback' | 'programs' | 'healt
 // `view` puts one area of the console inside a section of the Admin side; the
 // shell supplies the program picker and the section navigation, so both go.
 // Without it the console shows all its areas, as before.
-export function AdminConsole({ currentUser, view }: { currentUser: CurrentUser; view?: ConsoleArea }) {
+export function AdminConsole({ currentUser, view, onDirtyChange }: { currentUser: CurrentUser; view?: ConsoleArea; onDirtyChange?: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
-  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} view={view} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
+  return <><ProgramCreatedNotice key={`${currentUser.id}:${activeCoachWorkspaceId}`} userId={currentUser.id} workspaceId={activeCoachWorkspaceId}/><AdminPanel key={`${currentUser.id}:${activeCoachWorkspaceId ?? 'platform'}`} view={view} onDirtyChange={onDirtyChange} currentUser={currentUser} onProgramCreated={(workspace) => { rememberCreatedProgram(currentUser.id,workspace); selectCoachWorkspace(workspace.id) }} /></>
 }
 
-function AdminPanel({ currentUser, view, onProgramCreated }: { currentUser: CurrentUser; view?: ConsoleArea; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
+function AdminPanel({ currentUser, view, onDirtyChange, onProgramCreated }: { currentUser: CurrentUser; view?: ConsoleArea; onDirtyChange?: (dirty: boolean) => void; onProgramCreated: (workspace: CreatedCoachWorkspace) => void }) {
   const { activeCoachWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
@@ -142,6 +142,8 @@ function AdminPanel({ currentUser, view, onProgramCreated }: { currentUser: Curr
     return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
   }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
 
+  const reportDirty = onDirtyChange
+  useEffect(() => { reportDirty?.(adminDraftsDirty || programCreateDirty || challengeDirty) }, [adminDraftsDirty, programCreateDirty, challengeDirty, reportDirty])
   const adminMutationPending = challengeBusy || feedbackBusy || supportBusy || loading || cohortSaving || programCreating || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
 
   const pendingInviteCount = scopedUsers.filter((user) => user.invitation_status === 'pending').length

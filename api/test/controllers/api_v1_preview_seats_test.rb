@@ -189,6 +189,16 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "joining the challenge from a preview seat follows the same release-hold rules as a participant" do
+    seat = PreviewSeats.join!(user: @admin, cohort_id: @savings_cohort.id)
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    assert_raises(SavingsChallenge::AccessPolicy::Unavailable, "a held challenge cannot be joined, preview or not") { preview_enroll(@admin, seat: seat) }
+    assert_equal 0, SavingsEnrollment.where(user: @admin).count
+    @savings_cohort.update!(savings_challenge_release_hold: false)
+    assert preview_enroll(@admin, seat: seat).preview?
+    assert_raises(HouseholdFinance::Operations::Base::StaleOperation, "joining twice is refused") { preview_enroll(@admin, seat: seat) }
+  end
+
   # --- leaving ----------------------------------------------------------------------------
 
   test "leaving ends an open challenge preview as a withdrawal and says so plainly" do

@@ -20,9 +20,9 @@ export function AdminSectionContent({ section, currentUser, onDirtyChange }: Pro
   switch (section.key) {
     case 'today': return <CoachStudio currentUser={currentUser} onDirtyChange={onDirtyChange} view="today" />
     case 'coaching': return <CoachStudio currentUser={currentUser} onDirtyChange={onDirtyChange} view="coaching" />
-    case 'people': return <ReadOnlyFrame readOnly={readOnly} noun="people"><AdminConsole currentUser={currentUser} view="participants" /></ReadOnlyFrame>
-    case 'groups': return <ReadOnlyFrame readOnly={readOnly} noun="groups"><AdminConsole currentUser={currentUser} view="cohorts" /></ReadOnlyFrame>
-    case 'support': return <AdminConsole currentUser={currentUser} view="feedback" />
+    case 'people': return <ReadOnlyFrame readOnly={readOnly} noun="people"><AdminConsole currentUser={currentUser} view="participants" onDirtyChange={onDirtyChange} /></ReadOnlyFrame>
+    case 'groups': return <ReadOnlyFrame readOnly={readOnly} noun="groups"><AdminConsole currentUser={currentUser} view="cohorts" onDirtyChange={onDirtyChange} /></ReadOnlyFrame>
+    case 'support': return <AdminConsole currentUser={currentUser} view="feedback" onDirtyChange={onDirtyChange} />
     case 'reports': return <ReportsPanel currentUser={currentUser} />
     case 'settings': return <SettingsPanel currentUser={currentUser} onDirtyChange={onDirtyChange} />
   }

@@ -45,7 +45,20 @@ export function AdminApp() {
     if (!dirty) return
     const leave = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', leave)
-    return () => window.removeEventListener('beforeunload', leave)
+    // Browser Back and Forward: an extra history entry on this same address takes the first
+    // Back, so the question can be asked without the page underneath changing.
+    if (!window.history.state?.adminLeaveGuard) window.history.pushState({ ...window.history.state, adminLeaveGuard: true }, '')
+    const onBack = () => {
+      void confirmDiscard('Discard your unsaved changes and leave this screen?').then(discard => {
+        if (discard) { setDirty(false); window.history.back() }
+        else window.history.pushState({ ...window.history.state, adminLeaveGuard: true }, '')
+      })
+    }
+    window.addEventListener('popstate', onBack)
+    return () => {
+      window.removeEventListener('beforeunload', leave)
+      window.removeEventListener('popstate', onBack)
+    }
   }, [dirty])
 
   if (auth.isAuthEnabled && auth.authRecoveryRequired && auth.authError) return <AuthAccessPanel title={auth.authErrorStatus === 503 ? 'Secure access is temporarily unavailable.' : auth.authErrorStatus === 401 ? 'Sign in again to continue.' : 'We couldn’t finish checking your access.'} copy={auth.authError} recovering onRetry={!auth.isLoading && auth.authErrorStatus !== 401 && (auth.authIdentityId || auth.authProvider === 'workos' && (auth.authErrorStatus === 503 || auth.authErrorStatus === 409)) ? auth.refreshCurrentUser : undefined} onSignIn={auth.authErrorStatus === 401 ? auth.signIn : undefined} onSignOut={!auth.isLoading && auth.isSignedIn ? auth.signOut : undefined} footer={<BrandFooter />} />
@@ -65,6 +78,6 @@ export function AdminApp() {
 
   return <>
     {auth.isVerifyingApi && <WorkspaceOpening status="Checking your program access…" onRetry={() => window.location.reload()} />}
-    <AdminShell currentUser={user} sections={sections} active={allowed ?? null} requested={requested} dirty={dirty} onDirtyChange={setDirty} confirmLeave={confirmLeave} hidden={auth.isVerifyingApi} />
+    <AdminShell currentUser={user} sections={sections} active={allowed ?? null} requested={requested} onDirtyChange={setDirty} confirmLeave={confirmLeave} hidden={auth.isVerifyingApi} />
   </>
 }

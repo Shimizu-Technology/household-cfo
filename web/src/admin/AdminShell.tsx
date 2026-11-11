@@ -19,7 +19,6 @@ type Props = {
   sections: AdminSection[]
   active: AdminSection | null
   requested: string | null
-  dirty: boolean
   onDirtyChange: (dirty: boolean) => void
   confirmLeave: () => Promise<boolean>
   hidden?: boolean
@@ -37,7 +36,7 @@ const descriptions: Record<string, string> = {
 
 // The Admin side: a sidebar on desktop, a section menu on phones. The household
 // app is one tap away at the top, and nothing here looks like the participant tabs.
-export function AdminShell({ currentUser, sections, active, requested, dirty, onDirtyChange, confirmLeave, hidden }: Props) {
+export function AdminShell({ currentUser, sections, active, requested, onDirtyChange, confirmLeave, hidden }: Props) {
   const auth = useAuthContext()
   const { brand } = useBrand()
   const [guideOpen, setGuideOpen] = useState(false)
@@ -72,7 +71,7 @@ export function AdminShell({ currentUser, sections, active, requested, dirty, on
 
   const programPicker = showProgram && <label className="admin-program-picker">
     <span>Program</span>
-    <select aria-label="Program" value={activeWorkspaceId ?? 'platform'} disabled={dirty} onChange={async event => {
+    <select aria-label="Program" value={activeWorkspaceId ?? 'platform'} onChange={async event => {
       const chosen = event.target.value === 'platform' ? null : Number(event.target.value)
       if (!(await confirmLeave())) return
       onDirtyChange(false)
@@ -88,7 +87,6 @@ export function AdminShell({ currentUser, sections, active, requested, dirty, on
     <aside className="admin-sidebar" aria-label="Admin">
       <div className="admin-sidebar-brand"><BrandLogo brand={brand} /><strong>{brand.short_name} Admin</strong></div>
       <a className="admin-home-link" href="/" onClick={goHome}>My household</a>
-      {programPicker}
       <nav className="admin-sidebar-nav" aria-label="Admin sections">
         {sections.map(section => <a key={section.key} href={adminPath(section.key)} aria-current={active?.key === section.key ? 'page' : undefined} onClick={linkClick(adminPath(section.key))}>
           <strong>{section.label}</strong><small>{descriptions[section.key]}</small>
@@ -112,7 +110,7 @@ export function AdminShell({ currentUser, sections, active, requested, dirty, on
           </nav>
         </details>
       </header>
-      <div className="admin-phone-program">{programPicker}</div>
+      <div className="admin-program">{programPicker}</div>
       <div className="admin-content">
         {active
           ? <AdminSectionContent key={`${active.key}:${activeWorkspaceId ?? 'platform'}`} section={active} currentUser={currentUser} onDirtyChange={onDirtyChange} />
