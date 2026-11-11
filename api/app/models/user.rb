@@ -78,6 +78,10 @@ class User < ApplicationRecord
   # A left seat that an enrollment still points at stays as history, but never blocks deleting the person.
   has_many :ended_preview_seats, -> { with_previews.where(role: CohortMembership::ENDED_PREVIEW_ROLE) }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :user
   has_many :coach_workspace_memberships, dependent: :restrict_with_exception, inverse_of: :user
+  has_many :participant_invitation_cancellations_as_actor, class_name: "ParticipantInvitationCancellation", foreign_key: :actor_user_id,
+    dependent: :restrict_with_exception, inverse_of: :actor_user
+  has_many :participant_invitation_cancellations_as_subject, class_name: "ParticipantInvitationCancellation", foreign_key: :subject_user_id,
+    dependent: :restrict_with_exception, inverse_of: :subject_user
   has_many :coach_workspaces, through: :coach_workspace_memberships
   has_many :created_coach_workspaces, class_name: "CoachWorkspace", foreign_key: :created_by_user_id,
     dependent: :restrict_with_exception, inverse_of: :created_by_user
