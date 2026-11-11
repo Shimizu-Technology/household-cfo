@@ -79,7 +79,7 @@ window.fetch = async (input, init) => {
     return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
   return response({ errors: ['Unsupported synthetic request'] }, 422)
 }
-const coach = { id: 10, is_admin: false, is_staff: true, role: 'coach' } as CurrentUser
+const coach = { id: 10, is_admin: false, is_staff: true, role: 'coach', admin_sections: ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings'].map(key => ({ key, label: key, access: 'full' })) } as unknown as CurrentUser
 export function Fixture() {
   return (
     <main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>

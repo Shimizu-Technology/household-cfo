@@ -502,13 +502,14 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWor
     // The same lists the server builds (AdminSections, PreviewSeats), for local QA without a server.
     const workspaceRole = isAdmin ? 'owner' : new URLSearchParams(window.location.search).get('pilot_e2e_workspace_role') ?? 'owner'
     const all: NonNullable<CurrentUser['admin_sections']> = [
-      { key: 'today', label: 'Today', access: 'full' }, { key: 'people', label: 'People', access: workspaceRole === 'owner' ? 'full' : 'read_only' },
-      { key: 'groups', label: 'Groups', access: workspaceRole === 'owner' ? 'full' : 'read_only' }, { key: 'coaching', label: 'Coaching', access: 'full' },
+      { key: 'today', label: 'Today', access: 'full' }, { key: 'people', label: 'People', access: 'full' },
+      { key: 'groups', label: 'Groups', access: 'full' }, { key: 'coaching', label: 'Coaching', access: 'full' },
       { key: 'reports', label: 'Reports', access: 'full' }, { key: 'support', label: 'Support', access: 'full' }, { key: 'settings', label: 'Settings', access: 'full' },
     ]
     const allowed: Record<string, string[]> = {
-      owner: all.map(section => section.key), editor: ['today', 'people', 'groups', 'coaching', 'support'],
-      reviewer: ['today', 'people', 'groups', 'coaching', 'reports', 'support'], viewer: ['today', 'people', 'groups', 'support'],
+      // As AdminSections decides on the server: people, groups, support and settings need program management (owners).
+      owner: all.map(section => section.key), editor: ['today', 'coaching'],
+      reviewer: ['today', 'coaching', 'reports'], viewer: ['today', 'coaching'],
     }
     user.admin_sections = all.filter(section => (allowed[workspaceRole] ?? allowed.owner).includes(section.key))
     user.preview_groups = []

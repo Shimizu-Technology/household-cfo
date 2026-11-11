@@ -3,26 +3,29 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { adminUser, group, person, staff } from '../../test/adminFixtures'
 
-const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), createAdminUser: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), removeCoachGroupParticipant: vi.fn() }))
+const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), createAdminUser: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), removeCoachGroupParticipant: vi.fn(), cancelAdminUserInvitation: vi.fn() }))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...api }))
+const auth = vi.hoisted(() => ({ workspaceId: 5 as number | null }))
+vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: auth.workspaceId, selectCoachWorkspace: vi.fn() }) }))
 const media = vi.hoisted(() => ({ wide: true }))
 vi.mock('../../lib/useMatchMedia', () => ({ useMatchMedia: () => media.wide }))
 const confirms = vi.hoisted(() => ({ confirmAction: vi.fn(), confirmDiscard: vi.fn() }))
 vi.mock('../../lib/confirmAction', () => confirms)
 import { PeopleSection } from './PeopleSection'
 
-const bog = group(2, 'Bank of Guam 90 day savings')
-const household = group(3, 'Mel’s Household Group')
+const bog = group(2, 'Bank of Guam 90 day savings', { coach_workspace_id: 5 })
+const household = group(3, 'Mel’s Household Group', { coach_workspace_id: 5 })
 const ana = person(1, 'Ana Lopez', { workspace: { setup_status: 'started', last_safe_activity_at: new Date().toISOString() } })
 const bea = person(2, 'Bea Bounced', { invitation_status: 'pending', invite_email: { status: 'failed', error: 'Mailbox full' }, can_resend_invitation: true, cohorts: [{ id: 7, role: 'participant', cohort: { id: 3, name: 'Mel’s Household Group', status: 'active' } }] })
 const rae = person(3, 'Rae Removed', { invitation_status: 'revoked' })
 
 beforeEach(() => {
-  vi.resetAllMocks(); media.wide = true; confirms.confirmAction.mockResolvedValue(true); confirms.confirmDiscard.mockResolvedValue(true)
+  vi.resetAllMocks(); media.wide = true; auth.workspaceId = 5; confirms.confirmAction.mockResolvedValue(true); confirms.confirmDiscard.mockResolvedValue(true)
   api.fetchAdminCohorts.mockResolvedValue([bog, household]); api.fetchAdminUsers.mockResolvedValue([ana, bea, rae])
   api.createAdminUser.mockResolvedValue({ user: ana, created: true, invitation_sent: true, invitation_status: 'sent' })
   api.updateAdminUser.mockResolvedValue(ana); api.resendAdminUserInvitation.mockResolvedValue({ user: bea, invitation_sent: true })
   api.removeCoachGroupParticipant.mockResolvedValue({ removed: true, cohort_id: 2 })
+  api.cancelAdminUserInvitation.mockResolvedValue({ cancelled: true, user_id: 2 })
 })
 afterEach(cleanup)
 
@@ -112,25 +115,106 @@ describe('inviting', () => {
   })
 })
 
-describe('one person', () => {
-  it('can be sent the invitation again, moved, and removed from a group', async () => {
+describe('filters and sorting', () => {
+  const hidden = { status: 'hidden', error: null, workspace_scoped: true }
+  it('sorts by email, invitation and setup, with what needs attention first', async () => {
     render(<PeopleSection currentUser={adminUser()} />)
+    const table = await screen.findByRole('table')
+    const firstRow = () => within(table).getAllByRole('row')[1].textContent ?? ''
+    fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'email' } })
+    expect(firstRow()).toContain('Ana Lopez')
+    fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'status' } })
+    expect(firstRow()).toContain('Bea Bounced')
+    fireEvent.change(screen.getByLabelText('Sort by'), { target: { value: 'setup' } })
+    expect(firstRow()).toContain('Ana Lopez')
+    fireEvent.click(within(table).getByRole('button', { name: 'Invitation' }))
+    expect(within(table).getByRole('button', { name: 'Invitation' }).closest('th')!.getAttribute('aria-sort')).toBe('ascending')
+    fireEvent.click(within(table).getByRole('button', { name: 'Invitation' }))
+    expect(within(table).getByRole('button', { name: 'Invitation' }).closest('th')!.getAttribute('aria-sort')).toBe('descending')
+  })
+  it('filters staff from participants when the list mixes them', async () => {
+    api.fetchAdminUsers.mockResolvedValue([ana, person(8, 'Coach Cy', { role: 'coach', cohorts: [] }), bea])
+    render(<PeopleSection currentUser={adminUser()} />)
+    await screen.findByRole('table')
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'coach' } })
+    expect(screen.getByText('Coach Cy')).toBeTruthy()
+    expect(screen.queryByText('Ana Lopez')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'participant' } })
+    expect(screen.queryByText('Coach Cy')).toBeNull()
+  })
+  it('offers no role filter when everyone is a participant', async () => {
+    api.fetchAdminUsers.mockResolvedValue([ana])
+    render(<PeopleSection currentUser={staff()} />)
+    await screen.findByRole('table')
+    expect(screen.queryByLabelText('Role')).toBeNull()
+  })
+  it('hides “Email didn’t arrive” where the server does not say, instead of always reading 0', async () => {
+    api.fetchAdminUsers.mockResolvedValue([{ ...ana, invite_email: hidden }, { ...bea, invite_email: hidden }])
+    render(<PeopleSection currentUser={staff()} />)
+    await screen.findByRole('table')
+    expect(screen.queryByRole('button', { name: /Email didn’t arrive/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Invited/ })).toBeTruthy()
+  })
+  it('wraps its filter buttons so none is cut off', async () => {
+    render(<PeopleSection currentUser={adminUser()} />)
+    await screen.findByRole('table')
+    expect(screen.getByRole('group', { name: 'Show people who are' }).className).toBe('admin-chips')
+  })
+})
+
+describe('one person', () => {
+  it('can be sent the invitation again, added to another group, and removed from a group', async () => {
+    api.fetchAdminUsers.mockResolvedValue([ana, { ...bea, cohorts: [...bea.cohorts, { id: 8, role: 'participant', cohort: { id: 2, name: bog.name, status: 'enrolling' } }] }])
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
     fireEvent.click(await screen.findByRole('button', { name: /Bea Bounced/ }))
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Mailbox full')).toBeTruthy()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Send the invitation again' }))
     expect(await within(dialog).findByText('Invitation sent again.')).toBeTruthy()
-    fireEvent.change(within(dialog).getByLabelText('Move to another group'), { target: { value: '2' } })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Move' }))
-    await waitFor(() => expect(api.updateAdminUser).toHaveBeenCalledWith(2, { cohort_ids: [2] }))
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove' }))
-    await waitFor(() => expect(api.removeCoachGroupParticipant).toHaveBeenCalledWith(3, 2, 7))
+    // In two groups: remove per group, nothing that replaces both.
+    expect(within(dialog).queryByRole('button', { name: /^Move/ })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: `Remove from ${household.name}` }))
+    await waitFor(() => expect(api.removeCoachGroupParticipant).toHaveBeenCalledWith(3, 2, 7, undefined))
+  })
+  it('adds to another group without dropping the groups a person is in', async () => {
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Another group'), { target: { value: '3' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Add to this group' }))
+    await waitFor(() => expect(api.updateAdminUser).toHaveBeenCalledWith(1, { cohort_ids: [2, 3] }))
+  })
+  it('says a move leaves the one group, and only offers it to someone in one group', async () => {
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Another group'), { target: { value: '3' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: `Move here, out of ${bog.name}` }))
+    await waitFor(() => expect(api.updateAdminUser).toHaveBeenCalledWith(1, { cohort_ids: [3] }))
+  })
+  it('cancels the invitation of someone who has not joined, instead of offering to remove them from a group', async () => {
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Bea Bounced/ }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'Remove from group' })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel the invitation' }))
+    await waitFor(() => expect(api.cancelAdminUserInvitation).toHaveBeenCalledWith(2, undefined))
+    expect(confirms.confirmAction.mock.calls[0][1]).toMatchObject({ title: 'Cancel the invitation for Bea Bounced?' })
+    api.fetchAdminUsers.mockResolvedValue([ana, rae])
+    expect(await screen.findByText('The invitation for Bea Bounced was cancelled.')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  })
+  it('shows a failed cancel plainly and keeps the person', async () => {
+    api.cancelAdminUserInvitation.mockRejectedValue(new Error('This person already joined, so there is no invitation to cancel.'))
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Bea Bounced/ }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel the invitation' }))
+    expect((await within(screen.getByRole('dialog')).findByRole('alert')).textContent).toContain('already joined')
   })
   it('lets only an admin change a role, never their own', async () => {
     api.fetchAdminUsers.mockResolvedValue([ana, person(9, 'Mrs. Mel', { role: 'admin', cohorts: [] })])
     const { unmount } = render(<PeopleSection currentUser={adminUser()} />)
     fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
-    fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'coach' } })
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Role'), { target: { value: 'coach' } })
     fireEvent.click(screen.getByRole('button', { name: 'Change role' }))
     await waitFor(() => expect(api.updateAdminUser).toHaveBeenCalledWith(1, { role: 'coach' }))
     unmount(); cleanup()
@@ -139,8 +223,44 @@ describe('one person', () => {
     expect(screen.getByText(/This is you/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Change role' })).toBeNull()
     cleanup()
-    render(<PeopleSection currentUser={staff()} />)
+    render(<PeopleSection currentUser={staff({ id: 99 })} />)
     fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
-    expect(screen.queryByLabelText('Role')).toBeNull()
+    expect(within(screen.getByRole('dialog')).queryByLabelText('Role')).toBeNull()
+  })
+})
+
+describe('an administrator who has not chosen a program', () => {
+  beforeEach(() => { auth.workspaceId = null })
+  it('removes from a group by naming the group’s own program, never with a raw error', async () => {
+    render(<PeopleSection currentUser={adminUser()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Remove from group' }))
+    await waitFor(() => expect(api.removeCoachGroupParticipant).toHaveBeenCalledWith(2, 1, 100 + 1, 5))
+  })
+  it('cancels an invitation by naming the program too', async () => {
+    render(<PeopleSection currentUser={adminUser()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Bea Bounced/ }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel the invitation' }))
+    await waitFor(() => expect(api.cancelAdminUserInvitation).toHaveBeenCalledWith(2, 5))
+  })
+  it('offers no Remove it could not do, and says what to choose', async () => {
+    api.fetchAdminCohorts.mockResolvedValue([group(2, bog.name), household])
+    render(<PeopleSection currentUser={adminUser()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Ana Lopez/ }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).queryByRole('button', { name: 'Remove from group' })).toBeNull()
+    expect(within(dialog).getByText('Choose a program at the top of the page to remove this person.')).toBeTruthy()
+  })
+})
+
+describe('People for someone who can manage people but not groups', () => {
+  it('reads the groups they may see instead of the owner-only list', async () => {
+    api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 2, name: bog.name, status: 'enrolling' }])
+    const legacy = staff({ admin_sections: [{ key: 'today', label: 'Today', access: 'full' }, { key: 'people', label: 'People', access: 'full' }] as never })
+    render(<PeopleSection currentUser={legacy} />)
+    await screen.findByRole('table')
+    expect(api.fetchAdminCohorts).not.toHaveBeenCalled()
+    expect(screen.getByRole('option', { name: bog.name })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 })

@@ -1686,6 +1686,8 @@ export type AdminPersonaAssignableCohort = {
   name: string
   coach_workspace_id?: number
   status: AdminCohortStatus
+  // Roles that cannot list groups still need to know which ones run the savings challenge.
+  savings_challenge_enabled?: boolean
   assignable: boolean
   blocked_reason: string | null
   persona_assignment: AdminPersonaAssignment | null
@@ -1873,6 +1875,7 @@ export type SavingsChallengeAccess = {
 export type AdminCohort = {
   id: number
   name: string
+  coach_workspace_id?: number
   status: AdminCohortStatus
   starts_on: string | null
   ends_on: string | null
@@ -3637,6 +3640,11 @@ export async function resendAdminUserInvitation(id: number): Promise<AdminUserMu
   return postJson<AdminUserMutationResponse>(`/api/v1/admin/users/${id}/resend_invitation`, {})
 }
 
+// A program owner withdrawing an invitation nobody accepted. The person loses it and their group seats.
+export async function cancelAdminUserInvitation(id: number, workspaceId?: number): Promise<{ cancelled: true; user_id: number }> {
+  return fetchJson(`/api/v1/admin/users/${id}/cancel_invitation`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}) }, body: '{}' })
+}
+
 export type PlaidAccount = {
   financial_generation?: number
   id: number
@@ -5137,10 +5145,13 @@ export async function launchCohortRelease(
 }
 
 /** Withdraw one program enrollment, preserving the participant's global account. */
-export async function removeCoachGroupParticipant(cohortId: number, userId: number, membershipId: number): Promise<{ removed: boolean; cohort_id: number }> {
+// A platform administrator has no program selected, so they name the group's own program.
+const programHeader = (workspaceId?: number): Record<string, string> => workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}
+
+export async function removeCoachGroupParticipant(cohortId: number, userId: number, membershipId: number, workspaceId?: number): Promise<{ removed: boolean; cohort_id: number }> {
   return fetchJson(`/api/v1/admin/cohorts/${cohortId}/participants/${userId}`, {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...programHeader(workspaceId) },
     body: JSON.stringify({ expected_membership_id: membershipId }),
   })
 }

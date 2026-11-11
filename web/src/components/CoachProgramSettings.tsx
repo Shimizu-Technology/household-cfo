@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createCoachWorkspace, fetchCoachWorkspaceSettings, fetchWorkspaceBrand,
-  previewWorkspaceBrand, publishWorkspaceBrand, restoreWorkspaceBrandVersion,
+  previewWorkspaceBrand, restoreWorkspaceBrandVersion,
   saveWorkspaceBrand, updateCoachWorkspaceSettings, uploadWorkspaceBrandLogo,
   type BrandConfig, type CreatedCoachWorkspace, type CoachWorkspaceSettings, type CoachWorkspaceSettingsInput,
   type CurrentUser, type WorkspaceBrandConfiguration, type WorkspaceBrandPreview,
@@ -16,7 +16,7 @@ import './ProgramSettingsFlow.css'
 import { confirmAction, confirmDiscard } from '../lib/confirmAction'
 
 const blankIdentity: CoachWorkspaceSettingsInput = { name: '', coach_profile: { display_name: '', title: 'Financial coach', bio: '' } }
-const releaseImpact = 'Publishing updates the program’s welcome screen. Participants keep the appearance saved for their group until you launch or update their group with this version.'
+const releaseImpact = 'Going back to this look updates the program’s welcome screen. Participants keep the appearance saved for their group until you update their group in Coaching → Go live.'
 
 function identityValues(workspace: CoachWorkspaceSettings): CoachWorkspaceSettingsInput {
   return { name: workspace.name, coach_profile: workspace.coach_profile ?? blankIdentity.coach_profile }
@@ -94,8 +94,9 @@ export function CreateCoachProgram({ firstProgram = false, embedded = false, dis
   </article>
 }
 
-export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange, simple = false }: {
-  simple?: boolean
+// Settings edits the program's name and look as a draft. It goes live with the coach's voice and tools
+// in Coaching → Go live, and earlier looks are under Coaching → History: one way to publish.
+export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecycle, onDirtyChange }: {
   workspaceId: number | null
   currentUser: CurrentUser
   mutationLifecycle: CoachWorkspaceMutationLifecycle
@@ -114,7 +115,6 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   const [createDirty, setCreateDirty] = useState(false)
   const alive = useRef(true)
   const loadSequence = useRef(0)
-  const operationKeys = useRef(new Map<string, string>())
   const identityDirty = Boolean(workspace && JSON.stringify(identity) !== JSON.stringify(identityValues(workspace)))
   const brandDirty = Boolean(brand && draft && JSON.stringify(draft) !== JSON.stringify(brand.draft))
   const dirty = identityDirty || brandDirty || createDirty
@@ -138,12 +138,6 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
   }, [workspaceId])
   useEffect(() => { let cancelled = false; queueMicrotask(() => { if (!cancelled) void load() }); return () => { cancelled = true } }, [load])
 
-  function keyFor(action: string) {
-    const operation = `${action}:${brand?.draft_revision}:${brand?.published_version?.id}`
-    let key = operationKeys.current.get(operation)
-    if (!key) { key = crypto.randomUUID(); operationKeys.current.set(operation, key) }
-    return key
-  }
   function acceptBrand(next: WorkspaceBrandConfiguration) {
     setBrand(next); setDraft(next.draft)
   }
@@ -173,7 +167,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
     void mutate('brand', async (isCurrent) => {
       const next = await saveWorkspaceBrand(draft, brand.draft_revision)
       if (!isCurrent()) return
-      acceptBrand(next); setPreview(null); setNotice('Brand draft saved. Preview it before publishing.')
+      acceptBrand(next); setPreview(null); setNotice('Brand draft saved. Preview it, then take it live in Coaching → Go live.')
     })
   }
   function uploadLogo(file: File) {
@@ -186,7 +180,7 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
     void mutate('logo', async (isCurrent) => {
       const next = await uploadWorkspaceBrandLogo(file, brand.draft_revision)
       if (!isCurrent()) return
-      acceptBrand(next); setPreview(null); setNotice('Logo saved to your appearance draft. Preview it before publishing.')
+      acceptBrand(next); setPreview(null); setNotice('Logo saved to your appearance draft. Preview it, then take it live in Coaching → Go live.')
     })
   }
   function runPreview() {
@@ -197,29 +191,10 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
       acceptBrand(result.brand_configuration); setPreview(result.preview); setNotice('This preview uses the exact saved brand draft.')
     })
   }
-  async function publish() {
-    if (!brand?.permissions.publish || !preview || brandDirty) return
-    if (!(await confirmAction(releaseImpact, { title: 'Publish this preview?', confirmLabel: 'Publish', cancelLabel: 'Not yet' }))) return
-    void mutate('publish', async (isCurrent) => {
-      const result = await publishWorkspaceBrand({ draft_revision: brand.draft_revision, preview_digest: preview.digest, expected_published_version_id: brand.published_version?.id ?? null }, keyFor('publish'))
-      if (!isCurrent()) return
-      acceptBrand(result.brand_configuration); setPreview(null); setNotice(`Brand version ${result.published_version.number} published. ${releaseImpact}`)
-    })
-  }
-  async function restore(id: number, number: number) {
-    if (!brand?.permissions.rollback || brandDirty) return
-    if (!(await confirmAction(releaseImpact, { title: `Restore brand version ${number}?`, confirmLabel: 'Restore', cancelLabel: 'Not yet' }))) return
-    void mutate('restore', async (isCurrent) => {
-      const result = await restoreWorkspaceBrandVersion(id, { draft_revision: brand.draft_revision, expected_published_version_id: brand.published_version?.id ?? null }, keyFor(`restore-${id}`))
-      if (!isCurrent()) return
-      acceptBrand(result.brand_configuration); setPreview(null); setNotice(`Brand version ${number} restored as version ${result.published_version.number}. ${releaseImpact}`)
-    })
-  }
-
   return <section className="program-settings" aria-busy={loading || busy}>
-    {!(simple && workspaceId === null) && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
-    {currentUser.is_admin && <CreateCoachProgram autoOpen={simple && workspaceId === null} defaultCoachName={simple ? currentUser.full_name : ''} onCreated={simple ? (created) => selectCoachWorkspace(created.id) : undefined} embedded={simple && workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
-    {workspaceId === null ? !simple && <p className="coach-read-only">Choose a program above to edit its settings. You can create the first program here.</p> : <>
+    {workspaceId !== null && <header><h3>What will people see?</h3><p>Set your program name, coach profile, and welcome screen.</p></header>}
+    {currentUser.is_admin && <CreateCoachProgram autoOpen={workspaceId === null} defaultCoachName={workspaceId === null ? currentUser.full_name : ''} onCreated={workspaceId === null ? (created) => selectCoachWorkspace(created.id) : undefined} embedded={workspaceId === null} disabled={busy || loading || identityDirty || brandDirty} onDirtyChange={setCreateDirty} />}
+    {workspaceId !== null && <>
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><Button variant="ghost" disabled={busy} onClick={async () => { if (!dirty || await confirmDiscard('Discard unsaved program settings and reload?')) void load() }}>Reload settings</Button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {loading ? <p role="status">Loading program settings…</p> : workspace && brand && draft && <>
@@ -230,24 +205,17 @@ export function CoachProgramSettings({ workspaceId, currentUser, mutationLifecyc
           <p id="program-identity-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !workspace.permissions.manage ? 'Ask a program owner to change the name or coach profile.' : brandDirty ? 'Save the appearance draft below before saving program identity.' : !identityDirty ? 'Your program identity is saved. Change a field to save again.' : 'Save the name and coach profile together.'}</p>
         </form>
         <form className="panel" onSubmit={saveBrand}>
-          <header><h3>Welcome screen and appearance</h3><p>{simple ? 'Save your appearance, then review it with your assistant and tools in Go live.' : releaseImpact} Change the assistant’s name in Voice.</p></header>
+          <header><h3>Welcome screen and appearance</h3><p>Save your appearance, then review it with your assistant and tools in Coaching → Go live. Change the assistant’s name in Voice.</p></header>
           <fieldset disabled={busy || !brand.permissions.edit}><BrandFields draft={draft} onChange={updateBrand} onLogoUpload={uploadLogo} logoUploadDisabled={brandDirty} uploadingLogo={pending === 'logo'} /></fieldset>
           {!brand.permissions.edit && <p className="program-help">Your program role can view this appearance but cannot edit it.</p>}
           <div className="program-actions">
             <Button variant="secondary" type="submit" aria-describedby="program-brand-save-help" disabled={busy || !brandDirty || !brand.permissions.edit}>{pending === 'brand' ? 'Saving…' : 'Save brand draft'}</Button>
             <Button variant="secondary" aria-describedby="program-brand-preview-help" disabled={busy || brandDirty || !brand.permissions.preview} onClick={runPreview}>{pending === 'preview' ? 'Previewing…' : 'Preview welcome screen'}</Button>
-            <Button hidden={simple} aria-describedby="program-brand-publish-help" disabled={busy || brandDirty || !brand.permissions.publish || !preview || preview.digest !== brand.preview?.digest} onClick={publish}>{pending === 'publish' ? 'Publishing…' : 'Publish branding'}</Button>
           </div>
           <p id="program-brand-save-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.edit ? 'Your role cannot save appearance changes.' : !brandDirty ? 'Appearance draft saved. Change a field to save again.' : 'Save your appearance changes first.'}</p>
-          <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen before publishing.'}</p>
-          <p hidden={simple} id="program-brand-publish-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.publish ? 'A program owner or reviewer must publish this appearance.' : brandDirty ? 'Save and preview your changes before publishing.' : !preview || preview.digest !== brand.preview?.digest ? 'Preview the saved draft to enable publishing.' : 'Review the preview below, then publish. To update an existing group, continue to Group updates.'}</p>
+          <p id="program-brand-preview-help" className="program-help">{busy ? 'Wait for the current action to finish.' : !brand.permissions.preview ? 'A program editor, reviewer, or owner can preview the welcome screen.' : brandDirty ? 'Save your changes before previewing.' : 'Preview the saved welcome screen. It goes live in Coaching → Go live.'}</p>
         </form>
         {preview && <BrandWelcomePreview config={preview.brand} />}
-        <details hidden={simple} className="panel program-history"><summary>Brand version history ({brand.versions.length})</summary><div>
-          {brand.versions.map((version) => <article key={version.id}><div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleString()} · {version.published_by.full_name}</small>{version.restored_from_version && <small>Restored from version {version.restored_from_version.number}</small>}</div>
-            {version.id === brand.published_version?.id ? <span className="coach-status is-current">Published</span> : <Button variant="ghost" size="compact" disabled={busy || brandDirty || !brand.permissions.rollback} onClick={() => restore(version.id, version.number)}>Restore as new version</Button>}
-          </article>)}
-        </div></details>
       </>}
     </>}
   </section>
@@ -335,4 +303,59 @@ export function BrandWelcomePreview({ config }: { config: BrandConfig }) {
       <small>Use the email your invitation was sent to.</small></div>
     <footer style={{ color: config.colors.text_muted, borderColor: config.colors.border }}>{config.support.label && <p>{config.support.label}{config.support.email ? ` · ${config.support.email}` : ''}</p>}<p>{config.footer.text}</p></footer>
   </div></article>
+}
+
+// Earlier looks of the program's welcome screen, and going back to one. This is the only place a look is restored.
+export function BrandHistory({ workspaceId, mutationLifecycle }: { workspaceId: number | null; mutationLifecycle: CoachWorkspaceMutationLifecycle }) {
+  const [brand, setBrand] = useState<WorkspaceBrandConfiguration | null>(null)
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const alive = useRef(true)
+  const sequence = useRef(0)
+  const keys = useRef(new Map<string, string>())
+  useEffect(() => { alive.current = true; return () => { alive.current = false; sequence.current += 1 } }, [])
+
+  const load = useCallback(async () => {
+    if (workspaceId === null) return
+    const mine = ++sequence.current
+    setState('loading')
+    try {
+      const next = await fetchWorkspaceBrand()
+      if (alive.current && mine === sequence.current) { setBrand(next); setState('ready') }
+    } catch { if (alive.current && mine === sequence.current) setState('failed') }
+  }, [workspaceId])
+  useEffect(() => { queueMicrotask(() => void load()) }, [load])
+
+  async function restore(id: number, number: number) {
+    if (!brand?.permissions.rollback || pending || mutationLifecycle.pending) return
+    if (!(await confirmAction(releaseImpact, { title: `Go back to version ${number}?`, confirmLabel: 'Go back to it', cancelLabel: 'Not yet' }))) return
+    const ticket = mutationLifecycle.begin()
+    setPending(true); setError(null); setNotice(null)
+    try {
+      const operation = `restore-${id}:${brand.draft_revision}:${brand.published_version?.id}`
+      const key = keys.current.get(operation) ?? crypto.randomUUID()
+      keys.current.set(operation, key)
+      const result = await restoreWorkspaceBrandVersion(id, { draft_revision: brand.draft_revision, expected_published_version_id: brand.published_version?.id ?? null }, key)
+      if (alive.current && mutationLifecycle.isCurrent(ticket)) { setBrand(result.brand_configuration); setNotice(`Version ${number} is back, saved as version ${result.published_version.number}. ${releaseImpact}`) }
+    } catch (caught) { if (alive.current && mutationLifecycle.isCurrent(ticket)) setError(message(caught)) }
+    finally { mutationLifecycle.finish(ticket); if (alive.current) setPending(false) }
+  }
+
+  if (workspaceId === null) return <p className="admin-muted">Choose a program at the top of the page to see its earlier looks.</p>
+  if (state === 'loading') return <p role="status" className="admin-muted">Opening the earlier looks…</p>
+  if (state === 'failed' || !brand) return <div className="admin-empty"><p role="alert">The earlier looks couldn’t be opened.</p><Button variant="secondary" onClick={() => void load()}>Try again</Button></div>
+  return <section className="program-settings" aria-busy={pending}>
+    <header><h3>Earlier looks</h3><p>The welcome screen and colours your program has used.</p></header>
+    {error && <p className="coach-studio-alert is-error" role="alert">{error}</p>}
+    {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
+    {brand.versions.length === 0 ? <p className="admin-muted">Nothing has gone live yet, so there are no earlier looks.</p> : <div className="coach-version-list">
+      {brand.versions.map(version => <article key={version.id}>
+        <div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {version.published_by.full_name}</small>{version.restored_from_version && <small>Went back to version {version.restored_from_version.number}</small>}</div>
+        {version.id === brand.published_version?.id ? <span className="coach-status is-current">Current</span> : <Button variant="ghost" size="compact" disabled={pending || !brand.permissions.rollback} onClick={() => void restore(version.id, version.number)}>Go back to this look</Button>}
+      </article>)}
+    </div>}
+    {!brand.permissions.rollback && <p className="coach-read-only" role="note">A program owner or reviewer can go back to an earlier look.</p>}
+  </section>
 }

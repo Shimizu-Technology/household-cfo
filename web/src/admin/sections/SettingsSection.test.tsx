@@ -47,4 +47,17 @@ describe('Settings', () => {
     expect(screen.getByText('Choose a program at the top to change its look or team.')).toBeTruthy()
     expect(titles()).toEqual(['Programs', 'Who can do what', 'Bank connections', 'Organization access', 'Activity'])
   })
+  it('labels the activity list for what it really is, and filters by the group itself', async () => {
+    const event = (id: number, reason: string) => ({ id, action: 'pause', reason, occurred_at: new Date().toISOString(), actor_name: 'Mrs. Mel' })
+    api.fetchAdminCohorts.mockResolvedValue([
+      group(2, 'Same name', { savings_challenge: savings('paused', { recent_events: [event(1, 'First group reason')] }) }),
+      group(3, 'Same name', { savings_challenge: savings('paused', { recent_events: [event(2, 'Second group reason')] }) }),
+    ])
+    render(<SettingsSection currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    fireEvent.click(screen.getByText('Activity'))
+    expect(await screen.findByText(/When a savings challenge was opened or paused, and why. Other changes aren’t listed here yet./)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Group'), { target: { value: '3' } })
+    expect(screen.getByText('“Second group reason”')).toBeTruthy()
+    expect(screen.queryByText('“First group reason”')).toBeNull()
+  })
 })

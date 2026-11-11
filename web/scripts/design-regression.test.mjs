@@ -213,7 +213,7 @@ assert.ok(api.includes('wealth'), 'API client type should expose wealth data')
 assert.ok(adminSections.includes("inviteStateOf(person) !== 'removed'"), 'People should hide removed people until the Removed filter is chosen')
 assert.ok(adminSections.includes('Email them an invitation now'), 'the invite dialog should make email delivery explicit')
 assert.ok(adminSections.includes('aria-sort') && adminSections.includes('Find someone'), 'People should be searchable and sortable by name and last active')
-assert.ok(adminSections.includes('removeCoachGroupParticipant(membership.cohort.id, person.id, membership.id)'), 'removing someone from a group should use the server-confirmed membership, not an unsaved draft')
+assert.ok(adminSections.includes('removeCoachGroupParticipant(membership.cohort.id, person.id, membership.id,'), 'removing someone from a group should use the server-confirmed membership, not an unsaved draft')
 assert.ok(!adminSections.includes('setup_complete_count'), 'group pages should not recompute server setup-complete counts client-side')
 // Delayed/failing year selection and stale workspace responses are exercised in
 // the BOG UI budget-year browser regressions rather than pinning rollback syntax.

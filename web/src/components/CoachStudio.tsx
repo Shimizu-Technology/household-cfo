@@ -12,6 +12,7 @@ import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLife
 import './CoachStudio.css'
 import { confirmDiscard } from '../lib/confirmAction'
 import { adminPath, navigateTo } from '../lib/appRoutes'
+import { GroupTools } from '../admin/sections/GroupTools'
 
 // Coaching is two steps: describe your coach, then preview and go live. History sits at the end.
 type Area = 'assistant' | 'live'
@@ -27,6 +28,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [advanced, setAdvanced] = useState<{ proposal?: ProposedState; section?: 'assistants' } | null>(() => {
     try { return window.sessionStorage.getItem(modeKey) === 'advanced' ? {} : null } catch { return null }
   })
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [toolsDirty, setToolsDirty] = useState(false)
   const [advancedDirty, setAdvancedDirty] = useState(false)
   const [advancedBusy, setAdvancedBusy] = useState(false)
   const trackAdvancedDirty = useCallback((value: boolean) => { setAdvancedDirty(value); onDirtyChange(value) }, [onDirtyChange])
@@ -35,12 +38,20 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     try { window.sessionStorage.removeItem(modeKey) } catch { /* A mode preference never blocks authoring. */ }
     onDirtyChange(false); setAdvanced(null)
   }}>Back to Coaching</Button><CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackAdvancedDirty} onPendingChange={setAdvancedBusy} initialSection={advanced.section} proposedState={advanced.proposal} /></>
+  // Group tools: every role that may see Coaching can reach its groups' tools here; the server says what each may do.
+  if (toolsOpen) return <><Button variant="secondary" onClick={async () => {
+    if (toolsDirty && !(await confirmDiscard('Your changes will be lost.'))) return
+    onDirtyChange(false); setToolsDirty(false); setToolsOpen(false)
+  }}>Back to Coaching</Button><section className="screen-grid coach-simple">
+    <header className="coach-simple-heading"><div><h2 data-page-heading tabIndex={-1}>Group tools</h2><p>What each group can open, and in what order.</p></div></header>
+    <GroupTools onDirtyChange={(value) => { setToolsDirty(value); onDirtyChange(value) }} />
+  </section></>
   // The detailed editor already owns workspace transitions. Simple authoring is
   // remounted per program so private local drafts cannot cross programs.
-  return <StudioProgram key={activeCoachWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeCoachWorkspaceId} onDirtyChange={onDirtyChange} onAdvanced={(proposal) => { try { window.sessionStorage.setItem(modeKey, 'advanced') } catch { /* Optional UI preference only. */ } setAdvanced({ proposal, section: 'assistants' }) }} />
+  return <StudioProgram key={activeCoachWorkspaceId ?? 'platform'} currentUser={currentUser} workspaceId={activeCoachWorkspaceId} onDirtyChange={onDirtyChange} onTools={() => setToolsOpen(true)} onAdvanced={(proposal) => { try { window.sessionStorage.setItem(modeKey, 'advanced') } catch { /* Optional UI preference only. */ } setAdvanced({ proposal, section: 'assistants' }) }} />
 }
 
-function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced }: { currentUser: CurrentUser; workspaceId: number | null; onDirtyChange: (dirty: boolean) => void; onAdvanced: (proposal?: ProposedState) => void }) {
+function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced, onTools }: { currentUser: CurrentUser; workspaceId: number | null; onDirtyChange: (dirty: boolean) => void; onAdvanced: (proposal?: ProposedState) => void; onTools: () => void }) {
   const viewKey = `hcfo.coachStudio.view:${currentUser.id}:${workspaceId}`
   const [area, updateArea] = useState<Area>(() => readUrlView() ?? readView(viewKey).area)
   const [task, updateTask] = useState<Task>(() => readUrlTask() ?? readView(viewKey).task)
@@ -153,7 +164,7 @@ function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced }: 
   }
 
   return <><ProgramCreatedNotice userId={currentUser.id} workspaceId={workspaceId}/><section className="screen-grid coach-studio-screen coach-simple" aria-busy={loading || busy}>
-    <header className="coach-simple-heading"><div><h2 data-page-heading tabIndex={-1}>Coaching</h2><p>{workspace ? `The voice and teaching your people hear in ${workspace.name}.` : 'The voice and teaching your people hear.'}</p></div></header>
+    <header className="coach-simple-heading"><div><h2 data-page-heading tabIndex={-1}>Coaching</h2><p>The voice and teaching your people hear in this program.</p></div></header>
     <nav className="coach-studio-section-tabs" aria-label="Coaching steps">
       {(['assistant', 'live'] as const).map(id => <button type="button" key={id} aria-current={area === id ? 'page' : undefined} disabled={busy || lifecycle.pending} onClick={() => leave(() => setArea(id))}>{AREA_LABELS[id]}</button>)}
     </nav>
@@ -169,7 +180,8 @@ function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced }: 
         : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
       </> : !persona ? <article className="panel"><h3>Describe your coach first</h3><p>Your saved tools and look go live together with your coach’s voice.</p><Button onClick={() => setArea('assistant')}>Describe your coach</Button></article> : null}
     {persona && <div hidden={area !== 'live'}><CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => navigate('assistant', 'voice')} autoPreview={previewOnOpen} canOpenChallenge={currentUser.is_admin || workspace?.membership_role === 'owner'} active={area === 'live'} /></div>}
-    <div className="coach-history-link"><h3>History</h3><p>Earlier versions of your coach’s voice, the teaching library and group updates.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open history</Button></div>
+    {workspaceId !== null && <div className="coach-history-link"><h3>Group tools</h3><p>Choose what each group can open, and go back to an earlier choice.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(onTools)}>Open group tools</Button></div>}
+    <div className="coach-history-link"><h3>History</h3><p>Earlier versions of your coach’s voice, the teaching library, group updates and your program’s look.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open history</Button></div>
   </section></>
 }
 

@@ -1727,12 +1727,12 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
   await expect(page.locator('.cohort-release-evidence').first().getByText('Version 9', { exact: true })).toBeVisible()
 
   const tabs = page.locator('.coach-studio-section-tabs [role="tab"]')
-  await expect(tabs).toHaveCount(3)
+  await expect(tabs).toHaveCount(4)
   await page.evaluate(async () => {
     await document.fonts.ready
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
   })
-  const tabBoxes = await Promise.all(Array.from({ length: 3 }, (_, index) => tabs.nth(index).boundingBox()))
+  const tabBoxes = await Promise.all(Array.from({ length: 4 }, (_, index) => tabs.nth(index).boundingBox()))
   if (testInfo.project.name.includes('mobile')) {
     expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
     const strip = page.locator('.coach-studio-section-tabs')
@@ -1742,7 +1742,7 @@ test('Coach Studio release and rollout stays truthful, keyboard usable, and resp
     expect(new Set(tabBoxes.map((box) => Math.round(box?.y ?? 0))).size).toBe(1)
   }
 
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < 4; index += 1) {
     // A phone has one scrolling task row; every task must remain reachable.
     await tabs.nth(index).scrollIntoViewIfNeeded()
     const box = await tabs.nth(index).boundingBox()
@@ -5278,7 +5278,7 @@ test('Admin UI people rows show only safe pilot progress signals', async ({ page
   await page.keyboard.press('Escape')
   await page.goto('/admin/groups?pilot_e2e_role=admin')
   await page.getByRole('button', { name: pilotCohort.name }).click()
-  await expect(page.getByText('Last 7 days: 1 person active, 18 questions to Mia, 7 uploads.')).toBeVisible()
+  await expect(page.getByText('Last 7 days: 1 person active, 18 questions to Mia (1 didn’t get an answer), 7 uploads (1 didn’t work), Mia usually answers in about 1 second.')).toBeVisible()
   await expect(page.getByText('Amounts and conversations stay private.')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
@@ -5858,46 +5858,6 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await expect(itemPanel.getByLabel('Draft wording')).toBeDisabled()
   await expect(itemPanel.getByRole('button', { name: 'Approve new version' })).toBeEnabled()
 })
-
-for (const role of ['editor', 'reviewer', 'viewer'] as const) {
-  test(`Admin UI group tools honor ${role} capabilities`, async ({ page }) => {
-    const permissions = { edit: role === 'editor', review: role !== 'viewer', publish: role === 'reviewer', rollback: role === 'reviewer' }
-    const version = { id: 101, number: 2, digest: 'current', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Owner' } }
-    const configuration = {
-      cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
-      draft: { schema_version: 1, optional_modules: { cfo_filter: true, optionality: true } },
-      draft_revision: 1, preview_required: true, preview: null, published_version: version, versions: [version], permissions,
-    }
-    const writes: { method: string; path: string; body: unknown }[] = []
-    await page.route('**/api/v1/admin/cohorts/41/experience_configuration', (route) => {
-      if (route.request().method() === 'PATCH') {
-        const body = route.request().postDataJSON()
-        writes.push({ method: 'PATCH', path: new URL(route.request().url()).pathname, body })
-        configuration.draft = body.experience_configuration.draft_config
-        configuration.draft_revision += 1
-      }
-      return route.fulfill({ status: 200, json: { experience_configuration: configuration } })
-    })
-    await page.goto('/admin/groups?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
-    await page.getByRole('button', { name: 'Household CFO pilot' }).click()
-    await page.getByRole('button', { name: 'Tools people can use' }).click()
-    await expect(page.getByLabel('Include CFO Filter')).toBeVisible()
-    if (permissions.edit) {
-      await expect(page.getByLabel('Include CFO Filter')).toBeEnabled()
-      await page.getByLabel('Include CFO Filter').uncheck()
-      await page.getByRole('button', { name: 'Save draft' }).click()
-      await expect(page.getByRole('status')).toContainText('Tools saved')
-      expect(writes).toHaveLength(1)
-      expect(writes[0].path).toBe('/api/v1/admin/cohorts/41/experience_configuration')
-    } else {
-      await expect(page.getByLabel('Include CFO Filter')).toBeDisabled()
-      await expect(page.getByRole('button', { name: 'Save draft' })).toBeDisabled()
-      await expect(page.getByText('Your role can see these tools but can’t change them.')).toBeVisible()
-      expect(writes).toHaveLength(0)
-    }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  })
-}
 
 test('BOG UI household participant navigation remains available when a saved optional-tool link is disabled', async ({ page }) => {
   const workspace = realWorkspaceData(true)
@@ -6656,6 +6616,11 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   await expect(page.locator('#coach-studio-panel-assistants')).toHaveAttribute('aria-labelledby', 'coach-studio-tab-assistants')
   await assistantTab.focus()
   await assistantTab.press('End')
+  const lookTab = page.getByRole('tab', { name: /Program look/ })
+  await expect(lookTab).toBeFocused()
+  await expect(lookTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#coach-studio-panel-brand')).toBeVisible()
+  await lookTab.press('ArrowLeft')
   await expect(cohortReleasesTab).toBeFocused()
   await expect(cohortReleasesTab).toHaveAttribute('aria-selected', 'true')
   await expect(page.locator('#coach-studio-panel-cohort-releases')).toBeVisible()
@@ -7293,6 +7258,7 @@ test('Admin UI People is a table on a wide screen, rows on a phone, and invites 
   await dialog.getByLabel(/Email addresses/).fill('first@pilot.test, second@pilot.test')
   await dialog.getByLabel('Group').selectOption(String(pilotCohort.id))
   await dialog.getByRole('button', { name: 'Invite 2 people' }).click()
+  await answerConfirm(page, 'accept', `Invite 2 people to ${pilotCohort.name}?`, 'Each of them gets an email')
   await expect(dialog.getByText('2 people invited.')).toBeVisible()
   expect(invites).toEqual(['first@pilot.test', 'second@pilot.test'].map(email => ({ email, role: 'participant', cohort_id: String(pilotCohort.id), send_invitation_email: true })))
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
@@ -8450,13 +8416,14 @@ test('Coach Studio first launch requires impact review and stays usable on phone
 
 // These mocks exercise client state and exact mutation contracts. Server-side
 // tenant, owner, account, and release authority remain covered by Rails tests.
-async function mockProgramSettings(page: Page) {
+async function mockProgramSettings(page: Page, options: { publishedAhead?: boolean } = {}) {
   let revision = 1
   let draft = structuredClone(legacyBrandConfig) as BrandConfig
   let preview: WorkspaceBrandConfiguration['preview'] = null
   const oldVersion: WorkspaceBrandVersion = { id: 12, number: 1, digest: 'old-brand', published_at: '2026-10-01T00:00:00Z', published_by: { id: 902, full_name: 'Mrs. Mel' }, config: structuredClone(draft) }
-  let published = oldVersion
-  const versions = [oldVersion]
+  // With `publishedAhead`, the program has already gone live with a newer look, so version 1 can be gone back to.
+  let published = options.publishedAhead ? { id: 13, number: 2, digest: 'newer-brand', published_at: '2026-10-02T00:00:00Z', published_by: { id: 902, full_name: 'Mrs. Mel' }, config: { ...structuredClone(draft), product_name: 'Newer look' } } as WorkspaceBrandVersion : oldVersion
+  const versions = options.publishedAhead ? [published, oldVersion] : [oldVersion]
   let identity: CoachWorkspaceSettings = { id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: 'owner', coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' }, revision: 1, permissions: { manage: true } }
   const mutations: Array<{ method: string; path: string; workspace: string }> = []
   const configuration = (workspaceId = 1): WorkspaceBrandConfiguration => ({
@@ -8559,8 +8526,8 @@ async function openOwnerProgram(page: Page, tab: RegExp) {
   await openDetails(page, tab)
 }
 
-test('Coach Studio program settings preserve draft review before exact brand publication and restoration', async ({ page }) => {
-  const { mutations } = await mockProgramSettings(page)
+test('Coach Studio program settings save the look as a draft with no publish of their own, and History goes back to an earlier look', async ({ page }) => {
+  const { mutations } = await mockProgramSettings(page, { publishedAhead: true })
   await mockProgramTeam(page)
   await openOwnerProgram(page, /Name and look/)
   await page.getByLabel('Program name', { exact: true }).fill('Island coaching community')
@@ -8579,13 +8546,13 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await openDetails(page, 'Fonts and support details')
   await page.getByLabel('Support label', { exact: true }).fill('AskTheMelCoachingTeamForHelpWithYourProgramSeatOrWorkspaceQuestionsAnytimeNow')
   await expect(page.getByRole('button', { name: 'Preview welcome screen' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Publish branding' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: /Publish/ })).toHaveCount(0)
+  await expect(page.getByText(/Brand version history/)).toHaveCount(0)
   await openAdminSection(page, 'Groups')
   await answerConfirm(page, 'dismiss')
   await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Mel Island Money')
   await page.getByRole('button', { name: 'Save brand draft' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Brand draft saved' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Publish branding' })).toBeDisabled()
   await page.getByRole('button', { name: 'Preview welcome screen' }).click()
   await expect(page.getByRole('heading', { name: 'Welcome screen preview' })).toBeVisible()
   await expect(page.locator('.program-preview')).toContainText('Mel Island Money')
@@ -8594,15 +8561,17 @@ test('Coach Studio program settings preserve draft review before exact brand pub
   await expect(page.locator('.program-preview')).toContainText('Create invited account')
   await expect(page.locator('.program-preview')).toContainText('Use the email your invitation was sent to.')
   await assertProgramFits(page)
-  await page.getByRole('button', { name: 'Publish branding' }).click()
+  await expect(page.getByRole('button', { name: /Publish/ })).toHaveCount(0)
+  // Earlier looks, and going back to one, are in Coaching, History: the only place a look is restored.
+  await openAdminSection(page, 'Coaching')
+  await openCoachAdvanced(page)
+  await page.getByRole('tab', { name: /Program look/ }).click()
+  await expect(page.getByText('Version 2', { exact: true })).toBeVisible()
+  await expect(page.getByText('Current', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Go back to this look' }).click()
   await answerConfirm(page, 'accept', 'Participants keep the appearance saved for their group')
-  await expect(page.getByRole('status').filter({ hasText: 'Brand version 2 published' })).toBeVisible()
-  await page.getByText('Brand version history (2)', { exact: true }).click()
-  await page.getByRole('button', { name: 'Restore as new version' }).click()
-  await answerConfirm(page, 'accept', 'Restore brand version 1?')
-  await expect(page.getByRole('status').filter({ hasText: 'Brand version 1 restored as version 3' })).toBeVisible()
-  await expect(page.getByLabel('App name', { exact: true })).toHaveValue('Household CFO')
-  expect(mutations.map((mutation) => mutation.path)).toEqual(['/api/v1/admin/coach_workspaces/1', '/api/v1/admin/brand', '/api/v1/admin/brand/preview', '/api/v1/admin/brand/publish', '/api/v1/admin/brand/versions/12/rollback'])
+  await expect(page.getByRole('status').filter({ hasText: 'Version 1 is back, saved as version 3' })).toBeVisible()
+  expect(mutations.map((mutation) => mutation.path)).toEqual(['/api/v1/admin/coach_workspaces/1', '/api/v1/admin/brand', '/api/v1/admin/brand/preview', '/api/v1/admin/brand/versions/12/rollback'])
   await assertProgramFits(page)
 })
 
@@ -13337,3 +13306,409 @@ test('Admin UI moves old #Coach Studio and #Admin links to their sections', asyn
   await page.goto('/?pilot_e2e_role=admin#Admin')
   await expect(page).toHaveURL(/\/admin\/people/)
 })
+
+
+// ---- Admin side: the behaviour the console reworking must keep (tools, program picker, Today, People, Support) ----
+const coachProgramUrl = (path: string, extra = '') => `${path}?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true${extra}`
+const programPicker = (page: Page) => page.getByRole('combobox', { name: 'Program' })
+async function openGroupTools(page: Page) {
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await page.getByRole('button', { name: 'Open group tools', exact: true }).click()
+}
+
+test('Admin UI group tools go back to an earlier version, after asking, and say what happened', async ({ page }) => {
+  const oldVersion = { id: 100, number: 1, digest: 'old', published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Owner' } }
+  const currentVersion = { ...oldVersion, id: 101, number: 2, digest: 'current' }
+  const configuration = {
+    cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+    draft: { schema_version: 1, optional_modules: { cfo_filter: true, optionality: true } },
+    draft_revision: 1, preview_required: true, preview: null, published_version: currentVersion, versions: [currentVersion, oldVersion],
+    permissions: { edit: true, review: true, publish: true, rollback: true },
+  }
+  const writes: Array<{ path: string; body: unknown }> = []
+  await page.route('**/api/v1/admin/cohorts/41/experience_configuration', route => route.fulfill({ json: { experience_configuration: configuration } }))
+  await page.route('**/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback', route => {
+    writes.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() })
+    const restored = { ...oldVersion, id: 102, number: 3 }
+    configuration.published_version = restored; configuration.versions = [restored, ...configuration.versions]
+    return route.fulfill({ json: { experience_configuration: configuration, published_version: restored } })
+  })
+  await page.goto('/admin/groups?pilot_e2e_role=admin')
+  await page.getByRole('button', { name: pilotCohort.name }).click()
+  await page.getByRole('button', { name: 'Tools people can use' }).click()
+  await page.getByText('Earlier versions (2)', { exact: true }).click()
+  await expect(page.getByText('Current', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Go back to this version' }).click()
+  await answerConfirm(page, 'dismiss', 'Go back to version 1?', 'keep their current tools')
+  expect(writes).toEqual([])
+  await page.getByRole('button', { name: 'Go back to this version' }).click()
+  await answerConfirm(page, 'accept', 'It is saved as a new version and nothing is deleted.')
+  await expect(page.getByRole('status')).toContainText('Version 1 is back, saved as version 3.')
+  expect(writes).toEqual([{ path: '/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback', body: { experience_configuration: { draft_revision: 1, expected_published_version_id: 101 } } }])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Admin UI an editor reaches group tools under Coaching and saves a draft, and has no Groups section', async ({ page }) => {
+  const saves: string[] = []
+  page.on('request', request => { if (request.method() === 'PATCH' && request.url().includes('/experience_configuration')) saves.push(new URL(request.url()).pathname) })
+  await page.goto(coachProgramUrl('/admin/coaching', '&pilot_e2e_workspace_role=editor'))
+  await expect(page.locator('.admin-sidebar, .admin-section-menu').first()).toBeVisible()
+  await page.goto(coachProgramUrl('/admin/groups', '&pilot_e2e_workspace_role=editor'))
+  await expect(page.getByRole('heading', { name: 'That section isn’t part of your role' })).toBeVisible()
+  await page.getByRole('link', { name: /^Go to Today/ }).click()
+  await page.goto(coachProgramUrl('/admin/coaching', '&pilot_e2e_workspace_role=editor'))
+  await page.getByRole('button', { name: 'Open group tools', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Group tools' })).toBeVisible()
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Tools saved. Review them in Go live.')
+  expect(saves).toEqual(['/api/v1/admin/cohorts/41/experience_configuration'])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Admin UI group tools show loading before an empty state', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'loading-state regression')
+  let release: (() => void) | undefined
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', async route => {
+    await gate
+    return route.fulfill({ json: { cohorts: [{ id: 41, name: 'Household CFO pilot', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null }] } })
+  })
+  await openGroupTools(page)
+  await expect(page.getByRole('status').filter({ hasText: 'Opening the tools…' })).toBeVisible()
+  await expect(page.getByText(/no groups for you to set tools for yet/)).toHaveCount(0)
+  release?.()
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+})
+
+test('Admin UI group tools never spin forever: a failed read says so and retries', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'failed-load regression')
+  let failing = true
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => failing
+    ? route.fulfill({ status: 503, json: { error: 'Temporarily unavailable.' } })
+    : route.fulfill({ json: { cohorts: [{ id: 41, name: 'Household CFO pilot', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null }] } }))
+  await openGroupTools(page)
+  await expect(page.getByRole('alert').filter({ hasText: 'The tools couldn’t be opened.' })).toBeVisible()
+  await expect(page.getByRole('status').filter({ hasText: 'Opening the tools…' })).toHaveCount(0)
+  failing = false
+  await page.getByRole('button', { name: 'Try again' }).last().click()
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+})
+
+test('Admin UI group tools ignore a delayed response after switching groups, and clear the group after a failed load', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'request ordering regression')
+  let releaseSecond: (() => void) | undefined
+  const secondGate = new Promise<void>(resolve => { releaseSecond = resolve })
+  const savePaths: string[] = []
+  const cohort = (id: number, name: string) => ({ id, name, status: 'active', assignable: true, blocked_reason: null, persona_assignment: null })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', route => route.fulfill({ json: { cohorts: [cohort(41, 'Household CFO pilot'), cohort(43, 'Second active group'), cohort(44, 'Unavailable group')] } }))
+  await page.route('http://api.test/api/v1/admin/cohorts/43/experience_configuration', async route => {
+    await secondGate
+    return route.fulfill({ json: { experience_configuration: {
+      cohort: { id: 43, name: 'Second active group', status: 'active', participant_count: 4 },
+      draft: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: false } },
+      draft_revision: 1, preview_required: true, preview: null, published_version: null, versions: [],
+      permissions: { edit: true, review: true, publish: true, rollback: true },
+    } } })
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/44/experience_configuration', route => route.fulfill({ status: 503, json: { error: 'Participant tools are temporarily unavailable.' } }))
+  page.on('request', request => { if (request.method() === 'PATCH' && request.url().includes('/experience_configuration')) savePaths.push(new URL(request.url()).pathname) })
+  await openGroupTools(page)
+  const picker = page.getByRole('combobox', { name: 'Group' })
+  await expect(picker).toHaveValue('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+  await picker.selectOption('43')
+  await expect(page.getByText('Loading participant tools…')).toBeVisible()
+  await expect(page.getByLabel('Include CFO Filter')).toHaveCount(0)
+  await picker.selectOption('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+  releaseSecond?.()
+  await page.waitForTimeout(100)
+  await expect(picker).toHaveValue('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Tools saved')
+  expect(savePaths).toEqual(['/api/v1/admin/cohorts/41/experience_configuration'])
+  await picker.selectOption('44')
+  await expect(page.getByRole('alert')).toContainText('temporarily unavailable')
+  await expect(picker).toHaveValue('44')
+  await expect(page.getByLabel('Include CFO Filter')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0)
+  await picker.selectOption('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+})
+
+test('Admin UI locks the program picker through a delayed group tools save', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>(resolve => { releaseSave = resolve })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/experience_configuration', async route => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    await saveGate
+    return route.fallback()
+  })
+  await page.goto(coachProgramUrl('/admin/groups'))
+  await page.getByRole('button', { name: pilotCohort.name }).click()
+  await page.getByRole('button', { name: 'Tools people can use' }).click()
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(programPicker(page)).toBeDisabled()
+  releaseSave()
+  await expect(page.getByRole('status')).toContainText('Tools saved')
+  await expect(programPicker(page)).toBeEnabled()
+})
+
+test('Admin UI locks the program picker through a delayed Coaching Library save', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>(resolve => { releaseCreate = resolve })
+  await page.route('http://api.test/api/v1/admin/content_items', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await createGate
+    return route.fulfill({ status: 201, json: { item: {
+      id: 990, title: 'Delayed library draft', scope: 'coach', kind: 'guidance', always_on: false,
+      draft_content: 'Keep the program fixed until this save returns.', draft_revision: 1, draft_digest: 'delayed-item',
+      archived: false, editable: true, approvable: false, current_approved_version: null, versions: [],
+      has_unapproved_changes: true, updated_at: '2026-10-02T00:00:00Z',
+    } } })
+  })
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await openCoachAdvanced(page)
+  await page.getByRole('tab', { name: /Teaching library/ }).click()
+  await showLibraryArea(page, 'Private sources')
+  await page.getByRole('navigation', { name: 'Coaching library workflow' }).getByRole('button', { name: 'Teaching items' }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) })
+  await itemPanel.getByLabel('Title').fill('Delayed library draft')
+  await itemPanel.getByLabel('Draft wording').fill('Keep the program fixed until this save returns.')
+  await itemPanel.getByRole('button', { name: 'Create draft' }).click()
+  await expect(programPicker(page)).toBeDisabled()
+  releaseCreate()
+  await expect(programPicker(page)).toBeEnabled()
+})
+
+test('Admin UI locks the program picker across a private-source presign and completion', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releasePresign!: () => void
+  let releaseComplete!: () => void
+  const presignGate = new Promise<void>(resolve => { releasePresign = resolve })
+  const completeGate = new Promise<void>(resolve => { releaseComplete = resolve })
+  await page.route('http://api.test/api/v1/admin/content_sources/presign', async route => {
+    await presignGate
+    return route.fulfill({ json: { upload_url: 'http://storage.test/delayed-source', upload_headers: {}, upload_token: 'delayed-token' } })
+  })
+  await page.route('http://storage.test/delayed-source', route => route.fulfill({ status: 200, body: '' }))
+  await page.route('http://api.test/api/v1/admin/content_sources/complete', async route => {
+    await completeGate
+    return route.fulfill({ status: 201, json: { source: {
+      id: 991, scope: 'coach', filename: 'delayed-source.txt', content_type: 'text/plain', byte_size: 22,
+      checksum_sha256: 'd'.repeat(64), status: 'queued', generation: 0, source_available: true,
+      error: null, error_code: null, source_delete_error_code: null, processing_metadata: {}, processed_at: null,
+      source_deleted_at: null, created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+      current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
+    } } })
+  })
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await openCoachAdvanced(page)
+  await page.getByRole('tab', { name: /Teaching library/ }).click()
+  await showLibraryArea(page, 'Private sources')
+  await page.getByLabel('Private source file').setInputFiles({ name: 'delayed-source.txt', mimeType: 'text/plain', buffer: Buffer.from('Private coaching text.') })
+  await page.getByRole('button', { name: 'Upload and read' }).click()
+  await expect(programPicker(page)).toBeDisabled()
+  const completion = page.waitForRequest('http://api.test/api/v1/admin/content_sources/complete')
+  releasePresign()
+  await completion
+  await expect(programPicker(page)).toBeDisabled()
+  releaseComplete()
+  await expect(page.getByRole('status').filter({ hasText: 'Private upload complete' })).toBeVisible()
+  await expect(programPicker(page)).toBeEnabled()
+})
+
+function dailyPerson(id: number, name: string, over: Record<string, unknown> = {}) {
+  return { participant: { id, name }, enrollment_id: null, membership_status: 'joined', participation_status: 'not_enrolled', setup_status: 'complete', check_in: null, help_requests: [], more_help_requests: false, setup_help: [], shared_items: [], needs_help: false, ...over }
+}
+async function mockDaily(page: Page, people: ReturnType<typeof dailyPerson>[], pageSize = 20) {
+  const requests: string[] = []
+  await page.route(/http:\/\/api\.test\/api\/v1\/challenge_cohorts\/41\/participants\?.*/, route => {
+    const query = new URL(route.request().url()).searchParams
+    requests.push(`${query.get('filter')}:${query.get('search')}:${query.get('offset')}`)
+    const filter = query.get('filter') ?? 'all'; const offset = Number(query.get('offset') ?? 0); const search = (query.get('search') ?? '').toLowerCase()
+    const matching = people.filter(person => person.participant.name.toLowerCase().includes(search) && (filter !== 'needs_help' || person.needs_help))
+    const records = matching.slice(offset, offset + pageSize)
+    return route.fulfill({ json: {
+      actor_scope: { user_id: 902, coach_workspace_id: 1 }, cohort_id: 41, program_type: 'household', can_invite: true,
+      counts: { all: people.length, needs_help: people.filter(person => person.needs_help).length, checked_in: 0, not_checked_in: 0, invited: 0, joined: people.length, setup_done: people.length },
+      records, next_offset: offset + pageSize < matching.length ? offset + pageSize : null,
+    } })
+  })
+  return requests
+}
+
+test('Admin UI Today lists who needs you, finds anyone, pages without dropping people, and returns to the person it opened', async ({ page }, testInfo) => {
+  const needy = dailyPerson(5, 'Elena Needs', { needs_help: true, setup_help: [{ id: 9, reason: 'upload_problem', status: 'requested' }] })
+  const others = Array.from({ length: 24 }, (_, index) => dailyPerson(100 + index, `Person ${String(index).padStart(2, '0')}`))
+  const requests = await mockDaily(page, [needy, ...others])
+  await page.goto('/admin/today?pilot_e2e_role=admin')
+  await expect(page.getByText('Elena Needs', { exact: true })).toBeVisible()
+  await expect(page.getByText('Asked for help with an upload')).toBeVisible()
+  const chips = page.getByRole('group', { name: 'Show people who' })
+  await expect(chips.getByRole('button', { name: /1\s*Need you/ })).toHaveAttribute('aria-pressed', 'true')
+  await chips.getByRole('button', { name: /25\s*Everyone/ }).click()
+  await expect(page.getByRole('button', { name: /^View / })).toHaveCount(20)
+  await page.getByRole('button', { name: /Show more \(5 left\)/ }).click()
+  await expect(page.getByRole('button', { name: /^View / })).toHaveCount(25)
+  await expect(page.getByRole('button', { name: /Show more/ })).toHaveCount(0)
+  await page.getByLabel('Find someone').fill('person 07')
+  await expect(page.getByRole('button', { name: /^View / })).toHaveCount(1)
+  expect(requests).toContain('all:person 07:0')
+  await page.getByLabel('Find someone').fill('')
+  await chips.getByRole('button', { name: /1\s*Need you/ }).click()
+  const open = page.getByRole('button', { name: 'View help for Elena Needs' })
+  await expect(page.getByRole('button', { name: /^View / })).toHaveCount(1)
+  await expect(open).toBeVisible()
+  await open.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('Asked for help with an upload')
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toHaveCount(0)
+  // Safari does not focus a button when it is tapped, so there is nothing for the dialog to return to there.
+  if (testInfo.project.name !== 'mobile-webkit') await expect(open).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('Admin UI Today works for an editor: only what the role may read, no permission banner, no owner-only buttons', async ({ page }) => {
+  const forbidden: string[] = []
+  page.on('request', request => { const path = new URL(request.url()).pathname; if (path === '/api/v1/admin/cohorts' || path === '/api/v1/admin/users') forbidden.push(path) })
+  await mockDaily(page, [dailyPerson(5, 'Elena Needs', { needs_help: true, setup_help: [{ id: 9, reason: 'upload_problem', status: 'requested' }] })])
+  await page.goto(coachProgramUrl('/admin/today', '&pilot_e2e_workspace_role=editor'))
+  await expect(page.getByText('Elena Needs', { exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByText(/access required/i)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Invite people' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create a group' })).toHaveCount(0)
+  expect(forbidden).toEqual([])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('Admin UI People adds a person without mistaking a failed email for delivery, resends, and cancels the invitation', async ({ page }) => {
+  let groups = [structuredClone(pilotCohort)]
+  let users = [{ ...structuredClone(pilotAdminUser), can_resend_invitation: false }]
+  const writes: string[] = []
+  await page.route('http://api.test/api/v1/admin/cohorts', async route => {
+    expect(route.request().headers()['x-coach-workspace-id']).toBe('1')
+    if (route.request().method() === 'POST') {
+      const input = route.request().postDataJSON().cohort
+      expect(input).toEqual({ name: 'Island weekend group', status: 'enrolling' })
+      const group = { ...structuredClone(pilotCohort), ...input, id: 42, participant_count: 0, updated_at: '2026-10-04T00:00:00.000001Z' }
+      groups = [...groups, group]; writes.push('create group')
+      return route.fulfill({ status: 201, json: { cohort: group } })
+    }
+    return route.fulfill({ json: { cohorts: groups } })
+  })
+  await page.route('http://api.test/api/v1/admin/cohorts/42', async route => {
+    const input = route.request().postDataJSON().cohort
+    const group = groups.find(item => item.id === 42)!
+    expect(input.expected_updated_at).toBe(group.updated_at)
+    Object.assign(group, input, { updated_at: '2026-10-04T00:00:00.000002Z' }); writes.push('rename group')
+    return route.fulfill({ json: { cohort: group } })
+  })
+  await page.route('http://api.test/api/v1/admin/users', route => {
+    const request = route.request()
+    expect(request.headers()['x-coach-workspace-id']).toBe('1')
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON().user
+      expect(input).toEqual({ email: 'new-participant@example.test', role: 'participant', cohort_id: '42', send_invitation_email: true })
+      const participant = { ...structuredClone(pilotAdminUser), id: 903, email: input.email, full_name: 'New Participant', invitation_status: 'pending', can_resend_invitation: true, cohorts: [{ id: 77, role: 'participant', cohort: { id: 42, name: 'Island weekend group revised', status: 'enrolling' } }] }
+      users = [...users, participant]; writes.push('invite')
+      return route.fulfill({ status: 201, json: { user: participant, invitation_sent: false, invitation_status: 'failed', invitation_error: 'Delivery unavailable.' } })
+    }
+    return route.fulfill({ json: { users } })
+  })
+  await page.route('http://api.test/api/v1/admin/users/903/resend_invitation', route => {
+    writes.push('resend')
+    return route.fulfill({ json: { user: users.find(item => item.id === 903), invitation_sent: true, invitation_status: 'sent', invitation_error: null } })
+  })
+  await page.route('http://api.test/api/v1/admin/users/903/cancel_invitation', route => {
+    expect(route.request().method()).toBe('POST')
+    expect(route.request().headers()['x-coach-workspace-id']).toBe('1')
+    writes.push('cancel')
+    users = users.filter(item => item.id !== 903)
+    return route.fulfill({ json: { cancelled: true, user_id: 903 } })
+  })
+  await page.addInitScript(() => window.localStorage.setItem('household-cfo:coach-workspace-id', '1'))
+  await page.goto(coachProgramUrl('/admin/groups'))
+  await page.getByRole('button', { name: 'New group', exact: true }).click()
+  await page.getByLabel('Group name', { exact: true }).fill('Island weekend group')
+  await page.getByRole('button', { name: 'Create group', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Island weekend group' })).toBeVisible()
+  await page.getByLabel('Group name', { exact: true }).fill('Island weekend group revised')
+  await page.getByRole('button', { name: 'Save group', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Saved.' })).toBeVisible()
+
+  await openAdminSection(page, 'People')
+  await page.getByRole('button', { name: 'Invite people', exact: true }).click()
+  const invite = page.getByRole('dialog')
+  await invite.getByLabel(/Email addresses/).fill('new-participant@example.test')
+  await invite.getByLabel('Group').selectOption('42')
+  await invite.getByRole('button', { name: 'Invite', exact: true }).click()
+  await answerConfirm(page, 'accept', 'Invite 1 person to Island weekend group revised?')
+  await expect(invite.getByText('1 person invited.')).toBeVisible()
+  await expect(invite.getByText(/The email didn’t go out for new-participant@example.test/)).toBeVisible()
+  await invite.getByRole('button', { name: 'Done' }).click()
+  const row = page.locator('.admin-table tbody tr, .admin-list-row').filter({ hasText: 'New Participant' }).first()
+  await expect(row).toContainText('Invited')
+  await expect(row).not.toContainText('Joined')
+  await row.getByRole('button').first().click().catch(async () => row.click())
+  const person = page.getByRole('dialog')
+  await person.getByRole('button', { name: 'Send the invitation again' }).click()
+  await expect(person.getByText('Invitation sent again.')).toBeVisible()
+  await expect(person.getByRole('button', { name: 'Remove from group' })).toHaveCount(0)
+  await person.getByRole('button', { name: 'Cancel the invitation' }).click()
+  await answerConfirm(page, 'accept', 'Cancel the invitation for New Participant?')
+  await expect(page.getByRole('status').filter({ hasText: 'The invitation for New Participant was cancelled.' })).toBeVisible()
+  await expect(page.getByText('New Participant', { exact: true })).toHaveCount(0)
+  expect(writes).toEqual(['create group', 'rename group', 'invite', 'resend', 'cancel'])
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+for (const role of ['coach', 'admin'] as const) {
+  test(`Admin UI ${role} setup support respects preparation permissions and never applies participant records`, async ({ page }) => {
+    let record = { ...setupSupportBrowserRecord(), cohort_id: role === 'admin' ? null : 41, program_name: role === 'admin' ? null : 'BOG', permissions: { triage: true, prepare: true, decline: true } }
+    const supportActions: Array<{ action: string; body: Record<string, unknown> }> = []
+    const restartWrites: string[] = []
+    page.on('request', request => { if (request.method() === 'POST' && request.url().includes('/setup_help/restart/')) restartWrites.push(request.url()) })
+    await page.route('http://api.test/api/v1/setup_support_requests**', route => {
+      if (route.request().method() === 'GET') return route.fulfill({ json: { records: [record], next_cursor: null } })
+      const action = new URL(route.request().url()).pathname.split('/').at(-1)!
+      const body = route.request().postDataJSON()
+      supportActions.push({ action, body })
+      expect(body).toEqual({ expected_lock_version: record.lock_version })
+      record = { ...record, status: action === 'prepare' ? 'ready' : 'in_review', lock_version: record.lock_version + 1 } as typeof record
+      return route.fulfill({ json: { request: record } })
+    })
+    await page.goto(role === 'coach' ? coachProgramUrl('/admin/support') : '/admin/support?pilot_e2e_role=admin')
+    await page.getByRole('button', { name: /Test Participant/ }).first().click()
+    const inbox = page.getByRole('dialog').getByRole('article', { name: 'Setup help requests', exact: true })
+    const request = inbox.getByRole('region', { name: 'Request #1701', exact: true })
+    await expect(request).toContainText('I entered practice numbers')
+    await expect(inbox).toContainText('Financial details, documents and private conversations stay private.')
+    await expect(inbox.getByRole('button', { name: /Apply|Start setup again|Reset my test workspace/ })).toHaveCount(0)
+    if (role === 'coach') {
+      // Even a stale server permission must not turn a coach into an administrator.
+      await expect(request.getByRole('button', { name: 'Prepare participant review', exact: true })).toHaveCount(0)
+      await request.getByRole('button', { name: 'Mark in review', exact: true }).click()
+      await expect(inbox.getByRole('status')).toContainText('Request #1701: In review.')
+      expect(supportActions).toEqual([{ action: 'triage', body: { expected_lock_version: 2 } }])
+    } else {
+      await request.getByRole('button', { name: 'Prepare participant review', exact: true }).click()
+      expect(supportActions).toEqual([])
+      const confirmation = request.getByRole('group', { name: 'Confirm review preparation for request #1701', exact: true })
+      await expect(confirmation).toContainText('The participant must review the exact scope and confirm')
+      await confirmation.getByRole('button', { name: 'Confirm preparation', exact: true }).click()
+      await expect(inbox.getByRole('status')).toContainText('No financial records changed.')
+      expect(supportActions).toEqual([{ action: 'prepare', body: { expected_lock_version: 2 } }])
+    }
+    expect(restartWrites).toEqual([])
+  })
+}

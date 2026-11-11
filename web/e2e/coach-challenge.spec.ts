@@ -37,9 +37,11 @@ test('BOG UI fixed coarse report review and private export choices are explicit'
 
 test('BOG UI household roster identifies setup help and every control is a comfortable target', async ({ page }, info) => {
   await page.goto('/e2e/fixtures/coach-challenge.html')
+  await page.getByLabel('Group').selectOption({ index: 1 })
   await expect(page.getByText('Elena', { exact: true })).toBeVisible()
   await expect(page.getByText('Asked for help with an upload')).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Household group' })).toHaveCount(0)
+  // Reports are only for savings groups: the household group has none.
+  await expect(page.locator('.admin-report-group h3', { hasText: 'Household group' })).toHaveCount(0)
   await page.getByRole('button', { name: /Elena/ }).click()
   await expect(page.getByRole('dialog')).toContainText('Asked for help with an upload')
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()

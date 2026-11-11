@@ -9,8 +9,6 @@ import { CohortExperienceStudio } from './CohortExperienceStudio'
 const apiMocks = vi.hoisted(() => ({
   fetchCohortExperienceConfiguration: vi.fn(),
   updateCohortExperienceConfiguration: vi.fn(),
-  previewCohortExperienceConfiguration: vi.fn(),
-  publishCohortExperienceConfiguration: vi.fn(),
   rollbackCohortExperienceConfiguration: vi.fn(),
 }))
 vi.mock('../api', async (importOriginal) => ({ ...await importOriginal<typeof import('../api')>(), ...apiMocks }))
@@ -73,60 +71,6 @@ describe('CohortExperienceStudio experience choice', () => {
     await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, { schema_version: 1, optional_modules: { cfo_filter: false, optionality: false } }))
   })
 
-  it('the exact preview uses the savings navigation and names the experience', async () => {
-    const user = userEvent.setup()
-    const savings = configuration({ schema_version: 3, experience_mode: 'savings_challenge', optional_modules: { cfo_filter: false, optionality: false } })
-    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(savings)
-    apiMocks.previewCohortExperienceConfiguration.mockResolvedValue({
-      experience_configuration: { ...savings, preview: { digest: 'd', draft_revision: 1, generated_at: '2026-10-17' }, preview_required: false },
-      preview: { digest: 'd', draft_revision: 1, generated_at: '2026-10-17', modules: [
-        { id: 'home', label: 'Home', core: true, enabled: true }, { id: 'review', label: 'Review', core: true, enabled: true },
-        { id: 'ask_mia', label: 'Ask Mia', core: true, enabled: true }, { id: 'budget', label: 'Budget', core: true, enabled: true },
-        { id: 'profile', label: 'My Profile', core: true, enabled: true }, { id: 'wealth', label: 'Wealth', core: true, enabled: true },
-        { id: 'cfo_filter', label: 'CFO Filter', core: false, enabled: false },
-      ] },
-    })
-    renderStudio()
-    await user.click(await screen.findByRole('button', { name: 'Preview navigation' }))
-    const phone = await screen.findByLabelText('Phone preview')
-    expect(within(phone).getByText('Savings')).toBeTruthy()
-    expect(within(phone).getByText('Statements')).toBeTruthy()
-    expect(screen.getByText('90-day Savings Challenge', { selector: 'p.experience-preview-mode' })).toBeTruthy()
-  })
-  it('requires a fresh local preview even when the server previously previewed the saved choices', async () => {
-    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, preview_required: false, preview: { digest: 'previous', draft_revision: 1, generated_at: '2026-10-22' } })
-    renderStudio()
-    await screen.findByRole('button', { name: 'Publish tool version' })
-    expect(screen.getByText('Preview required')).toBeTruthy()
-    expect(screen.getByText('Preview navigation to enable publishing.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Publish tool version' })).toHaveProperty('disabled', true)
-    expect(screen.getByRole('switch', { name: 'Include Budget' })).toBeTruthy()
-    expect(screen.getByText('Tool choices saved. Change a choice to save again.')).toBeTruthy()
-  })
-
-  it('explains role restrictions before asking a viewer to preview or publish', async () => {
-    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, permissions: { edit: false, review: false, publish: false, rollback: false } })
-    renderStudio()
-    await screen.findByRole('button', { name: 'Publish tool version' })
-    expect(screen.getByText('Your role cannot save changes to these tools.')).toBeTruthy()
-    expect(screen.getByText('A program editor, reviewer, or owner must preview these tools.')).toBeTruthy()
-    expect(screen.getByText(/This group or your program role does not allow publishing/)).toBeTruthy()
-  })
-
-  it('explains closed-group restrictions without blaming the owner’s role', async () => {
-    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, cohort: { ...household.cohort, status: 'completed' }, permissions: { edit: false, review: false, publish: false, rollback: false } })
-    renderStudio()
-    await screen.findByRole('button', { name: 'Publish tool version' })
-    expect(screen.getByText('Read-only group')).toBeTruthy()
-    expect(screen.queryByText('Preview required')).toBeNull()
-    expect(screen.getByText('Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.')).toBeTruthy()
-    for (const name of ['Save draft', 'Preview navigation', 'Publish tool version']) {
-      expect(screen.getByRole('button', { name })).toHaveProperty('disabled', true)
-      expect(screen.getByRole('button', { name }).getAttribute('aria-describedby')).toBe('experience-closed-help')
-    }
-    expect(screen.queryByText('Your role cannot save changes to these tools.')).toBeNull()
-  })
-
   it('lets a coach hide every non-core module while keeping Statements independent', async () => {
     const user = userEvent.setup()
     renderStudio()
@@ -170,26 +114,6 @@ describe('CohortExperienceStudio experience choice', () => {
     await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
   })
 
-  it('previews the saved custom order without promoting default tabs', async () => {
-    const user = userEvent.setup()
-    const custom = configuration({ schema_version: 4, experience_mode: 'household_cfo', module_order: ['statements', 'ask_mia', 'home'], optional_modules: {
-      review: false, budget: false, profile: false, statements: true, wealth: false, cfo_filter: false, optionality: false,
-    } })
-    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(custom)
-    apiMocks.previewCohortExperienceConfiguration.mockResolvedValue({
-      experience_configuration: { ...custom, preview: { digest: 'd', draft_revision: 1, generated_at: '2026-11-02' } },
-      preview: { digest: 'd', draft_revision: 1, generated_at: '2026-11-02', module_order: custom.draft.module_order, modules: [
-        { id: 'statements', label: 'Statements', core: false, enabled: true },
-        { id: 'ask_mia', label: 'Ask Mia', core: true, enabled: true },
-        { id: 'home', label: 'Home', core: true, enabled: true },
-      ] },
-    })
-    renderStudio()
-    await user.click(await screen.findByRole('button', { name: 'Preview navigation' }))
-    const phone = await screen.findByLabelText('Phone preview')
-    expect(within(phone).getAllByText(/Statements|Ask Mia|Home/, { selector: 'b' }).map(item => item.textContent)).toEqual(['Statements', 'Ask Mia', 'Home'])
-  })
-
   it('restores default navigation order while preserving hidden modules', async () => {
     const user = userEvent.setup()
     const custom = configuration({ schema_version: 4, experience_mode: 'household_cfo', module_order: ['budget', 'review', 'ask_mia', 'home'], optional_modules: {
@@ -208,4 +132,75 @@ describe('CohortExperienceStudio experience choice', () => {
     await waitFor(() => expect(apiMocks.updateCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, expected))
   })
 
+  it('offers no direct publishing: the saved draft goes live in Coaching, Go live', async () => {
+    renderStudio()
+    await screen.findByRole('button', { name: 'Save draft' })
+    expect(screen.queryByRole('button', { name: /Publish|Preview/ })).toBeNull()
+    expect(screen.getByText('Review these saved choices in Go live before your people receive them.')).toBeTruthy()
+  })
+
+  it('says why a viewer cannot change the tools', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, permissions: { edit: false, review: false, publish: false, rollback: false } })
+    renderStudio()
+    await screen.findByRole('button', { name: 'Save draft' })
+    expect(screen.getByText('Your role can see these tools but can’t change them.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Save draft' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('switch', { name: 'Include Budget' })).toHaveProperty('disabled', true)
+  })
+
+  it('says a finished group is read-only without blaming the person’s role', async () => {
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue({ ...household, cohort: { ...household.cohort, status: 'completed' }, permissions: { edit: false, review: false, publish: false, rollback: false } })
+    renderStudio()
+    expect(await screen.findByText('Finished and archived groups are read-only.')).toBeTruthy()
+    expect(screen.queryByText('Your role can see these tools but can’t change them.')).toBeNull()
+  })
+})
+
+describe('CohortExperienceStudio earlier versions', () => {
+  const version = (id: number, number: number) => ({ id, number, digest: `d${id}`, published_at: '2026-10-01T00:00:00Z', published_by: { id: 1, full_name: 'Mrs. Mel' } })
+  const published = (permissions = { edit: true, review: true, publish: true, rollback: true }) => ({ ...household, published_version: version(2, 2), versions: [version(2, 2), version(1, 1)], permissions }) as CohortExperienceConfiguration
+
+  it('goes back to an earlier version after asking, and says what came of it', async () => {
+    const user = userEvent.setup()
+    const confirmAction = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(published())
+    apiMocks.rollbackCohortExperienceConfiguration.mockResolvedValue({ experience_configuration: published(), published_version: version(3, 3) })
+    renderStudio()
+    await user.click(await screen.findByText('Earlier versions (2)'))
+    expect(screen.getByText('Current')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Go back to this version' }))
+    await waitFor(() => expect(apiMocks.rollbackCohortExperienceConfiguration).toHaveBeenCalledWith(5, 1, { draft_revision: 1, expected_published_version_id: 2 }))
+    expect(await screen.findByText('Version 1 is back, saved as version 3.')).toBeTruthy()
+    confirmAction.mockRestore()
+  })
+
+  it('does not go back when the person says not yet', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(published())
+    renderStudio()
+    await user.click(await screen.findByText('Earlier versions (2)'))
+    await user.click(screen.getByRole('button', { name: 'Go back to this version' }))
+    expect(apiMocks.rollbackCohortExperienceConfiguration).not.toHaveBeenCalled()
+  })
+
+  it('tells an editor who can go back, and keeps the button off', async () => {
+    const user = userEvent.setup()
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(published({ edit: true, review: false, publish: false, rollback: false }))
+    renderStudio()
+    await user.click(await screen.findByText('Earlier versions (2)'))
+    expect(screen.getByRole('button', { name: 'Go back to this version' })).toHaveProperty('disabled', true)
+    expect(screen.getByText('A program owner or reviewer can go back to an earlier version.')).toBeTruthy()
+  })
+
+  it('shows a failed restore plainly and leaves the versions as they were', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    apiMocks.fetchCohortExperienceConfiguration.mockResolvedValue(published())
+    apiMocks.rollbackCohortExperienceConfiguration.mockRejectedValue(new Error('This group changed. Reload it first.'))
+    renderStudio()
+    await user.click(await screen.findByText('Earlier versions (2)'))
+    await user.click(screen.getByRole('button', { name: 'Go back to this version' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('This group changed. Reload it first.')
+  })
 })

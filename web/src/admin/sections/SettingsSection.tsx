@@ -20,7 +20,7 @@ function Row({ title, hint, children }: { title: string; hint: string; children:
 export function SettingsSection({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const lifecycle = useCoachWorkspaceMutationLifecycle(activeCoachWorkspaceId)
-  const { groups } = useAdminRoster()
+  const { details: groups } = useAdminRoster(currentUser)
   const [organizationOpen, setOrganizationOpen] = useState(false)
   const platform = activeCoachWorkspaceId === null
   const organizationAccess = currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)
@@ -29,7 +29,7 @@ export function SettingsSection({ currentUser, onDirtyChange }: { currentUser: C
     <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Settings</h2><p>{platform ? 'Choose a program at the top to change its look or team.' : 'How your program looks, and who helps run it.'}</p></div></header>
     <div className="admin-accordion-list">
       {(!platform || currentUser.is_admin) && <Row title={platform ? 'Programs' : 'Name and look'} hint={platform ? 'Start a new program' : 'Program name, coach profile and welcome screen'}>
-        <CoachProgramSettings simple={platform} workspaceId={activeCoachWorkspaceId} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={onDirtyChange} />
+        <CoachProgramSettings workspaceId={activeCoachWorkspaceId} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={onDirtyChange} />
       </Row>}
       {!platform && <Row title="Your team" hint="Who can help run this program"><WorkspaceCollaborators workspaceId={activeCoachWorkspaceId} mutationLifecycle={lifecycle} onDirtyChange={onDirtyChange} /></Row>}
       {currentUser.is_admin && <Row title="Who can do what" hint="What admins, coaches and participants can do">
@@ -41,7 +41,7 @@ export function SettingsSection({ currentUser, onDirtyChange }: { currentUser: C
       </Row>}
       {currentUser.is_admin && <Row title="Bank connections" hint="Which connections are working"><BankHealth /></Row>}
       {organizationAccess && <Row title="Organization access" hint="Sponsor and organization sign-in"><Button variant="secondary" onClick={() => setOrganizationOpen(true)}>Open organization access</Button></Row>}
-      {currentUser.is_admin && <Row title="Activity" hint="What has been changed, and by whom"><Activity groups={groups} /></Row>}
+      {currentUser.is_admin && <Row title="Activity" hint="When challenges were opened or paused"><Activity groups={groups} /></Row>}
     </div>
     {organizationOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setOrganizationOpen(false)} />}
   </section>

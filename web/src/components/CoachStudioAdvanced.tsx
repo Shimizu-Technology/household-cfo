@@ -44,6 +44,7 @@ import { Button } from './Button'
 import { ReleaseAndRolloutStudio } from './ReleaseAndRolloutStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import { PersonaSetupChat } from './PersonaSetupChat'
+import { BrandHistory } from './CoachProgramSettings'
 import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
 import { savedPreviewDigestForCurrentDraft } from './personaReleaseState'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
@@ -64,7 +65,7 @@ type EditorMode = 'setup' | 'guided' | 'advanced'
 type AssistantStage = 'draft' | 'sources' | 'release' | 'history' | 'assign'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
-type StudioSection = 'assistants' | 'library' | 'cohort_releases'
+type StudioSection = 'assistants' | 'library' | 'cohort_releases' | 'brand'
 
 export type CoachFormProposal = { description: string; draft_config: PersonaConfiguration; personaId: number; workspaceId: number; draftRevision: number }
 
@@ -716,11 +717,11 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
   return (
     <section className="screen-grid coach-studio-screen" aria-busy={cohortsLoading || ((studioSection === 'assistants' || studioSection === 'library') && (loading || detailLoading)) || pendingAction !== null || workspaceMutations.pending}>
       <header className="screen-heading coach-studio-heading">
-        <div><h2 data-page-heading tabIndex={-1}>History</h2><p>Earlier versions of your coach’s voice, the teaching library and group updates.</p></div>
+        <div><h2 data-page-heading tabIndex={-1}>History</h2><p>Earlier versions of your coach’s voice, the teaching library, group updates and your program’s look.</p></div>
       </header>
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="History">
-        {([['assistants', 'Voice versions', 'assistants'], ['library', 'Teaching library', 'library'], ['cohort_releases', 'Group updates', 'cohort-releases']] as const).map(([section, label, slug]) => (
+        {([['assistants', 'Voice versions', 'assistants'], ['library', 'Teaching library', 'library'], ['cohort_releases', 'Group updates', 'cohort-releases'], ['brand', 'Program look', 'brand']] as const).map(([section, label, slug]) => (
           <button type="button" role="tab" key={section} id={`coach-studio-tab-${slug}`} aria-controls={`coach-studio-panel-${slug}`} aria-selected={studioSection === section} tabIndex={studioSection === section ? 0 : -1} data-studio-section={section} disabled={pendingAction !== null || workspaceMutations.pending} onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection(section)}>
             <strong>{label}</strong>
           </button>
@@ -743,6 +744,10 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
               setNotice('Reviewed phrase added to the selected assistant draft. Run a fresh preview before publishing.')
             }}
           />
+        </div>
+      ) : studioSection === 'brand' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-brand" aria-labelledby="coach-studio-tab-brand" tabIndex={0}>
+          <BrandHistory key={activeWorkspaceId ?? 'legacy'} workspaceId={activeWorkspaceId} mutationLifecycle={workspaceMutations} />
         </div>
       ) : studioSection === 'cohort_releases' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-cohort-releases" aria-labelledby="coach-studio-tab-cohort-releases" tabIndex={0}>

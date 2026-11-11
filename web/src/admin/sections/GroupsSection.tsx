@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { createAdminCohort, fetchAdminPersonaAssignableCohorts, updateAdminCohort } from '../../api'
 import type { AdminCohort, AdminCohortStatus, AdminPersonaAssignableCohort, CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
-import { CohortExperienceStudio } from '../../components/CohortExperienceStudio'
 import { SavingsChallengeAccessPanel } from '../../components/SavingsChallengeAccessPanel'
-import { useCoachWorkspaceMutationLifecycle } from '../../components/coachWorkspaceMutationLifecycle'
+import { useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
 import { useAuthContext } from '../../contexts/authContextValue'
 import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
+import { GroupTools } from './GroupTools'
 import { groupLine, groupStatusLabel, shortDay } from '../adminWords'
 import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
@@ -20,13 +20,15 @@ const challengeWords = (group: AdminCohort) => !group.savings_challenge?.enabled
 
 export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId } = useAuthContext()
-  const { groups, people, loading, error, reload } = useAdminRoster()
+  const { details: groups, people, loading, error, reload } = useAdminRoster(currentUser)
   const wide = useMatchMedia('(min-width: 840px)')
   const [openId, setOpenId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const open = groups.find(group => group.id === openId) ?? null
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
-  const visibleGroups = useMemo(() => groups.filter(group => group.status !== 'archived'), [groups])
+  const archivedCount = useMemo(() => groups.filter(group => group.status === 'archived').length, [groups])
+  const visibleGroups = useMemo(() => groups.filter(group => showArchived || group.status !== 'archived'), [groups, showArchived])
 
   if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} onDirtyChange={onDirtyChange} />
   return <section className="admin-section" aria-busy={loading}>
@@ -35,6 +37,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
       <Button onClick={() => setCreating(true)} disabled={loading}>New group</Button>
     </header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
+    {archivedCount > 0 && <label className="admin-inline-check"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} /><span>Show archived groups ({archivedCount})</span></label>}
     {loading ? <p role="status" className="admin-muted">Opening your groups…</p>
       : visibleGroups.length === 0 ? <div className="admin-empty"><p>No groups yet. A group is a set of people you coach together.</p><Button onClick={() => setCreating(true)}>Create your first group</Button></div>
       : wide ? <div className="admin-table-wrap"><table className="admin-table">
@@ -77,16 +80,29 @@ function NewGroup({ platformMode, onClose, onCreated }: { platformMode: boolean;
   </AdminDialog>
 }
 
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+const pick = (n: number | null) => n ?? 0
+
+// The last seven days in a sentence a coach can read: how many people, how Mia is doing, and anything that failed.
+function weekInWords(summary: AdminCohort['operational_summary']) {
+  const failures = pick(summary.mia_failures)
+  const uploadFailures = pick(summary.upload_failures)
+  const parts = [
+    `${count(pick(summary.participants_active), 'person', 'people')} active`,
+    `${count(pick(summary.mia_requests), 'question', 'questions')} to Mia${failures > 0 ? ` (${failures} didn’t get an answer)` : ''}`,
+    `${count(pick(summary.uploads), 'upload', 'uploads')}${uploadFailures > 0 ? ` (${uploadFailures} didn’t work)` : ''}`,
+  ]
+  if (summary.average_mia_latency_ms !== null) parts.push(`Mia usually answers in about ${count(Math.max(1, Math.round(summary.average_mia_latency_ms / 1000)), 'second', 'seconds')}`)
+  return `Last 7 days: ${parts.join(', ')}. Amounts and conversations stay private.`
+}
+
 type Draft = { name: string; status: AdminCohortStatus; starts_on: string; ends_on: string; notes: string }
 const draftFor = (group: AdminCohort): Draft => ({ name: group.name, status: group.status, starts_on: group.starts_on ?? '', ends_on: group.ends_on ?? '', notes: group.notes ?? '' })
 
 function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: AdminCohort; joined: number; onBack: () => void; reload: () => Promise<void>; onDirtyChange: (dirty: boolean) => void }) {
-  const { activeCoachWorkspaceId } = useAuthContext()
-  const lifecycle = useCoachWorkspaceMutationLifecycle(activeCoachWorkspaceId)
   const [tab, setTab] = useState<'details' | 'tools'>('details')
   const [draft, setDraft] = useState<Draft>(() => draftFor(group))
   const [assignable, setAssignable] = useState<AdminPersonaAssignableCohort[]>([])
-  const [selected, setSelected] = useState<number | null>(group.id)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -94,6 +110,7 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
   const [challengeBusy, setChallengeBusy] = useState(false)
   const [challengeDirty, setChallengeDirty] = useState(false)
   const detailsDirty = JSON.stringify(draft) !== JSON.stringify(draftFor(group))
+  useHoldWorkspaceLock(saving || challengeBusy)
   const voice = assignable.find(item => item.id === group.id)?.persona_assignment?.persona.name
 
   useEffect(() => { onDirtyChange(detailsDirty || toolsDirty || challengeDirty) }, [detailsDirty, toolsDirty, challengeDirty, onDirtyChange])
@@ -116,7 +133,6 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
     finally { setSaving(false) }
   }
   const afterChallengeChange = useCallback(async () => { await reload() }, [reload])
-  const setTool = (next: 'details' | 'tools') => setTab(next)
 
   return <section className="admin-section">
     <header className="admin-section-head admin-group-head">
@@ -126,10 +142,11 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
         <p>{groupLine(group, joined).replace(`${group.name} · `, '')}</p>
       </div>
     </header>
+    {group.status === 'archived' && <p className="admin-alert">This group is archived, so it is hidden from Today and Reports. To bring it back, change where it stands under Details and save.</p>}
     {group.savings_challenge?.enabled && <SavingsChallengeAccessPanel key={group.id} cohort={group} busy={saving || challengeBusy} onChanged={afterChallengeChange} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />}
     <div className="admin-chips" role="group" aria-label="Group settings">
-      <button type="button" aria-pressed={tab === 'details'} onClick={() => setTool('details')}>Details</button>
-      <button type="button" aria-pressed={tab === 'tools'} onClick={() => setTool('tools')}>Tools people can use</button>
+      <button type="button" aria-pressed={tab === 'details'} onClick={() => setTab('details')}>Details</button>
+      <button type="button" aria-pressed={tab === 'tools'} onClick={() => setTab('tools')}>Tools people can use</button>
     </div>
     {tab === 'details' ? <>
       <form className="admin-stack admin-group-form" onSubmit={save}>
@@ -151,9 +168,7 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
         <p><strong>Coach voice:</strong> {voice ?? 'The standard Mia voice'}</p>
         <Button variant="secondary" onClick={() => navigateTo(adminPath('coaching'))}>Change the voice</Button>
       </div>
-      {group.operational_summary?.available && <p className="admin-muted">Last 7 days: {group.operational_summary.participants_active} {group.operational_summary.participants_active === 1 ? 'person' : 'people'} active, {group.operational_summary.mia_requests} {group.operational_summary.mia_requests === 1 ? 'question' : 'questions'} to Mia, {group.operational_summary.uploads} {group.operational_summary.uploads === 1 ? 'upload' : 'uploads'}. Amounts and conversations stay private.</p>}
-    </> : <div className="admin-tools">
-      <CohortExperienceStudio simple fixedGroup cohorts={assignable.filter(item => item.id === group.id)} cohortsLoading={assignable.length === 0} selectedCohortId={selected} onSelectedCohortIdChange={setSelected} mutationLifecycle={lifecycle} onDirtyChange={setToolsDirty} />
-    </div>}
+      {group.operational_summary?.available && <p className="admin-muted admin-week">{weekInWords(group.operational_summary)}</p>}
+    </> : <GroupTools groupId={group.id} onDirtyChange={setToolsDirty} />}
   </section>
 }

@@ -20,23 +20,25 @@ SEED_ADMIN_EMAILS=owner@example.com,partner@example.com bin/rails db:seed
 
 ## The Admin side
 
-Updated: 2026-11-11 (round 5, slice A2)
+Updated: 2026-11-11 (round 5, slice A2, fix round 1)
 
 `/admin/<section>` is where Mrs. Mel, Bethany and any coach run their groups. A phone gets a section menu and rows; a desktop gets a sidebar and tables. What each person sees comes from `/auth/me` (`admin_sections`; see `docs/preview-seats.md`). Every screen says **group**, never "cohort"; code identifiers keep the old name.
 
 | Section | What it is | Where it lives |
 |---|---|---|
-| Today | Who needs you (setup help and shared items), invitations that went nowhere (with "Send again"), each group's state, for example "Bank of Guam 90 day savings · opens Nov 18 · 6 of 30 joined" | `web/src/admin/sections/TodaySection.tsx` |
-| People | Table on desktop (name, group, role, invitation, last active, setup; name and last active sort), compact rows on phones, filters by group and by Joined / Invited / Email didn't arrive / Removed. One **Invite people** action takes one or many emails. A person opens to resend, move, change role (admins), or remove | `PeopleSection`, `InvitePeople`, `PersonDetail` |
-| Groups | List with status, dates and who has joined. A group opens to its challenge (open and pause, with a recorded reason), details, coach voice and the tools people can open, in order | `GroupsSection`, `CohortExperienceStudio` (one row per tool) |
-| Coaching | Two steps: describe your coach's voice, then preview and go live. **History** (earlier voices, teaching library, group updates) sits at the end behind one link | `components/CoachStudio.tsx`, `CoachStudioAdvanced.tsx` |
-| Reports | Day 30, 60 and 90 per savings group: view, save, download. Coarse, hidden below five people | `ReportsSection` |
+| Today | One group's people for today: Everyone / Need you / Checked in / No check-in today (or Invited / Joined / Setup done for a household group), a name search, "Show more" paging and View person for anyone, with the server's counts. The group opens on whoever needs you. Then invitations that went nowhere (with "Send again"; owners only) and each group's state. Works for every role the server gives Today: owners, admins, and editors, reviewers and viewers on a group's team (who read the groups they may see and never the owner-only lists) | `web/src/admin/sections/TodaySection.tsx` |
+| People | Table on desktop (name, group, role, invitation, last active, setup; name and last active sort), compact rows on phones, filters by group, role (when staff are listed) and Joined / Invited / Email didn't arrive / Removed, sorting by name, email, invitation, last active or setup. One **Invite people** action takes one or many emails and asks "Invite 3 people to <group>?" before sending; a group is only preselected when there is one. A person opens to resend, add to another group (or move, when they are in one group), change role (admins), cancel a pending invitation, or remove from a group | `PeopleSection`, `InvitePeople`, `PersonDetail` |
+| Groups | List with status, dates and who has joined. Archived groups are behind "Show archived groups" and come back by changing where they stand. A group opens to its challenge (open and pause, with a recorded reason), details, the week in a sentence (people, questions to Mia, uploads, anything that failed), coach voice and the tools people can open, in order, with earlier versions to go back to | `GroupsSection`, `GroupTools`, `CohortExperienceStudio` (one row per tool) |
+| Coaching | Two steps: describe your coach's voice, then preview and go live. **Group tools** (every role that can see Coaching reaches the tools of the groups it may see; the server says what each may do) and **History** (earlier voices, teaching library, group updates, and earlier program looks) sit at the end | `components/CoachStudio.tsx`, `CoachStudioAdvanced.tsx` |
+| Reports | Day 30, 60 and 90 per savings group: view, save, download (the file is made from a fresh read checked to be that group's report). Coarse, hidden below five people. Saved reports are followed across pages. Says who can save when this person cannot | `ReportsSection` |
 | Support | Setup requests and problem reports in one list, newest first, with status | `SupportSection` |
-| Settings | Name and look, team; for admins also programs, who can do what, bank connections, organization access and activity | `SettingsSection`, `BankHealth`, `Activity` |
+| Settings | Name and look (saved as a draft; it goes live with Coaching → Go live, and earlier looks are under Coaching → History), team; for admins also programs, who can do what, bank connections, organization access and activity | `SettingsSection`, `BankHealth`, `Activity` |
 
 Words and labels shared by the sections are in `web/src/admin/adminWords.ts` (invitation states, "last active", group lines). The invitation state **Email didn't arrive** is shown only where the server reveals delivery (platform admins); everyone else sees **Invited**.
 
-Activity reads the open and pause records every savings group already keeps. It is not yet a full audit feed.
+Activity reads the open and pause records every savings group already keeps, filtered by the group itself. It says so on the screen; it is not a full audit feed.
+
+The program picker is locked while any save is in flight (`useWorkspaceMutationInFlight`, fed by every mutation ticket and by `useHoldWorkspaceLock`).
 
 Admins can:
 
@@ -70,7 +72,10 @@ GET    /api/v1/admin/users
 POST   /api/v1/admin/users
 PATCH  /api/v1/admin/users/:id
 POST   /api/v1/admin/users/:id/resend_invitation
+POST   /api/v1/admin/users/:id/cancel_invitation
 ```
+
+`cancel_invitation` lets a program owner (or an administrator working inside a program) withdraw a participant's never-accepted invitation when every group the person is in belongs to that program. It revokes the invitation, removes the seats, and writes a `ParticipantInvitationCancellation` (who, whom, which groups). Anything else, such as a person also in another program, stays with the administrator's status change.
 
 `/api/v1/admin/cohorts` is admin-only. User invite management is staff-aware at the API layer; the web shows each person only the sections the server lists. Create/resend responses include `invitation_sent`, `invitation_status`, and `invitation_error` so the UI can report whether Resend actually delivered the email.
 

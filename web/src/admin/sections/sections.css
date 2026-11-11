@@ -28,9 +28,8 @@
 .admin-result-headline { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
 
 .admin-toolbar { display: grid; gap: 10px; }
-.admin-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
-.admin-chips::-webkit-scrollbar { display: none; }
-.admin-chips button { flex: 0 0 auto; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font: inherit; font-size: var(--text-sm); cursor: pointer; font-variant-numeric: tabular-nums; transition: transform var(--duration-press) var(--ease-out); }
+.admin-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-chips button { flex: 0 1 auto; max-width: 100%; min-height: 44px; padding: 6px 14px; text-align: left; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--paper); color: var(--ink); font: inherit; font-size: var(--text-sm); cursor: pointer; font-variant-numeric: tabular-nums; transition: transform var(--duration-press) var(--ease-out); }
 .admin-chips button:active { transform: scale(0.97); }
 .admin-chips button[aria-pressed="true"] { background: var(--mauve); border-color: var(--mauve); color: var(--paper); }
 
@@ -82,7 +81,7 @@
 @media (min-width: 560px) {
   .admin-section-head { grid-template-columns: minmax(0, 1fr) auto; }
   .admin-section-head .button { width: auto; }
-  .admin-toolbar { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+  .admin-toolbar { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
   .admin-actions .button, .admin-detail-actions > .button { width: auto; justify-self: start; }
   .admin-inline-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .admin-inline-form .button { width: auto; }
@@ -157,3 +156,8 @@
 .coach-history-link h3, .coach-history-link p { margin: 0; }
 .coach-history-link p { color: var(--muted); }
 .coach-simple-tasks { margin: 0; }
+
+.admin-follow-row .admin-need { color: var(--ink); font-weight: var(--weight-semibold); }
+.admin-list-static { cursor: default; }
+.admin-today-group { max-width: 420px; }
+.admin-daily { display: grid; gap: 12px; }

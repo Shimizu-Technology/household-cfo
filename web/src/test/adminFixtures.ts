@@ -1,7 +1,15 @@
 import type { AdminCohort, AdminUser, CurrentUser } from '../api'
 
-export const staff = (over: Partial<CurrentUser> = {}) => ({ id: 1, is_admin: false, is_staff: true, role: 'coach', full_name: 'Bethany Cruz', coach_workspaces: [{ id: 5, name: 'Mel program' }], ...over }) as unknown as CurrentUser
+type Key = 'today' | 'people' | 'groups' | 'coaching' | 'reports' | 'support' | 'settings'
+const everySection: Key[] = ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings']
+// The sections the server lists for a person, as /auth/me returns them.
+export const sectionsFor = (...keys: Key[]) => everySection.filter(key => keys.includes(key)).map(key => ({ key, label: key[0].toUpperCase() + key.slice(1), access: 'full' as const }))
+
+export const staff = (over: Partial<CurrentUser> = {}) => ({ id: 1, is_admin: false, is_staff: true, role: 'coach', full_name: 'Bethany Cruz', coach_workspaces: [{ id: 5, name: 'Mel program' }], admin_sections: sectionsFor(...everySection), ...over }) as unknown as CurrentUser
 export const adminUser = () => staff({ id: 9, is_admin: true, role: 'admin', full_name: 'Mrs. Mel' })
+// Who the server gives fewer sections: an editor drafts voice and tools, a reviewer also reads reports.
+export const editorUser = () => staff({ id: 21, full_name: 'Edie Editor', admin_sections: sectionsFor('today', 'coaching') })
+export const reviewerUser = () => staff({ id: 22, full_name: 'Rex Reviewer', admin_sections: sectionsFor('today', 'coaching', 'reports') })
 
 export const group = (id: number, name: string, over: Partial<AdminCohort> = {}) => ({
   id, name, status: 'enrolling', starts_on: '2026-11-18', ends_on: null, notes: '', member_count: 0, participant_count: 0, staff_count: 0, setup_complete_count: 0,

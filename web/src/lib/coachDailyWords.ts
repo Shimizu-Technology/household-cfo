@@ -11,3 +11,12 @@ export function dailyNeed(row: CoachDailyPerson) {
 
 const sharedItemLabel = (type: string) =>
   ({ document_source: 'original file', source_review_version: 'reviewed statement row', savings_entry_version: 'savings entry', savings_plan_version: 'target plan', chat_message: 'message' })[type] ?? 'record'
+
+export function householdStatus(row: CoachDailyPerson) {
+  return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : row.membership_status === 'revoked' ? 'Account access removed' : row.setup_status === 'complete' ? 'Joined · Setup done' : 'Joined · Setup not finished'
+}
+
+export function savingsStatus(row: CoachDailyPerson) {
+  if (!row.enrollment_id) return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : 'Joined · Hasn’t started the challenge'
+  return `${row.check_in?.completed === true ? 'Checked in today' : row.check_in?.completed === false ? 'No check-in yet' : 'Check-in unavailable'} · ${row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'No target confirmed yet'}`
+}
