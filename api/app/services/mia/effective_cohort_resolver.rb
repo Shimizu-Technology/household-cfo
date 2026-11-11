@@ -16,7 +16,7 @@ module Mia
 
       membership = if requested_cohort_id
         requested_membership
-      elsif user.staff?
+      elsif user.staff? && role.to_s == CohortMembership::PREVIEW_ROLE
         # Staff sit in their own household until they choose a group to preview.
         nil
       else
@@ -42,8 +42,9 @@ module Mia
     end
 
     def memberships
-      relation = user.cohort_memberships.seats.includes(:cohort)
-      relation = relation.where(role: role) if role
+      # Preview seats are left out of every ordinary membership list; ask for them by role.
+      relation = (role.to_s == CohortMembership::PREVIEW_ROLE ? user.preview_seats : user.cohort_memberships).includes(:cohort)
+      relation = relation.where(role: role) if role && role.to_s != CohortMembership::PREVIEW_ROLE
       relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
       relation
     end

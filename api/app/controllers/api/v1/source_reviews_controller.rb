@@ -29,7 +29,7 @@ module Api
         household = @current_household
         writable = actor && household && household.household_memberships.find_by(user_id: actor.id)&.role.in?(%w[owner partner])
         member = actor && current_cohort_membership && CohortMembership.seats.exists?(id: current_cohort_membership.id, user_id: actor.id, role: actor.seat_role)
-        can_keep_review = actor&.household_seat? && !actor.revoked? && writable &&
+        can_keep_review = actor && household && actor.household_seat_in?(household) && !actor.revoked? && writable &&
           (member || !ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household))
         code = "savings_challenge_unavailable" if can_keep_review
         render json: { errors: [ error.message ], code: code }.compact, status: :forbidden
@@ -180,7 +180,7 @@ module Api
 
       def require_participant!
         membership = current_household.household_memberships.find_by(user_id: current_user.id)
-        return if current_user.household_seat? && membership&.role.in?(%w[owner partner])
+        return if current_user.household_seat_in?(current_household) && membership&.role.in?(%w[owner partner])
         render json: { errors: [ "Only a current participant can review their private statements." ] }, status: :forbidden
       end
 

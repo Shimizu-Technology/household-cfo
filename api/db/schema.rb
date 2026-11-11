@@ -1531,7 +1531,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_090000) do
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying, 'preview'::character varying]::text[])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying, 'preview'::character varying, 'preview_ended'::character varying]::text[])", name: "cohort_memberships_role_valid"
   end
 
   create_table "cohort_persona_assignments", force: :cascade do |t|

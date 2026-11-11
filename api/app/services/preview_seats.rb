@@ -54,7 +54,7 @@ module PreviewSeats
         enrollment.update!(status: "withdrawn")
         withdrew = true
       end
-      seat.destroy!
+      seat.end_preview!
     end
     withdrew ? LEFT_CHALLENGE_MESSAGE : LEFT_MESSAGE
   end

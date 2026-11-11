@@ -198,7 +198,11 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_includes response.parsed_body.fetch("message"), "challenge preview ended"
     assert_equal "withdrawn", enrollment.reload.status
-    assert_not CohortMembership.with_previews.exists?(id: seat.id)
+    assert_equal "preview_ended", CohortMembership.with_previews.find(seat.id).role, "the seat's row stays as history for the enrollment"
+    assert enrollment.preview?, "an ended preview is still never a participant"
+    assert_not_includes SavingsEnrollment.counted.pluck(:id), enrollment.id
+    assert_empty @admin.preview_seats
+    assert_not ChallengePrivacy::PrivateFinanceAccess.pilot_household?(HouseholdFinance::WorkspaceResolver.new(@admin).household)
     assert_equal false, response.parsed_body.fetch("preview_groups").find { |group| group["cohort_id"] == @savings_cohort.id }.fetch("seated")
 
     delete "/api/v1/preview_seats/#{@savings_cohort.id}", headers: auth(@admin)

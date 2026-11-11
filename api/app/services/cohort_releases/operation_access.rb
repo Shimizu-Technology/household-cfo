@@ -4,7 +4,7 @@ module CohortReleases
     def self.require!(household:, user:, key:, cohort: nil, membership: nil)
       actor = user && User.find_by(id: user.id)
       writable = actor && household.household_memberships.find_by(user_id: actor.id)&.role.in?(%w[owner partner])
-      raise SavingsChallenge::AccessPolicy::Unavailable, "This tool is unavailable for this participant" unless actor&.household_seat? && !actor.revoked? && writable
+      raise SavingsChallenge::AccessPolicy::Unavailable, "This tool is unavailable for this participant" unless actor&.household_seat_in?(household) && !actor.revoked? && writable
       user = actor
       membership = if membership
         CohortMembership.seats.where(user_id: user.id, role: user.seat_role).find(membership.id)

@@ -4,7 +4,8 @@
 # group out they hold a "preview" seat: a cohort membership with its own role, so
 # every query that asks for participants leaves them out unless it opts in.
 #
-# - the role check accepts "preview";
+# - the role check accepts "preview", and "preview_ended" for a left seat that an
+#   enrollment still points at;
 # - a person may now hold one row per role in a cohort (a coach can also preview
 #   the group they coach);
 # - the optional-debt scope guard stops insisting that the enrolled user's global
@@ -20,7 +21,7 @@ class AllowStaffPreviewSeats < ActiveRecord::Migration[8.0]
   def up
     remove_check_constraint :cohort_memberships, name: "cohort_memberships_role_valid"
     add_check_constraint :cohort_memberships,
-      "role IN ('participant', 'coach', 'admin', 'preview')", name: "cohort_memberships_role_valid"
+      "role IN ('participant', 'coach', 'admin', 'preview', 'preview_ended')", name: "cohort_memberships_role_valid"
     remove_index :cohort_memberships, name: "index_cohort_memberships_on_cohort_id_and_user_id"
     add_index :cohort_memberships, %i[cohort_id user_id role], unique: true,
       name: "index_cohort_memberships_on_cohort_id_and_user_id_and_role"
@@ -28,7 +29,7 @@ class AllowStaffPreviewSeats < ActiveRecord::Migration[8.0]
   end
 
   def down
-    execute "DELETE FROM cohort_memberships WHERE role = 'preview'"
+    execute "DELETE FROM cohort_memberships WHERE role IN ('preview', 'preview_ended')"
     replace_guard(NEW_CHECK, OLD_CHECK)
     remove_index :cohort_memberships, name: "index_cohort_memberships_on_cohort_id_and_user_id_and_role"
     add_index :cohort_memberships, %i[cohort_id user_id], unique: true,

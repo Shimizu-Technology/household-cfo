@@ -347,7 +347,7 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
 
   test "workspace capabilities use only participant-role cohort membership" do
     admin = create_user("admin")
-    staff = create_user("coach")
+    staff = create_user("participant")
     participant_cohort = Cohort.create!(
       name: "Participant policy #{SecureRandom.hex(3)}",
       status: "active",

@@ -1,6 +1,10 @@
 class CohortMembership < ApplicationRecord
   PREVIEW_ROLE = "preview".freeze
-  ROLES = (%w[participant coach admin] + [ PREVIEW_ROLE ]).freeze
+  # A preview seat that was left keeps its row, because a challenge enrollment
+  # accepted through it still points at it. It is never a seat again.
+  ENDED_PREVIEW_ROLE = "preview_ended".freeze
+  PREVIEW_ROLES = [ PREVIEW_ROLE, ENDED_PREVIEW_ROLE ].freeze
+  ROLES = (%w[participant coach admin] + PREVIEW_ROLES).freeze
   # Roles that sit in the app as a household: a participant's own seat, or the
   # seat a staff member takes to try a group out.
   SEAT_ROLES = [ "participant", PREVIEW_ROLE ].freeze
@@ -10,9 +14,10 @@ class CohortMembership < ApplicationRecord
   # `cohort.cohort_memberships` leaves previews out, so a roster, count, report
   # or export that forgets about them still excludes them. Code that must see a
   # preview asks for it by name with `seats`, `previews` or `with_previews`.
-  default_scope { where.not(role: PREVIEW_ROLE) }
+  default_scope { where.not(role: PREVIEW_ROLES) }
   scope :with_previews, -> { unscope(where: :role) }
   scope :previews, -> { with_previews.where(role: PREVIEW_ROLE) }
+  scope :all_previews, -> { with_previews.where(role: PREVIEW_ROLES) }
   scope :seats, -> { with_previews.where(role: SEAT_ROLES) }
 
   belongs_to :cohort
@@ -27,6 +32,13 @@ class CohortMembership < ApplicationRecord
 
   def preview?
     role == PREVIEW_ROLE
+  end
+
+  # Ends a preview seat: gone if nothing refers to it, kept as history if an enrollment does.
+  def end_preview!
+    raise ArgumentError, "Only a preview seat can end" unless preview?
+
+    SavingsEnrollment.exists?(accepted_cohort_membership_id: id) ? update!(role: ENDED_PREVIEW_ROLE) : destroy!
   end
 
   # The membership role a person sits in the app with.

@@ -22,7 +22,7 @@ module ChallengePrivacy
       return unless pilot_household?(household)
       actor = User.find_by(id: user&.id)
       membership = household.household_memberships.find_by(user_id: actor&.id)
-      allowed = actor&.household_seat? && !actor.revoked? && membership&.role.in?(%w[owner partner])
+      allowed = actor&.household_seat? && !actor.staff? && !actor.revoked? && membership&.role.in?(%w[owner partner])
       raise Denied, "Participant finances are private. Use an explicitly shared support record." unless allowed
       true
     end

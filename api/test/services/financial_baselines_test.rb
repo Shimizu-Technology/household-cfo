@@ -183,10 +183,10 @@ class FinancialBaselinesTest < ActiveSupport::TestCase
     input = request([ source ])
     operation = OPS::Baseline::Approve.new(@household, user: @user)
     prepared = operation.prepare(approval_input(input, "complete"))
-    @user.update!(role: "coach")
+    @user.update!(invitation_status: "revoked")
     assert_raises(ArgumentError) { preview(input) }
     assert_raises(ArgumentError) { operation.execute!(prepared, source: "manual") }
-    @user.update!(role: "participant")
+    @user.update!(invitation_status: "accepted")
     version = approve(input, status: "complete")
     @household.household_memberships.find_by!(user: @user).update!(role: "coach_viewer")
     assert_raises(ArgumentError) { operation.authorize_replay!(version) }

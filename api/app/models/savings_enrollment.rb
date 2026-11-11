@@ -27,11 +27,11 @@ class SavingsEnrollment < ApplicationRecord
   # that enrollment is theirs to use but is never a program participant, so every
   # roster, count, cap, report, export and reminder over a cohort goes through
   # `counted`. (A person's own enrollment is looked up by user, not by cohort.)
-  scope :counted, -> { where(accepted_cohort_membership_id: CohortMembership.where(role: "participant").select(:id)) }
-  scope :previews, -> { where(accepted_cohort_membership_id: CohortMembership.previews.select(:id)) }
+  scope :previews, -> { where(accepted_cohort_membership_id: CohortMembership.all_previews.select(:id)) }
+  scope :counted, -> { where.not(accepted_cohort_membership_id: CohortMembership.all_previews.select(:id)) }
 
   def preview?
-    CohortMembership.previews.exists?(id: accepted_cohort_membership_id)
+    CohortMembership.all_previews.exists?(id: accepted_cohort_membership_id)
   end
 
   def local_today

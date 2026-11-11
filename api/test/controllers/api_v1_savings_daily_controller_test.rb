@@ -170,10 +170,13 @@ class ApiV1SavingsDailyControllerTest < ActionDispatch::IntegrationTest
       daily_post("category_create", { name: "Food", stack_key: "discretionary" }, "private-category")
       assert_response :success
       @savings_user.update!(role: "coach")
+      # Staff sit in the app through a preview seat, never a participant one, so the
+      # old participant seat is no longer a valid choice and nothing is read.
       get "#{daily_path}/request_status", params: { review_action: "category_create" }, headers: auth_headers("private-category")
-      assert_response :forbidden
+      assert_response :unprocessable_entity
+      assert_equal "cohort_selection_invalid", response.parsed_body["code"]
       get "#{daily_path}/records", params: { collection: "purchases" }, headers: auth_headers
-      assert_response :forbidden
+      assert_response :unprocessable_entity
     end
   end
 

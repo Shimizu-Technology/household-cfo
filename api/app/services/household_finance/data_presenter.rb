@@ -70,7 +70,7 @@ module HouseholdFinance
     end
 
     def participant_capabilities
-      return experience_capabilities unless user&.household_seat?
+      return experience_capabilities unless user&.household_seat_in?(household)
 
       capabilities = experience_capabilities.deep_dup
       statement = capabilities.fetch(:modules).find { |item| item[:id] == "statements" }

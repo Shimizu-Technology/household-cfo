@@ -113,6 +113,12 @@ class User < ApplicationRecord
     !revoked?
   end
 
+  # Anyone may use their own household. The exception is a participant's pilot
+  # household: only the participant uses it, so staff never reach one.
+  def household_seat_in?(household)
+    household_seat? && !(staff? && ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household))
+  end
+
   # The cohort membership role this person sits in the app with.
   def seat_role
     CohortMembership.seat_role_for(self)

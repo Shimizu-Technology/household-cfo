@@ -80,15 +80,19 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, SourceAccountIdentityVersion.where(household: @household).count
   end
 
-  test "coaches admins and read only members cannot browse or mutate participant review controls" do
+  test "staff use their own household's review controls; revoked people and read only members cannot browse or mutate them" do
     %w[coach admin].each do |role|
       @user.update!(role: role)
       get "/api/v1/source_review_accounts", headers: auth_headers(@user)
-      assert_response :forbidden
-      mutate("account_link", account_input)
-      assert_response :forbidden
+      assert_response :success
+      assert_empty response.parsed_body.fetch("records"), "staff see their own household only"
     end
-    @user.update!(role: "participant")
+    @user.update!(role: "participant", invitation_status: "revoked")
+    get "/api/v1/source_review_accounts", headers: auth_headers(@user)
+    assert_includes [ 401, 403 ], response.status
+    mutate("account_link", account_input)
+    assert_includes [ 401, 403 ], response.status
+    @user.update!(invitation_status: "accepted")
     @household.household_memberships.find_by!(user: @user).update!(role: "coach_viewer")
     get "/api/v1/source_review_accounts", headers: auth_headers(@user)
     assert_response :forbidden

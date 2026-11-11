@@ -5,7 +5,10 @@ module ChallengePrivacy
     def self.participant!(household, actor, enrollment, active: false)
       actor = User.lock.find_by(id: actor&.id)
       membership = household.household_memberships.lock.find_by(user_id: actor&.id)
-      unless actor&.household_seat? && !actor.revoked? && membership&.role.in?(%w[owner partner]) && enrollment.household_id == household.id && enrollment.user_id == actor.id
+      # A counted enrollment belongs to a participant and a preview one to staff:
+      # someone who changed role no longer reaches the other kind's records.
+      unless actor&.household_seat_in?(household) && !actor.revoked? && membership&.role.in?(%w[owner partner]) && enrollment.household_id == household.id &&
+          enrollment.user_id == actor.id && enrollment.preview? == actor.staff?
         raise Denied, "This private challenge record is unavailable"
       end
       if active

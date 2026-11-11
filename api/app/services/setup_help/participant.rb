@@ -20,7 +20,7 @@ module SetupHelp
     end
 
     def create_request(reason:, share_metadata:, idempotency_key:)
-      raise Error, "Setup help goes to your program team, and you are on it. Nothing changed." if @user.staff?
+      raise Error, "Setup help isn't available while you preview a group. Nothing changed." if @membership&.preview?
       raise Error, "Choose a setup help reason." unless SetupSupportRequest::REASONS.key?(reason)
       raise Error, "Confirm sharing this request's purpose and status with support." unless share_metadata == true
       key = idempotency_key.to_s.strip
