@@ -199,6 +199,46 @@ module Api
           render json: { errors: [ e.message ] }, status: :unprocessable_entity
         end
 
+        # A program owner may withdraw a participant invitation that was never accepted, when every
+        # group the person is in belongs to the owner's own program. The person loses the invitation
+        # and those group seats; nothing else about them exists yet. Administrators keep using the
+        # status change for any account.
+        def cancel_invitation
+          workspace = coach_workspace_for_policy
+          unless workspace
+            return render json: { error: "Choose a program before cancelling an invitation.", code: "coach_workspace_required" }, status: :unprocessable_entity
+          end
+          return render_forbidden("Program owner access required") unless current_user.admin? || workspace.allows?(current_user, :manage_members)
+
+          user = User.find(params[:id])
+          problem = nil
+          with_stable_membership_locks(user, target_cohort_ids: -> { user.cohort_memberships.pluck(:cohort_id) }) do
+            raise ParticipantMutationNotAuthorized unless current_user.admin? || coach_workspace_for_policy.allows?(current_user, :manage_members)
+
+            memberships = user.cohort_memberships.includes(:cohort).to_a
+            problem = if user.id == current_user.id || !user.participant? || user.coach_workspace_memberships.exists?
+              "Only a participant’s invitation can be cancelled here."
+            elsif user.invitation_status != "pending"
+              user.revoked? ? "This invitation was already cancelled." : "This person already joined, so there is no invitation to cancel."
+            elsif memberships.empty? || memberships.any? { |membership| membership.cohort.coach_workspace_id != workspace.id }
+              "This person is also in another program, so only an administrator can change their invitation."
+            end
+            raise ActiveRecord::Rollback if problem
+
+            ParticipantInvitationCancellation.create!(
+              coach_workspace: workspace, actor_user: current_user, subject_user: user, subject_email: user.email,
+              groups: memberships.map { |membership| { id: membership.cohort_id, name: membership.cohort.name } }
+            )
+            memberships.each(&:destroy!)
+            user.update!(invitation_status: "revoked")
+          end
+          return render json: { errors: [ problem ], code: "invitation_not_cancellable" }, status: :unprocessable_entity if problem
+
+          render json: { cancelled: true, user_id: user.id }
+        rescue ActiveRecord::RecordNotFound => e
+          render json: { errors: [ e.message ] }, status: :unprocessable_entity
+        end
+
         private
 
         def attach_existing_participant(user, attributes:, role:, cohort_ids:)
