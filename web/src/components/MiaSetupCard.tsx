@@ -24,14 +24,25 @@ function lowerList(labels: string[]) {
 }
 
 // The card can re-render from fresh data while a row is saving, so focus is
-// found by the row's key once that row is on screen and usable again.
+// found by the row's key once that row is on screen and usable again. A row
+// that is now static (a bill just taken off) can't hold focus, so it moves to
+// the next control on the card, and failing that to the card's heading.
 function focusRowWhenReady(card: HTMLElement | null, key: string, tries = 12) {
-  const button = card?.querySelector<HTMLButtonElement>(`[data-setup-row="${key.replace(/"/g, '\\"')}"]`)
+  const escaped = key.replace(/"/g, '\\"')
+  const button = card?.querySelector<HTMLButtonElement>(`[data-setup-row="${escaped}"]`)
   if (button && !button.disabled) {
     button.focus()
     return
   }
-  if (tries > 0) requestAnimationFrame(() => focusRowWhenReady(card, key, tries - 1))
+  const settled = card?.querySelector<HTMLElement>(`[data-setup-static="${escaped}"]`)
+  if (settled || tries === 0) {
+    const controls = Array.from(card?.querySelectorAll<HTMLButtonElement>('[data-setup-row], .setup-card-apply button') ?? []).filter((control) => !control.disabled)
+    const next = settled ? controls.find((control) => Boolean(settled.compareDocumentPosition(control) & Node.DOCUMENT_POSITION_FOLLOWING)) : undefined
+    const target = next ?? controls[controls.length - 1] ?? card?.querySelector<HTMLElement>('h4')
+    target?.focus()
+    return
+  }
+  requestAnimationFrame(() => focusRowWhenReady(card, key, tries - 1))
 }
 
 export function MiaSetupCard({
@@ -124,7 +135,7 @@ export function MiaSetupCard({
     return (
       <div className={`setup-card-line${part ? ' is-part' : ''}${part?.removed ? ' is-removed' : ''}`}>
         {isStatic ? (
-          <div className="setup-card-row is-static">
+          <div className="setup-card-row is-static" data-setup-static={rowKey}>
             <span className="setup-card-label">{label}</span>
             <span className="setup-card-value">{shown}</span>
           </div>
@@ -175,7 +186,7 @@ export function MiaSetupCard({
 
   return (
     <article ref={cardRef} className="setup-card" aria-labelledby={headingId}>
-      <h4 id={headingId}>{card.title}</h4>
+      <h4 id={headingId} tabIndex={-1}>{card.title}</h4>
       <div className="setup-card-rows">
         {card.rows.map((row) => (
           <div className="setup-card-group" key={row.key}>

@@ -89,6 +89,7 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal [ "fixed_expenses" ], rows(body).map { |item| item["key"] }
     fixed = row(body, "fixed_expenses")
     assert_equal 183_000, fixed["total_cents"]
+    assert_equal "entered", fixed["status"], "a removal-only card counts as something she told Mia, so Not now warns first"
     assert_equal [ [ "Insurance", true ] ], fixed["parts"].map { |item| [ item["label"], item["removed"] ] }
     assert_equal "Rent and Power stay as they are.", fixed["note"]
     assert_equal "Your changes", card_of(body)["title"]

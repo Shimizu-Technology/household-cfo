@@ -195,8 +195,10 @@ class SetupBillBackfillTest < ActiveSupport::TestCase
     transaction = @household.household_transactions.create!(merchant: "GPA", occurred_on: Date.current, total_amount_cents: 18_000, status: "confirmed", source_type: "manual_ui", budget_period: period)
     transaction.transaction_splits.create!(budget_category: category, amount_cents: 18_000)
     before = month_answer
+    outlook_before = HouseholdFinance::AnnualBudgetManager.new(@household).plan_data[:annual_outlook]
     HouseholdFinance::SetupBillBackfill.new(@household).call
     after = month_answer
+    assert_equal outlook_before, HouseholdFinance::AnnualBudgetManager.new(@household.reload).plan_data[:annual_outlook], "the annual outlook counts active rows only, so the archived row isn't added on top"
     assert_equal before.slice(:money_in_cents, :planned_out_cents, :plan_left_cents, :spent_cents), after.slice(:money_in_cents, :planned_out_cents, :plan_left_cents, :spent_cents)
     plan = HouseholdFinance::AnnualBudgetManager.new(@household.reload).plan_data
     month = Date.current.month

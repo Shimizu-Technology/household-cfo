@@ -154,6 +154,37 @@ describe('MiaSetupCard', () => {
     await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Change Monthly income: $1,200'))
   })
 
+  it('moves focus on when the edited bill becomes a taken-off row, instead of dropping it to the page', async () => {
+    const onEdit = vi.fn().mockResolvedValue(true)
+    const bills = (removed: boolean) => [row('fixed_expenses', { label: 'Fixed essentials', status: 'entered', total_cents: 183000,
+      parts: [
+        { id: 'saved-1', label: 'Insurance', cents: 12000, counted: true, ...(removed ? { removed: true, removable: false, note: 'Taking this off' } : {}) },
+        { id: 'saved-2', label: 'Rent', cents: 165000, counted: true },
+      ] })]
+    const view = render(<MiaSetupCard draft={draft(bills(false))} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+    fireEvent.click(screen.getByRole('button', { name: /Change Insurance/ }))
+    onEdit.mockImplementationOnce(async () => {
+      view.rerender(<MiaSetupCard draft={draft(bills(true))} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+      return true
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(screen.getByText('Taking off')).toBeTruthy())
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toMatch(/Change Rent/))
+  })
+
+  it('falls back to Apply when the edited row is gone from the card', async () => {
+    const onEdit = vi.fn().mockResolvedValue(true)
+    const withPart = [row('fixed_expenses', { label: 'Fixed essentials', status: 'entered', total_cents: 6000, parts: [{ id: 'p1', label: 'Phone', cents: 6000, counted: true }] })]
+    const view = render(<MiaSetupCard draft={draft(withPart)} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+    fireEvent.click(screen.getByRole('button', { name: /Change Phone/ }))
+    onEdit.mockImplementationOnce(async () => {
+      view.rerender(<MiaSetupCard draft={draft([row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 100000 })])} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+      return true
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(document.activeElement?.tagName).not.toBe('BODY'), { timeout: 2000 })
+  })
+
   it('disables Apply with no savable row', () => {
     setup([row('primary_income', {})], false)
     expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true)
