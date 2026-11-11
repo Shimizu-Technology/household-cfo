@@ -133,28 +133,6 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, part
     return () => { canceled = true }
   }, [load, actorId])
 
-  useLayoutEffect(() => {
-    if (readOnly || initialParticipantId !== undefined) return
-    const disclosure = root.current?.closest<HTMLElement>('.setup-support-disclosure')
-    if (!disclosure) return
-    function followRequest() {
-      const requested = disclosure?.dataset.focusParticipant
-      if (!requested || !/^[1-9]\d*$/.test(requested)) return
-      const id = Number(requested)
-      if (participantId !== id) { setParticipantId(id); return }
-      if (loading) return
-      const heading = root.current?.querySelector<HTMLElement>(`[data-participant-id="${id}"] h4`)
-      if (heading) {
-        delete disclosure!.dataset.focusParticipant
-        heading.focus({ preventScroll: true })
-        heading.scrollIntoView({ block: 'center' })
-      }
-    }
-    followRequest()
-    disclosure.addEventListener('coach-setup-review-requested', followRequest)
-    return () => disclosure.removeEventListener('coach-setup-review-requested', followRequest)
-  }, [initialParticipantId, participantId, readOnly, loading, records])
-
   async function act(record: SetupSupportRequest, action: SupportAction) {
     if (readOnly || savingRef.current || loading || disabled || uncertainId !== null || !canLoadScope || (action === 'prepare' && !isAdmin)) return
     if (!record.permissions?.[action]) return

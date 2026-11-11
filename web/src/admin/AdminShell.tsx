@@ -27,8 +27,8 @@ type Props = {
 const descriptions: Record<string, string> = {
   today: 'Who needs you right now',
   people: 'Everyone you coach, and invitations',
-  groups: 'Dates, status and opening the challenge',
-  coaching: 'Your assistant’s voice, teaching and tools',
+  groups: 'Dates, tools and opening the challenge',
+  coaching: 'Your coach’s voice and teaching',
   reports: 'Day 30, 60 and 90 reports',
   support: 'Problems and setup help to look at',
   settings: 'Program look, team and access',

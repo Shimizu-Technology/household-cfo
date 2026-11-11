@@ -87,6 +87,7 @@ type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 export function CohortExperienceStudio({
   cohorts,
   simple = false,
+  fixedGroup = false,
   cohortsLoading,
   mutationLifecycle,
   onDirtyChange,
@@ -95,6 +96,8 @@ export function CohortExperienceStudio({
 }: {
   cohorts: AdminPersonaAssignableCohort[]
   simple?: boolean
+  // The group page already says which group this is, so the picker steps aside.
+  fixedGroup?: boolean
   cohortsLoading: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
@@ -152,7 +155,7 @@ export function CohortExperienceStudio({
     try {
       const next = await fetchCohortExperienceConfiguration(cohortId, abortController.signal)
       if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
-      if (next.cohort.id !== cohortId) throw new Error('Participant tools returned the wrong cohort. Reload and try again.')
+      if (next.cohort.id !== cohortId) throw new Error('Participant tools returned the wrong group. Reload and try again.')
       setConfiguration(next)
       setDraft(next.draft)
     } catch (caught) {
@@ -177,7 +180,7 @@ export function CohortExperienceStudio({
 
   async function chooseCohort(value: number) {
     if (value === selectedCohortId) return
-    if (dirty && !(await confirmDiscard('Discard the unsaved participant-tool changes and open another cohort?'))) return
+    if (dirty && !(await confirmDiscard('Discard the unsaved participant-tool changes and open another group?'))) return
     prepareCohortSelection(value)
   }
 
@@ -320,19 +323,19 @@ export function CohortExperienceStudio({
   }
 
   if (cohortsLoading && cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable cohorts…</article>
+    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable groups…</article>
   }
 
   if (cohorts.length === 0) {
-    return <article className="panel coach-empty coach-empty-main"><h3>No manageable cohorts yet.</h3><p>Assign this coach to a cohort before configuring participant tools.</p></article>
+    return <article className="panel coach-empty coach-empty-main"><h3>No manageable groups yet.</h3><p>Assign this coach to a group before configuring participant tools.</p></article>
   }
 
   return (
     <div className="experience-studio" aria-busy={pendingAction !== null}>
-      <article className="panel experience-cohort-picker">
+      {fixedGroup ? <p className="experience-fixed-intro">{simple ? 'Save your choices, then approve them under Coaching → Go live. Your people keep their current tools until you approve the group update.' : ''}</p> : <article className="panel experience-cohort-picker">
         <div>
           <h3>Choose what participants can open.</h3>
-          <p>{simple ? 'Save your choices, then review them in Go live. Your people keep their current tools until you approve the group update.' : 'Prepare the tools for this group. After publishing, use Release & rollout to launch or update the group. People already using a release keep their current tools until that update.'}</p>
+          <p>{simple ? 'Save your choices, then review them in Go live. Your people keep their current tools until you approve the group update.' : 'Prepare the tools for this group. After publishing, use Group updates to launch or update the group. People already using a release keep their current tools until that update.'}</p>
         </div>
         <label>
           <span>Group</span>
@@ -340,7 +343,7 @@ export function CohortExperienceStudio({
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {cohort.status}</option>)}
           </select>
         </label>
-      </article>
+      </article>}
 
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span>{selectedCohortId && <button type="button" onClick={() => void loadConfiguration(selectedCohortId)}>Reload</button>}</div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
@@ -361,45 +364,28 @@ export function CohortExperienceStudio({
             </fieldset>
             <NavigationSummary draft={draft} />
           </article>
-          <div className="experience-module-grid">
-            <article className="panel experience-module-group">
-              <header><div><h3>Participant tools</h3></div></header>
-              <p>Home and Ask Mia stay available. Choose the other tools for this group.</p>
-              {optionalModules.map(([key, label, description]) => (
-                <label className="experience-module-row" key={key}>
-                  <span><strong>{label}</strong><small>{description}</small></span>
-                  <input type="checkbox" role="switch" checked={Boolean(configurableDraft(draft).optional_modules[key])}
-                    disabled={!configuration.permissions.edit || pendingAction !== null}
-                    onChange={() => toggleModule(key)} aria-label={`Include ${label}`} />
-                </label>
-              ))}
-              {!configuration.permissions.edit && <p className="coach-read-only" role="note">{closedGroup ? 'Completed and archived cohorts are read-only.' : 'Your workspace role can view these tools but cannot change them.'}</p>}
-            </article>
-            <article className="panel experience-module-group">
-              <h3>Tool order</h3>
-              <p>Move tools up or down. Hidden tools keep their place until you turn them on.</p>
-              <ol aria-label="Participant tool order">
-                {moduleOrder(draft).map((id, index, order) => <li key={id}>
-                  <span>{moduleLabels[id]}</span>{' '}
-                  <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || index === 0} onClick={() => moveModule(id, -1)} aria-label={`Move ${moduleLabels[id]} up`}>Up</Button>{' '}
-                  <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || index === order.length - 1} onClick={() => moveModule(id, 1)} aria-label={`Move ${moduleLabels[id]} down`}>Down</Button>
-                </li>)}
-              </ol>
-              <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || !draft.module_order?.length} onClick={resetModuleOrder}>Use default order</Button>
-            </article>
-          </div>
-
-            <details className="panel experience-module-group">
-              <summary>Included tools and financial controls</summary>
-              <p>These controls are always included.</p>
-              {coreModules.map(([label, description]) => (
-                <div className="experience-module-row is-core" key={label}>
-                  <span><strong>{label}</strong><small>{description}</small></span>
-                  <span aria-label={`${label} always included`}>Always on</span>
-                </div>
-              ))}
-            </details>
-
+          <article className="panel experience-module-group">
+            <header><div><h3>What people can open, and in what order</h3></div></header>
+            <p>Turn tools on or off, and move them up or down. Home and Ask Mia are always on.</p>
+            <ol className="experience-tool-list" aria-label="Participant tool order">
+              {moduleOrder(draft).map((id, index, order) => {
+                const always = id === 'home' || id === 'ask_mia'
+                const description = [...coreModules.map(([label, text]) => [label === 'Home' ? 'home' : 'ask_mia', text] as const), ...optionalModules.map(([key, , text]) => [key, text] as const)].find(([key]) => key === id)?.[1]
+                const locked = !configuration.permissions.edit || pendingAction !== null
+                return <li key={id} className="experience-module-row">
+                  <span><strong>{moduleLabels[id]}</strong><small>{description}</small></span>
+                  {always ? <span className="experience-always" aria-label={`${moduleLabels[id]} always included`}>Always on</span>
+                    : <input type="checkbox" role="switch" checked={Boolean(configurableDraft(draft).optional_modules[id as keyof ConfigurableCohortExperienceDraft['optional_modules']])} disabled={locked} onChange={() => toggleModule(id as typeof optionalModules[number][0])} aria-label={`Include ${moduleLabels[id]}`} />}
+                  <span className="experience-move">
+                    <Button variant="secondary" disabled={locked || index === 0} onClick={() => moveModule(id, -1)} aria-label={`Move ${moduleLabels[id]} up`}>↑</Button>
+                    <Button variant="secondary" disabled={locked || index === order.length - 1} onClick={() => moveModule(id, 1)} aria-label={`Move ${moduleLabels[id]} down`}>↓</Button>
+                  </span>
+                </li>
+              })}
+            </ol>
+            <Button variant="ghost" disabled={!configuration.permissions.edit || pendingAction !== null || !draft.module_order?.length} onClick={resetModuleOrder}>Use the usual order</Button>
+            {!configuration.permissions.edit && <p className="coach-read-only" role="note">{closedGroup ? 'Finished and archived groups are read-only.' : 'Your role can see these tools but can’t change them.'}</p>}
+          </article>
 
           <>{simple && <article className="panel"><Button disabled={!dirty || pendingAction !== null || !configuration.permissions.edit} onClick={() => void saveDraft()}>{pendingAction === 'save' ? 'Saving…' : 'Save draft'}</Button><p>Review these saved choices in Go live before your people receive them.</p></article>}<article hidden={simple} className="panel experience-lifecycle">
             <header>
@@ -415,7 +401,7 @@ export function CohortExperienceStudio({
             {closedGroup ? <p id="experience-closed-help" className="experience-action-help">Completed and archived groups are read-only. Their tools cannot be saved, previewed, or published.</p> : <>
             <p id="experience-save-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.edit ? 'Your role cannot save changes to these tools.' : !dirty ? 'Tool choices saved. Change a choice to save again.' : 'Save your choices before previewing.'}</p>
             <p id="experience-preview-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.review ? 'A program editor, reviewer, or owner must preview these tools.' : dirty ? 'Save your changes before previewing.' : 'Preview the saved choices to check the exact navigation.'}</p>
-            <p id="experience-publish-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.publish ? 'This group or your program role does not allow publishing. An owner or reviewer can publish tools for an open group.' : dirty ? 'Save and preview your changes before publishing.' : !previewMatches ? 'Preview navigation to enable publishing.' : 'Publish this version, then launch or update the group in Release & rollout. Participants without a release see published tools after refresh.'}</p>
+            <p id="experience-publish-help" className="experience-action-help">{pendingAction ? 'Wait for the current action to finish.' : !configuration.permissions.publish ? 'This group or your program role does not allow publishing. An owner or reviewer can publish tools for an open group.' : dirty ? 'Save and preview your changes before publishing.' : !previewMatches ? 'Preview navigation to enable publishing.' : 'Publish this version, then launch or update the group in Group updates. Participants without a release see published tools after refresh.'}</p>
             </>}
 
             {preview && <ExperiencePreview preview={preview} savingsChallenge={experienceModeOf(draft) === 'savings_challenge'} />}

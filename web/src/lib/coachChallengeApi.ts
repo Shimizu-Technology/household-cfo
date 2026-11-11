@@ -143,26 +143,3 @@ export const coachChallengeApi = {
       { signal, cache: 'no-store' }
     ),
 }
-
-// Daily opens the existing guarded invitation task. CoachStudio owns the outer
-// disclosure and dirty/pending lifecycle; keeping its form avoids a second write
-// path with different navigation or mutation guards.
-export function openCoachInvitation(source: HTMLElement) {
-  const access = source.closest('[role="tabpanel"]')?.querySelector<HTMLDetailsElement>(':scope > .coach-access-disclosure')
-  if (!access) return false
-  access.dataset.inviteRequested = 'true'
-  access.open = true
-  access.dispatchEvent(new Event('coach-invite-requested'))
-  return true
-}
-
-export function openCoachSetupHelp(source: HTMLElement, participantId: number) {
-  const disclosure = source.closest('[role="tabpanel"]')?.querySelector<HTMLElement>(':scope > .setup-support-disclosure')
-  if (!disclosure) return false
-  disclosure.dataset.focusParticipant = String(participantId)
-  const button = disclosure.querySelector<HTMLButtonElement>('.setup-support-disclosure-button')
-  if (button?.getAttribute('aria-expanded') !== 'true') button?.click()
-  disclosure.dispatchEvent(new Event('coach-setup-review-requested'))
-  disclosure.scrollIntoView({ block: 'start' })
-  return true
-}
