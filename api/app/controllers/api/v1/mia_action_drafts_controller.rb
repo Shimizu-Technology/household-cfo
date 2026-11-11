@@ -51,13 +51,7 @@ module Api
           return render json: body, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
-        unless result.replayed?
-          carried = carry_unresolved_setup(result.draft)
-          status_message = applied_message(result.draft, carried)
-          append_chat_status_message(status_message)
-          update_conversation_action_status(result.draft.status, status_message)
-          remember_setup_question(result.draft, carried)
-        end
+        narrate_applied(result.draft) unless result.replayed?
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
@@ -176,6 +170,25 @@ module Api
         current_data_presenter(household: current_household.reload, annual_plan: annual_plan).app_data
       end
 
+      # The changes are already saved when this runs, so a failure here must
+      # never turn a successful Apply into a 500: fall back to a plain "Done."
+      def narrate_applied(draft)
+        carried = carry_unresolved_setup(draft)
+        status_message = applied_message(draft, carried)
+        append_chat_status_message(status_message)
+        update_conversation_action_status(draft.status, status_message)
+        remember_setup_question(draft, carried)
+      rescue StandardError => e
+        Rails.logger.error("[MiaActionDrafts] Apply narration failed after commit for draft #{draft.id}: #{e.class}: #{e.message}")
+        Sentry.capture_exception(e, tags: { mia_action_draft_id: draft.id }) if defined?(Sentry) && Sentry.initialized?
+        begin
+          append_chat_status_message("Done.")
+          update_conversation_action_status(draft.status, "Done.")
+        rescue StandardError => fallback_error
+          Rails.logger.error("[MiaActionDrafts] Apply fallback status failed for draft #{draft.id}: #{fallback_error.class}")
+        end
+      end
+
       def applied_message(draft, carried = nil)
         if draft.status == "partially_applied"
           remaining = draft.mia_action_items.count { |item| item.applied_at.blank? }
@@ -189,8 +202,8 @@ module Api
           "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
         when "household_setup"
           state = draft.metadata.to_h["setup_card"]
-          changed = state && state["change_mode"] && HouseholdFinance::MiaSetupCardReply.applied_sentence(HouseholdFinance::MiaSetupCard.new(draft.household, state: state))
-          return changed if changed && !carried
+          changed = !carried && state && state["change_mode"] && HouseholdFinance::MiaSetupCardReply.applied_sentence(HouseholdFinance::MiaSetupCard.new(draft.household, state: state))
+          return changed if changed
           base = "Your household details are saved."
           card = carried_setup_card(carried)
           next_step = if (field = card&.unresolved_field_keys&.first)

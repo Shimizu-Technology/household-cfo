@@ -397,10 +397,24 @@ module HouseholdFinance
         updates << Update.new(field: field, action: :needs_monthly, note: "those numbers don't add up")
       else
         parts.each { |part| apply_money_part(field, part) }
-        add_remainder(field, remainder) if remainder
+        if remainder && fields[field]
+          drop_unmentioned_saved_bills(field)
+          add_remainder(field, remainder)
+        end
       end
       offer_monthly(field)
       fields.delete(field) if fields.dig(field, "parts") == []
+    end
+
+    # "Bills bout 2000, rent is 1500 of that": her total is everything, so
+    # saved bills she didn't name are part of the rest, and the card says
+    # they come off instead of stacking on top of the figure she gave.
+    def drop_unmentioned_saved_bills(field)
+      fields[field]["parts"].each do |part|
+        next unless part["saved_label"] && part["saved_cents"] && !part["removed"]
+        part["removed"] = true
+        updates << Update.new(field: field, action: :removed, label: part["label"], cents: part["cents"])
+      end
     end
 
     def add_remainder(field, cents)

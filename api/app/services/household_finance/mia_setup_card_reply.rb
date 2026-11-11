@@ -94,12 +94,13 @@ module HouseholdFinance
       case REGISTRY.kind(field)
       when :text then [ field == "household_name" ? "your household name is #{row[:value_text]}" : "your goal is saved" ]
       when :months then [ "#{name} is #{row[:value_text]}" ]
-      when :balance then [ "#{name} is #{money(row[:total_cents])}" ]
+      when :balance then row[:total_cents] ? [ "#{name} is #{money(row[:total_cents])}" ] : []
       when :debts
         return [ "no debts" ] if row[:value_text] == "No debts"
-        row[:parts].map { |part| part[:removed] ? "#{part[:label].downcase} is off your debts" : "#{part[:label].downcase} minimum is #{money(part[:cents])}" }.presence || [ "#{name} are #{money(row[:total_cents])} a month" ]
+        row[:parts].filter_map { |part| part[:removed] ? "#{part[:label].downcase} is off your debts" : (part[:cents] && "#{part[:label].downcase} minimum is #{money(part[:cents])}") }.presence ||
+          [ row[:total_cents] && "#{name} are #{money(row[:total_cents])} a month" ].compact
       else
-        changes = row[:parts].map { |part| part[:removed] ? "#{part[:label].downcase} is off" : "#{part[:label].downcase} is #{money(part[:cents])}" }
+        changes = row[:parts].filter_map { |part| part[:removed] ? "#{part[:label].downcase} is off" : (part[:cents] && "#{part[:label].downcase} is #{money(part[:cents])}") }
         total = row[:total_cents] && "#{name} #{field.in?(REGISTRY::INCOME_KEYS) ? 'is' : 'are'} #{money(row[:total_cents])} a month"
         changes.length > 3 ? [ total ].compact : (changes + [ total ]).compact
       end

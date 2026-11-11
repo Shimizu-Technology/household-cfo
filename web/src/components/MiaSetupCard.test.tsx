@@ -182,7 +182,7 @@ describe('MiaSetupCard', () => {
       return true
     })
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
-    await waitFor(() => expect(document.activeElement?.tagName).not.toBe('BODY'), { timeout: 2000 })
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Apply' })), { timeout: 2000 })
   })
 
   it('disables Apply with no savable row', () => {

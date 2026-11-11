@@ -5,5 +5,7 @@ namespace :household_finance do
     results = HouseholdFinance::SetupBillBackfill.call(dry_run: ENV["DRY_RUN"] == "1", logger: logger)
     counts = results.group_by(&:action).transform_values(&:count)
     puts "[SetupBillBackfill] #{ENV['DRY_RUN'] == '1' ? 'dry run' : 'done'}: #{counts.presence || 'nothing to change'}"
+    failed = results.select { |result| result.action == :error }
+    abort "[SetupBillBackfill] #{failed.length} household(s) failed: #{failed.map(&:household_id).join(', ')}. Run it again once fixed; it is safe to repeat." if failed.any?
   end
 end

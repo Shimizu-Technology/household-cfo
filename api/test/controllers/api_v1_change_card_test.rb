@@ -167,6 +167,82 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal [ "Rent", "Other must-pay bills" ], stack_names("non_discretionary")
   end
 
+  test "a total with one part after setup replaces the bills she didn't name, so the figure she gave is the total" do
+    finish_setup
+    body = say("bills bout 2000 now, rent is 1500 of that", read(setup: changes(fixed_expenses: money(total_amount: "2000", total_cadence: "monthly", total_source: "bills bout 2000 now",
+      parts: [ part("replace", "rent", "1500", source: "rent is 1500 of that") ]))))
+    fixed = row(body, "fixed_expenses")
+    assert_equal 200_000, fixed["total_cents"], "not 2,300: the saved power and insurance are inside her 2,000"
+    assert_equal [ [ "Rent", 150_000, nil ], [ "Other must-pay bills", 50_000, nil ], [ "Power", 18_000, true ], [ "Insurance", 12_000, true ] ],
+      fixed["parts"].map { |item| [ item["label"], item["cents"], item["removed"] ] }.sort_by { |label, _, removed| [ removed ? 1 : 0, label == "Rent" ? 0 : 1 ] }
+    assert_match(/Took out power\. Took out insurance\./, text(body), "Mia says what came off")
+    apply(card_of(body))
+    assert_equal 2000.0, values[:fixed_expenses].to_f
+    assert_equal [ "Rent", "Other must-pay bills" ], stack_names("non_discretionary")
+    assert_equal [ 150_000, 50_000 ], @household.budget_categories.active.where(stack_key: "non_discretionary").order(:id).map { |category| category.budget_allocations.maximum(:planned_amount_cents) }
+  end
+
+  test "applying a new debt with an unknown minimum saves it and answers, never a server error" do
+    finish_setup
+    body = say("i also have a discover card, dont know the minimum", read(setup: changes(debt_payment: debts(parts: [ debt("add", "discover", "", source: "i also have a discover card") ]))))
+    draft = card_of(body)
+    assert draft, text(body)
+    apply(draft)
+    assert_response :success
+    assert @household.reload.debts.active.exists?(label: "Discover"), "the debt is saved"
+    assert_match(/saved|done/i, last_reply)
+  end
+
+  test "a failure while narrating Apply falls back to Done and the saved changes stay" do
+    finish_setup
+    body = say("the rent went up to 1700", read(setup: changes(fixed_expenses: money(parts: [ part("replace", "rent", "1700", source: "the rent went up to 1700") ]))))
+    original = HouseholdFinance::MiaSetupCardReply.method(:applied_sentence)
+    HouseholdFinance::MiaSetupCardReply.define_singleton_method(:applied_sentence) { |*| raise NoMethodError, "boom" }
+    begin
+      apply(card_of(body))
+    ensure
+      HouseholdFinance::MiaSetupCardReply.define_singleton_method(:applied_sentence, original)
+    end
+    assert_equal "Done.", last_reply
+    assert_equal 2000.0, values[:fixed_expenses].to_f, "rent 1,700 + power 180 + insurance 120"
+  end
+
+  test "a purchase with a pending review and a model setup intent keeps both the card change and the purchase draft" do
+    finish_setup
+    first = say("spent 40 at foodland", read(facts: [ { kind: "purchase", amount: "40", merchant: "foodland", item: "", day: "", source_text: "spent 40 at foodland" } ]))
+    assert first["transaction_draft"], text(first)
+    message = "spent 80 at payless, and change the power to 200"
+    intent = model_intent({ type: "update_household_setup", setup_updates: { fixed_expenses: "2000" } }, "set fixed expenses")
+    body = say(message, read(facts: [ { kind: "purchase", amount: "80", merchant: "payless", item: "", day: "", source_text: "spent 80 at payless" } ],
+      setup: changes(fixed_expenses: money(parts: [ part("replace", "power", "200", source: "change the power to 200") ]))), intent: intent)
+    assert_equal [ [ "Power", 20_000 ] ], row(body, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
+    assert body["transaction_draft"], "the purchase is not dropped: #{text(body)}"
+    assert_equal 8_000, body.dig("transaction_draft", "amount_cents")
+    assert_equal 2, @household.transaction_drafts.pending.count
+    assert_no_match(/left your plan as it is|nothing changed/i, text(body))
+    assert_match(/power/i, text(body))
+  end
+
+  test "a purchase with a pending review, a card change and 'change' in the words still reaches the purchase review without the model" do
+    finish_setup
+    say("spent 40 at foodland", read(facts: [ { kind: "purchase", amount: "40", merchant: "foodland", item: "", day: "", source_text: "spent 40 at foodland" } ]))
+    body = say("spent 80 at payless, and change the power to 200", read(facts: [ { kind: "purchase", amount: "80", merchant: "payless", item: "", day: "", source_text: "spent 80 at payless" } ],
+      setup: changes(fixed_expenses: money(parts: [ part("replace", "power", "200", source: "change the power to 200") ]))))
+    assert_equal 8_000, body.dig("transaction_draft", "amount_cents")
+    assert_equal [ [ "Power", 20_000 ] ], row(body, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
+  end
+
+  test "an amount she adds each month is not her emergency fund balance, but a balance beside it is" do
+    finish_setup
+    monthly = say("i put 50 a month in my emergency fund", read(setup: changes(emergency_fund: { amount: "50", source: "i put 50 a month in my emergency fund" })))
+    assert_nil card_of(monthly), "50 a month is not a $50 balance: #{text(monthly)}"
+    assert_nil values[:emergency_fund]
+    both = say("my emergency fund is 800 and i put 50 a month in it", read(setup: changes(emergency_fund: { amount: "800", source: "my emergency fund is 800" })))
+    assert_equal 80_000, row(both, "emergency_fund")["total_cents"]
+    cadence_first = say("every month i put 25 in my emergency fund", read(setup: changes(other_assets: { amount: "25", source: "every month i put 25 in my emergency fund" })))
+    assert_equal [ "emergency_fund" ], rows(cadence_first).map { |item| item["key"] }, "the other amount never lands as a balance"
+  end
+
   test "a skipped goal doesn't keep the card closed to other fields" do
     say("Help me set up my household", read)
     say("skip", read(setup: changes(skips: [ "household_name" ])))

@@ -313,7 +313,9 @@ module Api
             # She reported something she did ("paid 120 for the power bill"). A
             # plan-change label from the model never turns that figure into her
             # bills, and it can't be logged from that label either.
-            intent_result = setup_card_coaching_turn(intent_result, content, clarify: true, reply: "That sounds like something you paid, not a change to your bills, so I left your plan as it is. Tell me where it was and I'll set it up as a purchase for you to review. Nothing changed.")
+            # A purchase she reported still goes to review, beside any change the card took.
+            purchase = HouseholdFinance::MiaIntentResolver.participant_purchase_result_for(user_message: content, context: intent_context)
+            intent_result = purchase || setup_card_coaching_turn(intent_result, content, clarify: true, reply: unlogged_event_reply)
           elsif non_card_setup_intent?(intent_result)
             # Debt tracking and restoring a debt aren't card rows; they keep their
             # own review, as before.
@@ -677,6 +679,14 @@ module Api
       end
 
       # What it couldn't put on the card, it asks about rather than guessing.
+      def unlogged_event_reply
+        if @setup_card_turn&.plan&.update_text.present?
+          "I haven't logged what you paid yet. Tell me where it was and I'll set it up as a purchase for you to review. Nothing saves until you check the card and tap Apply."
+        else
+          "That sounds like something you paid, not a change to your bills, so I left your plan as it is. Tell me where it was and I'll set it up as a purchase for you to review. Nothing changed."
+        end
+      end
+
       def setup_card_coaching_turn(_intent_result, content, clarify:, reply: "Tell me the new amount and what it's for, and I'll put it on a card for you to check. Nothing changed.")
         clarification = clarify ? reply : ""
         HouseholdFinance::MiaIntentResolver::Result.new(intent: "coaching", confidence: 1.0, continuation: false, resolved_message: content,

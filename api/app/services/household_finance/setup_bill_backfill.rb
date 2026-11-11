@@ -29,9 +29,14 @@ module HouseholdFinance
     end
 
     def call
-      household.with_lock do
+      # Results are logged only once the household's transaction has committed:
+      # if a later bill field raises, every field rolls back and none of them
+      # was saved, so none may read as split in the log.
+      results = household.with_lock do
         MiaSetupCard::BILL_FIELDS.filter_map { |field| split(field) }
       end
+      results.each { |result| logger.info("[SetupBillBackfill] household=#{household.id} field=#{result.field} #{result.action}: #{result.detail}") }
+      results
     end
 
     private
@@ -104,7 +109,6 @@ module HouseholdFinance
     def describe(category, parts) = "#{category.name} -> #{parts.map { |part| "#{part[:name]} #{part[:cents]}" }.join(', ')}"
 
     def log(field, action, detail)
-      logger.info("[SetupBillBackfill] household=#{household.id} field=#{field} #{action}: #{detail}")
       Result.new(household_id: household.id, field: field, action: action, detail: detail)
     end
   end

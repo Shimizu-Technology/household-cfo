@@ -187,6 +187,48 @@ class SetupBillBackfillTest < ActiveSupport::TestCase
     assert_equal [ "Fixed essentials" ], failed.budget_categories.active.where(stack_key: "non_discretionary").pluck(:name), "a failed household rolls back whole"
   end
 
+  test "a household that rolls back after its first bill field never logs that field as split" do
+    legacy_household
+    draft = @household.mia_action_drafts.find_by!(draft_type: "household_setup")
+    flexible = [ [ "Groceries", 40_000 ], [ "Gas", 20_000 ] ].map { |label, cents| { "id" => SecureRandom.hex(4), "label" => label, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "part" } }
+    draft.update!(metadata: { "setup_card" => { "fields" => draft.metadata.dig("setup_card", "fields").merge("flexible_spend" => { "parts" => flexible }) } })
+    broken = HouseholdFinance::AnnualBudgetManager.instance_method(:create_category_inside_household_lock!)
+    calls = 0
+    HouseholdFinance::AnnualBudgetManager.define_method(:create_category_inside_household_lock!) do |**options|
+      raise ActiveRecord::RecordInvalid, BudgetCategory.new if (calls += 1) == 4 # the first flexible bill, after fixed essentials split
+      broken.bind_call(self, **options)
+    end
+    log = StringIO.new
+    results = begin
+      HouseholdFinance::SetupBillBackfill.call(Household.where(id: @household.id), logger: Logger.new(log))
+    ensure
+      HouseholdFinance::AnnualBudgetManager.define_method(:create_category_inside_household_lock!, broken)
+    end
+    assert_equal [ :error ], results.map(&:action)
+    assert_no_match(/split:/, log.string, "a rolled-back field was never saved, so it must not read as saved")
+    assert_equal [ "Fixed essentials" ], names, "fixed essentials rolled back with the rest"
+  end
+
+  test "the rake task exits non-zero and names the households that failed, after processing all of them" do
+    Rails.application.load_tasks unless Rake::Task.task_defined?("household_finance:split_setup_bills")
+    task = Rake::Task["household_finance:split_setup_bills"]
+    failing = [ HouseholdFinance::SetupBillBackfill::Result.new(household_id: 41, field: "all", action: :error, detail: "boom"),
+      HouseholdFinance::SetupBillBackfill::Result.new(household_id: 42, field: "fixed_expenses", action: :split, detail: "ok") ]
+    original = HouseholdFinance::SetupBillBackfill.method(:call)
+    HouseholdFinance::SetupBillBackfill.define_singleton_method(:call) { |*, **| failing }
+    task.reenable
+    output = StringIO.new
+    error = begin
+      $stdout = output
+      assert_raises(SystemExit) { task.invoke }
+    ensure
+      $stdout = STDOUT
+      HouseholdFinance::SetupBillBackfill.define_singleton_method(:call, original)
+    end
+    assert_equal 1, error.status
+    assert_match(/done: .*split.*error|done: .*error.*split/, output.string, "the summary prints before the task fails")
+  end
+
   test "a month with a confirmed actual keeps the same plan figures, and the old row isn't counted beside the new ones" do
     legacy_household
     category = @household.budget_categories.find_by!(name: "Fixed essentials")

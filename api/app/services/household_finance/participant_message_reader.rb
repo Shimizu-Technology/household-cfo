@@ -251,6 +251,7 @@ module HouseholdFinance
       return {} unless offset
       before, after = setup_amount_context(offset, value["amount"])
       return {} if setup_unusable_debt_quote?(value["amount"], before, after) || setup_amount_status(value["amount"], offset) == :unclear
+      return {} if after.match?(SETUP_CADENCE_AFTER) || before.match?(SETUP_CADENCE_BEFORE)
       { "amount_cents" => self.class.amount_cents(value["amount"]), "quote" => value["amount"] }
     end
 
@@ -383,6 +384,9 @@ module HouseholdFinance
     SETUP_MONTH_BEFORE = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*\z/i
     SETUP_NEGATED_BEFORE = /\b(?:not|never|no longer|used to(?:\s+be)?|was|were|isn['’]?t|wasn['’]?t|ain['’]?t|don['’]?t pay|dont pay|stop(?:ped)?\s+paying)\s+(?:the\s+|a\s+|an\s+|about\s+|like\s+|even\s+)*\$?\s*\z/i
     SETUP_BALANCE_BEFORE = /\b(?:balance|owe[ds]?|owing|paid off|still owe|in debt)\b[^\d]{0,24}\z/i
+    # "50 a month" is something she adds, never what she has today.
+    SETUP_CADENCE_AFTER = %r{\A\s*(?:/|(?:a|an|per|each|every)\s+)\s*(?:\d+\s+)?(?:month|mo\b|week|wk|pay\s*check|check|pay\s*day|payday|pay\s*period|year|yr|day)|\A\s*(?:monthly|weekly|bi-?weekly|yearly|daily|twice\s+a\s+month)\b}i
+    SETUP_CADENCE_BEFORE = /\b(?:monthly|weekly|bi-?weekly|(?:each|every|per)\s+(?:month|week|pay\s*check|check|pay\s*day|payday))\b[^\d]{0,24}\z/i
     SETUP_BALANCE_AFTER = /\A\s+(?:balance|owed|left\b|total owed|still owed)/i
     # Order matters: the narrower wording has to win ("bi-weekly" holds "weekly").
     SETUP_CADENCE_WORDS = { /\b(?:semi[- ]?monthly|(?:twice|two\s+times|2\s*x|2\s+times)\s+(?:a|per|each|every)\s+month)\b/i => "twice_monthly",
