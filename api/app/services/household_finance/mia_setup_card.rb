@@ -499,9 +499,9 @@ module HouseholdFinance
         new_part["saved_label"] = match["saved_label"] if match["saved_label"]
         new_part["label"] = match["label"] if match["saved_label"]
         state["parts"][index] = new_part
-      elsif lump_only?(live) && !unlabeled && (entry["op"] == "replace" || entry["source"].to_s.match?(CHANGED_WORDS))
+      elsif (lump = live.select { |part| lump?(part) }).any? && !unlabeled && (entry["op"] == "replace" || entry["source"].to_s.match?(CHANGED_WORDS))
         fields.delete(field) if seeded
-        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: live.sum { |part| part["cents"].to_i })
+        return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: lump.sum { |part| part["cents"].to_i })
       else
         state["parts"] << new_part
       end
@@ -516,9 +516,9 @@ module HouseholdFinance
       live = existing.reject { |part| part["removed"] }
       match = matching_part(live, label, exact: false)
       unless match
-        if lump_only?(live)
+        if (lump = live.select { |part| lump?(part) }).any?
           fields.delete(field) if seeded
-          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: live.sum { |part| part["cents"].to_i })
+          return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: lump.sum { |part| part["cents"].to_i })
         end
         fields.delete(field) if seeded || state["parts"].empty?
         return updates << Update.new(field: field, action: :not_found, label: label)
@@ -562,7 +562,9 @@ module HouseholdFinance
       end
     end
 
-    def lump_only?(parts) = parts.any? && parts.all? { |part| LUMP_KINDS.include?(part["kind"]) }
+    # One figure with no named bills inside it, including a saved whole-layer
+    # row that sits beside named ones.
+    def lump?(part) = LUMP_KINDS.include?(part["kind"]) || AGGREGATE_LABELS.include?(part["saved_label"].to_s.downcase)
 
     def money_part(entry, forced_unclear: false)
       cadence = forced_unclear ? "unclear" : entry["cadence"]

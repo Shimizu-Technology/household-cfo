@@ -17,6 +17,23 @@ function rowValue(row: MiaSetupCardRow) {
   return STATUS_TEXT[row.status] ?? STATUS_TEXT.missing
 }
 
+function lowerList(labels: string[]) {
+  const words = labels.map((label) => label.charAt(0).toLowerCase() + label.slice(1))
+  if (words.length < 2) return words.join('')
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+}
+
+// The card can re-render from fresh data while a row is saving, so focus is
+// found by the row's key once that row is on screen and usable again.
+function focusRowWhenReady(card: HTMLElement | null, key: string, tries = 12) {
+  const button = card?.querySelector<HTMLButtonElement>(`[data-setup-row="${key.replace(/"/g, '\\"')}"]`)
+  if (button && !button.disabled) {
+    button.focus()
+    return
+  }
+  if (tries > 0) requestAnimationFrame(() => focusRowWhenReady(card, key, tries - 1))
+}
+
 export function MiaSetupCard({
   draft,
   isRealWorkspace,
@@ -40,7 +57,7 @@ export function MiaSetupCard({
   const [value, setValue] = useState('')
   const [confirmingCancel, setConfirmingCancel] = useState(false)
   const [saving, setSaving] = useState(false)
-  const rowButtons = useRef(new Map<string, HTMLButtonElement>())
+  const cardRef = useRef<HTMLElement>(null)
   const keepButton = useRef<HTMLButtonElement>(null)
   const notNowButton = useRef<HTMLButtonElement>(null)
   const confirmShown = useRef(false)
@@ -56,6 +73,8 @@ export function MiaSetupCard({
   }, [confirmingCancel])
   if (!card) return null
   const locked = !isRealWorkspace || disabled || Boolean(action) || saving
+  const stillToAdd = card.still_to_add ?? []
+  const skipped = card.skipped ?? []
   // Only answers typed on this card can be lost, including one still in an
   // open edit; saved rows stay either way.
   const hasAnswers = card.rows.some((item) => item.status === 'entered' || item.status === 'needs_monthly') ||
@@ -69,6 +88,7 @@ export function MiaSetupCard({
     }
     setEditing({ key, row, part })
     if (row.kind === 'text') setValue(row.value_text ?? '')
+    else if (row.kind === 'months') setValue(row.value_text?.replace(/\s*months?$/, '') ?? '')
     else {
       const cents = part ? part.cents : row.total_cents
       setValue(cents == null ? '' : String(cents / 100))
@@ -82,7 +102,7 @@ export function MiaSetupCard({
       if (!await onEdit(draft, edit)) return
       setEditing(null)
       // The form is gone, so focus returns to the row it came from.
-      if (key) requestAnimationFrame(() => rowButtons.current.get(key)?.focus())
+      if (key) requestAnimationFrame(() => focusRowWhenReady(cardRef.current, key))
     } catch {
       // The form stays open so the typed amount can be saved again.
     } finally {
@@ -94,14 +114,15 @@ export function MiaSetupCard({
     const isOpen = editing?.key === `${row.key}:${part?.id ?? ''}`
     const label = part ? part.label : row.label
     const shown = part
-      ? (part.cents != null ? formatReviewMoney(part.cents) : part.note ?? STATUS_TEXT.needs_monthly)
+      ? (part.removed ? 'Taking off' : part.cents != null ? formatReviewMoney(part.cents) : part.note ?? STATUS_TEXT.needs_monthly)
       : rowValue(row)
-    const note = part && part.cents != null ? part.note : null
+    const note = part && part.cents != null && !part.removed ? part.note : null
     const rowKey = `${row.key}:${part?.id ?? ''}`
-    // Named debts are changed one at a time, so their total is not a control.
-    const isStatic = !part && row.kind === 'debts' && row.parts.length > 0
+    // Named debts and bills are changed one at a time, so a total with parts
+    // is not a control, and a bill being taken off stays as it is.
+    const isStatic = part?.removed || (!part && row.kind === 'debts' && row.parts.length > 0)
     return (
-      <div className={`setup-card-line${part ? ' is-part' : ''}${!part && row.status === 'missing' ? ' is-empty' : ''}`}>
+      <div className={`setup-card-line${part ? ' is-part' : ''}${part?.removed ? ' is-removed' : ''}`}>
         {isStatic ? (
           <div className="setup-card-row is-static">
             <span className="setup-card-label">{label}</span>
@@ -110,7 +131,7 @@ export function MiaSetupCard({
         ) : (
           <button
             type="button"
-            ref={(element) => { if (element) rowButtons.current.set(rowKey, element); else rowButtons.current.delete(rowKey) }}
+            data-setup-row={rowKey}
             className="setup-card-row"
             aria-expanded={isOpen}
             disabled={locked}
@@ -132,7 +153,7 @@ export function MiaSetupCard({
                 autoFocus
                 value={value}
                 inputMode={row.kind === 'text' ? 'text' : 'decimal'}
-                placeholder={row.kind === 'text' ? '' : 'Monthly amount'}
+                placeholder={row.kind === 'text' ? '' : row.kind === 'months' ? 'Months' : 'Monthly amount'}
                 onChange={(event) => setValue(event.target.value)}
               />
             </label>
@@ -153,7 +174,7 @@ export function MiaSetupCard({
   }
 
   return (
-    <article className="setup-card" aria-labelledby={headingId}>
+    <article ref={cardRef} className="setup-card" aria-labelledby={headingId}>
       <h4 id={headingId}>{card.title}</h4>
       <div className="setup-card-rows">
         {card.rows.map((row) => (
@@ -164,30 +185,39 @@ export function MiaSetupCard({
           </div>
         ))}
       </div>
+      {(stillToAdd.length > 0 || skipped.length > 0) && (
+        <p className="setup-card-pending">
+          {stillToAdd.length > 0 && <>Still to add: {lowerList(stillToAdd)}.</>}
+          {stillToAdd.length > 0 && skipped.length > 0 && ' '}
+          {skipped.length > 0 && <>Skipped for now: {lowerList(skipped)}.</>}
+        </p>
+      )}
       {draft.stale && <p className="mia-action-stale-note" role="status">Your numbers changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
-      <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
-      {confirmingCancel && hasAnswers
-        ? (
-          <>
-            <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
+      <div className="setup-card-footer">
+        <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
+        {confirmingCancel && hasAnswers
+          ? (
+            <>
+              <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
+              <div className="mia-action-draft-actions">
+                <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
+                <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
+                  {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
+                </button>
+              </div>
+            </>
+          )
+          : (
             <div className="mia-action-draft-actions">
-              <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
-              <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
-                {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
+              <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
+                {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
+              </button>
+              <button ref={notNowButton} type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
+                {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
               </button>
             </div>
-          </>
-        )
-        : (
-          <div className="mia-action-draft-actions">
-            <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
-              {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
-            </button>
-            <button ref={notNowButton} type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
-              {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
-            </button>
-          </div>
-        )}
+          )}
+      </div>
     </article>
   )
 }

@@ -184,6 +184,18 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal %w[household_name primary_goal], @household.reload.setup_skipped_fields.sort, "skipped stays skipped"
   end
 
+  test "a form-only total keeps asking for a new total for a bill inside it, even beside a named bill" do
+    HouseholdFinance::SetupUpdater.new(@household, household_name: "Form", primary_goal: "steady", primary_income: "4800", fixed_expenses: "1900", flexible_spend: "500", credit_card_debt: "0", debt_payment: "0").call
+    added = say("add phone 60", read(setup: changes(fixed_expenses: money(parts: [ part("add", "phone", "60", source: "add phone 60") ]))))
+    apply(card_of(added))
+    assert_equal [ "Fixed essentials", "Phone" ], stack_names("non_discretionary")
+    body = say("the rent went up to 1700", read(setup: changes(fixed_expenses: money(parts: [ part("replace", "rent", "1700", source: "the rent went up to 1700") ]))))
+    assert_nil card_of(body)
+    assert_match(/I only have one total for fixed essentials \(\$1,900\), so I can't change rent by itself\. What should the new total be\?/, text(body))
+    phone = say("the phone is 65 now", read(setup: changes(fixed_expenses: money(parts: [ part("replace", "phone", "65", source: "the phone is 65 now") ]))))
+    assert_equal [ [ "Phone", 6_500 ] ], row(phone, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
+  end
+
   test "a change the reader missed but the intent model found goes on the same card" do
     finish_setup
     intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: "set emergency fund",

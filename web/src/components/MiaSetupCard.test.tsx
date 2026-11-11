@@ -123,6 +123,37 @@ describe('MiaSetupCard', () => {
     await waitFor(() => expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false))
   })
 
+  it('lists what is still to add and what was skipped in one line, not as rows', () => {
+    render(<MiaSetupCard draft={{ ...draft([row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 420000 })]), setup_card: { title: 'Your setup so far', rows: [row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 420000 })], can_apply: true, revision: 1, still_to_add: ['Main goal', 'Everyday spending'], skipped: ['Household name'] } }}
+      isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={vi.fn()} />)
+    expect(screen.getByText('Still to add: main goal and everyday spending. Skipped for now: household name.')).toBeTruthy()
+    expect(screen.queryByText('Not entered yet')).toBeNull()
+  })
+
+  it('shows a bill being taken off without letting it be edited as an amount', () => {
+    setup([row('fixed_expenses', { label: 'Fixed essentials', status: 'entered', total_cents: 183000, note: 'Rent and Power stay as they are.',
+      parts: [{ id: 'saved-1', label: 'Insurance', cents: 12000, counted: true, note: 'Taking this off', removable: false, removed: true }] })])
+    expect(screen.getByText('Taking off')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Change Insurance/ })).toBeNull()
+    expect(screen.getByText('Rent and Power stay as they are.')).toBeTruthy()
+  })
+
+  it('returns focus to the edited row even when the card re-renders from new data', async () => {
+    const onEdit = vi.fn().mockResolvedValue(true)
+    const rows = [row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 100000 })]
+    const view = render(<MiaSetupCard draft={draft(rows)} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+    fireEvent.click(screen.getByRole('button', { name: /Change Monthly income/ }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '1200' } })
+    onEdit.mockImplementationOnce(async () => {
+      view.rerender(<MiaSetupCard draft={draft([row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 120000 })])} isRealWorkspace action="edit-setup-card:7" disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+      return true
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('textbox')).toBeNull())
+    view.rerender(<MiaSetupCard draft={draft([row('primary_income', { label: 'Monthly income', status: 'entered', total_cents: 120000 })])} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={onEdit} />)
+    await waitFor(() => expect(document.activeElement?.getAttribute('aria-label')).toBe('Change Monthly income: $1,200'))
+  })
+
   it('disables Apply with no savable row', () => {
     setup([row('primary_income', {})], false)
     expect((screen.getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true)

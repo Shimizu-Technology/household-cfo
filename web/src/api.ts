@@ -727,12 +727,13 @@ export type MiaSetupCardPart = {
   counted: boolean
   note?: string | null
   removable?: boolean
+  removed?: boolean
 }
 
 export type MiaSetupCardRow = {
   key: string
   label: string
-  kind: 'text' | 'money' | 'debts'
+  kind: 'text' | 'money' | 'debts' | 'months'
   status: 'entered' | 'saved' | 'missing' | 'skipped' | 'needs_monthly'
   value_text: string | null
   total_cents: number | null
@@ -740,7 +741,7 @@ export type MiaSetupCardRow = {
   note: string | null
 }
 
-export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_apply: boolean; revision: number }
+export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_apply: boolean; revision: number; still_to_add?: string[]; skipped?: string[] }
 
 export type MiaSetupCardEdit = { field: string; action_name: 'set' | 'remove' | 'skip' | 'unskip'; part_id?: string; value?: string }
 

@@ -416,7 +416,22 @@
 .setup-card-edit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .setup-card-edit-actions button { flex: 1 1 auto; min-height: 44px; transition: transform 140ms var(--ease-out); }
 .setup-card-edit-actions button:active { transform: scale(0.97); }
-.setup-card-promise { margin: 10px 0 0; font-size: var(--text-sm); color: var(--muted); }
+.setup-card-promise { margin: 0; font-size: var(--text-sm); color: var(--muted); }
+.setup-card-promise + .setup-card-promise { margin-top: 6px; }
+.setup-card-line.is-removed .setup-card-label, .setup-card-line.is-removed .setup-card-value { color: var(--muted); }
+.setup-card-pending { margin: 6px 0 0; padding-top: 8px; border-top: 1px solid var(--line); font-size: var(--text-sm); color: var(--ink-soft); }
+/* A long card keeps Apply in reach: the footer sticks to the bottom of the
+   chat while the rows scroll behind it. */
+.setup-card-footer { position: sticky; bottom: 0; z-index: 1; margin: 12px -16px -16px; padding: 10px 16px 16px; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--paper); }
+.setup-card-footer .mia-action-draft-actions { margin-top: 10px; }
+@media (max-width: 620px) {
+  .setup-card { padding: 12px 14px; }
+  .setup-card-footer { margin: 10px -14px -12px; padding: 8px 14px 12px; }
+  .setup-card-footer .mia-action-draft-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .setup-card-footer .mia-action-draft-actions > button { width: 100%; min-width: 0; }
+  .setup-card-row { min-height: 44px; padding: 4px 0; }
+  .setup-card-group { padding: 2px 0; }
+}
 @media (hover: hover) and (pointer: fine) {
   .setup-card-row:hover .setup-card-label { color: var(--mauve); }
 }
