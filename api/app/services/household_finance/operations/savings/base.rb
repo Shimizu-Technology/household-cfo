@@ -37,7 +37,7 @@ module HouseholdFinance
         end
 
         def enrollment_for(input, lock:)
-          enrollment = SavingsEnrollment.in_use.find_by!(household_id: household.id, user_id: user.id, cohort_id: input.fetch(:cohort_id))
+          enrollment = SavingsEnrollment.current_for(household_id: household.id, user_id: user.id, cohort_id: input.fetch(:cohort_id))
           authorize!(input.fetch(:cohort_id), enrollment: enrollment, lock: lock)
           enrollment.lock! if lock
           raise ArgumentError, "This enrollment does not accept financial changes" unless enrollment.status == "active"

@@ -332,6 +332,17 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert preview.reload.preview?
   end
 
+  test "a participant whose seat was removed keeps a protected household, while a staff preview never makes one" do
+    enrollment = enroll_peer(@peers.first)
+    household = enrollment.household
+    assert ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household)
+    CohortMembership.find(enrollment.accepted_cohort_membership_id).destroy!
+    assert_not_includes SavingsEnrollment.counted.pluck(:id), enrollment.id, "no longer a counted person"
+    assert ChallengePrivacy::PrivateFinanceAccess.pilot_household?(household), "but their private records stay protected"
+    preview = preview_enroll(@admin)
+    assert_not ChallengePrivacy::PrivateFinanceAccess.pilot_household?(preview.household)
+  end
+
   test "rolling the preview migrations back is refused while any preview data exists" do
     seat = PreviewSeats.join!(user: @admin, cohort_id: @savings_cohort.id)
     assert_raises(ActiveRecord::IrreversibleMigration) { run_migration(AllowStaffPreviewSeats, :down) }

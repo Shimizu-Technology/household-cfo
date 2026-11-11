@@ -5,15 +5,15 @@ module ChallengePrivacy
     Denied = Class.new(StandardError)
 
     # A staff member's preview enrollment does not make their own household a
-    # participant's: only counted enrollments and participant seats do.
+    # participant's: only a participant's enrollment (anything not known to be a preview) and participant seats do.
     def self.without_pilot_households(scope)
       participant_ids = CohortMembership.joins(:cohort).where(role: "participant", cohorts: { savings_challenge_enabled: true }).select(:user_id)
-      scope.where.not(household_id: SavingsEnrollment.counted.select(:household_id))
+      scope.where.not(household_id: SavingsEnrollment.not_preview.select(:household_id))
         .where.not(household_id: HouseholdMembership.where(user_id: participant_ids).select(:household_id))
     end
 
     def self.pilot_household?(household)
-      SavingsEnrollment.counted.where(household: household).exists? ||
+      SavingsEnrollment.not_preview.where(household: household).exists? ||
         CohortMembership.joins(:cohort).where(user_id: household.household_memberships.select(:user_id), role: "participant",
           cohorts: { savings_challenge_enabled: true }).exists?
     end

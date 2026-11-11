@@ -30,11 +30,22 @@ class SavingsEnrollment < ApplicationRecord
   # roster, count, cap, report, export and reminder over a cohort goes through
   # `counted`. (A person's own enrollment is looked up by user, not by cohort.)
   scope :counted, -> { where(staff_preview: false, accepted_cohort_membership_id: CohortMembership.where(role: "participant").select(:id)) }
+  # Everything that is not known to be a staff preview. Protective checks ("is this
+  # household a participant's?") use this, so a participant whose membership was
+  # removed keeps their household protected: those fail closed the other way round.
+  scope :not_preview, -> { where(staff_preview: false).where.not(accepted_cohort_membership_id: CohortMembership.all_previews.select(:id)) }
   # A staff member's challenge preview, accepted through a preview seat.
   scope :previews, -> { where(staff_preview: true) }
   # Everything except a staff preview that ended. Lookups of "this person's
   # enrollment in this group" use it, so an old preview never hides the real one.
   scope :in_use, -> { where("NOT (savings_enrollments.staff_preview AND savings_enrollments.status = 'withdrawn')") }
+
+  # The person's enrollment in a group: the live one, else (so the access policy can
+  # say why it is closed) an ended preview. Raises RecordNotFound when there is none.
+  def self.current_for(household_id:, user_id:, cohort_id:)
+    scope = where(household_id: household_id, user_id: user_id, cohort_id: cohort_id)
+    scope.in_use.first || scope.first || raise(ActiveRecord::RecordNotFound, "Couldn't find SavingsEnrollment")
+  end
 
   def preview?
     staff_preview
