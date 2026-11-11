@@ -278,6 +278,17 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal 0, MiaActionDraft.where(draft_type: "purchase_change").count
   end
 
+  test "conflicting days stay a constraint: a same-amount purchase from another day gets no card" do
+    purchase = confirmed("Starbucks", "12", Date.new(2026, 11, 9), @dining)
+
+    body = say("delete the $12 starbucks tomorrow or 2 days ago, it was a refund")
+    assert_nil body["mia_action_draft"], "no card when the day she named can't be pinned down"
+    assert_includes body.dig("assistant_message", "content"), "couldn't tell which day"
+    assert_includes body.dig("assistant_message", "content"), "Nothing changed"
+    assert_equal "confirmed", purchase.reload.status
+    assert_equal 0, MiaActionDraft.where(draft_type: "purchase_change").count
+  end
+
   test "asking about a different purchase leaves the first card open, and asking again about the same one replaces it" do
     confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
     confirmed("Starbucks", "12", Date.new(2026, 11, 10), @dining)

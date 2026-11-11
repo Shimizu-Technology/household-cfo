@@ -22,7 +22,7 @@ module HouseholdFinance
 
     # She picked one of the purchases Mia listed.
     def self.for_choice(household:, change:, transaction_draft_id:, today: Date.current)
-      request = PurchaseChangeRequest::Result.new(void: change["void"] == true, new_cents: change["new_cents"], old_cents: nil, category_text: nil, day: nil)
+      request = PurchaseChangeRequest::Result.new(void: change["void"] == true, new_cents: change["new_cents"], old_cents: nil, category_text: nil, day: nil, day_unclear: false)
       draft = household.transaction_drafts.find_by(id: transaction_draft_id)
       return unless draft&.status.in?(%w[confirmed corrected])
 
@@ -121,6 +121,7 @@ module HouseholdFinance
       return if pending_purchase_named? && !(request.old_cents && !match.missed_amount && pool.any? { |draft| draft.total_amount_cents == request.old_cents })
 
       return reply_only("I can only change purchases you've already confirmed, and #{day_label(request.day)} hasn't happened yet. Nothing changed.") if request.day && request.day > today
+      return reply_only("I couldn't tell which day that purchase was. Tell me the one day and I'll find it. Nothing changed.") if request.day_unclear
 
       changeable = pool.reject { |draft| draft.financial_source_event_id.present? }
       return reply_only("That purchase came from a statement line, so I can't change it from chat. Open Statements to fix that line. Nothing changed.") if changeable.empty?

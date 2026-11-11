@@ -4,7 +4,7 @@ module HouseholdFinance
   # It only reads the words; the purchase is found in her own confirmed
   # purchases, and a card shows her the change before anything moves.
   class PurchaseChangeRequest
-    Result = Data.define(:void, :new_cents, :old_cents, :category_text, :day)
+    Result = Data.define(:void, :new_cents, :old_cents, :category_text, :day, :day_unclear)
 
     AMOUNT = /(?<![\w.])\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?![\w.]*\d)(?!\w)/.freeze
     VOID = /\b(?:delete|remove|void|scrap|get rid of|take (?:it |that |this )?(?:off|out)|undo)\b|\b(?:was|were|is|it was|that was)\s+(?:a\s+|an\s+)?(?:refund(?:ed)?|return(?:ed)?|mistake|accident|duplicate|double[- ]charge|cancel(?:l)?ed)\b|\b(?:didn['’]?t|did not|never)\s+(?:actually\s+)?(?:buy|spend|pay|happen|go through)\b|\b(?:shouldn['’]?t|should not)\s+(?:be\s+)?(?:counted|there|in (?:my|the|our) spending)\b|\bdon['’]?t count\b/.freeze
@@ -34,7 +34,7 @@ module HouseholdFinance
       return unless void || new_cents || category_only?(category, old_cents: old_cents)
 
       old_cents ||= hinted_amount(except: new_cents)
-      Result.new(void: void, new_cents: new_cents, old_cents: old_cents, category_text: category, day: day)
+      Result.new(void: void, new_cents: new_cents, old_cents: old_cents, category_text: category, day: day, day_unclear: day_unclear?)
     end
 
     private
@@ -94,10 +94,19 @@ module HouseholdFinance
     # confirmed purchase can be dated then, and she is told so rather than
     # shown a same-amount purchase from another day.
     def day
-      result = ParticipantReportDay.call(day: "", message: text, today: today)
-      result.state == :resolved ? result.date : nil
+      day_reading.state == :resolved ? day_reading.date : nil
+    end
+
+    # She named a day we can't pin to one date ("tomorrow or 2 days ago"). That
+    # stays a constraint: no purchase from some other day is offered for it.
+    def day_unclear?
+      day_reading.state == :unresolved
+    end
+
+    def day_reading
+      @day_reading ||= ParticipantReportDay.call(day: "", message: text, today: today)
     rescue StandardError
-      nil
+      @day_reading = ParticipantReportDay::Result.new(:missing, nil, "")
     end
 
     def cents(whole, fraction)
