@@ -374,6 +374,18 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     assert_includes text(say("How many days are left?", legacy(question: true))), "Your challenge runs from"
   end
 
+  test "a savings total question cannot bypass unresolved crisis care" do
+    enroll_in_challenge
+    say("I want to kill myself. I have a gun in my room.", legacy(care: "crisis"))
+    body = say("How much have I saved so far?", legacy(question: true))
+    assert_equal true, body.dig("assistant_message", "safety_reply")
+    assert_equal true, body.dig("assistant_message", "care_hold")
+    assert_includes text(body), "988"
+    assert_includes text(body), "gun"
+    assert_nil body["challenge_chat_card"]
+    refute_match(/saved.*so far|approved data/i, text(body))
+  end
+
   test "a reload releases the prompt after crisis expiry while retaining the historical safety flag" do
     enroll_in_challenge
     say("I want to kill myself", legacy(care: "crisis"))
