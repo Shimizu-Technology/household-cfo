@@ -94,11 +94,13 @@
 .mia-daily-date input { min-width: 0; min-height: 44px; font-size: 16px; flex: 1; }
 
 /* Mia's cards for a confirmed purchase, joining, savings and checkpoints. */
+.mia-action-card { max-width: 40rem; }
+.mia-purchase-card { scroll-margin-bottom: 80px; }
 .mia-purchase-which { color: var(--muted, #66625b); font-variant-numeric: tabular-nums; }
 .mia-purchase-options { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
 .mia-purchase-options button { width: 100%; min-height: 44px; justify-content: flex-start; text-align: left; font-variant-numeric: tabular-nums; }
 .mia-purchase-rows { display: grid; gap: 8px; margin: 0; }
-.mia-purchase-rows > div { display: grid; grid-template-columns: minmax(84px, 7rem) minmax(0, 1fr); align-items: baseline; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line, #e2d9cb); }
+.mia-purchase-rows > div { display: grid; grid-template-columns: minmax(72px, 6rem) minmax(0, 1fr); align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line, #e2d9cb); }
 .mia-purchase-rows > div:last-child { border-bottom: 0; }
 .mia-purchase-rows dt { color: var(--muted, #66625b); }
 .mia-purchase-rows dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
@@ -115,5 +117,8 @@
 .mia-card-facts dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .mia-card-link { min-height: 44px; padding: 10px 12px; background: transparent; color: var(--emerald, #7b4a58); font-weight: var(--weight-semibold, 600); text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 520px) {
-  .mia-purchase-rows > div, .mia-card-facts > div { grid-template-columns: 1fr; gap: 2px; }
+  .mia-card-facts > div { grid-template-columns: 1fr; gap: 2px; }
+}
+@media (max-width: 380px) {
+  .mia-purchase-rows > div { grid-template-columns: 1fr; gap: 0; }
 }

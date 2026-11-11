@@ -59,11 +59,11 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   }
 
   if (saved) {
-    return <section className="mia-daily-card is-saved" aria-label="Savings saved"><h3>{withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`}</h3><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p><button type="button" className="mia-daily-dismiss" onClick={() => onApproved?.()}>Done</button></section>
+    return <section className="mia-daily-card mia-action-card is-saved" aria-label="Savings saved"><h3>{withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`}</h3><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p><button type="button" className="mia-daily-dismiss" onClick={() => onApproved?.()}>Done</button></section>
   }
 
   if (inPlace) {
-    return <section className="mia-daily-card" aria-label="Savings to check" aria-busy={busy}>
+    return <section className="mia-daily-card mia-action-card" aria-label="Savings to check" aria-busy={busy}>
       <h3>{title} · {plainDay(intake.effective_on, today)}</h3>
       <p>{withdrawal ? 'This takes the money out of your challenge total. Nothing changes until you tap Yes.' : original ? 'This replaces the earlier amount in your total. Nothing changes until you tap Yes.' : 'Only new money you set aside counts. Nothing is saved until you tap Yes.'}</p>
       {needsNewMoney && <label className="mia-card-check"><input type="checkbox" checked={newMoney} disabled={busy} onChange={event => setNewMoney(event.target.checked)} /><span>This was new money I set aside after expenses, not borrowed or money I already had.</span></label>}

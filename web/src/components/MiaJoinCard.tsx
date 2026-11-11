@@ -2,10 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { ApiRequestError, enrollSavingsChallenge, fetchSavingsChallenge } from '../api'
 import { formatRange } from '../lib/plainDates'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
-import { savingsDollars, type SavingsChallenge } from '../lib/savingsChallenge'
+import type { SavingsChallenge } from '../lib/savingsChallenge'
 import './MiaDailyCheckIn.css'
-
-const wholeDollars = (cents: number) => cents % 100 === 0 ? `$${new Intl.NumberFormat('en-US').format(cents / 100)}` : savingsDollars(cents)
 
 type Props = { onJoined: () => void; onDone: () => void }
 
@@ -23,6 +21,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   // One key per exact offer, so a retry after a dropped connection replays instead of joining twice.
   const requestKey = useRef<{ digest: string; key: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
+  const card = useRef<HTMLElement>(null)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -31,6 +30,8 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }, [attempt])
 
   const offer = challenge?.offer
+  const ready = Boolean(offer)
+  useEffect(() => { if (ready) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [ready])
   const alreadyIn = Boolean(challenge?.enrollment) && !joined
   useEffect(() => { if (alreadyIn) onJoined() }, [alreadyIn, onJoined])
 
@@ -42,7 +43,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
       await enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, requestKey.current.key)
       setJoined(true)
       onJoined()
-      requestAnimationFrame(() => heading.current?.focus({ preventScroll: true }))
+      requestAnimationFrame(() => heading.current?.focus())
     } catch (failure) {
       if (failure instanceof ApiRequestError && failure.status === 409) {
         setError('The joining details were updated. Review them and check the box again.')
@@ -57,19 +58,17 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
 
   if (joined) {
-    return <section className="mia-daily-card is-saved" aria-label="You joined the challenge"><h3 ref={heading} tabIndex={-1}>You’re in. Welcome to the challenge.</h3><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p><button type="button" className="mia-daily-dismiss" onClick={onDone}>Done</button></section>
+    return <section className="mia-daily-card mia-action-card is-saved" aria-label="You joined the challenge"><h3 ref={heading} tabIndex={-1}>You’re in. Welcome to the challenge.</h3><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p><button type="button" className="mia-daily-dismiss" onClick={onDone}>Done</button></section>
   }
   if (alreadyIn) return null
   if (loadFailed) {
-    return <section className="mia-daily-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss" onClick={onDone}>Not now</button></div></section>
+    return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss" onClick={onDone}>Not now</button></div></section>
   }
-  if (!challenge || !offer) return <section className="mia-daily-card" aria-label="Join the challenge" aria-busy="true"><h3>Join the 90-day savings challenge</h3><p role="status">Getting your joining details…</p></section>
+  if (!challenge || !offer) return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge" aria-busy="true"><h3>Join the 90-day savings challenge</h3><p role="status">Getting your joining details…</p></section>
 
-  const suggested = challenge.suggested_target_cents ? wholeDollars(challenge.suggested_target_cents) : '$500'
   const needsLate = Boolean(offer.late_start_acceptance_required)
-  return <section className="mia-daily-card" aria-label="Join the challenge" aria-busy={busy}>
+  return <section ref={card} className="mia-daily-card mia-action-card" aria-label="Join the challenge" aria-busy={busy}>
     <h3>Join the 90-day savings challenge</h3>
-    <p>A {suggested} cushion can keep surprises off the card while you pay down debt. Choose a comfortable goal for your 90 days.</p>
     <p><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on) : 'dates not set yet'}</strong><br /><span className="mia-daily-hint">{offer.cohort_label}</span></p>
     <p className="mia-daily-hint">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
     <fieldset className="mia-card-checks" disabled={busy || !offer.accepting_enrollments}>

@@ -66,7 +66,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
       const head = heads.records.find(row => row.milestone_day === day)
       if (head?.current_version) { setFinished(true); onDone(); return }
       const record = await mutation.mutate('checkpoint_stage', { milestone_day: day, expected_version_id: head?.current_version_id ?? null, expected_head_lock_version: head?.lock_version ?? 0, reason: '', final_confirmation_accepted: day === 90 && finalDone }, undefined, keys.current.stage) as DailyCheckpointDraft | null
-      if (record) { setDraft(record); requestAnimationFrame(() => heading.current?.focus({ preventScroll: true })) }
+      if (record) { setDraft(record); requestAnimationFrame(() => heading.current?.focus()) }
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'We couldn’t prepare that. Nothing changed.')
     } finally {
@@ -91,7 +91,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   }
 
   if (!draft || !snapshot) {
-    return <section className="mia-daily-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+    return <section className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
       <h3 ref={heading} tabIndex={-1}>Day {day} is ready to look back on</h3>
       <p>I can show what you set aside and what you noticed through {formatDay(scope && due.localToday, { year: false })}, next to your target. Nothing is saved until you approve it.</p>
       {day === 90 && <label className="mia-card-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my 90 days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
@@ -104,7 +104,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
     </section>
   }
 
-  return <section className="mia-daily-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+  return <section className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
     <h3 ref={heading} tabIndex={-1}>Day {day}: here’s your look back</h3>
     <p className="mia-daily-hint">Through {formatDay(snapshot.cutoff_on, { year: true })}, from the amounts and check-ins you already saved.</p>
     <dl className="mia-card-facts">{lines.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>

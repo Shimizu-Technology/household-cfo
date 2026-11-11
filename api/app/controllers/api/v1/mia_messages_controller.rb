@@ -673,10 +673,12 @@ module Api
             HouseholdFinance::PurchaseChange.create_draft!(plan, household: current_household, user: current_user,
               user_message: user_message, assistant_message: assistant_message, cohort_membership: current_cohort_membership)
           end
+          # The budget carries the open review cards, so the new card shows without a refresh.
+          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message),
             mia_action_draft: draft ? serialize_mia_action_draft(draft) : nil,
-            transaction_draft: nil, budget: nil, spending_report: nil }
+            transaction_draft: nil, budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget, spending_report: nil }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [], mia_action_draft: draft)
           render json: payload, status: :created

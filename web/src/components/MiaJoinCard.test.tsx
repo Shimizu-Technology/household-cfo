@@ -17,7 +17,6 @@ it('shows the join screen’s dates and terms, and joins only after the box and 
   render(<MiaJoinCard onJoined={onJoined} onDone={onDone} />)
   await screen.findByText(/Your 90 days: Thu, Nov 12 – Tue, Feb 9, 2027/)
   expect(screen.getByText(/You approve each amount; the app doesn’t move money/)).toBeTruthy()
-  expect(screen.getByText(/A \$500 cushion can keep surprises off the card/)).toBeTruthy()
   const accept = screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement
   expect(accept.disabled).toBe(true)
   fireEvent.click(accept)

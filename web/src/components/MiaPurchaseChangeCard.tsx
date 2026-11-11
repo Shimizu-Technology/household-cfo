@@ -16,10 +16,14 @@ type Props = {
 export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCancel, onChoose }: Props) {
   const change = draft.purchase_change
   const heading = useRef<HTMLHeadingElement>(null)
+  const card = useRef<HTMLElement>(null)
   const [choosing, setChoosing] = useState<number | null>(null)
   const [error, setError] = useState('')
   const mode = change?.mode
   const first = useRef(true)
+  // A card Mia just made scrolls into view; one reloaded with the history stays where it is.
+  const fresh = draft.created_at ? Date.now() - Date.parse(draft.created_at) < 90_000 : false
+  useEffect(() => { if (fresh) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [fresh])
   // The card turns into the change card after a choice; keep her place on it.
   useEffect(() => {
     if (first.current) { first.current = false; return }
@@ -32,7 +36,7 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
 
   if (change.mode === 'choose') {
     return (
-      <section className="mia-daily-card mia-purchase-card" aria-label="Which purchase" aria-busy={choosing !== null}>
+      <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card" aria-label="Which purchase" aria-busy={choosing !== null}>
         <h3 ref={heading} tabIndex={-1}>Which purchase do you mean?</h3>
         <ul className="mia-purchase-options">
           {change.options.map((option) => (
@@ -57,9 +61,9 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
 
   const title = change.void ? `Take ${change.merchant} out of your spending?` : `Change your ${change.merchant} purchase?`
   return (
-    <section className="mia-daily-card mia-purchase-card" aria-label={title} aria-busy={applying}>
+    <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card" aria-label={title} aria-busy={applying}>
       <h3 ref={heading} tabIndex={-1}>{title}</h3>
-      <p className="mia-purchase-which">{change.date_label} · {change.amount}</p>
+      <p className="mia-purchase-which">{change.date_label}{change.void ? ` · ${change.amount}` : ''}</p>
       {change.rows.length > 0 && (
         <dl className="mia-purchase-rows">
           {change.rows.map((row) => (
@@ -73,13 +77,12 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
           <ul>{change.effects.map((line) => <li key={line}>{line}</li>)}</ul>
         </div>
       )}
-      {change.note && <p className="mia-daily-footnote">{change.note}</p>}
       {draft.stale && <p className="mia-action-stale-note" role="status">That purchase changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
       <div className="mia-daily-actions">
         <button type="button" className="mia-daily-save" disabled={locked || Boolean(draft.stale)} onClick={() => onApply(draft)}>{applying ? 'Saving…' : change.void ? 'Yes, take it out' : 'Yes, change it'}</button>
         <button type="button" className="mia-daily-dismiss" disabled={locked} onClick={() => onCancel(draft)}>{canceling ? 'Closing…' : 'Not now'}</button>
       </div>
-      <p className="mia-daily-footnote">Nothing changes until you tap Yes.</p>
+      <p className="mia-daily-footnote">Nothing changes until you tap Yes. {change.note}</p>
     </section>
   )
 }

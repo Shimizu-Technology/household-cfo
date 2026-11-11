@@ -56,6 +56,7 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     card = body.fetch("mia_action_draft")
     assert_equal "purchase_change", card["draft_type"]
     assert_equal "confirm", card.dig("purchase_change", "mode")
+    assert_includes body.dig("budget", "annual_plan", "pending_mia_action_drafts").pluck("id"), card["id"], "the budget carries the card so it shows without a refresh"
     assert_equal [ { "label" => "Amount", "before" => "$46", "after" => "$64" } ], card.dig("purchase_change", "rows")
     assert_includes card.dig("purchase_change", "effects").first, "Shopping, November: $64 spent of your $200 plan, $136 left (was $46 spent)."
     assert_includes body.dig("assistant_message", "content"), "Nothing changes until you do"
