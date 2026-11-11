@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { fetchDailyContext, fetchDailyPage, fetchSavingsChallenge, mutateDaily } from '../api'
+import { ApiRequestError, fetchDailyContext, fetchDailyPage, fetchDailyRequestStatus, fetchSavingsChallenge, mutateDaily } from '../api'
 import type { CheckpointSnapshot, DailyContext } from '../lib/dailyChallenge'
 import { setDailyExpectedUser } from '../lib/dailyRecovery'
 import type { SavingsChallenge } from '../lib/savingsChallenge'
 import { MiaCheckpointCard } from './MiaCheckpointCard'
-vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchDailyContext: vi.fn(), fetchDailyPage: vi.fn(), mutateDaily: vi.fn() }))
+vi.mock('../api', async original => ({ ...await original<typeof import('../api')>(), fetchSavingsChallenge: vi.fn(), fetchDailyContext: vi.fn(), fetchDailyPage: vi.fn(), fetchDailyRequestStatus: vi.fn(), mutateDaily: vi.fn() }))
 
 const actor = { user_id: 5, household_id: 8 }
 const envelope = { actor_scope: actor, enrollment_id: 11, cohort_id: 2 }
@@ -85,4 +85,114 @@ it('Not now hides it for the day, and Open in Checkpoints goes to the screen', a
   const again = render(<MiaCheckpointCard actor={actor} cohortId={2} onDone={vi.fn()} onOpenCheckpoints={open} />)
   await waitFor(() => expect(fetchDailyContext).toHaveBeenCalledTimes(2))
   expect(again.container.textContent).toBe('')
+})
+
+const tickBox = () => fireEvent.click(screen.getByLabelText('I checked the dates, savings, goal and any gaps shown above.'))
+const stageEverything = (over: Partial<CheckpointSnapshot['savings']> = {}) => (async (action: string, input: { milestone_day?: 30 | 60 | 90 }) => action === 'checkpoint_stage' ? { ...envelope, record: draft(input.milestone_day ?? 30, over) } : { ...envelope, record: { id: 5 } }) as never
+
+it('Day 30 then Day 60 in one sitting: Day 60 gets its own request keys and its own checkbox', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([30, 60]))
+  vi.mocked(mutateDaily).mockImplementation(stageEverything())
+  const props = { actor, cohortId: 2, onDone: vi.fn(), onOpenCheckpoints: vi.fn() }
+  const view = render(<MiaCheckpointCard {...props} refreshKey={0} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 30' }))
+  await screen.findByRole('heading', { name: 'Day 30: here’s your look back' })
+  tickBox()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve Day 30' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Keep going' }))
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([60]))
+  view.rerender(<MiaCheckpointCard {...props} refreshKey={1} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 60' }))
+  await screen.findByRole('heading', { name: 'Day 60: here’s your look back' })
+  fireEvent.click(screen.getByLabelText('I checked the dates, savings, goal and any gaps shown above.'))
+  fireEvent.click(screen.getByRole('button', { name: 'Approve Day 60' }))
+  await screen.findByRole('heading', { name: 'Biba! Day 60 is done.' })
+  const calls = vi.mocked(mutateDaily).mock.calls
+  const keysFor = (action: string) => calls.filter(call => call[0] === action).map(call => call[2])
+  expect(keysFor('checkpoint_stage')).toHaveLength(2)
+  expect(new Set([...keysFor('checkpoint_stage'), ...keysFor('checkpoint_approve')]).size, 'four different keys').toBe(4)
+})
+
+it('Day 60 starts with the box unchecked even when Day 30 left it checked', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([30]))
+  vi.mocked(mutateDaily).mockImplementation(stageEverything())
+  const props = { actor, cohortId: 2, onDone: vi.fn(), onOpenCheckpoints: vi.fn() }
+  const view = render(<MiaCheckpointCard {...props} refreshKey={0} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 30' }))
+  await screen.findByRole('heading', { name: 'Day 30: here’s your look back' })
+  tickBox()
+  // The next milestone arrives while the Day 30 review is still open (another window approved Day 30).
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([60]))
+  view.rerender(<MiaCheckpointCard {...props} refreshKey={1} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 60' }))
+  await screen.findByRole('heading', { name: 'Day 60: here’s your look back' })
+  expect((screen.getByLabelText('I checked the dates, savings, goal and any gaps shown above.') as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByRole('button', { name: 'Approve Day 60' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+it('a dropped connection while preparing keeps the same request, shows check and try again, and never leaves her stuck', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([30]))
+  vi.mocked(mutateDaily).mockRejectedValueOnce(new TypeError('Failed to fetch')).mockImplementation(stageEverything())
+  vi.mocked(fetchDailyRequestStatus).mockResolvedValue({ ...envelope, state: 'not_found' } as never)
+  render(<MiaCheckpointCard actor={actor} cohortId={2} onDone={vi.fn()} onOpenCheckpoints={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 30' }))
+  await screen.findByText(/I’m not sure that went through/)
+  expect(screen.getByRole('alert')).toBeTruthy()
+  const check = screen.getByRole('button', { name: 'Check if it saved' })
+  fireEvent.click(check)
+  await waitFor(() => expect(fetchDailyRequestStatus).toHaveBeenCalledWith('checkpoint_stage', expect.any(String)))
+  fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+  await screen.findByRole('heading', { name: 'Day 30: here’s your look back' })
+  const stages = vi.mocked(mutateDaily).mock.calls.filter(call => call[0] === 'checkpoint_stage')
+  expect(stages).toHaveLength(2)
+  expect(stages[1][2], 'the retry is the same request').toBe(stages[0][2])
+  expect(screen.queryByText(/I’m not sure that went through/)).toBeNull()
+})
+
+it('a dropped connection while approving offers the same recovery, and Try again finishes without a second save', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([30]))
+  vi.mocked(mutateDaily).mockImplementation((async (action: string) => {
+    if (action === 'checkpoint_stage') return { ...envelope, record: draft(30) }
+    if (vi.mocked(mutateDaily).mock.calls.filter(call => call[0] === 'checkpoint_approve').length === 1) throw new TypeError('Failed to fetch')
+    return { ...envelope, record: { id: 5 } }
+  }) as never)
+  render(<MiaCheckpointCard actor={actor} cohortId={2} onDone={vi.fn()} onOpenCheckpoints={vi.fn()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 30' }))
+  await screen.findByRole('heading', { name: 'Day 30: here’s your look back' })
+  tickBox()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve Day 30' }))
+  await screen.findByText(/I’m not sure that went through/)
+  expect(screen.getByRole('button', { name: 'Check if it saved' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await screen.findByRole('heading', { name: 'Biba! Day 30 is done.' })
+  const approvals = vi.mocked(mutateDaily).mock.calls.filter(call => call[0] === 'checkpoint_approve')
+  expect(approvals).toHaveLength(2)
+  expect(approvals[1][2]).toBe(approvals[0][2])
+})
+
+it('an out-of-date preview offers a fresh look with new request keys, and Open in Checkpoints', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge([30]))
+  let approvals = 0
+  vi.mocked(mutateDaily).mockImplementation((async (action: string) => {
+    if (action === 'checkpoint_stage') return { ...envelope, record: draft(30, approvals ? { reported_cents: 20_000 } : {}) }
+    approvals += 1
+    throw new ApiRequestError('The private daily record changed. Review the current versions before saving. Nothing changed.', { status: 409 })
+  }) as never)
+  const open = vi.fn()
+  render(<MiaCheckpointCard actor={actor} cohortId={2} onDone={vi.fn()} onOpenCheckpoints={open} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Look at Day 30' }))
+  await screen.findByRole('heading', { name: 'Day 30: here’s your look back' })
+  tickBox()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve Day 30' }))
+  await screen.findByRole('alert')
+  const openButton = await screen.findByRole('button', { name: 'Open in Checkpoints' })
+  expect(screen.queryByRole('button', { name: 'Approve Day 30' }), 'the stale draft cannot be approved again').toBeNull()
+  fireEvent.click(openButton)
+  expect(open).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: 'Look again' }))
+  await screen.findByText('$200.00')
+  expect(screen.queryByText('$125.00')).toBeNull()
+  expect((screen.getByLabelText('I checked the dates, savings, goal and any gaps shown above.') as HTMLInputElement).checked, 'she checks the new numbers herself').toBe(false)
+  const stages = vi.mocked(mutateDaily).mock.calls.filter(call => call[0] === 'checkpoint_stage')
+  expect(stages[1][2], 'a new preview is a new request').not.toBe(stages[0][2])
 })

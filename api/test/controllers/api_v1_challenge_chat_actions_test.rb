@@ -89,6 +89,26 @@ class ApiV1ChallengeChatActionsTest < ActionDispatch::IntegrationTest
     assert_equal 0, SavingsEntryVersion.count
   end
 
+  test "a correction card whose saved amount changed since is refused, and nothing is saved" do
+    with_savings_runtime { savings_enroll }
+    entry = nil
+    with_savings_runtime do
+      saved = savings_approve(savings_draft(2_000))
+      entry = SavingsEntry.find(saved.savings_entry_id)
+    end
+    fix = ask("Actually the $20 I set aside was really $15").fetch("challenge_chat_card")
+    assert_equal 2_000, fix.dig("input", "correction", "current_approved_version", "signed_cents")
+
+    # Before she answers, the approved amount changes somewhere else (the Savings screen).
+    with_savings_runtime { savings_approve(savings_draft(1_800, entry: entry)) }
+    assert_equal 1_800, reported
+
+    act(fix, action: "approve_savings", accepted: true)
+    assert_includes [ 409, 422 ], response.status
+    assert_equal 1_800, reported, "the old card cannot overwrite the newer amount"
+    assert_equal 2, SavingsEntryVersion.where(savings_entry_id: entry.id).count
+  end
+
   test "asking to join explains and offers the join card, and the join screen's call enrolls" do
     with_savings_runtime { }
     body = ask("I want to join")

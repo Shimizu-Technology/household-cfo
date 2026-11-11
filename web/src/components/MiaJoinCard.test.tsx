@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ApiRequestError, enrollSavingsChallenge, fetchSavingsChallenge } from '../api'
@@ -74,4 +75,21 @@ it('does not offer joining to someone who is already in', async () => {
   const { container } = render(<MiaJoinCard onJoined={onJoined} onDone={vi.fn()} />)
   await waitFor(() => expect(onJoined).toHaveBeenCalled())
   expect(container.textContent).toBe('')
+})
+
+it('already enrolled: tells an updating parent exactly once and closes, however often the parent re-renders', async () => {
+  const notified = vi.fn(); const closed = vi.fn()
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge({ enrollment: { id: 9 } as never }))
+  function Parent() {
+    const [count, setCount] = useState(0)
+    if (count >= 5) return <p>Parent notified five times</p>
+    // New function identities on every render, like an unmemoised parent.
+    return <MiaJoinCard onJoined={() => { notified(); setCount(value => value + 1) }} onDone={() => { closed(); setCount(value => value + 1) }} />
+  }
+  const { container } = render(<Parent />)
+  await waitFor(() => expect(notified).toHaveBeenCalled())
+  await new Promise(resolve => setTimeout(resolve, 30))
+  expect(notified).toHaveBeenCalledTimes(1)
+  expect(closed).toHaveBeenCalledTimes(1)
+  expect(container.textContent).not.toContain('five times')
 })

@@ -173,4 +173,160 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     end
     assert_equal 4_600, spent(@shopping)
   end
+
+  def choose_option(card_id, option)
+    post "/api/v1/mia_action_drafts/#{card_id}/purchase_choice", params: { option: option }, headers: auth, as: :json
+  end
+
+  test "an amount or day she names that nothing matches is never dropped: no card for a different purchase" do
+    wrong = confirmed("Starbucks", "25", Date.new(2026, 11, 9), @dining)
+
+    body = say("delete the 12 dollar starbucks yesterday, it was a refund")
+    card = body.fetch("mia_action_draft")
+    assert_equal "choose", card.dig("purchase_change", "mode"), "no confirm card for the $25 purchase"
+    assert_equal [ "Starbucks · $25 · Mon, Nov 9" ], card.dig("purchase_change", "options").pluck("label")
+    assert_includes body.dig("assistant_message", "content"), "I don't see a Starbucks purchase of $12 from Tue, Nov 10"
+    assert_includes body.dig("assistant_message", "content"), "Nothing has changed"
+    apply(card)
+    assert_response :unprocessable_entity
+    assert_equal "confirmed", wrong.reload.status
+    assert_equal 2_500, spent(@dining)
+  end
+
+  test "the day she names must match too, and the closest purchases are offered, at most three" do
+    wrong = confirmed("Starbucks", "25", Date.new(2026, 11, 9), @dining)
+
+    body = say("delete the 25 dollar starbucks from yesterday")
+    assert_equal "choose", body.dig("mia_action_draft", "purchase_change", "mode")
+    assert_includes body.dig("assistant_message", "content"), "I don't see a Starbucks purchase from Tue, Nov 10"
+
+    [ [ "5", 10 ], [ "7", 8 ], [ "9", 7 ] ].each { |amount, day| confirmed("Starbucks", amount, Date.new(2026, 11, day), @dining) }
+    body = say("remove the 12 dollar starbucks, it was a refund")
+    options = body.dig("mia_action_draft", "purchase_change", "options")
+    assert_equal 3, options.length
+    assert_equal [ "Starbucks · $9 · Sat, Nov 7", "Starbucks · $7 · Sun, Nov 8", "Starbucks · $5 · Tue, Nov 10" ], options.pluck("label"), "closest to $12 first"
+    assert_equal "confirmed", wrong.reload.status
+  end
+
+  test "a figure that is only a date is not read as an amount" do
+    purchase = confirmed("Starbucks", "12", Date.new(2026, 11, 9), @dining)
+    confirmed("Starbucks", "5", Date.new(2026, 11, 8), @dining)
+
+    body = say("delete the starbucks from Nov 9, it was a refund")
+    card = body.fetch("mia_action_draft")
+    assert_equal "confirm", card.dig("purchase_change", "mode")
+    assert_includes body.dig("assistant_message", "content"), "$12"
+    apply(card)
+    assert_response :success
+    assert_equal "ignored", purchase.reload.status
+  end
+
+  test "a replacement amount is never also the one that picks the purchase" do
+    confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+    confirmed("Target", "70", Date.new(2026, 11, 9), @shopping)
+
+    body = say("change the target purchase to 70")
+    card = body.fetch("mia_action_draft")
+    assert_equal "choose", card.dig("purchase_change", "mode"), "asks which Target purchase instead of saying nothing needs changing"
+    assert_equal [ "Target · $46 · Tue, Nov 10", "Target · $70 · Mon, Nov 9" ], card.dig("purchase_change", "options").pluck("label")
+    choose_option(card["id"], 0)
+    assert_response :success
+    assert_equal [ "$46", "$70" ], response.parsed_body.dig("mia_action_draft", "purchase_change", "rows", 0).values_at("before", "after")
+  end
+
+  test "a malformed choice never quietly picks the first purchase" do
+    first = confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+    confirmed("Target", "52", Date.new(2026, 11, 9), @shopping)
+    card = say("change the target purchase to 70").fetch("mia_action_draft")
+    assert_equal "choose", card.dig("purchase_change", "mode")
+
+    [ "abc", "-1", "", "1.5", "2", "99", "100", "007x", " " ].each do |bad|
+      choose_option(card["id"], bad)
+      assert_response :unprocessable_entity, "option #{bad.inspect}"
+    end
+    post "/api/v1/mia_action_drafts/#{card['id']}/purchase_choice", params: {}, headers: auth, as: :json
+    assert_response :unprocessable_entity
+    assert_equal "choose", MiaActionDraft.find(card["id"]).metadata.dig("purchase_change", "mode"), "the card is still waiting for a real choice"
+    assert_equal 4_600, spent(@shopping) - 5_200
+    assert_equal "confirmed", first.reload.status
+
+    choose_option(card["id"], "1")
+    assert_response :success
+    assert_equal [ "$52", "$70" ], response.parsed_body.dig("mia_action_draft", "purchase_change", "rows", 0).values_at("before", "after")
+  end
+
+  test "a failed re-confirm rolls the reopen back so the purchase is exactly as it was" do
+    purchase = confirmed("Costco", "112.40", Date.new(2026, 11, 8), @shopping)
+    card = say("that costco one should be groceries").fetch("mia_action_draft")
+    @household.budget_categories.find(@groceries.id).update_columns(active: false)
+
+    assert_no_difference -> { @household.household_transactions.count } do
+      apply(card)
+    end
+    assert_response :unprocessable_entity
+    purchase.reload
+    assert_equal "confirmed", purchase.status
+    assert_equal "confirmed", purchase.confirmed_transaction.status
+    assert_equal @shopping.id, purchase.confirmed_transaction.transaction_splits.sole.budget_category_id
+    assert_equal 11_240, spent(@shopping)
+    assert_equal 0, spent(@groceries)
+    assert_equal "pending", MiaActionDraft.find(card["id"]).status
+  end
+
+  test "a purchase that came from a statement line is sent to Statements, with a real statement fixture" do
+    purchase = confirmed("Payless", "30", Date.new(2026, 11, 10), @groceries)
+    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "s.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: SecureRandom.hex(32))
+    attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "acct", account_basis: "asset", label: "Spreadsheet account" } ],
+      events: [ { account_key: "acct", row_kind: "posted", event_type: "purchase", signed_amount_cents: -3_000, posted_on: "2026-11-10", merchant: "Payless", locator: { page: 1, row: 1 } } ],
+      reported_row_count: 1 }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
+    event = FinancialDocuments::SourceAccountingPersister.new(document, attempt: attempt, accounting: accounting).call[:revision].financial_source_events.sole
+    purchase.update_columns(financial_source_event_id: event.id)
+
+    [ "the payless one was actually 35 not 30", "that payless one should be shopping", "delete the 30 dollar payless, it was a refund" ].each do |message|
+      body = say(message)
+      assert_nil body["mia_action_draft"], message
+      assert_includes body.dig("assistant_message", "content"), "came from a statement line", message
+    end
+    assert_equal 3_000, spent(@groceries)
+  end
+
+  test "a split purchase is sent to Spending for changes, but can still be taken out whole" do
+    purchase = confirmed("Costco", "100", Date.new(2026, 11, 8), @shopping)
+    runner = @runner
+    runner.run(operation_key: "transaction.draft.reopen", input: { draft_id: purchase.id, source_type: "manual_ui" }, idempotency_key: SecureRandom.uuid)
+    runner.run(operation_key: "transaction.draft.confirm", idempotency_key: SecureRandom.uuid,
+      input: { draft_id: purchase.id, source_type: "manual_ui", amount: "100", splits: [ { id: purchase.transaction_draft_splits.first.id, budget_category_id: @shopping.id, amount: "60" }, { budget_category_id: @groceries.id, amount: "40" } ] })
+    assert_equal 2, purchase.reload.transaction_draft_splits.count
+
+    body = say("the costco one was actually 120 not 100")
+    assert_nil body["mia_action_draft"]
+    assert_includes body.dig("assistant_message", "content"), "split across categories"
+    body = say("that costco one should be groceries")
+    assert_nil body["mia_action_draft"]
+    assert_includes body.dig("assistant_message", "content"), "split across categories"
+
+    card = say("delete the 100 dollar costco, it was a refund").fetch("mia_action_draft")
+    assert card.dig("purchase_change", "void")
+    apply(card)
+    assert_response :success
+    assert_equal 0, spent(@shopping) + spent(@groceries)
+  end
+
+  test "a purchase staged from a bank connection can be changed like any other, and the bank's own row stays untouched" do
+    item = @household.plaid_items.create!(connected_by_user: @user, plaid_item_id: "item-#{SecureRandom.hex(4)}", access_token: "token", institution_name: "Test Bank",
+      environment: "sandbox", consented_at: Time.current, consent_policy_version: "test", last_synced_at: Time.current)
+    account = item.plaid_accounts.create!(plaid_account_id: "acct-#{SecureRandom.hex(4)}", name: "Checking", account_type: "depository", account_subtype: "checking", current_balance_cents: 100_000, active: true)
+    purchase = confirmed("Cost-U-Less", "80", Date.new(2026, 11, 10), @groceries)
+    row = item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "txn-#{SecureRandom.hex(4)}", name: "COST U LESS", occurred_on: Date.new(2026, 11, 10), amount_cents: 8_000,
+      pending: false, source_fingerprint: SecureRandom.hex(32), transaction_draft: purchase)
+
+    card = say("the cost-u-less one yesterday should be shopping").fetch("mia_action_draft")
+    assert_equal "confirm", card.dig("purchase_change", "mode")
+    apply(card)
+    assert_response :success
+    assert_equal 8_000, spent(@shopping)
+    assert_equal 8_000, row.reload.amount_cents, "the bank's own record is never edited"
+  end
 end

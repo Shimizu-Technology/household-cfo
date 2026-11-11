@@ -30,4 +30,19 @@ class PurchaseChangeRequestTest < ActiveSupport::TestCase
       assert_nil parse(message), message
     end
   end
+
+  test "the amount she changes it to is never also the amount that points at the purchase" do
+    result = parse("change the target purchase to 70")
+    assert_equal [ 7_000, nil ], [ result.new_cents, result.old_cents ]
+    assert_equal [ 7_000, nil ], parse("change the target purchase to 70 dollars").then { |parsed| [ parsed.new_cents, parsed.old_cents ] }
+    assert_equal [ 7_000, 4_600 ], parse("change the $46 target purchase to 70").then { |parsed| [ parsed.new_cents, parsed.old_cents ] }
+    assert_equal [ 1_500, 1_200 ], parse("the 12 dollar starbucks was actually 15").then { |parsed| [ parsed.new_cents, parsed.old_cents ] }
+  end
+
+  test "numbers inside a date or time are not money" do
+    assert_nil parse("delete the starbucks from nov 9, it was a refund").old_cents
+    assert_nil parse("remove the starbucks on 11/9").old_cents
+    assert_nil parse("remove the starbucks around 2pm, it was a refund").old_cents
+    assert_equal 1_200, parse("remove the 12 dollar starbucks on nov 9").old_cents
+  end
 end

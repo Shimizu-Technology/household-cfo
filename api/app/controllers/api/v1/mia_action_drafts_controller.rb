@@ -34,7 +34,10 @@ module Api
           detail = @draft.metadata.to_h["purchase_change"]
           raise ArgumentError, "That choice is no longer open." unless detail && detail["mode"] == "choose" && @draft.pending?
 
-          option = Array(detail["options"])[Integer(params.require(:option), exception: false).to_i.clamp(0, 99)]
+          # Only a whole number inside the list counts; anything else must not quietly pick the first purchase.
+          options = Array(detail["options"])
+          index = params[:option].to_s.match?(/\A\d{1,2}\z/) ? params[:option].to_i : nil
+          option = options[index] if index
           raise ArgumentError, "Choose one of the purchases shown." unless option
 
           plan = HouseholdFinance::PurchaseChange.for_choice(household: current_household, change: detail["change"].to_h, transaction_draft_id: option["transaction_draft_id"])

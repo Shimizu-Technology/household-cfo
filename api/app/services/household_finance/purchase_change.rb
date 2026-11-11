@@ -94,11 +94,12 @@ module HouseholdFinance
     end
 
     def plan
-      pool = candidates
+      match = candidates
+      pool = match.drafts
       return if pool.empty?
       # A purchase still waiting for her review is edited by its own card. Only
       # a figure that pins a confirmed one lets this take the message.
-      return if pending_purchase_named? && !(request.old_cents && pool.any? { |draft| draft.total_amount_cents == request.old_cents })
+      return if pending_purchase_named? && !(request.old_cents && !match.missed_amount && pool.any? { |draft| draft.total_amount_cents == request.old_cents })
 
       changeable = pool.reject { |draft| draft.financial_source_event_id.present? }
       return reply_only("That purchase came from a statement line, so I can't change it from chat. Open Statements to fix that line. Nothing changed.") if changeable.empty?
@@ -108,6 +109,9 @@ module HouseholdFinance
         category = resolve_category(request.category_text)
         return reply_only("Which category should it go in? #{category_examples} Nothing changed.".squish) unless category
       end
+      # What she said about the amount or day matched nothing: never settle on
+      # a purchase that contradicts it. Offer the closest ones to pick from.
+      return not_found(changeable, category, match) if match.missed_amount || match.missed_day
       return choose(changeable, category) if changeable.length > 1
 
       confirm(changeable.first, category)
@@ -164,20 +168,31 @@ module HouseholdFinance
 
     attr_reader :household, :request, :text, :today
 
+    Match = Data.define(:drafts, :missed_amount, :missed_day)
+
     # Her confirmed purchases that the message points at: the merchant is
-    # named, narrowed by the amount or day when she gave them.
+    # named, narrowed by the amount and day when she gave them. An amount or
+    # day that nothing matches is reported as missed, never dropped.
     def candidates
       named = base_scope.to_a.select { |draft| merchant_named?(draft.merchant) }
-      return [] if named.empty?
+      return Match.new(drafts: [], missed_amount: false, missed_day: false) if named.empty?
 
       narrowed = named
-      if request.old_cents && narrowed.any? { |draft| draft.total_amount_cents == request.old_cents }
-        narrowed = narrowed.select { |draft| draft.total_amount_cents == request.old_cents }
+      missed_amount = missed_day = false
+      if request.old_cents
+        exact = narrowed.select { |draft| draft.total_amount_cents == request.old_cents }
+        exact.empty? ? missed_amount = true : narrowed = exact
       end
-      if request.day && narrowed.any? { |draft| draft.occurred_on == request.day }
-        narrowed = narrowed.select { |draft| draft.occurred_on == request.day }
+      if request.day
+        same_day = narrowed.select { |draft| draft.occurred_on == request.day }
+        same_day.empty? ? missed_day = true : narrowed = same_day
       end
-      narrowed
+      if missed_amount || missed_day
+        narrowed = narrowed.sort_by do |draft|
+          [ missed_amount ? (draft.total_amount_cents - request.old_cents).abs : 0, request.day ? (draft.occurred_on - request.day).abs : 0, -draft.occurred_on.jd ]
+        end
+      end
+      Match.new(drafts: narrowed, missed_amount: missed_amount, missed_day: missed_day)
     end
 
     def pending_purchase_named?
@@ -199,15 +214,25 @@ module HouseholdFinance
       keys.reject(&:blank?).uniq.any? { |key| text.match?(/(?<![a-z0-9])#{Regexp.escape(key)}s?(?![a-z0-9])/) }
     end
 
-    def choose(drafts, category)
+    def choose(drafts, category, reply: nil)
       shown = drafts.first(MAX_CHOICES)
       options = shown.map { |draft| { "transaction_draft_id" => draft.id, "label" => "#{draft.merchant} · #{money(draft.total_amount_cents)} · #{day_label(draft.occurred_on)}" } }
       lead = drafts.length > MAX_CHOICES ? "I found #{drafts.length} purchases that could be the one; here are the #{MAX_CHOICES} most recent." : "I found #{drafts.length} purchases that could be the one."
-      Plan.new(reply: "#{lead} Which one do you mean? Nothing has changed.", mode: "choose", attributes: {
+      Plan.new(reply: reply || "#{lead} Which one do you mean? Nothing has changed.", mode: "choose", attributes: {
         items: [], year: shown.first.occurred_on.year, title: "Which purchase?", summary: "Choose the purchase you mean",
         detail: { "mode" => "choose", "options" => options, "void" => request.void,
                   "change" => { "void" => request.void, "new_cents" => request.new_cents, "category_id" => category&.id } }
       })
+    end
+
+    def not_found(drafts, category, match)
+      said = []
+      said << "of #{money(request.old_cents)}" if match.missed_amount
+      said << "from #{day_label(request.day)}" if match.missed_day
+      merchant = drafts.first.merchant
+      lead = "I don't see a #{merchant} purchase #{said.join(' ')}."
+      shown = drafts.first(MAX_CHOICES)
+      choose(drafts, category, reply: "#{lead} The closest #{shown.one? ? 'one is' : "#{shown.length} are"} below. Which one do you mean? Nothing has changed.")
     end
 
     def reply_only(message)

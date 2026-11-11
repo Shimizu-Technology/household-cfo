@@ -33,7 +33,16 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   const ready = Boolean(offer)
   useEffect(() => { if (ready) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [ready])
   const alreadyIn = Boolean(challenge?.enrollment) && !joined
-  useEffect(() => { if (alreadyIn) onJoined() }, [alreadyIn, onJoined])
+  // She joined elsewhere while this was loading: tell the parent once and close, whatever the parent does with it.
+  const callbacks = useRef({ onJoined, onDone })
+  useEffect(() => { callbacks.current = { onJoined, onDone } })
+  const announced = useRef(false)
+  useEffect(() => {
+    if (!alreadyIn || announced.current) return
+    announced.current = true
+    callbacks.current.onJoined()
+    callbacks.current.onDone()
+  }, [alreadyIn])
 
   async function join() {
     if (!offer || busy) return
