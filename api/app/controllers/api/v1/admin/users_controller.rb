@@ -210,7 +210,11 @@ module Api
           end
           return render_forbidden("Program owner access required") unless current_user.admin? || workspace.allows?(current_user, :manage_members)
 
-          user = User.find(params[:id])
+          # Only people this program can already see are looked up; everyone else is one uniform 404,
+          # so the answer reveals nothing about accounts in other programs.
+          user = cancellable_people_scope(workspace).find_by(id: params[:id])
+          return render json: { error: "We couldn't find that person." }, status: :not_found unless user
+
           problem = nil
           with_stable_membership_locks(user, target_cohort_ids: -> { user.cohort_memberships.pluck(:cohort_id) }) do
             raise ParticipantMutationNotAuthorized unless current_user.admin? || coach_workspace_for_policy.allows?(current_user, :manage_members)
@@ -235,31 +239,60 @@ module Api
           return render json: { errors: [ problem ], code: "invitation_not_cancellable" }, status: :unprocessable_entity if problem
 
           render json: { cancelled: true, user_id: user.id }
-        rescue ActiveRecord::RecordNotFound => e
-          render json: { errors: [ e.message ] }, status: :unprocessable_entity
         end
 
         private
 
+        # People who belong to this program: anyone with a seat in one of its groups, or already on its team.
+        # A cancelled invitee has no seat left, so "already cancelled" is answered from the program's own records.
+        def cancellable_people_scope(workspace)
+          seated = CohortMembership.where(cohort_id: Cohort.where(coach_workspace_id: workspace.id).select(:id)).select(:user_id)
+          team = CoachWorkspaceMembership.where(coach_workspace_id: workspace.id).select(:user_id)
+          cancelled = ParticipantInvitationCancellation.where(coach_workspace_id: workspace.id).select(:subject_user_id)
+          User.where(id: seated).or(User.where(id: team)).or(User.where(id: cancelled))
+        end
+
         def attach_existing_participant(user, attributes:, role:, cohort_ids:)
           guard_error = nil
+          reinvited = false
           with_stable_invitation_membership_locks(user, requested_cohort_ids: cohort_ids, replace_memberships: false) do |target_cohort_ids|
             validate_locked_invitation!(role: role, cohort_ids: cohort_ids)
             enrollment_scope = CohortMembership.where(user_id: user.id)
             visible_or_unenrolled = !enrollment_scope.exists? || enrollment_scope.where(cohort_id: coach_cohort_ids).exists?
-            unless role == "participant" && user.participant? && !user.revoked? && visible_or_unenrolled &&
+            reinvite = user.revoked? && own_cancelled_invitee?(user)
+            unless role == "participant" && user.participant? && (!user.revoked? || reinvite) && visible_or_unenrolled &&
                 !global_user_change_requested?(user, attributes, role: role)
               guard_error = "This participant could not be added. Ask a platform administrator to check their account."
               raise ActiveRecord::Rollback
             end
             Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: target_cohort_ids, visible_workspace_id: current_user.admin? ? nil : (current_coach_workspace&.id || -1))
+            if reinvite
+              user.update!(invitation_status: "pending", invited_at: Time.current, invited_by_user: current_user)
+              reinvited = true
+            end
             add_cohort_memberships(user, cohort_ids, role: "participant")
           end
           return render_forbidden(guard_error) if guard_error
 
+          if reinvited
+            result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
+            return render json: invite_response_payload(user.reload, result, created: false, reactivated: true), status: :ok
+          end
+
           render json: invite_response_payload(user.reload,
             { sent: false, status: "skipped", error: "Existing participant added. No account details changed and no invitation email was sent." },
             created: false, reactivated: false)
+        end
+
+        # A program owner may invite again someone whose invitation this same program cancelled. Anyone else
+        # who is revoked (turned off by an administrator, or cancelled by another program) stays with the
+        # administrator. The cancelled person must have no seat anywhere and no later invitation of their own.
+        def own_cancelled_invitee?(user)
+          workspace = coach_workspace_for_policy
+          return false unless workspace && !user.accepted_at && !user.coach_workspace_memberships.exists? && !user.cohort_memberships.exists?
+
+          cancellation = ParticipantInvitationCancellation.where(coach_workspace_id: workspace.id, subject_user_id: user.id).order(:created_at, :id).last
+          cancellation.present? && (user.invited_at.nil? || user.invited_at <= cancellation.created_at)
         end
 
         def create_new_invited_user(attributes:, role:, cohort_ids:)

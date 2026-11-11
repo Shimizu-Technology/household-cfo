@@ -61,13 +61,97 @@ class ApiV1AdminCancelInvitationTest < ActionDispatch::IntegrationTest
     refute_includes response.body, other.name
   end
 
-  test "someone in another program cannot cancel it" do
+  test "someone in another program gets the same not-found for every kind of account, and learns nothing" do
     stranger = user("cancel-stranger", "coach")
     stranger_workspace = CoachWorkspaces::Provisioner.ensure_for!(stranger)
-    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(stranger, stranger_workspace), as: :json
-    assert_response :unprocessable_entity
+    staff = user("cancel-staff", "coach")
+    joined = user("cancel-joined-elsewhere", "participant")
+    @group.cohort_memberships.create!(user: joined, role: "participant")
+    cancelled = pending_participant("cancel-cancelled-elsewhere", @group)
+    post "/api/v1/admin/users/#{cancelled.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_response :success
+    bodies = [ @invitee, staff, joined, cancelled ].map do |person|
+      post "/api/v1/admin/users/#{person.id}/cancel_invitation", headers: auth(stranger, stranger_workspace), as: :json
+      assert_response :not_found
+      response.body
+    end
+    post "/api/v1/admin/users/0/cancel_invitation", headers: auth(stranger, stranger_workspace), as: :json
+    assert_response :not_found
+    assert_equal [ response.body ], bodies.uniq
     assert_equal "pending", @invitee.reload.invitation_status
     assert_equal 1, @invitee.cohort_memberships.count
+    assert_equal 1, ParticipantInvitationCancellation.count
+  end
+
+  test "inside the program the specific reasons are still given" do
+    joined = user("cancel-joined-here", "participant")
+    @group.cohort_memberships.create!(user: joined, role: "participant")
+    post "/api/v1/admin/users/#{joined.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "already joined"
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "already cancelled"
+  end
+
+  test "an owner can invite a person again after cancelling: pending again, in the chosen group, and recorded" do
+    other_group = Cohort.create!(name: "Second group", status: "enrolling", created_by_user: @owner, coach_workspace: @workspace)
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_response :success
+    assert_difference -> { InvitationEmailAttempt.where(user_id: @invitee.id).count }, 1 do
+      post "/api/v1/admin/users", params: { user: { email: @invitee.email.upcase, cohort_ids: [ other_group.id ] } }, headers: auth(@owner, @workspace), as: :json
+    end
+    assert_response :success
+    assert_equal true, response.parsed_body.fetch("reactivated")
+    @invitee.reload
+    assert_equal "pending", @invitee.invitation_status
+    assert_equal [ other_group.id ], @invitee.cohort_memberships.pluck(:cohort_id)
+    assert_equal @owner.id, @invitee.invited_by_user_id
+    assert_equal 1, ParticipantInvitationCancellation.count
+
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_response :success
+    assert_equal 2, ParticipantInvitationCancellation.where(subject_user_id: @invitee.id).count
+    assert_equal "revoked", @invitee.reload.invitation_status
+  end
+
+  test "an owner of another program cannot invite a cancelled person" do
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    stranger = user("reinvite-stranger", "coach")
+    stranger_workspace = CoachWorkspaces::Provisioner.ensure_for!(stranger)
+    stranger_group = Cohort.create!(name: "Stranger group", status: "enrolling", created_by_user: stranger, coach_workspace: stranger_workspace)
+    post "/api/v1/admin/users", params: { user: { email: @invitee.email, cohort_ids: [ stranger_group.id ] } }, headers: auth(stranger, stranger_workspace), as: :json
+    assert_response :forbidden
+    assert_equal "revoked", @invitee.reload.invitation_status
+    assert_empty @invitee.cohort_memberships
+  end
+
+  test "someone an administrator turned off stays refused for owners, even in the same program" do
+    person = pending_participant("reinvite-admin-revoked", @group)
+    person.cohort_memberships.destroy_all
+    person.update!(invitation_status: "revoked")
+    post "/api/v1/admin/users", params: { user: { email: person.email, cohort_ids: [ @group.id ] } }, headers: auth(@owner, @workspace), as: :json
+    assert_response :forbidden
+    assert_equal "revoked", person.reload.invitation_status
+    assert_empty person.cohort_memberships
+  end
+
+  test "a cancelled person who has since been seated in another program is not re-invited by an owner" do
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    other_owner = user("reinvite-other-owner", "coach")
+    other_workspace = CoachWorkspaces::Provisioner.ensure_for!(other_owner)
+    other = Cohort.create!(name: "Admin placed", status: "active", created_by_user: other_owner, coach_workspace: other_workspace)
+    other.cohort_memberships.create!(user: @invitee, role: "participant")
+    post "/api/v1/admin/users", params: { user: { email: @invitee.email, cohort_ids: [ @group.id ] } }, headers: auth(@owner, @workspace), as: :json
+    assert_response :forbidden
+    assert_equal "revoked", @invitee.reload.invitation_status
+  end
+
+  test "deleting a person who appears in the cancellation record fails clearly" do
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    assert_raises(ActiveRecord::DeleteRestrictionError) { @invitee.destroy }
+    assert_raises(ActiveRecord::DeleteRestrictionError) { @owner.destroy }
   end
 
   test "editors, reviewers and viewers cannot cancel an invitation" do
