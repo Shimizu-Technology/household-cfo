@@ -24,14 +24,17 @@ type Props = {
   /** Challenge participants are offered patterns in words; households get the existing "See what Mia notices" step. */
   challenge: boolean
   onReview: (documentImportId: number) => void
-  onRetry: (documentImport: FinancialDocumentImport) => void
+  /** Resolves false when the file could not be sent for reading again. */
+  onRetry: (documentImport: FinancialDocumentImport) => Promise<boolean> | void
+  /** True while Mia is answering: approving now could race her reply's numbers, so the card waits. */
+  disabled?: boolean
   /** A statement was just saved: refresh the uploads and the numbers that read from them. */
   onSaved: () => void
   onAskPatterns?: () => void
 }
 
 /** One compact card per statement Mia has read, then one line to move on once they are all approved. */
-export function MiaStatementCards({ imports, assistantName, challenge, onReview, onRetry, onSaved, onAskPatterns }: Props) {
+export function MiaStatementCards({ imports, assistantName, challenge, onReview, onRetry, onSaved, onAskPatterns, disabled = false }: Props) {
   const [now] = useState(() => Date.now())
   const [askedNow, setAskedNow] = useState(false)
   // Statements from one account share what is known about it, so a save on one card changes what the others must show.
@@ -49,7 +52,7 @@ export function MiaStatementCards({ imports, assistantName, challenge, onReview,
     {entries.length > shown.length && <p className="mia-statement-more">Your {entries.length - shown.length} older {entries.length - shown.length === 1 ? 'statement is' : 'statements are'} on the Statements screen.</p>}
     {shown.map(({ documentImport, stage }) => stage === 'reading' || stage === 'failed'
       ? <StatementProgressCard key={documentImport.id} documentImport={documentImport} failed={stage === 'failed'} onRetry={onRetry} onReview={onReview} />
-      : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
+      : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} waiting={disabled} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
     {allApproved && !asked && onAskPatterns && <section className="mia-statement-next" aria-label={`Next step with ${assistantName}`}>
       <p>{shown.length > 1 ? `All ${shown.length} statements are approved. ` : ''}Want me to look for patterns in {scope}?</p>
       <Button onClick={() => { writeFlag(askedKey); setAskedNow(true); onAskPatterns() }}>{challenge ? 'Yes, look for patterns' : `See what ${assistantName} notices`}</Button>
@@ -66,6 +69,8 @@ function writeFlag(key: string) {
 
 // Still being read, or it could not be read. Nothing here can be approved.
 function StatementProgressCard({ documentImport, failed, onRetry, onReview }: { documentImport: FinancialDocumentImport; failed: boolean; onRetry: Props['onRetry']; onReview: Props['onReview'] }) {
+  const [retryFailed, setRetryFailed] = useState(false)
+  const [retrying, setRetrying] = useState(false)
   const progress = documentImport.metadata.extraction_progress
   const pagesKnown = Number.isInteger(progress?.page) && Number.isInteger(progress?.page_count) && progress!.page! > 0 && progress!.page! <= progress!.page_count!
   if (!failed) {
@@ -79,14 +84,15 @@ function StatementProgressCard({ documentImport, failed, onRetry, onReview }: { 
     <h3>{documentImport.filename}</h3>
     <p role="alert">{documentImport.extraction_error || 'I couldn’t read reliable lines from this file.'}</p>
     <p className="mia-statement-muted">{documentImport.source_available ? 'Nothing was saved. You can try reading it again, or upload a clearer copy.' : 'The original file has been removed, so please upload it again. Nothing was saved.'}</p>
+    {retryFailed && <p role="alert">I couldn’t start reading it again just now. Try again in a moment, or open it in Statements.</p>}
     <div className="mia-statement-actions">
-      {documentImport.source_available && <Button onClick={() => onRetry(documentImport)}>Try reading it again</Button>}
+      {documentImport.source_available && <Button disabled={retrying} onClick={async () => { setRetryFailed(false); setRetrying(true); try { if (await onRetry(documentImport) === false) setRetryFailed(true) } finally { setRetrying(false) } }}>Try reading it again</Button>}
       <Button variant="secondary" onClick={() => onReview(documentImport.id)}>Open in Statements</Button>
     </div>
   </section>
 }
 
-function MiaStatementCard({ documentImport, saves, onReview, onSaved }: { documentImport: FinancialDocumentImport; saves: number; onReview: Props['onReview']; onSaved: () => void }) {
+function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }: { documentImport: FinancialDocumentImport; saves: number; waiting: boolean; onReview: Props['onReview']; onSaved: () => void }) {
   const importId = documentImport.id
   // Each saved answer moves her spending, so the uploads and numbers refresh as she goes; a card that opens already approved changes nothing.
   const state = useStatementReview({
@@ -95,7 +101,7 @@ function MiaStatementCard({ documentImport, saves, onReview, onSaved }: { docume
   })
   const { data, error, review, plan, categories, names, needBasis, counts, mutation, coverage, savingLines, unsavedAnswer } = state
   // Nothing is answered from lines that are being read again; the buttons come back as soon as the new read arrives.
-  const busy = state.busy || state.refreshing
+  const busy = state.busy || state.refreshing || waiting
   const [sheet, setSheet] = useState<SheetLine | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)

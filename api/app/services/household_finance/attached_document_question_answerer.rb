@@ -201,21 +201,21 @@ module HouseholdFinance
 
     def review_boundary(rows, setup)
       pending_transactions = rows.count { |row| row.fetch(:status) == "pending" }
-      resolved_transactions = rows.length - pending_transactions
+      confirmed_transactions = rows.length - pending_transactions
       pending_setup = setup.count { |row| row.fetch(:state) == "pending review" }
-      if pending_transactions.positive? || pending_setup.positive?
-        resolved_line = if resolved_transactions == 1
-          " One line from it is already approved."
-        elsif resolved_transactions > 1
-          " #{resolved_transactions} lines from it are already approved."
-        else
-          ""
-        end
-        waiting = pending_transactions + pending_setup
-        "#{waiting} #{waiting == 1 ? 'line from this file is' : 'lines from this file are'} still waiting for you to approve; #{waiting == 1 ? "it doesn't" : "they don't"} count in your spending until you do, and nothing from this message was saved.#{resolved_line}"
-      else
-        "Everything from this file is already approved; nothing from this message was saved or changed."
+      source = document_imports.length > 1 ? "these files" : "this file"
+      parts = []
+      if pending_transactions.positive?
+        parts << "#{pending_transactions} #{pending_transactions == 1 ? 'purchase' : 'purchases'} from #{source} #{pending_transactions == 1 ? 'is' : 'are'} still waiting for you to approve; #{pending_transactions == 1 ? "it doesn't" : "they don't"} count in your spending until you do."
       end
+      if pending_setup.positive?
+        parts << "#{pending_setup} other #{pending_setup == 1 ? 'value' : 'values'} from #{source}, like income, bills or debts, #{pending_setup == 1 ? 'is' : 'are'} also waiting for your approval before #{pending_setup == 1 ? 'it changes' : 'they change'} your plan."
+      end
+      if confirmed_transactions.positive? && parts.any?
+        parts << (confirmed_transactions == 1 ? "One purchase from it is already approved." : "#{confirmed_transactions} purchases from it are already approved.")
+      end
+      parts << (parts.any? ? "Nothing from this message was saved." : "Nothing from #{source} is waiting for your approval, and nothing from this message was saved or changed.")
+      parts.join(" ")
     end
 
     def failed_import_notice

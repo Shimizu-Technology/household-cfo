@@ -3513,7 +3513,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
-  async function handleReprocessDocumentImport(documentImport: FinancialDocumentImport) {
+  async function handleReprocessDocumentImport(documentImport: FinancialDocumentImport): Promise<boolean> {
     setDocumentAction(`reprocess:${documentImport.id}`)
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -3521,8 +3521,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const reprocessedImport = await reprocessDocumentImport(documentImport.id)
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
       setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
+      return true
     } catch (caught) {
       setDocumentsError(participantErrorMessage(caught, 'Document could not be reprocessed.'))
+      return false
     } finally {
       setDocumentAction(null)
     }
@@ -3861,7 +3863,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     assistantName={assistantName}
     challenge={Boolean(isSavingsExperience)}
     onReview={openDocumentReview}
-    onRetry={(documentImport) => void handleReprocessDocumentImport(documentImport)}
+    onRetry={handleReprocessDocumentImport}
+    disabled={miaLoading}
     onSaved={() => { void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
     onAskPatterns={askMiaAboutPatterns}
   /> : null

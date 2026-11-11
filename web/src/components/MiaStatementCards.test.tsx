@@ -188,6 +188,21 @@ describe('Mia’s statement cards in the chat', () => {
     expect(fetchReview).not.toHaveBeenCalled()
   })
 
+  it('waits while Mia is answering, so an approval can never race her reply', async () => {
+    serve(review(planWith([question(4001, 'Shell', 'no_category')])))
+    mount([statement(1)], { disabled: true })
+    const card = await screen.findByRole('region', { name: /Statement: .*Sep 1–30/ })
+    expect((within(card).getByRole('button', { name: /Approve the other/ }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(within(card).getByRole('button', { name: /Approve the other/ }))
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('says so when a file could not be sent for reading again', async () => {
+    mount([statement(2, { status: 'failed', statement_review: null, extraction_error: 'We could not read pages 4 to 6.' })], { onRetry: vi.fn().mockResolvedValue(false) })
+    fireEvent.click(screen.getByRole('button', { name: 'Try reading it again' }))
+    expect(await screen.findByText('I couldn’t start reading it again just now. Try again in a moment, or open it in Statements.')).toBeTruthy()
+  })
+
   it('offers patterns once, after every statement is approved, for the months they cover', async () => {
     const approved = (id: number, start: string, end: string) => statement(id, { period_start_on: start, period_end_on: end, statement_review: progress(27) })
     serve(review(planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [] })))
