@@ -195,9 +195,9 @@ jobs:
 
       - name: Install browser dependencies
         # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
-        # archive (it happened for hours on 2026-11-12), retry once, then install only the browser:
-        # GitHub's Ubuntu image already carries the libraries Chromium and WebKit need, and the browser
-        # itself downloads from Playwright's CDN, not the Ubuntu archive.
+        # archive (it happened for hours on 2026-11-12): retry, then switch to another Ubuntu mirror,
+        # then install only the browser. The last step is enough for Chromium (the runner image has its
+        # libraries; the browser comes from Playwright's CDN) but not for WebKit, which needs apt.
         run: |
           # apt can hang rather than fail when the archive is unreachable, so each attempt is time-boxed.
           for attempt in 1 2; do
@@ -205,6 +205,13 @@ jobs:
             echo "::warning::playwright install --with-deps failed or timed out (attempt $attempt)"
             sleep 20
           done
+          # WebKit needs system libraries the runner image lacks, so try another Ubuntu mirror before
+          # giving up on apt: the outage was DNS for archive.ubuntu.com / azure.archive.ubuntu.com only.
+          echo "::warning::Retrying with the mirrors.kernel.org Ubuntu mirror"
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] && sudo sed -i -E 's#https?://(azure\.)?archive\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g; s#https?://security\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g' "$f"
+          done
+          if timeout 300 npx playwright install --with-deps ${{ matrix.browser }}; then exit 0; fi
           echo "::warning::Falling back to installing ${{ matrix.browser }} without system packages"
           npx playwright install ${{ matrix.browser }}
 
