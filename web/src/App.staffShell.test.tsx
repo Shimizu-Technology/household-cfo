@@ -113,7 +113,7 @@ it('keeps old #Coach Studio and #Admin links working by moving them to their sec
   const App = await app()
   window.history.replaceState({}, '', '/?pilot=1#Coach%20Studio')
   const view = render(<App />)
-  await waitFor(() => expect(window.location.pathname).toBe('/admin/today'))
+  await waitFor(() => expect(window.location.pathname).toBe('/admin/coaching'))
   expect(window.location.search).toBe('?pilot=1')
   view.unmount()
   window.history.replaceState({}, '', '/?coach_area=assistant#Coach%20Studio')

@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
 const incomePlanner = readFileSync(resolve(__dirname, '../src/components/AnnualIncomePlanner.tsx'), 'utf8')
 const incomeSources = readFileSync(resolve(__dirname, '../src/components/IncomeSourceManager.tsx'), 'utf8')
-const adminConsole = readFileSync(resolve(__dirname, '../src/components/AdminConsole.tsx'), 'utf8')
+const adminSections = ['PeopleSection', 'InvitePeople', 'PersonDetail', 'GroupsSection'].map(name => readFileSync(resolve(__dirname, `../src/admin/sections/${name}.tsx`), 'utf8')).join('\n')
 const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
 const home = readFileSync(resolve(__dirname, '../src/components/HomeScreen.tsx'), 'utf8')
@@ -210,15 +210,11 @@ assert.ok(coachSourcesCss.includes('.coach-url-intake-actions .button') && coach
 
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')
-assert.ok(
-  adminConsole.includes('requestedCohortId === null') && adminConsole.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
-  'admin All users selection should survive reloads after save/resend actions',
-)
-assert.ok(adminConsole.includes("useState<UserStatusFilter>('active')"), 'admin users should default to active-only filtering')
-assert.ok(adminConsole.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
-assert.ok(adminConsole.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
-assert.ok(adminConsole.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
-assert.ok(!adminConsole.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
+assert.ok(adminSections.includes("inviteStateOf(person) !== 'removed'"), 'People should hide removed people until the Removed filter is chosen')
+assert.ok(adminSections.includes('Email them an invitation now'), 'the invite dialog should make email delivery explicit')
+assert.ok(adminSections.includes('aria-sort') && adminSections.includes('Find someone'), 'People should be searchable and sortable by name and last active')
+assert.ok(adminSections.includes('removeCoachGroupParticipant(membership.cohort.id, person.id, membership.id)'), 'removing someone from a group should use the server-confirmed membership, not an unsaved draft')
+assert.ok(!adminSections.includes('setup_complete_count'), 'group pages should not recompute server setup-complete counts client-side')
 // Delayed/failing year selection and stale workspace responses are exercised in
 // the BOG UI budget-year browser regressions rather than pinning rollback syntax.
 assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')
