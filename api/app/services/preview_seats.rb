@@ -64,9 +64,10 @@ module PreviewSeats
     withdrew ? LEFT_CHALLENGE_MESSAGE : LEFT_MESSAGE
   end
 
-  # A person who stops being staff keeps no seats.
+  # A person who stops being staff keeps no seats. Ending a seat is bookkeeping: it
+  # can never stand in the way of the change that caused it (see `release_safely`).
   def self.release_all!(user)
-    user.preview_seats.pluck(:cohort_id).each { |cohort_id| leave!(user: user, cohort_id: cohort_id) }
+    user.preview_seats.pluck(:cohort_id).each { |cohort_id| release_safely(user, cohort_id) }
   end
 
   # Ends the seats a person may no longer use: after they leave a coach workspace,
@@ -74,11 +75,27 @@ module PreviewSeats
   # also withdraws an open challenge preview and frees the row.)
   def self.release_unavailable!(user)
     keep = visible_cohorts(user).pluck(:id)
-    user.preview_seats.where.not(cohort_id: keep).pluck(:cohort_id).each { |cohort_id| leave!(user: user, cohort_id: cohort_id) }
+    user.preview_seats.where.not(cohort_id: keep).pluck(:cohort_id).each { |cohort_id| release_safely(user, cohort_id) }
   end
 
   # A group that is archived keeps no preview seats.
   def self.release_cohort!(cohort)
-    cohort.preview_seats.includes(:user).to_a.each { |seat| leave!(user: seat.user, cohort_id: cohort.id) }
+    cohort.preview_seats.includes(:user).to_a.each { |seat| release_safely(seat.user, cohort.id) }
+  end
+
+  # Losing access (revoking, demoting, archiving, removing from a workspace) must
+  # never fail because a seat could not be tidied up: the readers already ignore a
+  # seat its holder has no right to. A failure inside a savepoint is rolled back
+  # on its own, reported, and the change that called us goes ahead.
+  def self.release_safely(user, cohort_id)
+    ActiveRecord::Base.transaction(requires_new: true) { leave!(user: user, cohort_id: cohort_id) }
+  rescue StandardError => e
+    Rails.error.report(e, handled: true, severity: :error,
+      context: { preview_seat_release: true, user_id: user&.id, cohort_id: cohort_id })
+    if defined?(Sentry) && Sentry.initialized?
+      Sentry.capture_exception(e, tags: { preview_seat_release: "failed" }, extra: { user_id: user&.id, cohort_id: cohort_id })
+    end
+    Rails.logger.error("[PreviewSeats] could not end the seat of user #{user&.id} in cohort #{cohort_id}: #{e.class}: #{e.message}")
+    nil
   end
 end

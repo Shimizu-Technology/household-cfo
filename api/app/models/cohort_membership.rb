@@ -36,7 +36,9 @@ class CohortMembership < ApplicationRecord
   belongs_to :user
 
   validates :role, inclusion: { in: ROLES }
-  validates :user_id, uniqueness: { scope: %i[cohort_id role] }
+  # One row per person, group and role. Ended preview seats are history, not seats, so
+  # a person who leaves and previews again keeps one of them per earlier seat.
+  validates :user_id, uniqueness: { scope: %i[cohort_id role] }, unless: :ended_preview?
   validate :preview_is_for_staff
 
   after_save :reconcile_workspace_access, unless: :preview?
@@ -44,6 +46,10 @@ class CohortMembership < ApplicationRecord
 
   def preview?
     role == PREVIEW_ROLE
+  end
+
+  def ended_preview?
+    role == ENDED_PREVIEW_ROLE
   end
 
   # Ends a preview seat: gone if nothing refers to it, kept as history if an enrollment does.

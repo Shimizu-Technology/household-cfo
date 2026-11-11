@@ -47,18 +47,35 @@ It fails closed:
   membership whose role is `participant`. A missing or odd membership (a lost
   row, a changed role) is simply not counted.
 - A seat that is left keeps its row as `preview_ended` when an enrollment still
-  points at it, so that enrollment can never be mistaken for a participant's.
+  points at it, so that enrollment can never be mistaken for a participant's. Ended
+  seats are history, so any number may sit side by side (preview, leave, preview,
+  leave): the unique index on (cohort, user, role) is partial and skips
+  `preview_ended`, as does the matching validation. Every other role keeps exactly
+  one row per person and group, and each ended row keeps its own id for the enrollment
+  that points at it. (Re-pointing one shared ended row was rejected: it would rewrite
+  an enrollment's accepted membership, which the ledgers treat as frozen identity.)
+- Ending a seat is bookkeeping and never stands in the way of losing access.
+  Revoking, demoting, archiving a group and removing a coach from a workspace all
+  go ahead whatever happens to the seat: `PreviewSeats.release_safely` ends it in a
+  savepoint, and if that fails the error is logged and sent to Sentry. The readers
+  already ignore a seat its holder has no right to, so a lingering row grants nothing.
+  The after-commit hooks (`Cohort`, `CoachWorkspaceMembership`) therefore cannot
+  turn a committed change into an error response.
 - `savings_enrollments.staff_preview` marks an enrollment accepted through a
-  preview seat. The unique index on (cohort, user) ignores only a *withdrawn*
+  preview seat. It is part of the enrollment's frozen identity (the database
+  refuses any change after creation), so it can never flip a person in or out of
+  the counts. The unique index on (cohort, user) ignores only a *withdrawn*
   staff preview, so someone who previewed and left can later join for real (a
   coach added as a participant) or preview again. Everyone else keeps one
   enrollment per group; a withdrawn participant enrollment still cannot be replaced.
   The old preview enrollment keeps its id, so ledgers that point at it stay valid.
   Lookups of "this person's enrollment in this group" use `SavingsEnrollment.in_use`,
   which skips an ended staff preview.
-- The two migrations roll back only on a clean database: `down` raises
+- The first two migrations roll back only on a clean database: `down` raises
   `IrreversibleMigration` while preview seats, a person holding two roles in a
   group, or staff preview enrollments exist (rolling back would make them count).
+  The partial index migration refuses to roll back while a person has several ended
+  seats in one group.
 - `preview_ended` rows are removed with the person or group (`dependent: :destroy`).
 - A preview enrollment does not make the staff member's own household a participant
   household (`PrivateFinanceAccess.pilot_household?` looks at counted enrollments).

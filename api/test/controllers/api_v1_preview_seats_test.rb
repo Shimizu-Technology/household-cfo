@@ -1,10 +1,13 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require_relative "../support/workos_auth_test_support"
 require_relative "../support/persona_test_helper"
 require_relative "../support/savings_daily_test_support"
 require Rails.root.join("db/migrate/20261111090000_allow_staff_preview_seats")
 require Rails.root.join("db/migrate/20261111110000_let_ended_staff_previews_rejoin")
+require Rails.root.join("db/migrate/20261111130000_allow_many_ended_preview_seats")
+require Rails.root.join("db/migrate/20261111130100_freeze_staff_preview_on_savings_enrollments")
 
 # Staff use the same app a participant does. A preview seat is how they try a
 # group out, and it must never be counted: not in a roster, a count, the 30-place
@@ -12,6 +15,7 @@ require Rails.root.join("db/migrate/20261111110000_let_ended_staff_previews_rejo
 class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
   include PersonaTestHelper
   include SavingsDailyTestSupport
+  include WorkosAuthTestSupport
 
   setup do
     travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 1, 12)
@@ -48,6 +52,19 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert_equal %w[today coaching reports], keys.call(@reviewer, @workspace)
     assert_equal [], keys.call(@savings_user)
     assert_equal [ "full" ], me(@owner, @workspace).fetch("admin_sections").map { |section| section["access"] }.uniq
+  end
+
+  test "an editor who coaches no group costs no query per group when the sections are listed" do
+    count = lambda do
+      queries = 0
+      counter = ->(*, payload) { queries += 1 unless payload[:name] == "SCHEMA" || payload[:cached] }
+      ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { AdminSections.for(@editor, workspace: @workspace.reload) }
+      queries
+    end
+    before = count.call
+    6.times { |index| @workspace.cohorts.create!(name: "Extra group #{index}", status: "enrolling", created_by_user: @owner) }
+    assert_equal before, count.call, "listing sections must not grow with the number of groups"
+    assert_equal %w[coaching], AdminSections.for(@editor, workspace: @workspace).map { |section| section[:key] }
   end
 
   test "admins may preview any group, coaches the groups of their program, participants none" do
@@ -356,10 +373,14 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
 
   test "rolling the preview migrations back and forward works on a clean database" do
     assert_nothing_raised do
+      run_migration(FreezeStaffPreviewOnSavingsEnrollments, :down)
+      run_migration(AllowManyEndedPreviewSeats, :down)
       run_migration(LetEndedStaffPreviewsRejoin, :down)
       run_migration(AllowStaffPreviewSeats, :down)
       run_migration(AllowStaffPreviewSeats, :up)
       run_migration(LetEndedStaffPreviewsRejoin, :up)
+      run_migration(AllowManyEndedPreviewSeats, :up)
+      run_migration(FreezeStaffPreviewOnSavingsEnrollments, :up)
     end
     SavingsEnrollment.reset_column_information
     CohortMembership.reset_column_information
@@ -429,6 +450,168 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     assert_difference -> { CohortMembership.with_previews.count }, -1 do
       group.destroy!
     end
+  end
+
+  # --- leaving, demoting and revoking never depend on preview bookkeeping -----------------
+
+  test "a person can preview a challenge group twice, and each leave keeps its own ended seat" do
+    two_challenge_previews(@editor)
+    assert_equal 1, CohortMembership.with_previews.where(cohort: @savings_cohort, user: @editor, role: "preview_ended").count
+    assert_equal [ "preview" ], CohortMembership.with_previews.where(cohort: @savings_cohort, user: @editor).where.not(role: "preview_ended").pluck(:role)
+    assert_equal 2, SavingsEnrollment.previews.where(user: @editor, cohort: @savings_cohort).count
+    delete "/api/v1/preview_seats/#{@savings_cohort.id}", headers: auth(@editor)
+    assert_response :success
+    assert_equal 2, CohortMembership.with_previews.where(cohort: @savings_cohort, user: @editor, role: "preview_ended").count, "the second leave keeps its own ended seat"
+    assert_equal %w[withdrawn withdrawn], SavingsEnrollment.previews.where(user: @editor, cohort: @savings_cohort).order(:id).pluck(:status)
+    assert_empty @editor.preview_seats
+    assert_empty SavingsEnrollment.counted.where(user: @editor)
+  end
+
+  test "there is still one row per person, group and role for everything but ended previews" do
+    assert_nothing_raised { 2.times { CohortMembership.create!(cohort: @savings_cohort, user: @editor, role: "preview_ended") } }
+    PreviewSeats.join!(user: @editor, cohort_id: @savings_cohort.id)
+    assert_not CohortMembership.new(cohort: @savings_cohort, user: @editor, role: "preview").valid?
+    assert_raises(ActiveRecord::RecordNotUnique, "the database refuses a second live seat too") do
+      CohortMembership.new(cohort: @savings_cohort, user: @editor, role: "preview").save!(validate: false)
+    end
+    assert_not CohortMembership.new(cohort: @savings_cohort, user: @peers.first, role: "participant").valid?, "a real participant keeps exactly one membership"
+  end
+
+  test "leaving works again and again after two challenge previews" do
+    two_challenge_previews(@admin)
+    delete "/api/v1/preview_seats/#{@savings_cohort.id}", headers: auth(@admin)
+    assert_response :success
+    assert_equal false, response.parsed_body.fetch("preview_groups").find { |group| group["cohort_id"] == @savings_cohort.id }.fetch("seated")
+    preview_enroll(@admin)
+    delete "/api/v1/preview_seats/#{@savings_cohort.id}", headers: auth(@admin)
+    assert_response :success
+    assert_equal 3, SavingsEnrollment.previews.where(user: @admin, cohort: @savings_cohort).count
+    assert_empty SavingsEnrollment.counted.where(user: @admin)
+  end
+
+  test "an admin can demote a person to participant after two challenge previews" do
+    two_challenge_previews(@editor)
+    patch "/api/v1/admin/users/#{@editor.id}", params: { user: { role: "participant", cohort_ids: [ @savings_cohort.id ] } }, headers: auth(@admin), as: :json
+    assert_response :success
+    assert_equal "participant", @editor.reload.role
+    assert_empty @editor.preview_seats
+    assert_empty CohortMembership.previews.where(user: @editor)
+    assert_equal %w[withdrawn withdrawn], SavingsEnrollment.previews.where(user: @editor).order(:id).pluck(:status)
+    assert_empty SavingsEnrollment.counted.where(user: @editor), "no preview ever counts"
+    real = enroll_peer(@editor)
+    assert_not real.preview?
+    assert_includes SavingsEnrollment.counted.pluck(:id), real.id
+  end
+
+  test "an admin can demote a person to coach after two challenge previews" do
+    two_challenge_previews(@admin)
+    # Another administrator demotes them.
+    second_admin = persona_user(role: "admin")
+    patch "/api/v1/admin/users/#{@admin.id}", params: { user: { role: "coach", cohort_ids: [ @savings_cohort.id ] } }, headers: auth(second_admin), as: :json
+    assert_response :success
+    assert_equal "coach", @admin.reload.role
+    assert_not CohortMembership.seats.exists?(user_id: @admin.id, role: "preview"), "a coach with no place in the program keeps no usable seat"
+    assert_empty SavingsEnrollment.counted.where(user: @admin)
+  end
+
+  test "an admin can revoke a person after two challenge previews" do
+    two_challenge_previews(@editor)
+    patch "/api/v1/admin/users/#{@editor.id}", params: { user: { invitation_status: "revoked" } }, headers: auth(@admin), as: :json
+    assert_response :success
+    assert_equal "revoked", @editor.reload.invitation_status
+    assert_empty @editor.preview_seats
+    assert_equal %w[withdrawn withdrawn], SavingsEnrollment.previews.where(user: @editor).order(:id).pluck(:status)
+    assert_not CohortMembership.seats.exists?(user_id: @editor.id, role: "preview")
+  end
+
+  test "archiving a group answers 200 after two challenge previews, and ends both people's seats" do
+    two_challenge_previews(@editor)
+    two_challenge_previews(@admin)
+    patch "/api/v1/admin/cohorts/#{@savings_cohort.id}", params: { cohort: { status: "archived" } }, headers: auth(@admin), as: :json
+    assert_response :success
+    assert_equal "archived", @savings_cohort.reload.status
+    assert_empty CohortMembership.previews.where(cohort: @savings_cohort)
+    assert_empty SavingsEnrollment.previews.where(cohort: @savings_cohort, status: "active")
+  end
+
+  test "removing a coach from the workspace answers 200 after two challenge previews" do
+    two_challenge_previews(@editor)
+    member = @workspace.coach_workspace_memberships.find_by!(user: @editor)
+    delete "/api/v1/admin/collaborators/#{member.id}", params: { collaborator: { expected_role: "editor" } },
+      headers: auth(@owner).merge("X-Coach-Workspace-Id" => @workspace.id.to_s), as: :json
+    assert_response :success
+    assert_not CoachWorkspaceMembership.exists?(member.id)
+    assert_empty @editor.preview_seats
+    assert_equal %w[withdrawn withdrawn], SavingsEnrollment.previews.where(user: @editor).order(:id).pluck(:status)
+  end
+
+  test "losing access is never blocked by a seat that cannot be ended, and the failure is reported" do
+    PreviewSeats.join!(user: @editor, cohort_id: @savings_cohort.id)
+    reports = []
+    subscriber = Object.new
+    subscriber.define_singleton_method(:report) { |error, **options| reports << [ error, options[:context] ] }
+    Rails.error.subscribe(subscriber)
+    failing = ->(*) { raise ActiveRecord::StatementInvalid, "seat bookkeeping exploded" }
+    stub_method(PreviewSeats, :leave!, failing) do
+      patch "/api/v1/admin/users/#{@editor.id}", params: { user: { invitation_status: "revoked" } }, headers: auth(@admin), as: :json
+      assert_response :success, "revoking must always succeed"
+    end
+    assert_equal "revoked", @editor.reload.invitation_status
+    assert_equal [ [ ActiveRecord::StatementInvalid, { preview_seat_release: true, user_id: @editor.id, cohort_id: @savings_cohort.id } ] ],
+      reports.map { |error, context| [ error.class, context.slice(:preview_seat_release, :user_id, :cohort_id) ] }
+    assert_not CohortMembership.seats.exists?(user_id: @editor.id, role: "preview"), "a revoked person's seat is never honoured, even while the row lingers"
+  ensure
+    Rails.error.unsubscribe(subscriber) if subscriber
+  end
+
+  test "a seat that cannot be ended is reported to Sentry and never raised" do
+    captured = []
+    failing = ->(*) { raise ActiveRecord::StatementInvalid, "seat bookkeeping exploded" }
+    stub_method(Sentry, :initialized?, true) do
+      stub_method(Sentry, :capture_exception, ->(error, **_options) { captured << error }) do
+        stub_method(PreviewSeats, :leave!, failing) do
+          assert_nil PreviewSeats.release_safely(@editor, @savings_cohort.id)
+        end
+      end
+    end
+    assert_equal [ ActiveRecord::StatementInvalid ], captured.map(&:class)
+  end
+
+  test "a failing seat release never turns a committed archive or workspace removal into an error" do
+    PreviewSeats.join!(user: @editor, cohort_id: @savings_cohort.id)
+    failing = ->(*) { raise ActiveRecord::StatementInvalid, "seat bookkeeping exploded" }
+    member = @workspace.coach_workspace_memberships.find_by!(user: @editor)
+    stub_method(PreviewSeats, :leave!, failing) do
+      member = @workspace.coach_workspace_memberships.find_by!(user: @editor)
+      delete "/api/v1/admin/collaborators/#{member.id}", params: { collaborator: { expected_role: "editor" } },
+        headers: auth(@owner).merge("X-Coach-Workspace-Id" => @workspace.id.to_s), as: :json
+      assert_response :success
+      patch "/api/v1/admin/cohorts/#{@savings_cohort.id}", params: { cohort: { status: "archived" } }, headers: auth(@admin), as: :json
+      assert_response :success
+    end
+    assert_not CoachWorkspaceMembership.exists?(member.id)
+    assert_equal "archived", @savings_cohort.reload.status
+  end
+
+  test "rolling the index change back is refused while several ended seats share a group" do
+    two_challenge_previews(@editor)
+    PreviewSeats.leave!(user: @editor, cohort_id: @savings_cohort.id)
+    assert_raises(ActiveRecord::IrreversibleMigration, "the full unique index would refuse several ended seats") { run_migration(AllowManyEndedPreviewSeats, :down) }
+  end
+
+  test "a staff preview flag can never be flipped after an enrollment is created" do
+    real = enroll_peer(@peers.first)
+    preview = preview_enroll(@admin)
+    assert_raises(ActiveRecord::StatementInvalid, "a real enrollment cannot become a preview") do
+      ActiveRecord::Base.transaction(requires_new: true) { real.update_columns(staff_preview: true) }
+    end
+    assert_raises(ActiveRecord::StatementInvalid, "a preview enrollment cannot become a real one") do
+      ActiveRecord::Base.transaction(requires_new: true) { preview.update_columns(staff_preview: false) }
+    end
+    assert_includes SavingsEnrollment.counted.pluck(:id), real.id
+    assert_not_includes SavingsEnrollment.counted.pluck(:id), preview.id
+    preview.update!(status: "withdrawn")
+    assert_equal "withdrawn", preview.reload.status, "ordinary status changes still work"
   end
 
   # --- reports ----------------------------------------------------------------------------
@@ -556,6 +739,12 @@ class ApiV1PreviewSeatsTest < ActionDispatch::IntegrationTest
     ).subject
   end
 
+
+  def two_challenge_previews(user)
+    preview_enroll(user)
+    PreviewSeats.leave!(user: user, cohort_id: @savings_cohort.id)
+    preview_enroll(user)
+  end
 
   def me_group(user)
     me(user).fetch("preview_groups").find { |group| group["cohort_id"] == @savings_cohort.id }
