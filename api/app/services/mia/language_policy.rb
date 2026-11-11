@@ -324,7 +324,8 @@ module Mia
 
     def custom_phrase_recently_used?(phrase, frequency)
       lookback = case frequency.to_s
-      when "as_needed" then 0
+      # "As needed" still never repeats back to back: the last three replies stay clear of it.
+      when "as_needed" then 3
       when "very_rare" then 6
       when "rare" then 6
       else 4

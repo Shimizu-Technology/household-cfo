@@ -270,8 +270,13 @@ module HouseholdFinance
       emotional_stress_answer || overwhelmed_answer
     end
 
+    # A win is a result or a decision, so she says so: "a CFO move", never praise for effort.
+    WIN_ANSWER = "That’s a CFO move: you told your money where to go. What worked this time that you could repeat?".freeze
+    LIMIT_WIN_ANSWER = "You kept to the limit you set. That’s a CFO move. What worked this week that you could repeat?".freeze
+    LIMIT_WIN = /\b(?:stuck to|stayed (?:under|within|on)|kept (?:to|under|within)|under|within)\b[^.!?]{0,30}\b(?:budget|limit)\b/i
+
     def win_answer
-      "You kept at it, and that effort matters. Let’s look at what helped you keep going. What worked that you could repeat next time?"
+      message.match?(LIMIT_WIN) ? LIMIT_WIN_ANSWER : WIN_ANSWER
     end
 
     def month_overview_answer
@@ -1184,7 +1189,7 @@ module HouseholdFinance
       return "Wanting something nice is understandable. What does the purse cost, and which category would fund it?" unless price
 
       label = price ? "the #{money(price)} purse" : "the purse"
-      opening = snapshot[:readiness_tone] == "green" ? "Check what would fund #{label} before you decide." : "I’d pause on #{label} for now."
+      opening = snapshot[:readiness_tone] == "green" ? "Check what would fund #{label} before you decide." : "I’d pause on #{label} until we check what would pay for it."
       "#{opening} Wanting something nice is understandable, and the plan’s breathing room still has a job to do before it becomes shopping money. Your flexible categories have #{money(current_discretionary_remaining_cents)} left in the plan before purchases waiting for review, which is not your bank balance. Would this come from a funded flexible category, or would it dip into money for bills or emergencies?"
     end
 

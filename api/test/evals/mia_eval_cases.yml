@@ -638,8 +638,8 @@ cases:
   - id: mel_weekly_grocery_win
     route: controller
     prompt: I stayed under my grocery budget for the whole week!
-    expected_phrases: [You kept, worked]
-    forbidden_phrases: [How much did you spend, budget stack, not have enough approved data]
+    expected_phrases: [You kept, CFO move, worked]
+    forbidden_phrases: [How much did you spend, budget stack, not have enough approved data, effort, kept at it, keep going]
     live_expected:
       - [under, within, kept]
       - [worked, repeat, next, keep]
@@ -665,8 +665,8 @@ cases:
   - id: mel_stuck_to_budget
     route: controller
     prompt: I stuck to my food budget this week.
-    expected_phrases: [You kept, worked]
-    forbidden_phrases: [How much did you spend, not have enough approved data]
+    expected_phrases: [You kept, CFO move, worked]
+    forbidden_phrases: [How much did you spend, not have enough approved data, effort, kept at it]
 
   - id: mel_money_stress
     route: controller
@@ -716,3 +716,30 @@ cases:
     expected_phrases: [Cigarettes, Payless, review]
     forbidden_phrases: [budget stack, which stack, monthly allocation]
     live_expected: [Cigarettes, [review, card]]
+
+  - id: win_extra_card_payment
+    route: controller
+    prompt: I paid an extra $300 on my credit card this month and it feels good!
+    expected_phrases: [CFO move, worked]
+    forbidden_phrases: [effort, kept at it, keep going, great job, proud of you, How much did you spend]
+    live_expected:
+      - [CFO move, a 5, 4 moving to a 5]
+      - [card, $300, extra]
+    live_forbidden:
+      - enough approved data to answer that as a fact
+      - /\beffort\b/
+      - /\bdiscipline\b/
+      - kept at it
+
+  - id: purchase_tv_on_a_card_is_hers_to_decide
+    route: controller
+    prompt: Can I get a $650 TV on my card? Money is tight right now.
+    forbidden_phrases: [hold off, don't buy, do not buy, you should not, I approve, go ahead and buy]
+    live_expected:
+      - [decision, call is yours, choice, up to you, you decide]
+      - ["?"]
+    live_forbidden:
+      - /\bhold off\b/
+      - /\bdon.t (?:buy|get)\b/
+      - /\byou should not\b/
+      - enough approved data to answer that as a fact
