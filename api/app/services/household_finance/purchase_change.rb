@@ -96,6 +96,9 @@ module HouseholdFinance
     def plan
       pool = candidates
       return if pool.empty?
+      # A purchase still waiting for her review is edited by its own card. Only
+      # a figure that pins a confirmed one lets this take the message.
+      return if pending_purchase_named? && !(request.old_cents && pool.any? { |draft| draft.total_amount_cents == request.old_cents })
 
       changeable = pool.reject { |draft| draft.financial_source_event_id.present? }
       return reply_only("That purchase came from a statement line, so I can't change it from chat. Open Statements to fix that line. Nothing changed.") if changeable.empty?
@@ -175,6 +178,10 @@ module HouseholdFinance
         narrowed = narrowed.select { |draft| draft.occurred_on == request.day }
       end
       narrowed
+    end
+
+    def pending_purchase_named?
+      household.transaction_drafts.pending.limit(50).any? { |draft| merchant_named?(draft.merchant) }
     end
 
     def base_scope

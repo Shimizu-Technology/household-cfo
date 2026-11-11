@@ -155,6 +155,16 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal 4_600, spent(@shopping)
   end
 
+  test "a purchase still waiting for review keeps its own card unless the old figure names a confirmed one" do
+    confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+    @runner.run(operation_key: "transaction.draft.create", idempotency_key: SecureRandom.uuid,
+      input: { occurred_on: "2026-11-11", merchant: "Target", amount: "30", budget_category_id: @shopping.id, source_type: "manual_ui" })
+
+    assert_nil say("change the target purchase to 70").dig("mia_action_draft", "purchase_change")
+    body = say("the target one was actually 64 not 46")
+    assert_equal "confirm", body.dig("mia_action_draft", "purchase_change", "mode")
+  end
+
   test "words that do not point at a confirmed purchase are left to the usual routes" do
     confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
     [ "delete the 12 dollar costco, it was a refund", "I spent 64 at Target yesterday", "how much did I spend at Target" ].each do |message|

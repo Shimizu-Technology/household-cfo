@@ -16,6 +16,7 @@ class PurchaseChangeRequestTest < ActiveSupport::TestCase
 
   test "reads a category move and a removal" do
     assert_equal "groceries", parse("that costco one should be groceries").category_text
+    assert_equal "groceries", parse("the costco one should really be under groceries not shopping").category_text
     assert_equal "dining out", parse("move the starbucks charge to dining out").category_text
     removal = parse("delete the 12 dollar starbucks, it was a refund")
     assert removal.void

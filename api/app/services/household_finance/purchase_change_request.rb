@@ -12,7 +12,7 @@ module HouseholdFinance
     FROM_TO = /\bfrom\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s+to\s+\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?!\w)/.freeze
     CORRECTION_CUE = /\b(?:actually|really|should (?:have )?(?:be|been)|supposed to (?:be|have been)|(?:change|make|set|update|fix|correct|edit|adjust|switch)\b[^.?!]{0,60}?\bto)\s+(?:only\s+|about\s+|like\s+)?\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?!\w)/.freeze
     DOLLAR_BEFORE_WORD = /\$?\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s*(?:dollar|buck)s?\b|\$\s*(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(?=\s+[a-z])/.freeze
-    CATEGORY_CUE = /(?:\bshould(?:n['’]?t)?\s+(?:be|go|have been)(?:\s+(?:in|under|on|to|filed under|counted (?:as|in)))?|\b(?:put|move|file|switch|change|recategori[sz]e|categori[sz]e|reclassify|count|log|mark)\b[^.?!]{0,50}?\b(?:to|as|in|under|into|on)|\b(?:is|was)\s+(?:really|actually)(?:\s+(?:in|under|for))?|\bbelongs?\s+(?:in|under|to))\s+(?:the\s+|my\s+|a\s+|an\s+)?(?<name>[a-z][a-z &\/'-]{1,40})/.freeze
+    CATEGORY_CUE = /(?:\bshould(?:n['’]?t)?\s+(?:(?:really|actually|probably|just)\s+)?(?:be|go|have been)(?:\s+(?:in|under|on|to|filed under|counted (?:as|in)))?|\b(?:put|move|file|switch|change|recategori[sz]e|categori[sz]e|reclassify|count|log|mark)\b[^.?!]{0,50}?\b(?:to|as|in|under|into|on)|\b(?:is|was)\s+(?:really|actually)(?:\s+(?:in|under|for))?|\bbelongs?\s+(?:in|under|to))\s+(?:the\s+|my\s+|a\s+|an\s+)?(?<name>[a-z][a-z &\/'-]{1,40})/.freeze
 
     def self.parse(message, today: Date.current)
       new(message, today: today).call
