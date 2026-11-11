@@ -635,6 +635,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [freshMiaReplyId, setFreshMiaReplyId] = useState<number | null>(null)
+  // Set when Mia answers a message that carried a statement: the participant answers from the statement card below the reply.
+  const [statementReply, setStatementReply] = useState<{ nonce: number; importIds: number[] } | null>(null)
   const [miaWaitLong, setMiaWaitLong] = useState(false)
   useEffect(() => {
     if (!miaLoading) return
@@ -1591,6 +1593,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (miaLoading) { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'sent' }
   }, [miaLoading])
 
+  // After Mia answers an upload, bring the first card for what was just sent into view; the anchor to her message stops following the reply.
+  useEffect(() => {
+    if (!statementReply) return
+    const frame = requestAnimationFrame(() => {
+      const cards = Array.from(chatCardRef.current?.querySelectorAll<HTMLElement>('.mia-statement-card:not(.is-approved)') ?? [])
+      const card = cards.find((candidate) => statementReply.importIds.includes(Number(candidate.dataset.importId)))
+      if (!card) return
+      chatScrolledAwayRef.current = true
+      card.scrollIntoView({ block: 'start' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [statementReply])
+
   useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
   const queueHistoryPosition = useMiaHistoryPosition({ chatRef: chatCardRef, visibleMessageCount, olderMessageCount: olderServerMessageCount, scope: chatStorageKey })
 
@@ -2296,6 +2311,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
       void refreshDocumentImports({ quiet: true })
       setFreshMiaReplyId(response.assistant_message.id ?? null)
+      const statementImportIds = readyAttachments.filter((attachment) => attachment.document_kind === 'statement' && attachment.document_import_id).map((attachment) => attachment.document_import_id!)
+      if (statementImportIds.length > 0) setStatementReply({ nonce: response.assistant_message.id ?? Date.now(), importIds: statementImportIds })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       // A refresh may have replaced history while this message was in flight, so remove
       // the placeholder by its client id and skip any server message already present.

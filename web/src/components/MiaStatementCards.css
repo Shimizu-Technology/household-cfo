@@ -6,6 +6,7 @@
   display: grid; gap: 12px; min-width: 0; padding: 16px; border: 1px solid var(--line, #e2d9cb); border-radius: var(--radius-md, 14px);
   background: var(--paper, #fffdf8); color: var(--ink, #1f2421);
 }
+.mia-statement-card h3:focus { outline: none; }
 .mia-statement-card h3 { margin: 0; font-size: var(--text-lg, 1.125rem); line-height: 1.3; overflow-wrap: anywhere; }
 .mia-statement-card p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .mia-statement-card.is-approved h3 { color: var(--status-green, #4f6d53); }

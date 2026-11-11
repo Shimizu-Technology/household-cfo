@@ -24,7 +24,7 @@ function stageOf(documentImport: FinancialDocumentImport): StatementCardStage | 
   return documentNeedsReview(documentImport) ? 'review' : 'approved'
 }
 
-/** Oldest first, so three months read January, February, March. */
+/** By the month each covers, so three months read August, September, October wherever they were uploaded from. */
 export function statementCardEntries(imports: FinancialDocumentImport[], now: number): StatementCardEntry[] {
   return imports.flatMap((documentImport): StatementCardEntry[] => {
     const stage = stageOf(documentImport)
@@ -33,7 +33,7 @@ export function statementCardEntries(imports: FinancialDocumentImport[], now: nu
     const age = Number.isFinite(at) ? now - at : 0
     if (stage !== 'reading' && age > (stage === 'approved' ? APPROVED_FOR : OPEN_FOR)) return []
     return [{ documentImport, stage }]
-  }).sort((left, right) => left.documentImport.id - right.documentImport.id)
+  }).sort((left, right) => (left.documentImport.period_start_on ?? '').localeCompare(right.documentImport.period_start_on ?? '') || left.documentImport.id - right.documentImport.id)
 }
 
 /** How many calendar months the approved statements cover, so Mia can say "your last 3 months". */

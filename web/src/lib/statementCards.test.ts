@@ -22,6 +22,12 @@ describe('which statements get a card in the chat', () => {
     expect(entries.map((entry) => [entry.documentImport.id, entry.stage])).toEqual([[1, 'reading'], [2, 'failed'], [3, 'review']])
   })
 
+  it('orders three months by the month they cover, not by when each was uploaded', () => {
+    const month = (id: number, start: string) => item(id, { period_start_on: start, period_end_on: start })
+    const entries = statementCardEntries([month(1, '2026-10-01'), month(2, '2026-08-01'), month(3, '2026-09-01')], NOW)
+    expect(entries.map((entry) => entry.documentImport.id)).toEqual([2, 3, 1])
+  })
+
   it('keeps a finished statement for two days and an open one for two weeks', () => {
     const approved = (updated: string) => item(5, { statement_review: progress(27), updated_at: updated, processed_at: updated })
     expect(statementCardEntries([approved('2026-11-10T20:00:00Z')], NOW).map((entry) => entry.stage)).toEqual(['approved'])

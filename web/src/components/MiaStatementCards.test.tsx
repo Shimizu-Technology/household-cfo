@@ -91,6 +91,14 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4002, decision: 'as_read', shown: { event_type: 'purchase', category_id: null } }] })
   })
 
+  it('moves focus to the next question after one is answered, so a keyboard user does not start over', async () => {
+    serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
+    mount([statement(1)])
+    fireEvent.click(await screen.findByRole('button', { name: 'Yes: Own savings' }))
+    serve(review(planWith([question(4003, 'Rent transfer', 'transfer')])))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Yes: Rent transfer' })))
+  })
+
   it('offers her own categories for a suggestion she wants to change, without a sheet', async () => {
     const data = review(planWith([question(4001, 'Island Table', 'suggested_category', { category_id: 10, category_name: 'Groceries', question: 'Was this Groceries?', answers: [{ id: 'keep', label: 'Yes' }, { id: 'edit', label: 'Change' }] })]))
     data.participant_review!.categories = [{ id: 10, name: 'Groceries' }, { id: 11, name: 'Dining out' }]

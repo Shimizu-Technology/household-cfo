@@ -21,7 +21,9 @@ module FinancialDocuments
       def spending_totals
         read = @revision.financial_source_events.where(row_kind: "posted", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("signed_amount_cents < 0")
         counted = current_versions.where(disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0")
-        { read_count: read.count, read_cents: -read.sum(:signed_amount_cents), counted_count: counted.count, counted_cents: -counted.sum("source_review_versions.signed_amount_cents") }
+        read_count, read_cents = read.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(signed_amount_cents), 0)"))
+        counted_count, counted_cents = counted.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(source_review_versions.signed_amount_cents), 0)"))
+        { read_count: read_count, read_cents: read_cents.to_i, counted_count: counted_count, counted_cents: counted_cents.to_i }
       end
 
       private
