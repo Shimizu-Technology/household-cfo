@@ -222,6 +222,11 @@ jobs:
           # WebKit needs system libraries the runner image lacks, so try another Ubuntu mirror before
           # giving up on apt: the outage was DNS for archive.ubuntu.com / azure.archive.ubuntu.com only.
           echo "::warning::Retrying with the mirrors.kernel.org Ubuntu mirror"
+          # The runner image points apt at mirror+file:/etc/apt/apt-mirrors.txt, so the Ubuntu hosts live
+          # in that list rather than in the sources files; replace it as well.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            echo 'http://mirrors.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
           for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
             [ -f "$f" ] && sudo sed -i -E 's#https?://(azure\.)?archive\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g; s#https?://security\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g' "$f"
           done
