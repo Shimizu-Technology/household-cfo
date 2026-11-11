@@ -44,6 +44,7 @@ import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
 import { MiaStatementCards } from './components/MiaStatementCards'
+import { statementCardEntries } from './lib/statementCards'
 import { ChallengeToday } from './components/ChallengeToday'
 import { setDailyExpectedUser } from './lib/dailyRecovery'
 import { BaselineReview } from './components/BaselineReview'
@@ -992,6 +993,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     () => documentImports.filter(documentNeedsReview).length,
     [documentImports],
   )
+  // The chat only makes room for statement cards when there is a card to show.
+  const hasStatementCards = useMemo(() => statementCardEntries(documentImports, Date.now()).length > 0, [documentImports])
   const processingImportsCount = useMemo(
     () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
@@ -3845,7 +3848,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   </> : null
 
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
-  const statementCards = isRealWorkspace && !safetyHold ? <MiaStatementCards
+  const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
     imports={documentImports}
     assistantName={assistantName}
     challenge={Boolean(isSavingsExperience)}
