@@ -1,6 +1,7 @@
 import { expect, test, type Response } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { coachingStep, coachingUrl } from './helpers/adminNav'
 
 const live = process.env.HCFO_W14_LIVE_URL
 const api = process.env.HCFO_W14_API_URL
@@ -27,8 +28,8 @@ test('Coach Studio BOG UI an old household draft goes live with Statements and c
     return route.continue({ headers })
   })
   if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
-  await page.goto(`${live}/?pilot_e2e_role=coach&pilot_e2e_live_api=true#Coach%20Studio`)
-  await page.getByRole('navigation', { name: 'Coach Studio areas' }).getByRole('button', { name: 'Go live', exact: true }).click()
+  await page.goto(coachingUrl(live!, 'coach'))
+  await coachingStep(page, 'live').click()
   await expect(page.getByText('This update adds Statements', { exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByRole('button', { name: 'Approve and go live' })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

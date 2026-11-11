@@ -26,6 +26,7 @@ test('BOG UI fixed coarse report review and private export choices are explicit'
   await expect(save.getByRole('button', { name: 'Save the report' })).toBeDisabled()
   await save.getByRole('checkbox', { name: /I understand it shows broad ranges only/ }).check()
   await save.getByRole('button', { name: 'Save the report' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Fictional savings group · Day 60')
   await expect(page.getByText('Fewer than five people agreed to share, so progress is hidden.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download this report' })).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
@@ -44,6 +45,9 @@ test('BOG UI household roster identifies setup help and every control is a comfo
   await expect(page.locator('.admin-report-group h3', { hasText: 'Household group' })).toHaveCount(0)
   await page.getByRole('button', { name: /Elena/ }).click()
   await expect(page.getByRole('dialog')).toContainText('Asked for help with an upload')
+  // The setup request itself is loaded for this coach's program, with its action.
+  await expect(page.getByRole('dialog')).toContainText('Help request 31')
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Mark in review' })).toBeVisible()
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
   // Safari does not focus a button when it is tapped, so there is nothing for the dialog to return to there.
   if (info.project.name !== 'mobile-webkit') await expect(page.getByRole('button', { name: /Elena/ })).toBeFocused()

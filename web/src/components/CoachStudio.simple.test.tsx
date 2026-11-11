@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
 import { useLayoutEffect } from 'react'
 import { CoachStudio } from './CoachStudio'
+import { holdWorkspaceLock } from './coachWorkspaceMutationLifecycle'
 const auth=vi.hoisted(()=>({workspaceId:1,initialAdvancedDirty:false}))
 const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaAssignableCohorts:vi.fn()}))
 vi.mock('../api',()=>api)
@@ -49,6 +50,15 @@ it('opens History in place and comes back to Coaching, asking first when changes
   confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Back to Coaching'}))
   await screen.findByLabelText('Assistant name');expect(window.sessionStorage.getItem('hcfo.coachStudio.mode:902')).toBeNull()
  }finally{confirm.mockRestore()}
+})
+it('keeps Group tools open while one of its saves is still going',async()=>{
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ fireEvent.click(screen.getByRole('button',{name:'Open group tools'}))
+ const back=await screen.findByRole('button',{name:'Back to Coaching'});expect(back).toHaveProperty('disabled',false)
+ let release=()=>{};act(()=>{release=holdWorkspaceLock()})
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Back to Coaching'})).toHaveProperty('disabled',true))
+ act(()=>release())
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Back to Coaching'})).toHaveProperty('disabled',false))
 })
 it('keeps only the history preference when the app remounts after a program switch',async()=>{
  const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')

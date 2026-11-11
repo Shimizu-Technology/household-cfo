@@ -4,6 +4,7 @@ import { TodaySection } from '../../src/admin/sections/TodaySection'
 import { ReportsSection } from '../../src/admin/sections/ReportsSection'
 import type { CurrentUser } from '../../src/api'
 import { ChallengeExport } from '../../src/components/ChallengeExport'
+import { AuthContext, type AuthContextValue } from '../../src/contexts/authContextValue'
 import '../../src/App.css'
 let revoked = false
 ;(window as unknown as { __revoke: () => void }).__revoke = () => { revoked = true }
@@ -20,7 +21,16 @@ window.fetch = async (input, init) => {
   })
   if (path.endsWith('/admin/cohorts')) return response({ cohorts: [group(1, 'Fictional savings group', true), group(2, 'Household group', false)] })
   if (path.endsWith('/admin/users')) return response({ users: [] })
-  if (path.endsWith('/setup_support_requests')) return response({ records: [], next_cursor: null })
+  // One real setup request, for the household group's participant, so the help dialog has something to show.
+  if (path.endsWith('/setup_support_requests'))
+    return response({
+      records: url.searchParams.get('cohort_id') === '2' ? [{
+        id: 31, status: 'requested', reason: 'upload_problem', reason_label: 'I need help with an upload', participant_name: 'Elena', user_id: 3, household_id: 9, cohort_id: 2,
+        program_name: 'Household group', lock_version: 1, review_id: null, review_expires_at: null, review_state: 'none', created_at: '2026-11-10T10:00:00Z', updated_at: '2026-11-10T10:00:00Z',
+        permissions: { triage: true, prepare: false, decline: true },
+      }] : [],
+      next_cursor: null,
+    })
   if (path.endsWith('/participants'))
     return response({
       actor_scope: { user_id: 10, coach_workspace_id: 20 },
@@ -64,7 +74,8 @@ window.fetch = async (input, init) => {
   }
   if (path.endsWith('/sponsor_exports'))
     return init?.method === 'POST'
-      ? response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
+      // A saved report is for the day that was asked for.
+      ? response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: JSON.parse(String(init.body)).checkpoint_day } })
       : response({
           actor_scope: { user_id: 10, coach_workspace_id: 20 },
           cohort_id: 1,
@@ -81,9 +92,14 @@ window.fetch = async (input, init) => {
   return response({ errors: ['Unsupported synthetic request'] }, 422)
 }
 const coach = { id: 10, is_admin: false, is_staff: true, role: 'coach', admin_sections: ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings'].map(key => ({ key, label: key, access: 'full' })) } as unknown as CurrentUser
+// The coach works inside one program (20), as a signed-in coach always does.
+const auth: AuthContextValue = {
+  isAuthEnabled: false, authIdentityId: null, isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: coach, activeCoachWorkspaceId: 20, authError: null,
+  refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined,
+}
 export function Fixture() {
   return (
-    <main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>
+    <AuthContext.Provider value={auth}><main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>
       <p>Fictional local component QA. No real participant records, authentication or report delivery.</p>
       <button
         onClick={() => {
@@ -95,7 +111,7 @@ export function Fixture() {
       <TodaySection currentUser={coach} />
       <ReportsSection currentUser={coach} />
       <ChallengeExport cohortId={1} scope={{ user_id: 3, household_id: 9 }} />
-    </main>
+    </main></AuthContext.Provider>
   )
 }
 createRoot(document.getElementById('root')!).render(
