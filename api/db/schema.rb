@@ -839,7 +839,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_143000) do
     t.index ["coach_persona_release_candidate_id"], name: "idx_persona_behavioral_previews_candidate"
     t.index ["evidence_digest"], name: "idx_persona_behavioral_previews_digest", unique: true
     t.index ["generated_by_user_id"], name: "idx_on_generated_by_user_id_90cd84d1a1"
-    t.check_constraint "char_length(prompt) >= 1 AND char_length(prompt) <= 2000 AND char_length(output) >= 1 AND char_length(output) <= 4000 AND char_length(model_identifier::text) >= 1 AND char_length(model_identifier::text) <= 200 AND (response_source::text = ANY (ARRAY['live_model'::character varying::text, 'deterministic_fallback'::character varying::text, 'deterministic_safety'::character varying::text])) AND privacy_scope::text = 'no_saved_participant_or_household_data'::text", name: "persona_behavioral_previews_bounded"
+    t.check_constraint "char_length(prompt) >= 1 AND char_length(prompt) <= 2000 AND char_length(output) >= 1 AND char_length(output) <= 4000 AND char_length(model_identifier::text) >= 1 AND char_length(model_identifier::text) <= 200 AND (response_source::text = ANY (ARRAY['live_model'::character varying, 'deterministic_fallback'::character varying, 'deterministic_safety'::character varying]::text[])) AND privacy_scope::text = 'no_saved_participant_or_household_data'::text", name: "persona_behavioral_previews_bounded"
     t.check_constraint "char_length(provider_request_id::text) >= 1 AND char_length(provider_request_id::text) <= 200 AND provider_request_id::text !~ '[[:space:][:cntrl:]]'::text", name: "persona_behavioral_previews_request_id_bounded"
     t.check_constraint "context_digest::text ~ '^[0-9a-f]{64}$'::text AND candidate_digest::text ~ '^[0-9a-f]{64}$'::text AND config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_behavioral_previews_digest_shape"
     t.check_constraint "model_identifier::text !~ '[[:space:][:cntrl:]]'::text", name: "persona_behavioral_previews_model_identifier_concrete"
@@ -1531,7 +1531,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_143000) do
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying::text, 'coach'::character varying::text, 'admin'::character varying::text, 'preview'::character varying::text, 'preview_ended'::character varying::text])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying, 'preview'::character varying, 'preview_ended'::character varying]::text[])", name: "cohort_memberships_role_valid"
   end
 
   create_table "cohort_persona_assignments", force: :cascade do |t|
@@ -2805,7 +2805,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_143000) do
     t.index ["chat_message_id"], name: "index_savings_chat_cards_on_chat_message_id"
     t.index ["savings_enrollment_id", "status", "id"], name: "savings_chat_cards_pending"
     t.index ["savings_enrollment_id"], name: "index_savings_chat_cards_on_savings_enrollment_id"
-    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying::text, 'goal'::character varying::text, 'savings'::character varying::text])", name: "savings_chat_card_kind"
+    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying, 'savings'::character varying]::text[])", name: "savings_chat_card_kind"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'closed'::character varying::text])", name: "savings_chat_card_status"
   end
 
