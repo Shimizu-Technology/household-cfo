@@ -94,7 +94,9 @@ describe('Mia’s statement cards in the chat', () => {
   it('moves focus to the next question after one is answered, so a keyboard user does not start over', async () => {
     serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
     mount([statement(1)])
-    fireEvent.click(await screen.findByRole('button', { name: 'Yes: Own savings' }))
+    const answer = await screen.findByRole('button', { name: 'Yes: Own savings' }) as HTMLButtonElement
+    await waitFor(() => expect(answer.disabled).toBe(false))
+    fireEvent.click(answer)
     serve(review(planWith([question(4003, 'Rent transfer', 'transfer')])))
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Yes: Rent transfer' })))
   })

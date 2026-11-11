@@ -41,7 +41,82 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
     assert_equal true, body.dig("assistant_message", "care_hold")
     assert_nil body["challenge_chat_card"]
     assert_nil body["mia_action_draft"]
+    assert_nil body["challenge_join"]
+    assert_empty body["challenge_chat_cards"].to_a
     assert_equal "crisis", session.reload.active_topic["care_kind"]
+  end
+
+  # Each fixture first reaches the real #279 path without care. After the crisis
+  # starts, that exact request must answer care, without issuing or changing cards.
+  %i[purchase_change savings savings_review join checkpoint].each do |path|
+    %i[off on timeout].each do |model|
+      test "#{model} crisis takes priority over integrated #{path} path" do
+        travel_to Time.find_zone!("Pacific/Guam").local(2026, 12, 31, 12) do
+          followup = prepare_integrated_path(path)
+          say(GUN, legacy(care: "crisis"))
+          original = session.reload.active_topic
+          cards = SavingsChatCard.order(:id).map(&:attributes)
+          drafts = MiaActionDraft.order(:id).map(&:attributes)
+          body = nil
+          assert_no_difference [ "SavingsEnrollment.count", "SavingsEntryDraft.count", "SavingsEntryVersion.count",
+            "SavingsCheckpoint.count", "SavingsCheckpointVersion.count", "HouseholdTransaction.count" ] do
+            body = model == :off ? raw(followup) : with_reader_timeout(available: model == :on) { raw(followup) }
+          end
+          assert_crisis(body)
+          assert_equal original.slice("care_kind", "started_at", "expires_at"), session.reload.active_topic.slice("care_kind", "started_at", "expires_at")
+          assert_equal cards, SavingsChatCard.order(:id).map(&:attributes)
+          assert_equal drafts, MiaActionDraft.order(:id).map(&:attributes)
+          get "/api/v1/mia/messages", headers: auth
+          assert_response :success
+          assert_equal true, response.parsed_body["messages"].last["care_hold"]
+          assert_crisis(raw("I haven't moved it yet."))
+        end
+      end
+    end
+  end
+
+  def prepare_integrated_path(path)
+    if path == :purchase_change
+      category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+        .create_category!(name: "Shopping", stack_key: "discretionary", monthly_amount: 200)
+      runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+      purchase = runner.run(operation_key: "transaction.draft.create", idempotency_key: SecureRandom.uuid,
+        input: { occurred_on: Date.current.iso8601, merchant: "Target", amount: "46", budget_category_id: category.id, source_type: "manual_ui" }).subject
+      runner.run(operation_key: "transaction.draft.confirm", idempotency_key: SecureRandom.uuid,
+        input: { draft_id: purchase.id, source_type: "manual_ui" })
+      message = "change the Target purchase to $64"
+      assert_equal "purchase_change", raw(message).dig("mia_action_draft", "draft_type")
+      return message
+    end
+
+    if path == :join
+      setup_savings_context
+      with_savings_runtime { }
+      @user, @household = @savings_user, @savings_household
+      message = "I want to join the challenge"
+      assert_equal true, raw(message)["challenge_join"]
+      return message
+    end
+
+    if path == :checkpoint
+      checkpoint_time = Time.current
+      travel_to checkpoint_time - 31.days
+      enroll_in_challenge
+      travel_to checkpoint_time
+      message = "how am I doing"
+      assert_includes text(raw(message)), "Day 30 is ready to review"
+      return message
+    end
+
+    enroll_in_challenge
+    message = "I set aside $25 today"
+    card = raw(message).fetch("challenge_chat_card")
+    assert_equal "savings", card["kind"]
+    return message if path == :savings
+
+    message = "Yes, save it"
+    assert_equal card["id"], raw(message).dig("challenge_chat_card", "id")
+    message
   end
 
   %i[household challenge].each do |mode|
