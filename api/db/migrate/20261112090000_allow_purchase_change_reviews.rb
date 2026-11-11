@@ -16,9 +16,12 @@ class AllowPurchaseChangeReviews < ActiveRecord::Migration[8.1]
   end
 
   def down
-    # A pending purchase review cannot be represented by the former schema.
-    MiaActionItem.where(action_type: "change_purchase").delete_all
-    MiaActionDraft.where(draft_type: "purchase_change").destroy_all
+    # Purchase-change reviews hold her approved edits and the history that
+    # points at them. Dropping them would delete application records while the
+    # changed purchase stays. Never discard that to restore the older schema.
+    if select_value("SELECT EXISTS (SELECT 1 FROM mia_action_drafts WHERE draft_type = 'purchase_change') OR EXISTS (SELECT 1 FROM mia_action_items WHERE action_type = 'change_purchase')")
+      raise ActiveRecord::IrreversibleMigration, "Purchase change reviews exist. Preserve and review them before rolling back."
+    end
     replace_constraints(DRAFT_TYPES - [ "purchase_change" ], ACTION_TYPES)
   end
 

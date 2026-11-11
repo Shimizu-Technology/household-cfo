@@ -90,9 +90,12 @@ module HouseholdFinance
       name.length >= 2 ? name : nil
     end
 
+    # A day she names stays on the request even when it is still ahead: no
+    # confirmed purchase can be dated then, and she is told so rather than
+    # shown a same-amount purchase from another day.
     def day
       result = ParticipantReportDay.call(day: "", message: text, today: today)
-      result.state == :resolved && result.date <= today ? result.date : nil
+      result.state == :resolved ? result.date : nil
     rescue StandardError
       nil
     end

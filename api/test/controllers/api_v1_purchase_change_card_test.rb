@@ -174,6 +174,17 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal 4_600, spent(@shopping)
   end
 
+  def with_named_purchase_cap(limit)
+    klass = HouseholdFinance::PurchaseChange
+    original = klass::MAX_NAMED_PURCHASES
+    klass.send(:remove_const, :MAX_NAMED_PURCHASES)
+    klass.const_set(:MAX_NAMED_PURCHASES, limit)
+    yield
+  ensure
+    klass.send(:remove_const, :MAX_NAMED_PURCHASES)
+    klass.const_set(:MAX_NAMED_PURCHASES, original)
+  end
+
   def choose_option(card_id, option)
     post "/api/v1/mia_action_drafts/#{card_id}/purchase_choice", params: { option: option }, headers: auth, as: :json
   end
@@ -253,6 +264,75 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
     choose_option(card["id"], "1")
     assert_response :success
     assert_equal [ "$52", "$70" ], response.parsed_body.dig("mia_action_draft", "purchase_change", "rows", 0).values_at("before", "after")
+  end
+
+  test "an explicit future day is never dropped: a same-amount purchase from another day gets no card" do
+    purchase = confirmed("Starbucks", "12", Date.new(2026, 11, 9), @dining)
+
+    body = say("delete the $12 starbucks tomorrow, it was a refund")
+    assert_nil body["mia_action_draft"], "no card for a purchase from a different day"
+    assert_includes body.dig("assistant_message", "content"), "hasn't happened yet"
+    assert_includes body.dig("assistant_message", "content"), "Nothing changed"
+    assert_equal "confirmed", purchase.reload.status
+    assert_equal 1_200, spent(@dining)
+    assert_equal 0, MiaActionDraft.where(draft_type: "purchase_change").count
+  end
+
+  test "asking about a different purchase leaves the first card open, and asking again about the same one replaces it" do
+    confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+    confirmed("Starbucks", "12", Date.new(2026, 11, 10), @dining)
+
+    target = say("the target one was actually 64 not 46").fetch("mia_action_draft")
+    starbucks = say("delete the 12 dollar starbucks, it was a refund").fetch("mia_action_draft")
+    assert_equal "pending", MiaActionDraft.find(target["id"]).status, "the Target card is about another purchase"
+    assert_equal "pending", MiaActionDraft.find(starbucks["id"]).status
+
+    again = say("actually the target one should be 70 not 46").fetch("mia_action_draft")
+    assert_equal "canceled", MiaActionDraft.find(target["id"]).status, "same purchase: the older card is replaced"
+    assert_equal "pending", MiaActionDraft.find(starbucks["id"]).status
+    assert_equal "pending", MiaActionDraft.find(again["id"]).status
+  end
+
+  test "a choice whose category has since been archived is refused, never turned into an amount-only change" do
+    confirmed("Target", "46", Date.new(2026, 11, 10), @shopping)
+    confirmed("Target", "52", Date.new(2026, 11, 9), @shopping)
+    card = say("change the target purchase to 70 and put it in groceries").fetch("mia_action_draft")
+    assert_equal "choose", card.dig("purchase_change", "mode")
+    assert_equal @groceries.id, card.dig("purchase_change", "change", "category_id") if card.dig("purchase_change", "change")
+
+    @groceries.update!(active: false)
+    choose_option(card["id"], 0)
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "category isn't available"
+    assert_equal "choose", MiaActionDraft.find(card["id"]).metadata.dig("purchase_change", "mode"), "still waiting; nothing was prepared"
+    assert_equal 0, MiaActionDraft.find(card["id"]).mia_action_items.count
+  end
+
+  test "choosing a purchase from another year moves the card to that year" do
+    confirmed("Starbucks", "12", Date.new(2026, 11, 9), @dining)
+    older = confirmed("Starbucks", "9", Date.new(2025, 12, 20), @dining)
+    card = say("change the starbucks purchase to 5").fetch("mia_action_draft")
+    assert_equal "choose", card.dig("purchase_change", "mode")
+    assert_equal 2026, card["year"]
+
+    index = card.dig("purchase_change", "options").index { |option| option["label"].include?("Dec 20, 2025") }
+    choose_option(card["id"], index)
+    assert_response :success
+    chosen = response.parsed_body.fetch("mia_action_draft")
+    assert_equal 2025, chosen["year"], "the card follows the purchase she picked"
+    assert_equal 2025, MiaActionDraft.find(card["id"]).year
+    assert_equal older.id, MiaActionDraft.find(card["id"]).mia_action_items.first.target_record_id
+  end
+
+  test "the merchant she names is matched before the cap, so an older purchase is still found" do
+    old = confirmed("Starbucks", "12", Date.new(2026, 10, 1), @dining)
+    2.times { |index| confirmed("Safeway", (20 + index).to_s, Date.new(2026, 11, 8 + index), @groceries) }
+
+    with_named_purchase_cap(2) do
+      card = say("delete the 12 dollar starbucks, it was a refund").fetch("mia_action_draft")
+      assert_equal "confirm", card.dig("purchase_change", "mode")
+      assert_equal old.id, MiaActionDraft.find(card["id"]).mia_action_items.first.target_record_id
+    end
   end
 
   test "a failed re-confirm rolls the reopen back so the purchase is exactly as it was" do

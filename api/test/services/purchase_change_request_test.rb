@@ -45,4 +45,10 @@ class PurchaseChangeRequestTest < ActiveSupport::TestCase
     assert_nil parse("remove the starbucks around 2pm, it was a refund").old_cents
     assert_equal 1_200, parse("remove the 12 dollar starbucks on nov 9").old_cents
   end
+
+  test "a day still ahead stays on the request, so it can never match a confirmed purchase" do
+    result = parse("delete the 12 dollar starbucks tomorrow, it was a refund")
+    assert_equal Date.new(2026, 11, 12), result.day
+    assert_equal Date.new(2026, 11, 10), parse("delete the 12 dollar starbucks yesterday, it was a refund").day
+  end
 end

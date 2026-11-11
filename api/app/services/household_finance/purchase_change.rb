@@ -7,6 +7,8 @@ module HouseholdFinance
   class PurchaseChange
     MAX_CHOICES = 3
     HISTORY_DAYS = 400
+    # Most purchases from the named merchants that are looked at, newest first.
+    MAX_NAMED_PURCHASES = 300
     # attributes: what the review card is built from, or nil when Mia only replies.
     Plan = Data.define(:reply, :mode, :attributes)
     Stale = Class.new(StandardError)
@@ -25,13 +27,17 @@ module HouseholdFinance
       return unless draft&.status.in?(%w[confirmed corrected])
 
       category = household.budget_categories.active.find_by(id: change["category_id"]) if change["category_id"]
+      # She asked for a category that has since been archived. Never quietly
+      # make an amount-only change out of a request for both.
+      return Plan.new(reply: "That category isn't available any more. Ask me again and tell me which one to use. Nothing changed.", mode: "none", attributes: nil) if change["category_id"] && category.nil?
+
       new(household, request, message: "", today: today).confirm(draft, category)
     end
 
     # The review card. Asking again about the same purchase replaces the card
-    # she hasn't answered yet.
+    # she hasn't answered yet; a card about another purchase stays open.
     def self.create_draft!(plan, household:, user:, user_message:, assistant_message:, cohort_membership: nil)
-      supersede_open_cards!(household, user, user_message, cohort_membership)
+      supersede_open_cards!(household, user, user_message, cohort_membership, purchase_ids(plan.attributes.fetch(:items).pluck(:target_record_id), plan.attributes.dig(:detail, "options")))
       proposal(plan, household: household, user: user, source_prompt: user_message.content)
         .create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message, allow_empty: true)
     end
@@ -46,14 +52,27 @@ module HouseholdFinance
         metadata: { source: "mia_chat", parser: "purchase_change", purchase_change: attributes.fetch(:detail) })
     end
 
-    def self.supersede_open_cards!(household, user, source_message, cohort_membership)
+    def self.supersede_open_cards!(household, user, source_message, cohort_membership, purchase_ids)
       household.mia_action_drafts.pending.where(draft_type: "purchase_change", requested_by_user: user).joins(:source_chat_message)
-        .where(chat_messages: { chat_session_id: source_message.chat_session_id }).find_each do |previous|
+        .where(chat_messages: { chat_session_id: source_message.chat_session_id }).includes(:mia_action_items).find_each do |previous|
+        next if (purchase_ids & purchase_ids_of(previous)).empty?
+
         result = MiaActionDraftCanceler.new(previous, user: user, cohort_membership: cohort_membership).call(idempotency_key: "superseded:#{previous.id}:#{source_message.id}")
         raise ArgumentError, result.errors.join(", ") unless result.success?
       end
     end
     private_class_method :supersede_open_cards!
+
+    # The purchases a card is about: the one it would change, or the ones she is choosing between.
+    def self.purchase_ids(target_ids, options)
+      (Array(target_ids) + Array(options).map { |option| option["transaction_draft_id"] }).compact.map(&:to_i).uniq
+    end
+    private_class_method :purchase_ids
+
+    def self.purchase_ids_of(draft)
+      purchase_ids(draft.mia_action_items.map(&:target_record_id), draft.metadata.to_h.dig("purchase_change", "options"))
+    end
+    private_class_method :purchase_ids_of
 
     def self.snapshot(draft)
       transaction = draft.confirmed_transaction
@@ -100,6 +119,8 @@ module HouseholdFinance
       # A purchase still waiting for her review is edited by its own card. Only
       # a figure that pins a confirmed one lets this take the message.
       return if pending_purchase_named? && !(request.old_cents && !match.missed_amount && pool.any? { |draft| draft.total_amount_cents == request.old_cents })
+
+      return reply_only("I can only change purchases you've already confirmed, and #{day_label(request.day)} hasn't happened yet. Nothing changed.") if request.day && request.day > today
 
       changeable = pool.reject { |draft| draft.financial_source_event_id.present? }
       return reply_only("That purchase came from a statement line, so I can't change it from chat. Open Statements to fix that line. Nothing changed.") if changeable.empty?
@@ -174,7 +195,7 @@ module HouseholdFinance
     # named, narrowed by the amount and day when she gave them. An amount or
     # day that nothing matches is reported as missed, never dropped.
     def candidates
-      named = base_scope.to_a.select { |draft| merchant_named?(draft.merchant) }
+      named = base_scope.to_a
       return Match.new(drafts: [], missed_amount: false, missed_day: false) if named.empty?
 
       narrowed = named
@@ -199,12 +220,21 @@ module HouseholdFinance
       household.transaction_drafts.pending.limit(50).any? { |draft| merchant_named?(draft.merchant) }
     end
 
-    def base_scope
+    def eligible_scope
       household.transaction_drafts.where(status: %w[confirmed corrected])
         .joins(:confirmed_transaction).where(household_transactions: { status: "confirmed" })
         .where("transaction_drafts.occurred_on >= ?", today - HISTORY_DAYS)
+    end
+
+    # Only the merchants she named, chosen before the cap, so a purchase from a
+    # busy household's older months is still reachable by name.
+    def base_scope
+      merchants = eligible_scope.distinct.pluck(:merchant).select { |merchant| merchant_named?(merchant) }
+      return TransactionDraft.none if merchants.empty?
+
+      eligible_scope.where(merchant: merchants)
         .includes(:transaction_draft_splits, :budget_category, confirmed_transaction: :transaction_splits)
-        .recent_first.limit(300)
+        .recent_first.limit(MAX_NAMED_PURCHASES)
     end
 
     def merchant_named?(merchant)

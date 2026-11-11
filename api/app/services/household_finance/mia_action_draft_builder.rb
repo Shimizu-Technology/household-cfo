@@ -92,7 +92,7 @@ module HouseholdFinance
           draft.lock!
           raise ArgumentError, "That setup card is no longer open." unless draft.pending?
           draft.mia_action_items.destroy_all
-          draft.update!(title: title, summary: summary, source_prompt: source_prompt,
+          draft.update!(year: year, title: title, summary: summary, source_prompt: source_prompt,
             metadata: draft.metadata.merge(metadata.deep_stringify_keys).except("stale_at", "stale_message"))
           write_items!(draft)
         end
