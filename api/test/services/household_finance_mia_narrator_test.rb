@@ -1719,8 +1719,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "a recent crisis can repeat the 988 line without failing the amount check" do
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "can i spend 40 on takeout tonight", api_key: "test",
       answer_packet: { kind: "coaching", write_state: "no_write", fallback_response: "I'm glad you're here.", care_context: { care_kind: "crisis", disclosure: "hard" } }, history: [])
-    reply = "I can't say yes or no to the takeout yet. If those feelings are still with you, call or text 988, or call 911. Is someone with you tonight?"
+    reply = "I can't say yes or no to the takeout yet. If those feelings are still with you, call or text 988, or call 911. Put distance between you and anything you could use to hurt yourself. Is someone with you tonight?"
     assert_nil narrator.send(:narration_rejection_reason, reply)
-    assert_equal :unverified_amount, narrator.send(:narration_rejection_reason, "That takeout is $40. Is someone with you tonight?")
+    assert_equal :unverified_amount, narrator.send(:narration_rejection_reason, "That takeout is $40. #{reply}")
   end
 end
