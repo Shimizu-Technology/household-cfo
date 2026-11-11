@@ -15,6 +15,37 @@ it('keeps known approved money separate from pending final confirmation and zero
 it('stages the server-calculated milestone without entering totals and without default final confirmation',async()=>{render(view());await waitFor(()=>expect((screen.getByRole('button',{name:'Review Day 90 · Mon, Sep 28, 2026'}) as HTMLButtonElement).disabled).toBe(false));fireEvent.click(screen.getByRole('button',{name:'Review Day 90 · Mon, Sep 28, 2026'}));fireEvent.click(screen.getByRole('checkbox',{name:/I’m ready to review these numbers/}));fireEvent.click(screen.getByRole('button',{name:'Save Day 90 checkpoint preview'}));await waitFor(()=>expect(mutate).toHaveBeenCalledWith('checkpoint_stage',{milestone_day:90,expected_version_id:null,expected_head_lock_version:0,reason:'',final_confirmation_accepted:false}));expect(JSON.stringify(mutate.mock.calls[0])).not.toContain('reported_cents')})
 it('requires separate saved snapshot approval with captured draft/head locks',async()=>{vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoint_drafts'?[{id:900,lock_version:2,base_version_id:800,base_head_lock_version:3,status:'pending',approved_version_id:null,reason:'Checked correction',snapshot:dailySnapshot,savings_checkpoint_id:700}]:[],next_cursor:null}));render(view());const approval=await screen.findByRole('button',{name:'Approve Day 90 checkpoint'});expect((approval as HTMLButtonElement).disabled).toBe(true);fireEvent.click(screen.getByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(approval);expect(mutate).toHaveBeenCalledWith('checkpoint_approve',{draft_id:900,accepted:true,expected_draft_lock_version:2,expected_version_id:800,expected_head_lock_version:3})})
 
+it('celebrates an approved checkpoint with one Biba card, the real figure and one action, then clears it for the next review',async()=>{
+ vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoint_drafts'?[{id:900,lock_version:2,base_version_id:800,base_head_lock_version:3,status:'pending',approved_version_id:null,reason:null,snapshot:{...dailySnapshot,milestone_day:30},savings_checkpoint_id:700}]:[],next_cursor:null}))
+ const close=vi.fn()
+ render(<ChallengeCheckpoints context={dailyContext} scope={scope} refresh={0} mutate={mutate} busy={false} onDenied={onDenied} onBaseline={vi.fn()} onClose={close}/>)
+ expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
+ fireEvent.click(await screen.findByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(screen.getByRole('button',{name:'Approve Day 30 checkpoint'}))
+ const card=await screen.findByRole('region',{name:'Biba! Day 30 is done.'})
+ expect(card.textContent).toContain('You’ve set aside $550.00, which reaches your $500.00 target.')
+ expect(card.querySelectorAll('button')).toHaveLength(1)
+ fireEvent.click(screen.getByRole('button',{name:'Back to my savings'}));expect(close).toHaveBeenCalledTimes(1);expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
+})
+it('does not celebrate when the approval did not save',async()=>{
+ mutate.mockResolvedValue(null)
+ vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoint_drafts'?[{id:900,lock_version:2,base_version_id:800,base_head_lock_version:3,status:'pending',approved_version_id:null,reason:null,snapshot:dailySnapshot,savings_checkpoint_id:700}]:[],next_cursor:null}))
+ render(view())
+ fireEvent.click(await screen.findByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(screen.getByRole('button',{name:'Approve Day 90 checkpoint'}))
+ await waitFor(()=>expect(mutate).toHaveBeenCalled());expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
+})
+it('says the Day 90 review is saved, not done, while final confirmation is still being checked',async()=>{
+ vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoint_drafts'?[{id:900,lock_version:2,base_version_id:800,base_head_lock_version:3,status:'pending',approved_version_id:null,reason:null,snapshot:dailySnapshot,savings_checkpoint_id:700}]:[],next_cursor:null}))
+ render(view())
+ fireEvent.click(await screen.findByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(screen.getByRole('button',{name:'Approve Day 90 checkpoint'}))
+ expect(await screen.findByRole('region',{name:'Biba! Your Day 90 review is saved.'})).toBeTruthy()
+})
+it('does not celebrate a correction to a checkpoint that was already approved',async()=>{
+ const head={id:800,current_version_id:801,lock_version:3,milestone_day:30,current_version:{id:801,version_number:1,previous_version_id:null,approved_at:'2026-10-05T00:00:00Z',reason:null,savings_checkpoint_id:800,snapshot:{...dailySnapshot,milestone_day:30}}}
+ vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoints'?[head]:collection==='checkpoint_drafts'?[{id:900,lock_version:2,base_version_id:801,base_head_lock_version:3,status:'pending',approved_version_id:null,reason:'Added two late check-ins',snapshot:{...dailySnapshot,milestone_day:30},savings_checkpoint_id:800}]:[],next_cursor:null}))
+ render(view())
+ fireEvent.click(await screen.findByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(screen.getByRole('button',{name:'Approve Day 30 checkpoint'}))
+ await waitFor(()=>expect(mutate).toHaveBeenCalledWith('checkpoint_approve',expect.anything()));expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
+})
 it('opens an existing milestone with current version locks and preserves the original target by default',async()=>{const head={id:800,current_version_id:801,lock_version:3,milestone_day:90,current_version:{id:801,version_number:1,previous_version_id:null,approved_at:'2026-10-05T00:00:00Z',reason:null,savings_checkpoint_id:800,snapshot:dailySnapshot}};vi.mocked(fetchDailyPage).mockImplementation(async collection=>({actor_scope:baselineScope,records:collection==='checkpoints'?[head]:[],next_cursor:null}));render(view());await waitFor(()=>expect((screen.getByRole('button',{name:'Review Day 90 · Mon, Sep 28, 2026'}) as HTMLButtonElement).disabled).toBe(false));fireEvent.click(screen.getByRole('button',{name:'Review Day 90 · Mon, Sep 28, 2026'}));fireEvent.change(screen.getByLabelText('Checkpoint explanation (required for correction)'),{target:{value:'Included newly approved daily reports.'}});fireEvent.click(screen.getByRole('checkbox',{name:/I’m ready to review these numbers/}));fireEvent.click(screen.getByRole('button',{name:'Save Day 90 checkpoint preview'}));await waitFor(()=>expect(mutate).toHaveBeenCalledWith('checkpoint_stage',expect.objectContaining({expected_version_id:801,expected_head_lock_version:3})));expect(mutate.mock.calls[0][1]).not.toHaveProperty('plan_version_id')})
 
 it('rejects milestone identities from another enrollment before preparing a checkpoint',async()=>{

@@ -43,6 +43,7 @@
 .savings-summary { display: grid; gap: 8px; padding: 22px 20px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--paper); }
 .savings-summary > h3 { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--muted); scroll-margin-top: 20px; }
 .savings-summary p { margin: 0; }
+/* The amount is the screen's one serif figure; styles/cards.css sets its face and size. */
 .savings-total { margin: 0; font-family: var(--number-font); font-size: clamp(2rem, 9vw, 2.5rem); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; line-height: 1.1; color: var(--ink); overflow-wrap: anywhere; }
 .savings-total--words { font-size: clamp(1.5rem, 6.5vw, 1.75rem); }
 .savings-target-line { color: var(--ink); font-size: var(--text-md); }

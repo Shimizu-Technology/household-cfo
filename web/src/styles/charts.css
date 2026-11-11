@@ -93,7 +93,6 @@
 .budget-screen .outlook-callout,
 .budget-screen .annual-outlook,
 .budget-screen .cash-flow-detail-panel { border: 0; border-radius: 0; box-shadow: none; background: none; padding: 0; }
-.month-plan-summary h3 { margin: 0; font-family: var(--font-body); font-size: 18px; }
 .month-plan-values { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 16px 0 8px; }
 .month-plan-values .plan-value { padding: 0; border: 0; border-radius: 0; background: none; }
 .month-plan-values .plan-value > span { font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; }
@@ -107,12 +106,10 @@
 .budget-screen .annual-budget-panel { display: flex; flex-direction: column; gap: 20px; }
 .budget-screen .annual-budget-summary { order: 1; border: 0; border-block: 1px solid var(--line); border-radius: 0; background: none; }
 .budget-screen .budget-detail-disclosure { order: 2; }
-.budget-screen .annual-budget-heading h3 { font-family: var(--font-body); font-size: 20px; }
 .budget-screen .annual-budget-heading p { margin: 4px 0; }
 .budget-screen .outlook-callout { margin: 8px 0; color: var(--ink); font-size: 14px; }
 .budget-screen .annual-budget-panel button { box-shadow: none; }
 .budget-screen .eyebrow { display: none; }
-.annual-cash-flow-visual .financial-visual-heading h4 { font-family: var(--font-body); font-size: 18px; letter-spacing: 0; }
 .annual-cash-flow-visual .financial-visual-heading p { font-size: 13px; }
 .cash-flow-detail-panel { margin-top: 12px; padding-top: 12px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; box-shadow: none; }
 .cash-flow-detail-panel span,
@@ -131,7 +128,13 @@
 .expense-stack-row.stack-discretionary { --group-color: var(--terracotta, #b97352); }
 .expense-stack-row.stack-sinking_expected { --group-color: #647d67; }
 .expense-stack-row.stack-sinking_unexpected { --group-color: var(--muted); }
-.expense-stack-row-heading strong::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; background: var(--group-color); }
+/* Her numbered Expense Stack: 1 to 4 in the order the groups are read. The ring takes the group
+   colour; the number and the name carry the meaning, so colour is never the only signal. */
+.expense-stack-list { counter-reset: expense-stack; }
+.expense-stack-row { counter-increment: expense-stack; }
+.expense-stack-row-heading strong { display: flex; align-items: center; gap: var(--space-3); }
+.expense-stack-row-heading strong::before { content: counter(expense-stack); display: inline-grid; flex: 0 0 28px; place-items: center; width: 28px; height: 28px; box-sizing: border-box; border: 1px solid var(--group-color); border-radius: 50%; color: var(--ink); font: var(--weight-semibold) var(--text-sm)/1 var(--font-body); }
+.expense-stack-row-heading > div > span { padding-left: 40px; }
 .expense-stack-row .budget-progress-actual { background: var(--group-color); }
 .expense-stack-row-heading strong { font-size: 15px; }
 @media (max-width: 620px) {
@@ -150,14 +153,13 @@
   .budget-screen .budget-primary-actions button,
   .budget-setup-prompt button { width: 100%; }
   .expense-stack-row-heading { display: block; }
+  .expense-stack-row-heading > b { display: block; padding-left: 40px; margin-top: var(--space-1); }
 }
 
 .cash-flow-detail-summary > span,
 .cash-flow-detail-context > div > span,
 .cash-flow-detail-panel dt,
 .cash-flow-month-summary small { letter-spacing: 0; text-transform: none; }
-.expense-stack-row.stack-sinking_expected .expense-stack-row-heading strong::before { border-radius: 50%; }
-.expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before { background: transparent; border: 2px solid var(--group-color); }
 .home-screen .compact .financial-visual-heading > p { display: none; }
 .budget-screen :is(.budget-manual-manager, .annual-income-planner, .annual-category-form, .budget-detail-disclosure, .annual-budget-summary > span, .category-pressure-row) { border-radius: 0; box-shadow: none; background: none; }
 .budget-screen .budget-detail-disclosure { border: 0; border-block: 1px solid var(--line); }

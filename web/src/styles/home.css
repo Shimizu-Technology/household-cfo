@@ -3,8 +3,9 @@
 .home-screen > .home-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; padding: 0; }
 .home-screen > .home-heading h2,
 .home-welcome-panel h2,
-.budget-screen > .screen-heading h2 { margin: 0; font-family: var(--font-body); font-size: 26px; line-height: 1.2; letter-spacing: 0; }
+.budget-screen > .screen-heading h2 { margin: 0; }
 .home-screen > .home-heading p { margin: 0; color: var(--muted); }
+.home-welcome-panel h2 { margin-bottom: var(--space-2); }
 .home-welcome-panel { display: block; padding: 24px 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .home-welcome-panel > p { max-width: 55ch; }
 .home-welcome-panel .home-money-values { margin-block: 24px; }
@@ -36,10 +37,9 @@
 .month-plan-line strong { color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .home-money-values > div { min-width: 0; }
 .home-money-values dt { font-size: var(--text-sm); }
-.home-money-values dd { margin: 8px 0 0; font: var(--weight-semibold) clamp(24px, 3vw, 36px)/1.15 var(--font-body); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.home-money-values dd { margin: 8px 0 0; font: var(--weight-semibold) clamp(1.25rem, 2.5vw, 1.5rem)/1.15 var(--font-body); font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
 .home-month-answer > p { font-size: var(--text-sm); color: var(--muted); }
-.home-cushion { border-top: 1px solid var(--line); padding-top: 16px; }
-.home-cushion h3, .year-outlook h3 { margin: 0; font: var(--weight-semibold) var(--text-lg)/1.4 var(--font-body); }
+.home-cushion { padding-top: 8px; }
 .home-cushion p, .year-outlook p { margin: 8px 0; line-height: 1.5; }
 .year-outlook { min-width: 0; }
 .year-outlook-months { list-style: none; padding: 0; margin: 12px 0 0; }
@@ -62,14 +62,14 @@
 @media (max-width: 620px) {
   .home-money-values { grid-template-columns: 1fr; gap: 12px; }
   .home-money-values > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 16px; align-items: baseline; }
-  .home-money-values dd { margin: 0; font-size: 28px; }
+  .home-money-values dd { margin: 0; font-size: 1.375rem; }
   .money-topics { display: none; }
   .money-topic-picker { display: grid; gap: 8px; }
   .money-topic-picker select { width: 100%; min-height: 44px; min-width: 0; padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
   .wealth-screen > .metric-row { grid-template-columns: 1fr; }
 }
 
-.year-outlook { display: block; margin: 0; padding: 16px 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; }
+.year-outlook { display: block; margin: 0; padding: 8px 0; border: 0; border-radius: 0; background: none; }
 @media (max-width: 620px) {
   .home-money-values dd { margin-inline-start: auto; text-align: right; }
 }
@@ -85,3 +85,6 @@
 @media (min-width: 621px) {
   .home-plan-caveat { text-align: right; }
 }
+
+/* First-run reassurance, right above the two ways to begin. */
+.home-welcome-note { margin: 0 0 var(--space-3); color: var(--muted); font-size: var(--text-sm); }

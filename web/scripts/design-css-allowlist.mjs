@@ -84,6 +84,4 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/SavingsEvidenceDialog.css\",\"side-border\",[],\".evidence-legs\",\"border-left: 2px solid var(--line,#cad6d2)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .opening-progress-indicator.
   "[\"src/components/WorkspaceOpening.css\",\"side-border\",[],\".opening-progress-indicator\",\"border: 2px solid currentColor\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before.
-  "[\"src/styles/charts.css\",\"side-border\",[],\".expense-stack-row.stack-sinking_unexpected .expense-stack-row-heading strong::before\",\"border: 2px solid var(--group-color)\"]",
 ])

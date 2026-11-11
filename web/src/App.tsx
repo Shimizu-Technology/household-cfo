@@ -4679,7 +4679,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         </section>
       )}
 
-      {activeSection !== 'Ask Mia' && <BrandFooter />}
+      {activeSection !== 'Ask Mia' && <BrandFooter closingLine={data.workspace.experience_mode !== 'savings_challenge'} />}
 
       {bulkConfirmRequest && (
         <BulkConfirmDialog
@@ -4969,6 +4969,7 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, p
     {answer?.main_income_missing && <p>Still to add: your main income.</p>}
     {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
     {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
+    {!started && <p className="home-welcome-note">Takes about 3 minutes. You can skip anything.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
   </section>
