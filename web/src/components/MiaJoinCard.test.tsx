@@ -93,3 +93,30 @@ it('already enrolled: tells an updating parent exactly once and closes, however 
   expect(closed).toHaveBeenCalledTimes(1)
   expect(container.textContent).not.toContain('five times')
 })
+
+it('while the changed offer is being fetched, the old one cannot be accepted, and the new offer starts unchecked', async () => {
+  let release: (value: SavingsChallenge) => void = () => undefined
+  vi.mocked(fetchSavingsChallenge).mockResolvedValueOnce(challenge())
+  vi.mocked(enrollSavingsChallenge).mockRejectedValueOnce(new ApiRequestError('changed', { status: 409 }))
+  render(<MiaJoinCard onJoined={vi.fn()} onDone={vi.fn()} />)
+  await screen.findByText(/Your 90 days/)
+  fireEvent.click(screen.getByLabelText('I’ve read this and accept joining the challenge.'))
+  vi.mocked(fetchSavingsChallenge).mockImplementationOnce(() => new Promise<SavingsChallenge>(resolve => { release = resolve }))
+  fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
+  await screen.findByText(/joining details were updated/)
+  await screen.findByText('Getting the updated joining details…')
+  const box = screen.getByLabelText('I’ve read this and accept joining the challenge.') as HTMLInputElement
+  expect(box.matches(':disabled'), 'the old offer cannot be ticked while the new one loads').toBe(true)
+  expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
+  release(challenge({ offer: offer({ acceptance_digest: 'digest-2', personal_ends_on: '2027-02-10' }) }))
+  await screen.findByText(/Feb 10, 2027/)
+  const fresh = screen.getByLabelText('I’ve read this and accept joining the challenge.') as HTMLInputElement
+  expect(fresh.matches(':disabled')).toBe(false)
+  expect(fresh.checked, 'consent for the old terms does not carry over').toBe(false)
+  expect((screen.getByRole('button', { name: 'Accept and join' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.queryByText('Getting the updated joining details…')).toBeNull()
+  fireEvent.click(fresh)
+  fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
+  await waitFor(() => expect(enrollSavingsChallenge).toHaveBeenCalledTimes(2))
+  expect(vi.mocked(enrollSavingsChallenge).mock.calls[1][0]).toMatchObject({ expected_acceptance_digest: 'digest-2' })
+})

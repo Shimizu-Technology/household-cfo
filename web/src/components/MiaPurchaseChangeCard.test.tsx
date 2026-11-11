@@ -57,3 +57,12 @@ it('cannot be applied once it is out of date, or while another action runs', () 
   rerender(<MiaPurchaseChangeCard draft={draft(confirm)} action="apply-mia-action:7" disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onChoose={vi.fn()} />)
   expect((screen.getByRole('button', { name: 'Saving…' }) as HTMLButtonElement).disabled).toBe(true)
 })
+
+it('a confirm-mode draft with its purchase item is a plain MiaActionDraft, no cast needed', () => {
+  const typed: MiaActionDraft = {
+    ...base, id: 9, status: 'pending', draft_type: 'purchase_change', purchase_change: confirm,
+    items: [{ id: 1, action_type: 'change_purchase', label: 'Change Target', description: 'Amount: $46 → $64', payload: {}, before_snapshot: {}, after_snapshot: {}, operation_key: null, operation_version: null, target_record_type: 'TransactionDraft', target_record_id: 3 }],
+  }
+  render(<MiaPurchaseChangeCard draft={typed} action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onChoose={vi.fn()} />)
+  expect(screen.getByRole('heading', { name: 'Change your Target purchase?' })).toBeTruthy()
+})

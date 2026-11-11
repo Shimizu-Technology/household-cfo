@@ -6,7 +6,7 @@ import { bibaSentence } from '../lib/bibaSentence'
 import { formatDay } from '../lib/plainDates'
 import { savingsDollars, savingsTargetDollars } from '../lib/savingsChallenge'
 import { readDailyRecovery } from '../lib/dailyRecovery'
-import { useDailyMutation } from '../lib/useDailyMutation'
+import { useDailyMutation, type DailyCommitted } from '../lib/useDailyMutation'
 import { BibaCard } from './BibaCard'
 import './MiaDailyCheckIn.css'
 
@@ -25,7 +25,10 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   const [due, setDue] = useState<{ day: Day; scope: DailyScope; localToday: string } | null>(null)
   const [dismissed, setDismissed] = useState(false)
   const [draft, setDraft] = useState<DailyCheckpointDraft | null>(null)
-  const [finished, setFinished] = useState(false)
+  // The milestone found already approved elsewhere; a later milestone is not hidden by it.
+  const [finishedDay, setFinishedDay] = useState<Day | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [finalDone, setFinalDone] = useState(false)
   const [checked, setChecked] = useState(false)
   const [working, setWorking] = useState(false)
@@ -37,12 +40,14 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   const milestone = useRef<Day | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const card = useRef<HTMLElement>(null)
-  const mutation = useDailyMutation(due?.scope, () => undefined)
+  const mutation = useDailyMutation(due?.scope, committed => { if (committed) settleCommitted(committed) })
 
   useEffect(() => {
     const controller = new AbortController()
     Promise.all([fetchSavingsChallenge(controller.signal), fetchDailyContext(undefined, controller.signal)]).then(([challenge, context]) => {
-      if (controller.signal.aborted || !challenge.enrollment || !dailyContextMatches(context, actor, cohortId, challenge.enrollment.id)) return
+      if (controller.signal.aborted) return
+      setLoadFailed(false)
+      if (!challenge.enrollment || !dailyContextMatches(context, actor, cohortId, challenge.enrollment.id)) return
       const day = challenge.timeline?.checkpoints_due?.[0]
       if (day !== 30 && day !== 60 && day !== 90) { setDue(null); return }
       const localToday = context.calendar.local_today
@@ -50,17 +55,21 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
       if (milestone.current !== day) { milestone.current = day; keys.current = freshKeys(); setDraft(null); setChecked(false); setFinalDone(false); setError(''); setStale(false) }
       setDismissed(readDismissed(dismissKey(actor, day, localToday)))
       setDue({ day, localToday, scope: { ...actor, enrollment_id: context.enrollment_id, ...(context.cohort_id != null ? { cohort_id: context.cohort_id } : {}) } })
-    }).catch(() => undefined)
+    }).catch(() => { if (!controller.signal.aborted) setLoadFailed(true) })
     return () => controller.abort()
-  }, [actor, cohortId, refreshKey])
+  }, [actor, cohortId, refreshKey, attempt])
 
   const snapshot = draft?.snapshot
   // Keep the card in view as it grows from the offer to the look back.
+  const finished = finishedDay !== null && finishedDay === due?.day
   const shown = Boolean(due) && !dismissed && !finished
   useEffect(() => { if (shown) card.current?.scrollIntoView?.({ block: 'nearest' }) }, [shown, snapshot])
   const lines = useMemo(() => snapshot ? facts(snapshot) : [], [snapshot])
   if (celebrate) {
     return <BibaCard title={celebrate.milestone_day === 90 && celebrate.final_confirmation_status !== 'confirmed' ? 'Biba! Your Day 90 review is saved.' : `Biba! Day ${celebrate.milestone_day} is done.`} actionLabel="Keep going" onAction={() => { setCelebrate(null); setDue(null); onDone() }}>{bibaSentence(celebrate)}</BibaCard>
+  }
+  if (!due && loadFailed) {
+    return <section className="mia-daily-card mia-action-card" aria-label="Checkpoint review"><p role="alert">I couldn’t check whether a review is due. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button></div></section>
   }
   if (!due || dismissed || finished) return null
 
@@ -75,7 +84,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
       const heads = await fetchDailyPage<DailyCheckpoint>('checkpoints', null)
       if (!dailyResponseMatches(heads, scope) || heads.next_cursor !== null) throw new Error('We couldn’t check your earlier reviews. Nothing changed.')
       const head = heads.records.find(row => row.milestone_day === day)
-      if (head?.current_version) { setFinished(true); onDone(); return }
+      if (head?.current_version) { setFinishedDay(day); onDone(); return }
       const record = await mutation.mutate('checkpoint_stage', { milestone_day: day, expected_version_id: head?.current_version_id ?? null, expected_head_lock_version: head?.lock_version ?? 0, reason: '', final_confirmation_accepted: day === 90 && finalDone }, undefined, keys.current.stage) as DailyCheckpointDraft | null
       if (record) showDraft(record)
       else if (!readDailyRecovery(scope)) keys.current = freshKeys()
@@ -121,9 +130,19 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   async function retrySame() {
     const action = mutation.pending?.action
     const result = await mutation.retry?.()
-    if (!result) return
-    if (action === 'checkpoint_stage') showDraft(result as DailyCheckpointDraft)
-    else if (action === 'checkpoint_approve' && draft) celebrateSaved(draft)
+    if (result) return settleCommitted({ action: action!, record: result })
+    // The server refused the retry for good: treat it like any other refusal, not as something to tap again.
+    if (readDailyRecovery(scope)) return
+    if (action === 'checkpoint_approve') setStale(true)
+    else keys.current = freshKeys()
+  }
+
+  // A request that did commit (a retry that went through, or a status check that found it saved) shows its result.
+  function settleCommitted({ action, record }: DailyCommitted) {
+    if (action === 'checkpoint_stage') {
+      if (record && typeof record === 'object' && 'snapshot' in record) showDraft(record as DailyCheckpointDraft)
+      else { keys.current = freshKeys(); setError('I couldn’t show the saved look back. Look at it again.') }
+    } else if (action === 'checkpoint_approve' && draft) celebrateSaved(draft)
   }
 
   const recovery = mutation.pending && !mutation.pending.working && <div className="mia-card-recovery" role="status">

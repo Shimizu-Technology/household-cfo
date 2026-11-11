@@ -659,6 +659,7 @@ export type MiaActionItem = {
     | 'update_transition_policy'
     | 'update_household_profile'
     | 'confirm_household_setup'
+    | 'change_purchase'
   target_record_type: string | null
   target_record_id: number | null
   label: string

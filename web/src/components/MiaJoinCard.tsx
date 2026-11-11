@@ -18,6 +18,9 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   const [joined, setJoined] = useState(false)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
+  // The offer is being fetched again after it changed: nothing on the old one can be accepted meanwhile.
+  const [refreshing, setRefreshing] = useState(false)
+  const shownDigest = useRef<string | null>(null)
   // One key per exact offer, so a retry after a dropped connection replays instead of joining twice.
   const requestKey = useRef<{ digest: string; key: string } | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -25,7 +28,13 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
 
   useEffect(() => {
     const controller = new AbortController()
-    fetchSavingsChallenge(controller.signal).then(result => { setChallenge(result); setLoadFailed(false) }).catch(() => { if (!controller.signal.aborted) setLoadFailed(true) })
+    fetchSavingsChallenge(controller.signal).then(result => {
+      if (controller.signal.aborted) return
+      // Boxes she checked belong to the offer she saw; a different offer starts unchecked.
+      const digest = result.offer?.acceptance_digest ?? null
+      if (digest !== shownDigest.current) { shownDigest.current = digest; setParticipation(false); setLateAcceptance(false) }
+      setChallenge(result); setLoadFailed(false); setRefreshing(false)
+    }).catch(() => { if (!controller.signal.aborted) { setLoadFailed(true); setRefreshing(false) } })
     return () => controller.abort()
   }, [attempt])
 
@@ -57,6 +66,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
       if (failure instanceof ApiRequestError && failure.status === 409) {
         setError('The joining details were updated. Review them and check the box again.')
         setParticipation(false); setLateAcceptance(false); requestKey.current = null
+        setRefreshing(true)
         setAttempt(value => value + 1)
       } else {
         setError(participantErrorMessage(failure, 'We couldn’t finish joining. Try again; you won’t join twice.'))
@@ -80,14 +90,15 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
     <h3>Join the 90-day savings challenge</h3>
     <p><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on) : 'dates not set yet'}</strong><br /><span className="mia-daily-hint">{offer.cohort_label}</span></p>
     <p className="mia-daily-hint">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
-    <fieldset className="mia-card-checks" disabled={busy || !offer.accepting_enrollments}>
+    <fieldset className="mia-card-checks" disabled={busy || refreshing || !offer.accepting_enrollments}>
       <label className="mia-card-check"><input type="checkbox" checked={participation} onChange={event => setParticipation(event.target.checked)} /><span>I’ve read this and accept joining the challenge.</span></label>
       {needsLate && <label className="mia-card-check"><input type="checkbox" checked={lateAcceptance} onChange={event => setLateAcceptance(event.target.checked)} /><span>I accept that my 90 days start later than the group’s, as shown above.</span></label>}
     </fieldset>
     {!offer.accepting_enrollments && <p role="status">This group isn’t taking new members right now.</p>}
     {error && <p role="alert">{error}</p>}
+    {refreshing && <p role="status">Getting the updated joining details…</p>}
     <div className="mia-daily-actions">
-      <button type="button" className="mia-daily-save" disabled={busy || !offer.accepting_enrollments || !participation || (needsLate && !lateAcceptance)} onClick={() => void join()}>{busy ? 'Joining…' : 'Accept and join'}</button>
+      <button type="button" className="mia-daily-save" disabled={busy || refreshing || !offer.accepting_enrollments || !participation || (needsLate && !lateAcceptance)} onClick={() => void join()}>{busy ? 'Joining…' : 'Accept and join'}</button>
       <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={onDone}>Not now</button>
     </div>
     <p className="mia-daily-footnote">You’re not joined until you tap Accept and join.</p>

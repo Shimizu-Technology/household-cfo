@@ -6,7 +6,9 @@ import type { DailyAction, DailyInput, DailyScope } from './dailyChallenge'
 import { bindDailyActor, clearDailyRecovery, isDailyActor, readDailyRecovery, saveDailyRecovery, subscribeDailyRecovery } from './dailyRecovery'
 import { participantErrorMessage } from './participantErrorMessage'
 export type DailyMutate = (action: DailyAction, input: DailyInput, reflectionId?: number, key?: string) => Promise<unknown | null>
-export function useDailyMutation(scope: DailyScope | undefined, refresh: () => void) {
+// A status check that finds the request committed hands its record to the caller, so it can show the saved result.
+export type DailyCommitted = { action: DailyAction; record: unknown }
+export function useDailyMutation(scope: DailyScope | undefined, refresh: (committed?: DailyCommitted) => void) {
   const [, update] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [denied, setDenied] = useState(false)
@@ -69,7 +71,7 @@ export function useDailyMutation(scope: DailyScope | undefined, refresh: () => v
         if (!unresolvedMetadata && !dailyResponseMatches(ordinaryStatus, scope)) { if (live.current) setDenied(true); throw new Error('Private workspace changed. Reopen Today in the original workspace.') }
       }
       if (status.state === 'committed' && pending.action === 'reflection_erase' && (!('erased' in status) || !status.erased || status.reflection_id !== pending.reflectionId)) throw new Error('The erasure result could not be confirmed.')
-      if (status.state === 'committed') { clearDailyRecovery(pending.key); if (live.current) { setError(null); refresh() } }
+      if (status.state === 'committed') { clearDailyRecovery(pending.key); if (live.current) { setError(null); refresh('record' in status ? { action: pending.action, record: status.record } : undefined) } }
       else saveDailyRecovery({ ...pending, working: false, error: status.state === 'in_flight' ? 'This request is still processing. Check again.' : pending.input ? 'No committed result found. Retry the same saved request.' : 'The result is unknown and this page no longer holds its original inputs. Further changes remain blocked; keep the reference number for support.' })
     } catch (failure) {
       if (!isDailyActor(scope)) return
