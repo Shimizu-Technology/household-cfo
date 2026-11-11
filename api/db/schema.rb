@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -1527,11 +1527,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
     t.string "role", default: "participant", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["cohort_id", "user_id"], name: "index_cohort_memberships_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id", "user_id", "role"], name: "index_cohort_memberships_on_cohort_id_and_user_id_and_role", unique: true
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying::text, 'coach'::character varying::text, 'admin'::character varying::text])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying, 'preview'::character varying]::text[])", name: "cohort_memberships_role_valid"
   end
 
   create_table "cohort_persona_assignments", force: :cascade do |t|
@@ -4747,7 +4747,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_09_093000) do
         IF version.id IS DISTINCT FROM card.current_version_id OR version.savings_debt_card_id<>card.id OR version.terms IS DISTINCT FROM NEW.terms OR version.previous_version_id IS DISTINCT FROM NEW.base_version_id OR ROW(version.source_tracked_account_id,version.source_account_identity_version_id,version.source_revision_approval_id,version.source_fingerprint,version.source_snapshot) IS DISTINCT FROM ROW(NEW.source_tracked_account_id,NEW.source_account_identity_version_id,NEW.source_revision_approval_id,NEW.source_fingerprint,NEW.source_snapshot) THEN RAISE EXCEPTION 'card approval does not match reviewed draft'; END IF;
         RETURN NEW;
       END IF;
-      IF enrollment.status<>'active' OR NOT EXISTS (SELECT 1 FROM users WHERE id=enrollment.user_id AND role='participant' AND invitation_status<>'revoked') THEN RAISE EXCEPTION 'card review participant unavailable'; END IF;
+      IF enrollment.status<>'active' OR NOT EXISTS (SELECT 1 FROM users WHERE id=enrollment.user_id AND invitation_status<>'revoked' AND (role='participant' OR EXISTS (SELECT 1 FROM cohort_memberships preview_seat WHERE preview_seat.id=enrollment.accepted_cohort_membership_id AND preview_seat.user_id=users.id AND preview_seat.role='preview'))) THEN RAISE EXCEPTION 'card review participant unavailable'; END IF;
       IF TG_TABLE_NAME='savings_debt_versions' THEN
         IF NEW.approved_by_user_id<>enrollment.user_id OR NEW.previous_version_id IS DISTINCT FROM card.current_version_id THEN RAISE EXCEPTION 'card approval actor or prior head invalid'; END IF;
         IF NEW.previous_version_id IS NULL THEN

@@ -4,12 +4,13 @@ module Api
   module V1
     module Admin
       # Opens or pauses the savings challenge for a cohort. Platform administrators
-      # only: program owners and coaches can read the status on the cohort payload
-      # but cannot change it. Every change is recorded in CohortChallengeAccessEvent.
+      # and the owner of the group's coach workspace can change it; other coaches
+      # can read the status on the cohort payload. Every change is recorded in
+      # CohortChallengeAccessEvent.
       class CohortChallengeAccessesController < BaseController
         before_action :authenticate_user!
         before_action :require_staff!
-        before_action :require_platform_admin!
+        before_action :require_challenge_manager!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
         rescue_from ActionController::ParameterMissing, SavingsChallenge::LaunchControl::Invalid, with: :render_invalid
         rescue_from SavingsChallenge::LaunchControl::NotAuthorized, with: :render_not_authorized
@@ -28,8 +29,10 @@ module Api
 
         private
 
-        def require_platform_admin!
-          render_forbidden("Only a platform administrator can open or pause the savings challenge.") unless current_user.admin?
+        def require_challenge_manager!
+          return if SavingsChallenge::LaunchControl.can_change?(current_user, cohort)
+
+          render_forbidden("Only this group's program owner or a platform administrator can open or pause the savings challenge.")
         end
 
         def cohort

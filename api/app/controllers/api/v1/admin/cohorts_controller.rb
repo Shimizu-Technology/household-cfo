@@ -144,7 +144,7 @@ module Api
             staff_count: staff_count,
             setup_complete_count: setup_complete_count,
             operational_summary: operational_summary(cohort, participant_users),
-            savings_challenge: SavingsChallenge::LaunchControl.new(cohort: cohort).status.merge(can_change: current_user&.admin? || false),
+            savings_challenge: SavingsChallenge::LaunchControl.new(cohort: cohort).status.merge(can_change: SavingsChallenge::LaunchControl.can_change?(current_user, cohort)),
             created_at: cohort.created_at,
             updated_at: cohort.updated_at.iso8601(6),
             created_by: {

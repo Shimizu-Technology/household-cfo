@@ -112,6 +112,7 @@ module Api
             user.save!
 
             if user.participant?
+              PreviewSeats.release_all!(user)
               user.coach_workspace_memberships.find_each do |workspace_membership|
                 CoachWorkspaceMembershipEvent.create!(coach_workspace_id: workspace_membership.coach_workspace_id,
                   actor_user: current_user, subject_user: user, event_type: "removed", before_role: workspace_membership.role)

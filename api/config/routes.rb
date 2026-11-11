@@ -110,6 +110,7 @@ Rails.application.routes.draw do
         get "savings_challenge/#{collection}", to: "savings_challenges##{collection}"
       end
       get "auth/me", to: "auth#me"
+      resources :preview_seats, only: %i[create destroy]
       resource :workspace, only: :show do
         patch "setup", on: :collection
       end

@@ -67,7 +67,7 @@ module ChallengePrivacy
 
     private
     def fingerprint(value) = HouseholdFinance::Operations::PreparedOperation.fingerprint(value)
-    def enrollments = SavingsEnrollment.where(cohort: @cohort).order(:household_id, :id)
+    def enrollments = SavingsEnrollment.counted.where(cohort: @cohort).order(:household_id, :id)
     def eligible_enrollments
       enrollments.select do |enrollment|
         grant = ChallengePrivacyGrant.find_by(savings_enrollment: enrollment, kind: "sponsor_aggregate", recipient_user_id: nil)

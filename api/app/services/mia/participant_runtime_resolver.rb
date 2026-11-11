@@ -44,16 +44,16 @@ module Mia
       membership = if coach_workspace
         provided_membership
       else
-        provided_membership || EffectiveCohortResolver.new(user: user, role: "participant").call
+        provided_membership || EffectiveCohortResolver.new(user: user, role: user.seat_role).call
       end
       return unless membership
 
-      relation = CohortMembership.includes(cohort: :active_cohort_release)
+      relation = CohortMembership.seats.includes(cohort: :active_cohort_release)
       relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
       relation.find_by(
         id: membership.id,
         user_id: user.id,
-        role: "participant"
+        role: user.seat_role
       )
     end
 

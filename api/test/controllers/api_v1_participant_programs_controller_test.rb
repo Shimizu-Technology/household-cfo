@@ -115,7 +115,7 @@ class ApiV1ParticipantProgramsControllerTest < ActionDispatch::IntegrationTest
     assert_equal seen.uniq, seen
   end
 
-  test "invalid cursors authentication and staff access fail closed" do
+  test "invalid cursors and missing authentication fail closed; staff list only the previews they hold" do
     [ "-1", "2.5", "abc", "1 OR 1=1" ].each do |cursor|
       get path, params: { cursor: cursor }, headers: headers
       assert_response :unprocessable_entity
@@ -124,8 +124,15 @@ class ApiV1ParticipantProgramsControllerTest < ActionDispatch::IntegrationTest
     get path
     assert_response :unauthorized
     get path, headers: headers(user: @coach)
-    assert_response :forbidden
-    refute response.parsed_body.key?("programs")
+    assert_response :success
+    assert_empty response.parsed_body.fetch("programs")
+    group = cohort("Previewed group")
+    CohortMembership.create!(cohort: group, user: @coach, role: "coach")
+    get path, headers: headers(user: @coach)
+    assert_empty response.parsed_body.fetch("programs")
+    CohortMembership.create!(cohort: group, user: @coach, role: "preview")
+    get path, headers: headers(user: @coach)
+    assert_equal [ group.id ], response.parsed_body.fetch("programs").map { |record| record["id"] }
   end
 
   private

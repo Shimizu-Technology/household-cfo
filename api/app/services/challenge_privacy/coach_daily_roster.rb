@@ -7,7 +7,7 @@ module ChallengePrivacy
     end
 
     def call(search: nil, filter: nil, offset: nil)
-      Access.staff!(@cohort, @user)
+      access = Access.roster!(@cohort, @user)
       filter = filter.presence || "all"
       raise ArgumentError, "Choose a people filter" unless FILTERS.include?(filter)
       offset = offset.present? ? Integer(offset, 10) : 0
@@ -23,12 +23,24 @@ module ChallengePrivacy
       counts = FILTERS.index_with { |key| rows.count { |row| matches?(row, key) } }
       query = search.to_s.strip.downcase
       rows.select! { |row| matches?(row, filter) && row[:participant][:name].downcase.include?(query) }
+      page = rows.slice(offset, 20) || []
+      audit_platform_admin_read!(page) if access == :platform_admin
       { program_type: @cohort.savings_challenge_enabled? ? "savings" : "household", counts: counts,
         can_invite: @user.admin? || @cohort.coach_workspace.membership_for(@user)&.role == "owner",
-        records: rows.slice(offset, 20) || [], next_offset: offset + 20 < rows.length ? offset + 20 : nil }
+        records: page, next_offset: offset + 20 < rows.length ? offset + 20 : nil }
     end
 
     private
+
+    # Same record a coach's private read leaves, so a platform administrator's
+    # look at the people list is as visible to the participant as any other.
+    def audit_platform_admin_read!(page)
+      SavingsEnrollment.counted.where(id: page.filter_map { |row| row[:enrollment_id] }).includes(:user).find_each do |enrollment|
+        ChallengePrivacyRead.create!(household: enrollment.household, savings_enrollment: enrollment, participant_user: enrollment.user,
+          actor_user: @user, purpose: "admin_roster", record_type: "SavingsEnrollment", record_id: enrollment.id, created_at: Time.current)
+      end
+    end
+
     def person(membership)
       user = membership.user
       base = { participant: { id: user.id, name: user.full_name.presence || user.email }, enrollment_id: nil,

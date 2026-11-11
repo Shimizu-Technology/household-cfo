@@ -9,7 +9,7 @@ module ChallengeReminders
     def initialize(attendance: Attendance.new) = @attendance = attendance
     def reason(enrollment, preference, at: Time.current)
       ChallengePrivacy::Access.participant!(enrollment.household, enrollment.user, enrollment, active: true)
-      return "participant_unavailable" unless enrollment.status == "active"
+      return "participant_unavailable" if enrollment.status != "active" || enrollment.preview?
       local = at.in_time_zone(enrollment.time_zone)
       return "outside_personal_day" unless local.to_date.between?(enrollment.starts_on, enrollment.ends_on)
       return "preference_disabled" unless preference.enabled

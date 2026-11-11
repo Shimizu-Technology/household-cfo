@@ -16,6 +16,9 @@ module Mia
 
       membership = if requested_cohort_id
         requested_membership
+      elsif user.staff?
+        # Staff sit in their own household until they choose a group to preview.
+        nil
       else
         joined_challenge_membership || membership_for_status("active") || membership_for_status("enrolling") || latest_membership
       end
@@ -39,7 +42,7 @@ module Mia
     end
 
     def memberships
-      relation = user.cohort_memberships.includes(:cohort)
+      relation = user.cohort_memberships.seats.includes(:cohort)
       relation = relation.where(role: role) if role
       relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
       relation

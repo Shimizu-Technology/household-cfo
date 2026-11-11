@@ -22,6 +22,18 @@ class SavingsEnrollment < ApplicationRecord
   validate :calendar_valid
   validate :accepted_release_scope
 
+  # Enrollments of people who are in the program. A staff member who joins the
+  # challenge from a preview seat is accepted through a "preview" membership;
+  # that enrollment is theirs to use but is never a program participant, so every
+  # roster, count, cap, report, export and reminder over a cohort goes through
+  # `counted`. (A person's own enrollment is looked up by user, not by cohort.)
+  scope :counted, -> { where(accepted_cohort_membership_id: CohortMembership.where(role: "participant").select(:id)) }
+  scope :previews, -> { where(accepted_cohort_membership_id: CohortMembership.previews.select(:id)) }
+
+  def preview?
+    CohortMembership.previews.exists?(id: accepted_cohort_membership_id)
+  end
+
   def local_today
     Time.current.in_time_zone(time_zone).to_date
   end

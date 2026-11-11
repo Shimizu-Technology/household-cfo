@@ -20,12 +20,13 @@ module Api
       end
 
       def participants
-        ChallengePrivacy::Access.staff!(cohort, current_user)
         if params[:view] == "daily"
+          ChallengePrivacy::Access.roster!(cohort, current_user)
           result = ChallengePrivacy::CoachDailyRoster.new(cohort, user: current_user).call(search: params[:search], filter: params[:filter], offset: params[:offset])
           return render json: { **staff_scope, cohort_id: cohort.id, **result }
         end
-        rows = page(SavingsEnrollment.where(cohort: cohort).includes(:user))
+        ChallengePrivacy::Access.staff!(cohort, current_user)
+        rows = page(SavingsEnrollment.counted.where(cohort: cohort).includes(:user))
         records = rows.first(50).filter_map do |enrollment|
           basic = ChallengePrivacy::SharedReader.new(enrollment, user: current_user).basic
           { **basic, participant: { id: enrollment.user_id, name: enrollment.user.full_name.presence || enrollment.user.email } }

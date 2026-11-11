@@ -43,11 +43,11 @@ module Mia
         persisted_version = CoachPersonaVersion.includes(:coach_persona).find_by(id: version&.id)
         raise ActiveRecord::RecordNotFound, "release persona version is unavailable" unless persisted_version
 
-        membership = CohortMembership.find_by(
+        membership = CohortMembership.seats.find_by(
           id: cohort_membership&.id,
           user_id: user&.id,
           cohort_id: release&.cohort_id,
-          role: "participant"
+          role: CohortMembership.seat_role_for(user)
         )
         unless membership && release.coach_persona_version_id == persisted_version.id &&
             release.coach_persona_id == persisted_version.coach_persona_id
@@ -60,13 +60,13 @@ module Mia
       private
 
       def verified_participant_id(version:, user:, cohort_membership:)
-        persisted_user = User.find_by(id: user&.id, role: "participant", invitation_status: "accepted")
+        persisted_user = User.find_by(id: user&.id, invitation_status: "accepted")
         return unless persisted_user
 
-        membership = CohortMembership.includes(cohort: :cohort_persona_assignment).find_by(
+        membership = CohortMembership.seats.includes(cohort: :cohort_persona_assignment).find_by(
           id: cohort_membership&.id,
           user_id: persisted_user.id,
-          role: "participant"
+          role: persisted_user.seat_role
         )
         return unless membership
 

@@ -165,7 +165,7 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
     assert_empty @cohort.cohort_challenge_access_events
   end
 
-  test "only platform administrators can change it; owners, coaches and participants cannot" do
+  test "only platform administrators and the group's own program owner can change it; other coaches and participants cannot" do
     with_savings_runtime do
       owner = persona_user(role: "coach")
       workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
@@ -192,18 +192,47 @@ class ApiV1AdminCohortChallengeAccessesControllerTest < ActionDispatch::Integrat
     end
   end
 
-  test "program owners see the status on the cohort payload but cannot change it" do
+  test "the owner of the group's program sees they can change it; an editor coach cannot even open the group payload" do
     with_savings_runtime do
       owner = persona_user(role: "coach")
+      editor = persona_user(role: "coach")
       workspace = @cohort.coach_workspace
       workspace.coach_workspace_memberships.create!(user: owner, role: "owner")
+      workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
       get "/api/v1/admin/cohorts/#{@cohort.id}", headers: { "Authorization" => "Bearer test_token_#{owner.id}", "X-Coach-Workspace-Id" => workspace.id.to_s }
       assert_response :success
       challenge = response.parsed_body.dig("cohort", "savings_challenge")
       assert_equal "ready", challenge.fetch("state")
-      refute challenge.fetch("can_change")
+      assert challenge.fetch("can_change")
+      get "/api/v1/admin/cohorts/#{@cohort.id}", headers: { "Authorization" => "Bearer test_token_#{editor.id}", "X-Coach-Workspace-Id" => workspace.id.to_s }
+      assert_response :forbidden
       get "/api/v1/admin/cohorts/#{@cohort.id}", headers: { "Authorization" => "Bearer test_token_#{@admin.id}" }
       assert response.parsed_body.dig("cohort", "savings_challenge", "can_change")
+    end
+  end
+
+  test "the program owner opens and pauses their own group's challenge and it is recorded as the owner" do
+    with_savings_runtime do
+      owner = persona_user(role: "coach")
+      editor = persona_user(role: "coach")
+      workspace = @cohort.coach_workspace
+      workspace.coach_workspace_memberships.create!(user: owner, role: "owner")
+      workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+      owner_headers = ->(key) { { "Authorization" => "Bearer test_token_#{owner.id}", "X-Coach-Workspace-Id" => workspace.id.to_s, "Idempotency-Key" => key } }
+
+      post open_path, params: body("Editor may not open", "ready"), headers: { "Authorization" => "Bearer test_token_#{editor.id}", "X-Coach-Workspace-Id" => workspace.id.to_s, "Idempotency-Key" => "editor-open" }, as: :json
+      assert_response :forbidden
+      refute @cohort.reload.savings_challenge_enabled
+
+      post open_path, params: body("Owner opens the group", "ready"), headers: owner_headers.call("owner-open"), as: :json
+      assert_response :created
+      assert @cohort.reload.savings_challenge_enabled
+      refute @cohort.savings_challenge_release_hold
+      post pause_path, params: body("Owner pauses the group"), headers: owner_headers.call("owner-pause"), as: :json
+      assert_response :created
+      assert @cohort.reload.savings_challenge_release_hold
+      assert_equal %w[program_owner program_owner], @cohort.cohort_challenge_access_events.order(:id).pluck(:actor_role_snapshot)
+      assert_equal [ owner.id ], @cohort.cohort_challenge_access_events.pluck(:actor_user_id).uniq
     end
   end
 

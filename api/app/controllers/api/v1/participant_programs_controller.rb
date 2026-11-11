@@ -7,14 +7,14 @@ module Api
       before_action :authenticate_user!
 
       def index
-        unless current_user.participant?
+        unless current_user.household_seat?
           render json: { errors: [ "Participant program selection is unavailable for this account." ] }, status: :forbidden
           return
         end
 
         workspace = authorized_program_brand
         cursor = cursor_id
-        programs = Cohort.where(id: current_user.cohort_memberships.where(role: "participant").select(:cohort_id))
+        programs = Cohort.where(id: current_user.cohort_memberships.seats.where(role: current_user.seat_role).select(:cohort_id))
         programs = programs.where(coach_workspace_id: workspace.id) if workspace
         rows = programs.where("cohorts.id > ?", cursor).order(:id).limit(PAGE_SIZE + 1).to_a
         current, unavailable = current_program(workspace)
@@ -57,7 +57,7 @@ module Api
 
       def current_program(workspace)
         membership = Mia::EffectiveCohortResolver.new(
-          user: current_user, role: "participant", coach_workspace: workspace,
+          user: current_user, role: current_user.seat_role, coach_workspace: workspace,
           requested_cohort_id: request.headers["X-Cohort-Id"]
         ).call
         [ membership&.cohort, false ]

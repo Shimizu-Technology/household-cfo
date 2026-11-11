@@ -8,6 +8,7 @@ class Cohort < ApplicationRecord
 
   has_many :cohort_memberships, dependent: :destroy
   has_many :users, through: :cohort_memberships
+  has_many :preview_seats, -> { previews }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :cohort
   has_one :cohort_persona_assignment, dependent: :destroy, inverse_of: :cohort
   has_one :coach_persona, through: :cohort_persona_assignment
   has_one :coach_persona_version, through: :cohort_persona_assignment

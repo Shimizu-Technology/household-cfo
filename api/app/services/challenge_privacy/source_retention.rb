@@ -30,7 +30,7 @@ module ChallengePrivacy
     def authorize_owner!(source)
       actor = User.lock.find_by(id: @user&.id)
       membership = @household.household_memberships.lock.find_by(user_id: actor&.id)
-      allowed = actor&.participant? && !actor.revoked? && source.household_id == @household.id && membership&.role.in?(%w[owner partner])
+      allowed = actor&.household_seat? && !actor.revoked? && source.household_id == @household.id && membership&.role.in?(%w[owner partner])
       raise Access::Denied, "This source is unavailable" unless allowed
     end
 

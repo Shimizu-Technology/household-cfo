@@ -1,16 +1,44 @@
 class CohortMembership < ApplicationRecord
-  ROLES = %w[participant coach admin].freeze
+  PREVIEW_ROLE = "preview".freeze
+  ROLES = (%w[participant coach admin] + [ PREVIEW_ROLE ]).freeze
+  # Roles that sit in the app as a household: a participant's own seat, or the
+  # seat a staff member takes to try a group out.
+  SEAT_ROLES = [ "participant", PREVIEW_ROLE ].freeze
+
+  # A preview seat is not a member of the program. It fails closed: every query
+  # that goes through this model, `user.cohort_memberships` or
+  # `cohort.cohort_memberships` leaves previews out, so a roster, count, report
+  # or export that forgets about them still excludes them. Code that must see a
+  # preview asks for it by name with `seats`, `previews` or `with_previews`.
+  default_scope { where.not(role: PREVIEW_ROLE) }
+  scope :with_previews, -> { unscope(where: :role) }
+  scope :previews, -> { with_previews.where(role: PREVIEW_ROLE) }
+  scope :seats, -> { with_previews.where(role: SEAT_ROLES) }
 
   belongs_to :cohort
   belongs_to :user
 
   validates :role, inclusion: { in: ROLES }
-  validates :user_id, uniqueness: { scope: :cohort_id }
+  validates :user_id, uniqueness: { scope: %i[cohort_id role] }
+  validate :preview_is_for_staff
 
-  after_save :reconcile_workspace_access
-  after_destroy :reconcile_destroyed_workspace_access
+  after_save :reconcile_workspace_access, unless: :preview?
+  after_destroy :reconcile_destroyed_workspace_access, unless: :preview?
+
+  def preview?
+    role == PREVIEW_ROLE
+  end
+
+  # The membership role a person sits in the app with.
+  def self.seat_role_for(user)
+    user&.staff? ? PREVIEW_ROLE : "participant"
+  end
 
   private
+
+  def preview_is_for_staff
+    errors.add(:role, "preview seats are only for coaches and admins") if preview? && !user&.staff?
+  end
 
   def reconcile_workspace_access
     affected_access_pairs.each { |workspace, member| self.class.reconcile_workspace_access!(workspace, member) }

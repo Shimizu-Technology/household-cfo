@@ -22,7 +22,7 @@ module HouseholdFinance
 
         def canonical_snapshot(cohort, _input, lock:)
           @acceptance_time ||= Time.current
-          membership = cohort.cohort_memberships.find_by!(user_id: user.id, role: "participant")
+          membership = cohort.cohort_memberships.seats.find_by!(user_id: user.id, role: user.seat_role)
           offer = SavingsChallenge::EnrollmentOffer.call(cohort: cohort, user: user, membership: membership, at: @acceptance_time)
           {
             cohort: cohort.attributes.slice("id", "starts_on", "status", "savings_challenge_capacity", "savings_challenge_policy_version"),
@@ -37,11 +37,14 @@ module HouseholdFinance
           raise ArgumentError, "Participation terms changed; review the current version" unless input[:policy_version] == cohort.savings_challenge_policy_version
           raise StaleOperation, "The challenge offer changed. Review its dates and terms before joining." unless input[:expected_acceptance_digest] == prepared.before_snapshot.fetch("offer_digest")
           raise StaleOperation, "This participant is already enrolled" if SavingsEnrollment.exists?(cohort_id: cohort.id, user_id: user.id)
-          raise ArgumentError, "This savings cohort has reached its participant capacity" if SavingsEnrollment.where(cohort_id: cohort.id).count >= cohort.savings_challenge_capacity
           local = @acceptance_time.in_time_zone(SavingsEnrollment::TIME_ZONE).to_date
           late = local > cohort.starts_on
           raise ArgumentError, "Accept the personal late-start window before joining" if late && !input[:late_start_accepted]
-          membership = cohort.cohort_memberships.find_by!(user_id: user.id, role: "participant")
+          membership = cohort.cohort_memberships.seats.find_by!(user_id: user.id, role: user.seat_role)
+          # A preview seat is not a place in the group, so it never fills the cap.
+          if !membership.preview? && SavingsEnrollment.counted.where(cohort_id: cohort.id).count >= cohort.savings_challenge_capacity
+            raise ArgumentError, "This savings cohort has reached its participant capacity"
+          end
           runtime = SavingsChallenge::AccessPolicy.runtime_for(user: user, membership: membership)
           raise SavingsChallenge::AccessPolicy::Unavailable, "Review the current challenge release before joining" unless runtime
           start = [ cohort.starts_on, local ].max

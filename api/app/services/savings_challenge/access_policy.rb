@@ -43,8 +43,8 @@ module SavingsChallenge
       writable = @household.household_memberships.find_by(user_id: @user.id)&.role.in?(%w[owner partner])
       scope = @cohort.cohort_memberships
       scope = scope.lock if @lock
-      membership = scope.find_by(user_id: @user.id, role: "participant")
-      allowed = @user.participant? && writable && !@user.revoked? && membership && @cohort.savings_challenge_enabled &&
+      membership = scope.seats.find_by(user_id: @user.id, role: @user.seat_role)
+      allowed = @user.household_seat? && writable && !@user.revoked? && membership && @cohort.savings_challenge_enabled &&
         (@allow_hold || !@cohort.savings_challenge_release_hold) && @cohort.status.in?(%w[enrolling active completed])
       allowed &&= self.class.runtime_allowed?(user: @user, membership: membership)
       if @enrollment
