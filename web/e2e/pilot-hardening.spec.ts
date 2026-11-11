@@ -2240,7 +2240,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
-  await expect(page.getByRole('button', { name: 'Review draft' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review this file' })).toBeVisible()
 
   const attachmentPreview = page.getByRole('button', { name: 'Preview Receipt screenshot' })
   await attachmentPreview.focus()
@@ -2254,7 +2254,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(previewDialog).toBeHidden()
   await expect(attachmentPreview).toBeFocused()
 
-  await page.getByRole('button', { name: 'Review draft' }).click()
+  await page.getByRole('button', { name: 'Review this file' }).click()
   await expect(page).toHaveURL(/#Statements$/)
   await expect(page.getByRole('heading', { name: 'Statements' })).toBeVisible()
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()

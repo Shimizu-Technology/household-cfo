@@ -205,15 +205,16 @@ module HouseholdFinance
       pending_setup = setup.count { |row| row.fetch(:state) == "pending review" }
       if pending_transactions.positive? || pending_setup.positive?
         resolved_line = if resolved_transactions == 1
-          " One transaction row is already a resolved import result."
+          " One line from it is already approved."
         elsif resolved_transactions > 1
-          " #{resolved_transactions} transaction rows are already resolved import results."
+          " #{resolved_transactions} lines from it are already approved."
         else
           ""
         end
-        "#{pending_transactions + pending_setup} extracted value#{'s' unless pending_transactions + pending_setup == 1} remain pending review; pending transactions are not actuals, and nothing from this chat turn was applied.#{resolved_line}"
+        waiting = pending_transactions + pending_setup
+        "#{waiting} #{waiting == 1 ? 'line from this file is' : 'lines from this file are'} still waiting for you to approve; #{waiting == 1 ? "it doesn't" : "they don't"} count in your spending until you do, and nothing from this message was saved.#{resolved_line}"
       else
-        "These are saved resolved import results; this chat turn did not write or apply any household value."
+        "Everything from this file is already approved; nothing from this message was saved or changed."
       end
     end
 

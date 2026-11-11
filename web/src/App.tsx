@@ -1599,13 +1599,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   // After Mia answers an upload, bring the first card for what was just sent into view; the anchor to her message stops following the reply.
   useEffect(() => {
     if (!statementReply) return
-    const frame = requestAnimationFrame(() => {
+    // The card can arrive a moment after Mia's reply (the uploads list refreshes separately), so keep
+    // looking for about a second before giving up.
+    let frame = 0
+    let attempts = 0
+    const look = () => {
       const cards = Array.from(chatCardRef.current?.querySelectorAll<HTMLElement>('.mia-statement-card:not(.is-approved)') ?? [])
       const card = cards.find((candidate) => statementReply.importIds.includes(Number(candidate.dataset.importId)))
-      if (!card) return
+      if (!card) {
+        if (++attempts < 60) frame = requestAnimationFrame(look)
+        return
+      }
       chatScrolledAwayRef.current = true
       card.scrollIntoView({ block: 'start' })
-    })
+    }
+    frame = requestAnimationFrame(look)
     return () => cancelAnimationFrame(frame)
   }, [statementReply])
 

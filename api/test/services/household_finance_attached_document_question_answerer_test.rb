@@ -25,8 +25,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "2 transaction rows totaling $143.45"
     assert_includes answer, "largest attached transaction is Pay-Less for $123.45 on Aug 2, 2026"
-    assert_includes answer, "pending review"
-    assert_includes answer, "not actuals"
+    assert_includes answer, "still waiting for you to approve"
+    assert_includes answer, "don't count in your spending until you do"
     assert_not_includes answer, "9999"
     assert_not_includes answer, "every transaction is approved"
   end
@@ -334,7 +334,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "Primary salary: $6,200.00, monthly (pending review)"
     assert_includes answer, "Visa: balance $1,750.00, payment $80.00, 19.5% APR (pending review)"
-    assert_includes answer, "nothing from this chat turn was applied"
+    assert_includes answer, "nothing from this message was saved"
   end
 
   test "returns no answer when any supplied import belongs to another household" do
@@ -367,8 +367,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $60.00"
     assert_not_includes answer, "$150.00"
     assert_not_includes answer, "Ignored"
-    assert_includes answer, "1 extracted value remain pending review; pending transactions are not actuals"
-    assert_includes answer, "One transaction row is already a resolved import result"
+    assert_includes answer, "1 line from this file is still waiting for you to approve; it doesn't count in your spending until you do"
+    assert_includes answer, "One line from it is already approved"
   end
 
   test "filters and compares July and August before aggregating" do
