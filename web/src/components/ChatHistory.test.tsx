@@ -50,6 +50,7 @@ it('introduces another coach’s assistant plainly, by its short name', () => {
   brand.assistantName = 'Aria for Island Money Coaching'
   render(<ChatHistory {...baseProps} />)
   expect(screen.getByRole('heading', { name: 'Hi, I’m Aria.' })).toBeTruthy()
+  expect(screen.getByText(/I’ll prepare anything that changes your numbers for you to review first\./)).toBeTruthy()
 })
 
 it('keeps the speaker names for screen readers on both sides of the conversation', () => {

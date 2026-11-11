@@ -5,6 +5,7 @@
 .home-welcome-panel h2,
 .budget-screen > .screen-heading h2 { margin: 0; }
 .home-screen > .home-heading p { margin: 0; color: var(--muted); }
+.home-welcome-panel h2 { margin-bottom: var(--space-2); }
 .home-welcome-panel { display: block; padding: 24px 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .home-welcome-panel > p { max-width: 55ch; }
 .home-welcome-panel .home-money-values { margin-block: 24px; }
