@@ -8,6 +8,21 @@ module SavingsChallenge
     HUNDREDS = "(?:(?:#{ONES[1..9].join('|')}|a) hundred(?: (?:and )?#{SMALL})?|#{SMALL})".freeze
     WORDS = /\b(?:(?:#{HUNDREDS}|a) thousand(?: (?:and )?#{HUNDREDS})?|#{HUNDREDS})\b/i.freeze
     WEEKLY = /\b(?:a|per|each|every)\s+week\b|\bweekly\b/i.freeze
+    DEFAULT_PROPOSAL_CENTS = 50_000
+    PROPOSAL_RANGE_CENTS = (10_000..100_000).freeze
+
+    # A goal for the pattern she picked: what it frees each month over the
+    # three months of the challenge, as a friendly figure. Anything that is
+    # not a real monthly figure keeps the standard $500 suggestion.
+    def self.pattern_goal(monthly_cents)
+      monthly = Integer(monthly_cents, exception: false)
+      return { goal_cents: DEFAULT_PROPOSAL_CENTS, scaled: false } unless monthly&.positive?
+
+      raw = monthly * 3
+      step = raw > 50_000 ? 10_000 : 5_000
+      goal = ((raw + step / 2) / step) * step
+      { goal_cents: goal.clamp(PROPOSAL_RANGE_CENTS.begin, PROPOSAL_RANGE_CENTS.end), raw_cents: raw, scaled: true }
+    end
 
     def self.normalize(message)
       message.gsub(WORDS) do |words|

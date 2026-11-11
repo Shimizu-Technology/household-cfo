@@ -377,7 +377,29 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     ask "Ross", "choice-merchant"
     reply = response.parsed_body.dig("assistant_message", "content")
     assert_includes reply, "Spending half as much at Ross could free about $100 a month"
+    assert_includes reply, "about $300 over your 90 days, so how about a $300 goal"
     refute_match(/Trying try|at ross|\$100\.00/, reply)
+    assert_equal 30_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+  end
+
+  test "the proposed goal scales to the pattern she picked and shows the working" do
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    session.update!(active_topic: { type: "challenge_patterns", choices: [
+      { merchant: "Ross", monthly_impact_cents: 10_000 }, { merchant: "Kmart", monthly_impact_cents: 6_000 }
+    ] })
+    ask "Kmart", "scaled-goal"
+    reply = response.parsed_body.dig("assistant_message", "content")
+    assert_includes reply, "Spending half as much at Kmart could free about $60 a month"
+    assert_includes reply, "about $180 over your 90 days, so how about a $200 goal"
+    assert_equal 20_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
+    assert_nil @savings_enrollment.reload.current_accepted_plan_version_id
+  end
+
+  test "a pattern without a usable monthly figure keeps the standard $500 goal" do
+    session = ChatSession.create!(household: @savings_household, user: @savings_user, cohort: @savings_cohort)
+    session.update!(active_topic: { type: "challenge_patterns", choices: [ { merchant: "Ross", monthly_impact_cents: nil }, { merchant: "Kmart", monthly_impact_cents: 0 } ] })
+    ask "Ross", "unscaled-goal"
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "How about a $500 cushion"
     assert_equal 50_000, response.parsed_body.dig("challenge_chat_card", "input", "target_cents")
   end
 

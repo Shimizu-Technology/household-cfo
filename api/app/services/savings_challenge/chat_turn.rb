@@ -315,8 +315,13 @@ module SavingsChallenge
           end
         end
         if selected && !@message.match?(/\b(?:neither|not|don.t|no)\b/i)
-          @goal_cents = 50_000
-          @answer = "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} a month, based on the months recorded. How about a $500 cushion over your 90 days to keep surprises off the card? Choose Yes on the card if that feels comfortable; nothing changes until you do. Only new money you actually set aside counts toward the goal."
+          proposal = GoalAmount.pattern_goal(selected["monthly_impact_cents"])
+          @goal_cents = proposal[:goal_cents]
+          @answer = if proposal[:scaled]
+            "Spending half as much at #{selected['merchant']} could free about #{money(selected['monthly_impact_cents'].to_i)} a month, based on the months recorded. That is about #{money(proposal[:raw_cents])} over your 90 days, so how about a #{money(@goal_cents)} goal to keep surprises off the card? Choose Yes on the card if that feels comfortable, or change the amount; nothing changes until you do. Only new money you actually set aside counts toward the goal."
+          else
+            "How about a #{money(@goal_cents)} cushion over your 90 days to keep surprises off the card? Choose Yes on the card if that feels comfortable; nothing changes until you do. Only new money you actually set aside counts toward the goal."
+          end
           @topic = { type: "challenge_goal" }
           return true
         elsif @message.match?(/\b(?:what (?:do|should)|which|choose|comfortable|this or|options?)\b/i)
