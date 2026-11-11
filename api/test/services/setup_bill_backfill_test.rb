@@ -193,8 +193,10 @@ class SetupBillBackfillTest < ActiveSupport::TestCase
     flexible = [ [ "Groceries", 40_000 ], [ "Gas", 20_000 ] ].map { |label, cents| { "id" => SecureRandom.hex(4), "label" => label, "cents" => cents, "cadence" => "monthly", "counted" => true, "kind" => "part" } }
     draft.update!(metadata: { "setup_card" => { "fields" => draft.metadata.dig("setup_card", "fields").merge("flexible_spend" => { "parts" => flexible }) } })
     broken = HouseholdFinance::AnnualBudgetManager.instance_method(:create_category_inside_household_lock!)
-    # Fail on the first flexible bill, after fixed essentials has split, whatever order the fields run in.
+    # Fail on the first flexible bill, and prove fixed essentials had already split, so there is a split to roll back.
+    split_before_failure = false
     HouseholdFinance::AnnualBudgetManager.define_method(:create_category_inside_household_lock!) do |**options|
+      split_before_failure ||= options[:stack_key] == "non_discretionary"
       raise ActiveRecord::RecordInvalid, BudgetCategory.new if options[:stack_key] == "discretionary"
       broken.bind_call(self, **options)
     end
@@ -204,6 +206,7 @@ class SetupBillBackfillTest < ActiveSupport::TestCase
     ensure
       HouseholdFinance::AnnualBudgetManager.define_method(:create_category_inside_household_lock!, broken)
     end
+    assert split_before_failure, "fixed essentials must split before the flexible failure, or there is nothing to roll back"
     assert_equal [ :error ], results.map(&:action)
     assert_no_match(/split:/, log.string, "a rolled-back field was never saved, so it must not read as saved")
     assert_equal [ "Fixed essentials" ], names, "fixed essentials rolled back with the rest"
