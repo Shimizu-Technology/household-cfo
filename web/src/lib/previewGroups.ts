@@ -10,6 +10,8 @@ export type PreviewGroup = {
   status: 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'
   program_name: string
   seated: boolean
+  // False when the person holds a seat in a group they may no longer preview; it can only be left.
+  available: boolean
   challenge: boolean
   challenge_joined: boolean
 }

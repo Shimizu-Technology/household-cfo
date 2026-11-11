@@ -16,26 +16,15 @@ type Props = { section: AdminSection; currentUser: CurrentUser; onDirtyChange: (
 // inside them; this only decides where each one lives, so the layout and the
 // routes stay put when the content changes.
 export function AdminSectionContent({ section, currentUser, onDirtyChange }: Props) {
-  const readOnly = section.access === 'read_only'
   switch (section.key) {
     case 'today': return <CoachStudio currentUser={currentUser} onDirtyChange={onDirtyChange} view="today" />
     case 'coaching': return <CoachStudio currentUser={currentUser} onDirtyChange={onDirtyChange} view="coaching" />
-    case 'people': return <ReadOnlyFrame readOnly={readOnly} noun="people"><AdminConsole currentUser={currentUser} view="participants" onDirtyChange={onDirtyChange} /></ReadOnlyFrame>
-    case 'groups': return <ReadOnlyFrame readOnly={readOnly} noun="groups"><AdminConsole currentUser={currentUser} view="cohorts" onDirtyChange={onDirtyChange} /></ReadOnlyFrame>
+    case 'people': return <AdminConsole currentUser={currentUser} view="participants" onDirtyChange={onDirtyChange} />
+    case 'groups': return <AdminConsole currentUser={currentUser} view="cohorts" onDirtyChange={onDirtyChange} />
     case 'support': return <AdminConsole currentUser={currentUser} view="feedback" onDirtyChange={onDirtyChange} />
     case 'reports': return <ReportsPanel currentUser={currentUser} />
     case 'settings': return <SettingsPanel currentUser={currentUser} onDirtyChange={onDirtyChange} />
   }
-}
-
-// Other coach roles may look at people and groups, not change them. The server
-// refuses their changes too; disabling the form keeps the screen honest.
-function ReadOnlyFrame({ readOnly, noun, children }: { readOnly: boolean; noun: string; children: React.ReactNode }) {
-  if (!readOnly) return <>{children}</>
-  return <>
-    <p className="admin-readonly-note" role="note">You can look at {noun} here. A program owner makes the changes.</p>
-    <fieldset className="admin-readonly" disabled>{children}</fieldset>
-  </>
 }
 
 function ReportsPanel({ currentUser }: { currentUser: CurrentUser }) {
@@ -43,17 +32,18 @@ function ReportsPanel({ currentUser }: { currentUser: CurrentUser }) {
   const [groups, setGroups] = useState<AdminPersonaAssignableCohort[] | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => {
-    if (activeCoachWorkspaceId === null) return
+    // Platform administrators read the groups of every program; everyone else, their program's.
+    if (activeCoachWorkspaceId === null && !currentUser.is_admin) return
     let live = true
     fetchAdminPersonaAssignableCohorts().then(next => { if (live) setGroups(next) }).catch(() => { if (live) setError(true) })
     return () => { live = false }
-  }, [activeCoachWorkspaceId])
+  }, [activeCoachWorkspaceId, currentUser.is_admin])
   return <section className="screen-grid admin-screen">
     <header className="screen-heading admin-heading"><h2 data-page-heading tabIndex={-1}>Reports</h2></header>
-    {activeCoachWorkspaceId === null ? <p className="admin-muted">Choose a program above to see its Day 30, 60 and 90 reports.</p>
+    {activeCoachWorkspaceId === null && !currentUser.is_admin ? <p className="admin-muted">Choose a program above to see its Day 30, 60 and 90 reports.</p>
       : error ? <p role="alert">We couldn’t load your groups. Reload to try again.</p>
       : groups === null ? <p role="status">Opening your reports…</p>
-      : <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohorts={groups} />}
+      : <CoachChallengeDashboard userId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohorts={groups} reportsOnly />}
   </section>
 }
 

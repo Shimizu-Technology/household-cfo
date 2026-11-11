@@ -29,8 +29,6 @@
 .admin-program:empty { display: none; }
 .admin-unavailable { display: grid; gap: 12px; justify-items: start; }
 .admin-unavailable h2 { margin: 0; }
-.admin-readonly { margin: 0; padding: 0; border: 0; min-width: 0; }
-.admin-readonly-note { margin: 0 0 8px; color: var(--muted); }
 .admin-denied { display: grid; place-items: center; min-height: 100dvh; }
 .admin-denied .auth-panel h1 { font-size: var(--text-2xl); }
 .admin-denied .button, .admin-unavailable .button { text-decoration: none; }

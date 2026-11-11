@@ -12,7 +12,7 @@ const state = vi.hoisted(() => ({ auth: {
 vi.mock('./contexts/authContextValue', () => ({ useAuthContext: () => state.auth }))
 vi.mock('./components/CoachStudio', () => ({ CoachStudio: ({ onDirtyChange, view }: { onDirtyChange: (dirty: boolean) => void; view?: string }) => {
   const [settings, setSettings] = useState(false)
-  return <><h2 data-page-heading tabIndex={-1}>{view === 'coaching' ? 'Coaching' : 'Today'}</h2><button onClick={() => onDirtyChange(true)}>Edit coaching</button><button onClick={() => setSettings(true)}>Program settings</button><p>{settings ? 'Program identity saved' : 'Daily coaching'}</p></>
+  return <><h2 data-page-heading tabIndex={-1}>{view === 'coaching' ? 'Coaching' : 'Today'}</h2><button onClick={() => onDirtyChange(true)}>Edit coaching</button><button onClick={() => onDirtyChange(false)}>Save coaching</button><button onClick={() => setSettings(true)}>Program settings</button><p>{settings ? 'Program identity saved' : 'Daily coaching'}</p></>
 } }))
 vi.mock('./components/AdminConsole', () => ({ AdminConsole: ({ view }: { view?: string }) => <h2 data-page-heading tabIndex={-1}>Console {view}</h2> }))
 vi.mock('./components/CoachChallengeDashboard', () => ({ CoachChallengeDashboard: () => <p>Day 30 report</p> }))
@@ -25,7 +25,7 @@ vi.mock('./api', async importOriginal => ({ ...(await importOriginal<typeof impo
 type Sections = NonNullable<CurrentUser['admin_sections']>
 const section = (key: Sections[number]['key'], label: string, access: 'full' | 'read_only' = 'full') => ({ key, label, access })
 const ALL: Sections = [section('today', 'Today'), section('people', 'People'), section('groups', 'Groups'), section('coaching', 'Coaching'), section('reports', 'Reports'), section('support', 'Support'), section('settings', 'Settings')]
-const EDITOR: Sections = [section('today', 'Today'), section('people', 'People', 'read_only'), section('groups', 'Groups', 'read_only'), section('coaching', 'Coaching'), section('support', 'Support')]
+const EDITOR: Sections = [section('coaching', 'Coaching')]
 const user = (role: 'admin' | 'coach' | 'participant' = 'coach', sections: Sections = role === 'participant' ? [] : ALL): CurrentUser => ({
   id: 20, clerk_id: 'staff', email: 'staff@example.invalid', full_name: 'Coach Test', first_name: 'Coach', last_name: 'Test', role,
   invitation_status: 'accepted', invited_at: null, accepted_at: null, last_sign_in_at: null, created_at: '',
@@ -59,7 +59,7 @@ it('opens /admin/<section> with the sections the server gave this person, in a s
   window.history.replaceState({}, '', '/admin/people')
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'Console participants' })).toBeTruthy()
-  const sidebar = within(screen.getByRole('complementary', { name: 'Admin' }))
+  const sidebar = within(screen.getByRole('navigation', { name: 'Admin' }))
   expect(sidebar.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/', '/admin/today', '/admin/people', '/admin/groups', '/admin/coaching', '/admin/reports', '/admin/support', '/admin/settings'])
   expect(sidebar.getByRole('link', { name: /^People/ }).getAttribute('aria-current')).toBe('page')
   expect(screen.queryByText('Participant session mounted')).toBeNull()
@@ -73,10 +73,11 @@ it('shows an editor coach a smaller list and a plain page for a section they do 
   render(<App />)
   expect((await screen.findByRole('alert')).textContent).toContain('That section isn’t part of your role')
   expect(screen.queryByText('Day 30 report')).toBeNull()
-  const sidebar = within(screen.getByRole('complementary', { name: 'Admin' }))
+  const sidebar = within(screen.getByRole('navigation', { name: 'Admin' }))
   expect(sidebar.queryByRole('link', { name: /^Reports/ })).toBeNull()
   expect(sidebar.queryByRole('link', { name: /^Settings/ })).toBeNull()
   expect(sidebar.getByRole('link', { name: /^Coaching/ })).toBeTruthy()
+  expect(sidebar.queryByRole('link', { name: /^People/ })).toBeNull()
 })
 
 it('shows participants one plain page with a way home, and never the Admin switch', async () => {
@@ -85,7 +86,7 @@ it('shows participants one plain page with a way home, and never the Admin switc
   window.history.replaceState({}, '', '/admin/people')
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'This page is for coaches and program staff' })).toBeTruthy()
-  expect(screen.queryByRole('complementary', { name: 'Admin' })).toBeNull()
+  expect(screen.queryByRole('navigation', { name: 'Admin' })).toBeNull()
   const home = screen.getByRole('link', { name: /^Go to/ })
   expect(home.getAttribute('href')).toBe('/')
   fireEvent.click(home)
@@ -128,7 +129,7 @@ it('opens the site again on the side staff last used, but only on a fresh load a
   const view = render(<App />)
   await waitFor(() => expect(window.location.pathname).toBe('/admin/support'))
   // Going to the app and then re-rendering must stay on the app.
-  fireEvent.click(within(await screen.findByRole('complementary', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
+  fireEvent.click(within(await screen.findByRole('navigation', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
   await waitFor(() => expect(window.location.pathname).toBe('/'))
   view.rerender(<App />)
   expect(window.location.pathname).toBe('/')
@@ -141,11 +142,11 @@ it('asks before leaving unsaved coaching changes and keeps them when the answer 
   render(<App />)
   fireEvent.click(await screen.findByRole('button', { name: 'Edit coaching' }))
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-  fireEvent.click(within(screen.getByRole('complementary', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
   await waitFor(() => expect(confirm).toHaveBeenCalled())
   expect(window.location.pathname).toBe('/admin/today')
   confirm.mockReturnValue(true)
-  fireEvent.click(within(screen.getByRole('complementary', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Admin' })).getByRole('link', { name: 'My household' }))
   await waitFor(() => expect(window.location.pathname).toBe('/'))
 })
 
@@ -180,4 +181,59 @@ it('asks an administrator who works across programs which program they are in, a
   fireEvent.change(pickers[0], { target: { value: '6' } })
   await waitFor(() => expect(state.auth.selectCoachWorkspace).toHaveBeenCalledWith(6))
   await act(async () => undefined)
+})
+
+it('puts the sidebar and the page in separate landmarks, with the sidebar outside <main>', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/people')
+  render(<App />)
+  const nav = await screen.findByRole('navigation', { name: 'Admin' })
+  const mains = screen.getAllByRole('main')
+  expect(mains).toHaveLength(1)
+  expect(mains[0].contains(nav)).toBe(false)
+  expect(nav.closest('main')).toBeNull()
+  expect(nav.querySelector('nav')).toBeNull()
+  expect(within(mains[0]).getByRole('heading', { name: 'Console participants' })).toBeTruthy()
+})
+
+it('moves focus to the new section heading when the section changes, not on first load', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/today')
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Today' })
+  expect(document.activeElement).toBe(document.body)
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Admin' })).getByRole('link', { name: /^People/ }))
+  const heading = await screen.findByRole('heading', { name: 'Console participants' })
+  await waitFor(() => expect(document.activeElement).toBe(heading))
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Admin' })).getByRole('link', { name: /^Coaching/ }))
+  const next = await screen.findByRole('heading', { name: 'Coaching' })
+  await waitFor(() => expect(document.activeElement).toBe(next))
+})
+
+it('leaves no extra history entry behind once unsaved changes are saved, so the next Back works', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/today')
+  const back = vi.spyOn(window.history, 'back')
+  const view = render(<App />)
+  const before = window.history.length
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit coaching' }))
+  expect(window.history.length).toBe(before + 1)
+  expect(window.history.state?.adminLeaveGuard).toBe(true)
+  // Saved: the screen reports no unsaved changes again.
+  fireEvent.click(screen.getByRole('button', { name: 'Save coaching' }))
+  await waitFor(() => expect(back).toHaveBeenCalledTimes(1))
+  view.unmount()
+})
+
+it('replaces the guard entry when the person leaves, instead of stacking another step', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/today')
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit coaching' }))
+  const length = window.history.length
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  fireEvent.click(within(screen.getByRole('navigation', { name: 'Admin' })).getByRole('link', { name: /^People/ }))
+  await waitFor(() => expect(window.location.pathname).toBe('/admin/people'))
+  expect(window.history.length).toBe(length)
+  expect(window.history.state?.adminLeaveGuard).toBeUndefined()
 })

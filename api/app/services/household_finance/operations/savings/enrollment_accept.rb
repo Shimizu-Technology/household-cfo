@@ -28,7 +28,7 @@ module HouseholdFinance
             cohort: cohort.attributes.slice("id", "starts_on", "status", "savings_challenge_capacity", "savings_challenge_policy_version"),
             accepted_local_on: @acceptance_time.in_time_zone(SavingsEnrollment::TIME_ZONE).to_date.iso8601,
             offer_digest: offer.fetch(:acceptance_digest),
-            enrolled: SavingsEnrollment.exists?(cohort_id: cohort.id, user_id: user.id)
+            enrolled: SavingsEnrollment.in_use.exists?(cohort_id: cohort.id, user_id: user.id)
           }
         end
 
@@ -36,7 +36,7 @@ module HouseholdFinance
           raise ArgumentError, "This cohort is not accepting savings enrollment" unless cohort.status.in?(%w[enrolling active]) && cohort.starts_on
           raise ArgumentError, "Participation terms changed; review the current version" unless input[:policy_version] == cohort.savings_challenge_policy_version
           raise StaleOperation, "The challenge offer changed. Review its dates and terms before joining." unless input[:expected_acceptance_digest] == prepared.before_snapshot.fetch("offer_digest")
-          raise StaleOperation, "This participant is already enrolled" if SavingsEnrollment.exists?(cohort_id: cohort.id, user_id: user.id)
+          raise StaleOperation, "This participant is already enrolled" if SavingsEnrollment.in_use.exists?(cohort_id: cohort.id, user_id: user.id)
           local = @acceptance_time.in_time_zone(SavingsEnrollment::TIME_ZONE).to_date
           late = local > cohort.starts_on
           raise ArgumentError, "Accept the personal late-start window before joining" if late && !input[:late_start_accepted]
@@ -49,7 +49,7 @@ module HouseholdFinance
           raise SavingsChallenge::AccessPolicy::Unavailable, "Review the current challenge release before joining" unless runtime
           start = [ cohort.starts_on, local ].max
           SavingsEnrollment.create!(
-            household: household, user: user, cohort: cohort, accepted_cohort_membership_id: membership.id,
+            household: household, user: user, cohort: cohort, accepted_cohort_membership_id: membership.id, staff_preview: membership.preview?,
             accepted_cohort_release: runtime.release,
             membership_started_at: membership.created_at, accepted_at: @acceptance_time, accepted_local_on: local,
             starts_on: start, ends_on: start + 89, time_zone: SavingsEnrollment::TIME_ZONE,

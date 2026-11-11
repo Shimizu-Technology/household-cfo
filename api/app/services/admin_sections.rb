@@ -4,8 +4,9 @@
 # once, here, and /auth/me hands the list to the web, so the client never works
 # out roles itself. The same names are the web routes: /admin/<key>.
 #
-# Each section's own APIs still enforce their permissions; this list only says
-# what to show. `access` is "full" or "read_only".
+# A section is listed only when its main read would succeed. Each check asks the
+# same policy the section's controller asks, so the list cannot promise a screen
+# its own API then refuses (api_v1_admin_sections_test checks every role).
 module AdminSections
   SECTIONS = [
     { key: "today", label: "Today" },
@@ -21,24 +22,25 @@ module AdminSections
   # administrator who has not picked one, who sees everything).
   def self.for(user, workspace: nil)
     return [] unless user&.staff? && !user.revoked?
-    return SECTIONS.map { |section| section.merge(access: "full") } if user.admin?
-    return [] unless workspace&.membership_for(user)
 
     SECTIONS.filter_map do |section|
-      access = access_for(section.fetch(:key), workspace, user)
-      section.merge(access: access) if access
+      section.merge(access: "full") if allowed?(section.fetch(:key), user, workspace)
     end
   end
 
-  def self.access_for(key, workspace, user)
-    manage = workspace.allows?(user, :manage_members)
+  def self.allowed?(key, user, workspace)
+    return true if user.admin?
+    return false unless workspace&.membership_for(user)
+
     case key
-    when "today", "support" then "full"
-    when "people", "groups" then manage ? "full" : "read_only"
-    when "coaching" then workspace.allows?(user, :edit) || workspace.allows?(user, :review) ? "full" : nil
-    when "reports" then workspace.allows?(user, :review) ? "full" : nil
-    when "settings" then manage ? "full" : nil
+    when "today" then workspace.cohorts.any? { |cohort| ChallengePrivacy::Access.staff_allowed?(cohort, user) }
+    # Cohorts, people and Support's inbox all sit behind program management.
+    when "people", "support" then CoachWorkspaces::ParticipantRosterPolicy.new(user: user, workspace: workspace).manage?
+    when "groups", "settings" then workspace.allows?(user, :manage_members)
+    when "coaching" then Mia::PersonaStudioPolicy.new(user, workspace: workspace).can_view?
+    when "reports" then workspace.cohorts.any? { |cohort| ChallengePrivacy::Access.staff_allowed?(cohort, user, export: true) }
+    else false
     end
   end
-  private_class_method :access_for
+  private_class_method :allowed?
 end

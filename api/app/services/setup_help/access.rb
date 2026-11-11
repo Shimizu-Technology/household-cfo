@@ -11,7 +11,7 @@ module SetupHelp
         unless selected&.id == cohort_membership.id && selected.created_at == cohort_membership.created_at
           raise Denied, "Choose your current coaching program before reviewing setup. Nothing changed."
         end
-        enrollment = SavingsEnrollment.lock.find_by(user: actor, cohort: selected.cohort)
+        enrollment = SavingsEnrollment.in_use.lock.find_by(user: actor, cohort: selected.cohort)
         if selected.cohort.savings_challenge_enabled || enrollment
           SavingsChallenge::AccessPolicy.new(household: household, user: actor, cohort: selected.cohort, enrollment: enrollment, lock: true).call!
         end

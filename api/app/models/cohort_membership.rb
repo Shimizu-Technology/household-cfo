@@ -5,9 +5,6 @@ class CohortMembership < ApplicationRecord
   ENDED_PREVIEW_ROLE = "preview_ended".freeze
   PREVIEW_ROLES = [ PREVIEW_ROLE, ENDED_PREVIEW_ROLE ].freeze
   ROLES = (%w[participant coach admin] + PREVIEW_ROLES).freeze
-  # Roles that sit in the app as a household: a participant's own seat, or the
-  # seat a staff member takes to try a group out.
-  SEAT_ROLES = [ "participant", PREVIEW_ROLE ].freeze
 
   # A preview seat is not a member of the program. It fails closed: every query
   # that goes through this model, `user.cohort_memberships` or
@@ -18,7 +15,22 @@ class CohortMembership < ApplicationRecord
   scope :with_previews, -> { unscope(where: :role) }
   scope :previews, -> { with_previews.where(role: PREVIEW_ROLE) }
   scope :all_previews, -> { with_previews.where(role: PREVIEW_ROLES) }
-  scope :seats, -> { with_previews.where(role: SEAT_ROLES) }
+  # A preview seat is honoured only while its holder may still preview that group:
+  # still an unrevoked coach or admin, the group not archived, and (for a coach)
+  # still on the group's coach workspace. Every reader of a seat goes through
+  # `seats` or `live_previews`, so a seat that outlives that right is simply not
+  # there, whatever else still holds the row.
+  LIVE_PREVIEW_SQL = <<~SQL.squish.freeze
+    cohort_memberships.role = 'preview' AND EXISTS (
+      SELECT 1 FROM cohorts seat_cohort INNER JOIN users seat_user ON seat_user.id = cohort_memberships.user_id
+      WHERE seat_cohort.id = cohort_memberships.cohort_id AND seat_cohort.status <> 'archived'
+        AND seat_user.role IN ('coach', 'admin') AND seat_user.invitation_status <> 'revoked'
+        AND (seat_user.role = 'admin' OR EXISTS (
+          SELECT 1 FROM coach_workspace_memberships seat_workspace
+          WHERE seat_workspace.user_id = seat_user.id AND seat_workspace.coach_workspace_id = seat_cohort.coach_workspace_id)))
+  SQL
+  scope :live_previews, -> { with_previews.where(LIVE_PREVIEW_SQL) }
+  scope :seats, -> { with_previews.where("cohort_memberships.role = 'participant' OR (#{LIVE_PREVIEW_SQL})") }
 
   belongs_to :cohort
   belongs_to :user

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_11_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_110000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -3105,13 +3105,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_090000) do
     t.integer "lock_version", default: 0, null: false
     t.datetime "membership_started_at", null: false
     t.string "policy_version", null: false
+    t.boolean "staff_preview", default: false, null: false
     t.date "starts_on", null: false
     t.string "status", default: "active", null: false
     t.string "time_zone", default: "Pacific/Guam", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.index ["accepted_cohort_release_id"], name: "index_savings_enrollments_on_accepted_cohort_release_id"
-    t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id", "user_id"], name: "index_savings_enrollments_on_cohort_id_and_user_id", unique: true, where: "(NOT (staff_preview AND ((status)::text = 'withdrawn'::text)))"
     t.index ["cohort_id"], name: "index_savings_enrollments_on_cohort_id"
     t.index ["household_id"], name: "index_savings_enrollments_on_household_id"
     t.index ["user_id"], name: "index_savings_enrollments_on_user_id"

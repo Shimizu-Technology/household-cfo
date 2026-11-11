@@ -40,7 +40,7 @@ export function UseAppAs({ user, currentCohortId, onChooseHousehold, onChooseGro
     const group = groups.find(item => item.cohort_id === cohortId)
     const confirmed = await confirmAction(
       group?.challenge_joined
-        ? `This ends your savings challenge preview in ${name}. It counts as leaving and can’t be restarted. Your own household isn’t changed.`
+        ? `This ends your savings challenge preview in ${name}. Your own household isn’t changed.`
         : `You’ll stop using the app as ${name}. Your own household isn’t changed.`,
       { title: `Leave ${name}?`, confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
     if (!confirmed) return
@@ -56,7 +56,7 @@ export function UseAppAs({ user, currentCohortId, onChooseHousehold, onChooseGro
     } finally { setBusyId(null) }
   }
 
-  const choices = [{ id: null as number | null, name: 'My household', note: 'Your own money, no group' }, ...groups.map(group => ({ id: group.cohort_id as number | null, name: group.name, note: group.seated ? 'Preview' : group.program_name }))]
+  const choices = [{ id: null as number | null, name: 'My household', note: 'Your own money, no group' }, ...groups.map(group => ({ id: group.cohort_id as number | null, name: group.name, note: !group.available ? 'No longer available' : group.seated ? 'Preview' : group.program_name }))]
   return <fieldset className="use-app-as" disabled={busyId !== null}>
     <legend>Use the app as</legend>
     {choices.map(choice => {
@@ -64,10 +64,10 @@ export function UseAppAs({ user, currentCohortId, onChooseHousehold, onChooseGro
       const group = choice.id === null ? null : groups.find(item => item.cohort_id === choice.id)
       return <div key={choice.id ?? 'household'} className={`use-app-as-row${selected ? ' is-selected' : ''}`}>
         <label>
-          <input type="radio" name="use-app-as" checked={selected} onChange={() => choice.id === null ? onChooseHousehold() : void choose(choice.id)} />
+          <input type="radio" name="use-app-as" checked={selected} disabled={group?.available === false} onChange={() => choice.id === null ? onChooseHousehold() : void choose(choice.id)} />
           <span><strong>{choice.name}</strong><small>{choice.note}</small></span>
         </label>
-        {group?.seated && <button type="button" className="use-app-as-leave" onClick={() => void leave(group.cohort_id, group.name)}>Leave</button>}
+        {group?.seated && <button type="button" className="use-app-as-leave" aria-label={group.available ? undefined : `No longer available. Leave ${group.name}`} onClick={() => void leave(group.cohort_id, group.name)}>Leave</button>}
       </div>
     })}
     {selectedGroupLine(groups, currentCohortId) && <p className="use-app-as-now" role="status">{selectedGroupLine(groups, currentCohortId)}</p>}

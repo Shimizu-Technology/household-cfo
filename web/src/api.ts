@@ -1683,6 +1683,7 @@ export type AdminPersonaVersionResponse = {
 export type AdminPersonaAssignableCohort = {
   id: number
   name: string
+  coach_workspace_id?: number
   status: AdminCohortStatus
   assignable: boolean
   blocked_reason: string | null
@@ -1828,7 +1829,7 @@ export type CurrentUser = {
   active_coach_workspace?: CoachWorkspaceSummary | null
   // Chosen by the server for this person; see lib/appRoutes and lib/previewGroups.
   admin_sections?: Array<{ key: 'today' | 'people' | 'groups' | 'coaching' | 'reports' | 'support' | 'settings'; label: string; access: 'full' | 'read_only' }>
-  preview_groups?: Array<{ cohort_id: number; name: string; status: 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'; program_name: string; seated: boolean; challenge: boolean; challenge_joined: boolean }>
+  preview_groups?: Array<{ cohort_id: number; name: string; status: 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'; program_name: string; seated: boolean; available: boolean; challenge: boolean; challenge_joined: boolean }>
 }
 
 export type CoachWorkspaceSummary = {

@@ -175,7 +175,7 @@ module Api
       end
       def require_challenge!
         membership = current_cohort_membership || raise(SavingsChallenge::AccessPolicy::Unavailable, "Select your available challenge")
-        @enrollment = SavingsEnrollment.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
+        @enrollment = SavingsEnrollment.in_use.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
         SavingsChallenge::Daily::ReadPolicy.call!(@enrollment, user: current_user)
       end
       def private_read

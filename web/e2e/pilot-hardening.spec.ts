@@ -66,7 +66,7 @@ async function openAdminSection(page: Page, label: string) {
     await expect(page.locator('.admin-app')).toBeVisible()
   }
   if (new URL(page.url()).pathname === `/admin/${label.toLowerCase()}`) return
-  const sidebar = page.getByRole('complementary', { name: 'Admin' })
+  const sidebar = page.getByRole('navigation', { name: 'Admin' })
   const pattern = new RegExp(`^${label}`)
   if (await sidebar.isVisible()) await sidebar.getByRole('link', { name: pattern }).click()
   else {
@@ -13899,7 +13899,7 @@ test('Admin UI shows a sidebar on a wide screen and a section menu on a phone, a
   await page.goto('/admin/people?pilot_e2e_role=coach')
   await expect(page.locator('.admin-app')).toBeVisible()
   const wide = (page.viewportSize()?.width ?? 0) >= 1024
-  const sidebar = page.getByRole('complementary', { name: 'Admin' })
+  const sidebar = page.getByRole('navigation', { name: 'Admin' })
   const menu = page.locator('.admin-section-menu > summary')
   if (wide) {
     await expect(sidebar).toBeVisible()
@@ -13916,6 +13916,10 @@ test('Admin UI shows a sidebar on a wide screen and a section menu on a phone, a
   }
   await expect(page).toHaveURL(/\/admin\/settings/)
   expect(await fits(page)).toBe(true)
+  // The new section's heading takes focus, and the sidebar is a landmark beside the one <main>, not inside it.
+  await expect(page.locator('main [data-page-heading]').first()).toBeFocused()
+  await expect(page.locator('main nav[aria-label="Admin"], main nav[aria-label="Admin sections"]')).toHaveCount(0)
+  await expect(page.getByRole('main')).toHaveCount(1)
   // Back and reload land on the same section.
   await page.goBack()
   await expect(page).toHaveURL(/\/admin\/people/)

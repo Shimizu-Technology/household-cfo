@@ -713,7 +713,7 @@ module Api
 
       def require_savings_chat_access!
         cohort = current_cohort_membership.cohort.reload
-        enrollment = SavingsEnrollment.find_by(household: current_household, user: current_user, cohort: cohort)
+        enrollment = SavingsEnrollment.in_use.find_by(household: current_household, user: current_user, cohort: cohort)
         SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: cohort, enrollment: enrollment).call!
         enrollment
       end

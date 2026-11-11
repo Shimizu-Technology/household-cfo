@@ -6,7 +6,7 @@ module HouseholdFinance
           private
 
           def enrollment_for(input, lock:)
-            enrollment = SavingsEnrollment.find_by!(household_id: household.id, user_id: user.id, cohort_id: input.fetch(:cohort_id))
+            enrollment = SavingsEnrollment.in_use.find_by!(household_id: household.id, user_id: user.id, cohort_id: input.fetch(:cohort_id))
             authorize!(input[:cohort_id], enrollment: enrollment, lock: lock)
             enrollment.lock! if lock
             enrollment

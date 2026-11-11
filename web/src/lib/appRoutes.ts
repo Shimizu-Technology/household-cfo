@@ -42,8 +42,10 @@ export function navigateTo(rawPath: string, { replace = false }: { replace?: boo
   const path = withLocalQaParams(rawPath)
   // The Admin side's unsaved-changes marker belongs to the entry that set it, not to where we go next.
   const state = { ...(window.history.state ?? {}) } as Record<string, unknown>
+  // Leaving a screen from its guard entry takes that entry over, so no extra step is left behind.
+  const onGuard = state.adminLeaveGuard === true
   delete state.adminLeaveGuard
-  if (replace) window.history.replaceState(state, '', path)
+  if (replace || onGuard) window.history.replaceState(state, '', path)
   else pushHistoryEntry(state, path)
   window.dispatchEvent(new Event(NAVIGATE_EVENT))
 }

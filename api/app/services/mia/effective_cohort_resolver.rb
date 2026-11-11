@@ -42,8 +42,9 @@ module Mia
     end
 
     def memberships
-      # Preview seats are left out of every ordinary membership list; ask for them by role.
-      relation = (role.to_s == CohortMembership::PREVIEW_ROLE ? user.preview_seats : user.cohort_memberships).includes(:cohort)
+      # Preview seats are left out of every ordinary membership list; ask for them by
+      # role, and only the ones their holder may still use.
+      relation = (role.to_s == CohortMembership::PREVIEW_ROLE ? CohortMembership.live_previews.where(user_id: user.id) : user.cohort_memberships).includes(:cohort)
       relation = relation.where(role: role) if role && role.to_s != CohortMembership::PREVIEW_ROLE
       relation = relation.joins(:cohort).where(cohorts: { coach_workspace_id: coach_workspace.id }) if coach_workspace
       relation

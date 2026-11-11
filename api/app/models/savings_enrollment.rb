@@ -14,7 +14,9 @@ class SavingsEnrollment < ApplicationRecord
   has_many :savings_entry_versions, dependent: :restrict_with_exception
   has_many :savings_zero_attestations, dependent: :restrict_with_exception
 
-  validates :user_id, uniqueness: { scope: :cohort_id }
+  # One enrollment per person per group. The one exception is a staff preview that
+  # was withdrawn: it stays as history and does not stop a fresh enrollment.
+  validates :user_id, uniqueness: { scope: :cohort_id, conditions: -> { in_use } }, unless: :ended_preview?
   validates :status, inclusion: { in: STATUSES }
   validates :time_zone, inclusion: { in: [ TIME_ZONE ] }
   validates :accepted_at, :accepted_local_on, :starts_on, :ends_on, :policy_version,
@@ -22,16 +24,24 @@ class SavingsEnrollment < ApplicationRecord
   validate :calendar_valid
   validate :accepted_release_scope
 
-  # Enrollments of people who are in the program. A staff member who joins the
-  # challenge from a preview seat is accepted through a "preview" membership;
-  # that enrollment is theirs to use but is never a program participant, so every
+  # Enrollments of people who are in the program: accepted through a membership
+  # whose role is `participant`. Defined positively so that anything unexpected (a
+  # preview, a membership that was removed or changed) is not counted. Every
   # roster, count, cap, report, export and reminder over a cohort goes through
   # `counted`. (A person's own enrollment is looked up by user, not by cohort.)
-  scope :previews, -> { where(accepted_cohort_membership_id: CohortMembership.all_previews.select(:id)) }
-  scope :counted, -> { where.not(accepted_cohort_membership_id: CohortMembership.all_previews.select(:id)) }
+  scope :counted, -> { where(staff_preview: false, accepted_cohort_membership_id: CohortMembership.where(role: "participant").select(:id)) }
+  # A staff member's challenge preview, accepted through a preview seat.
+  scope :previews, -> { where(staff_preview: true) }
+  # Everything except a staff preview that ended. Lookups of "this person's
+  # enrollment in this group" use it, so an old preview never hides the real one.
+  scope :in_use, -> { where("NOT (savings_enrollments.staff_preview AND savings_enrollments.status = 'withdrawn')") }
 
   def preview?
-    CohortMembership.all_previews.exists?(id: accepted_cohort_membership_id)
+    staff_preview
+  end
+
+  def ended_preview?
+    staff_preview && status == "withdrawn"
   end
 
   def local_today

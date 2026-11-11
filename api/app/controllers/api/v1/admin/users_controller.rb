@@ -111,6 +111,9 @@ module Api
             user.invited_at ||= Time.current if user.invitation_status == "pending"
             user.save!
 
+            # Seats a person may no longer use end with the change: a role that is no
+            # longer staff, an access revoked, or a role that sees fewer groups.
+            PreviewSeats.release_unavailable!(user) unless user.participant?
             if user.participant?
               PreviewSeats.release_all!(user)
               user.coach_workspace_memberships.find_each do |workspace_membership|

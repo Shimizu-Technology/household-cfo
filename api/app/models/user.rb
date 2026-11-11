@@ -75,6 +75,8 @@ class User < ApplicationRecord
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
   has_many :preview_seats, -> { previews }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :user
+  # A left seat that an enrollment still points at stays as history, but never blocks deleting the person.
+  has_many :ended_preview_seats, -> { with_previews.where(role: CohortMembership::ENDED_PREVIEW_ROLE) }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :user
   has_many :coach_workspace_memberships, dependent: :restrict_with_exception, inverse_of: :user
   has_many :coach_workspaces, through: :coach_workspace_memberships
   has_many :created_coach_workspaces, class_name: "CoachWorkspace", foreign_key: :created_by_user_id,

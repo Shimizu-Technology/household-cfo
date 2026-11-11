@@ -49,7 +49,7 @@ module Api
           current_household.lock!
           membership = current_cohort_membership
           raise SavingsChallenge::AccessPolicy::Unavailable, "Select your current savings program" unless membership
-          @enrollment = SavingsEnrollment.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
+          @enrollment = SavingsEnrollment.in_use.find_by!(household: current_household, user: current_user, cohort_id: membership.cohort_id)
           SavingsChallenge::Debt::Reader.authorize!(@enrollment, user: current_user)
           yield
           SavingsChallenge::Debt::Reader.authorize!(@enrollment, user: current_user)

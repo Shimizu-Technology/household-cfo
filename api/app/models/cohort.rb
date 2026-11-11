@@ -9,6 +9,8 @@ class Cohort < ApplicationRecord
   has_many :cohort_memberships, dependent: :destroy
   has_many :users, through: :cohort_memberships
   has_many :preview_seats, -> { previews }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :cohort
+  # A left seat that an enrollment still points at stays as history, but never blocks deleting the group.
+  has_many :ended_preview_seats, -> { with_previews.where(role: CohortMembership::ENDED_PREVIEW_ROLE) }, class_name: "CohortMembership", dependent: :destroy, inverse_of: :cohort
   has_one :cohort_persona_assignment, dependent: :destroy, inverse_of: :cohort
   has_one :coach_persona, through: :cohort_persona_assignment
   has_one :coach_persona_version, through: :cohort_persona_assignment
@@ -19,6 +21,10 @@ class Cohort < ApplicationRecord
   has_many :cohort_release_exposures, dependent: :restrict_with_exception
   has_many :cohort_release_activation_events, dependent: :restrict_with_exception
   has_many :cohort_challenge_access_events, dependent: :restrict_with_exception
+
+  # Outside the transaction: ending a seat takes the person's household lock, and
+  # participant writes take household before cohort.
+  after_commit :end_preview_seats, on: :update, if: -> { saved_change_to_status? && status == "archived" }
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :status, inclusion: { in: STATUSES }
@@ -32,6 +38,10 @@ class Cohort < ApplicationRecord
   after_create :ensure_experience_configuration
 
   private
+
+  def end_preview_seats
+    PreviewSeats.release_cohort!(self)
+  end
 
   def active_release_boundary
     return unless active_cohort_release

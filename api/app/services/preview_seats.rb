@@ -7,7 +7,7 @@
 module PreviewSeats
   LEFT_MESSAGE = "You left this group's preview. Your own household is unchanged."
   LEFT_CHALLENGE_MESSAGE = "You left this group's preview and your challenge preview ended. " \
-    "It can't be restarted. Your own household is unchanged.".freeze
+    "Your own household is unchanged.".freeze
 
   # Admins may use any group; a coach, the groups of their coach workspaces.
   def self.visible_cohorts(user)
@@ -18,16 +18,21 @@ module PreviewSeats
   end
 
   # What /auth/me shows: every group the person may preview, and whether they
-  # already hold a seat in it.
+  # already hold a seat in it. A seat they still hold in a group they may no longer
+  # preview is listed too (`available: false`), so it can always be left.
   def self.groups_for(user)
     cohorts = visible_cohorts(user).includes(:coach_workspace).order(:name, :id).to_a
-    return [] if cohorts.empty?
+    held = user.preview_seats.includes(cohort: :coach_workspace).to_a
+    gone = held.reject { |seat| cohorts.any? { |cohort| cohort.id == seat.cohort_id } }.map(&:cohort).sort_by { |cohort| [ cohort.name, cohort.id ] }
+    return [] if cohorts.empty? && gone.empty?
 
-    seated = user.preview_seats.where(cohort_id: cohorts.map(&:id)).pluck(:cohort_id).to_set
-    enrolled = SavingsEnrollment.previews.where(user_id: user.id, cohort_id: cohorts.map(&:id), status: %w[active completed]).pluck(:cohort_id).to_set
-    cohorts.map do |cohort|
+    ids = (cohorts + gone).map(&:id)
+    seated = held.map(&:cohort_id).to_set
+    enrolled = SavingsEnrollment.previews.where(user_id: user.id, cohort_id: ids, status: %w[active completed]).pluck(:cohort_id).to_set
+    (cohorts.map { |cohort| [ cohort, true ] } + gone.map { |cohort| [ cohort, false ] }).map do |cohort, available|
       { cohort_id: cohort.id, name: cohort.name, status: cohort.status, program_name: cohort.coach_workspace.name,
-        seated: seated.include?(cohort.id), challenge: cohort.savings_challenge_enabled, challenge_joined: enrolled.include?(cohort.id) }
+        seated: seated.include?(cohort.id), available: available, challenge: cohort.savings_challenge_enabled,
+        challenge_joined: enrolled.include?(cohort.id) }
     end
   end
 
@@ -62,5 +67,18 @@ module PreviewSeats
   # A person who stops being staff keeps no seats.
   def self.release_all!(user)
     user.preview_seats.pluck(:cohort_id).each { |cohort_id| leave!(user: user, cohort_id: cohort_id) }
+  end
+
+  # Ends the seats a person may no longer use: after they leave a coach workspace,
+  # change role or are revoked. (Every reader already ignores such a seat; this
+  # also withdraws an open challenge preview and frees the row.)
+  def self.release_unavailable!(user)
+    keep = visible_cohorts(user).pluck(:id)
+    user.preview_seats.where.not(cohort_id: keep).pluck(:cohort_id).each { |cohort_id| leave!(user: user, cohort_id: cohort_id) }
+  end
+
+  # A group that is archived keeps no preview seats.
+  def self.release_cohort!(cohort)
+    cohort.preview_seats.includes(:user).to_a.each { |seat| leave!(user: seat.user, cohort_id: cohort.id) }
   end
 end

@@ -58,6 +58,9 @@ export function AdminApp() {
     return () => {
       window.removeEventListener('beforeunload', leave)
       window.removeEventListener('popstate', onBack)
+      // Still on the guard entry means the changes ended here (saved, or discarded in place):
+      // step back over it so the next Back goes where the person expects.
+      if (window.history.state?.adminLeaveGuard) window.history.back()
     }
   }, [dirty])
 

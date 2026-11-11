@@ -24,7 +24,7 @@ class ApiV1AdminRoleMatrixTest < ActionDispatch::IntegrationTest
     "people list" => %i[admin owner],
     "coaching assistants" => %i[admin owner editor reviewer viewer],
     "people who need me today" => %i[admin owner],
-    "reports" => %i[owner],
+    "reports" => %i[admin owner],
     "pause the challenge" => %i[admin owner]
   }.freeze
 

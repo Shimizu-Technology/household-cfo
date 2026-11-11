@@ -50,7 +50,8 @@ function AdminPanel({ currentUser, view, onDirtyChange, onProgramCreated }: { cu
   const coachWorkspaces = currentUser.coach_workspaces ?? []
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [area, setArea] = useState<ConsoleArea>(view ?? (currentUser.is_admin && coachWorkspaces.length === 0 ? 'programs' : 'participants'))
-  const [supportView, setSupportView] = useState<'problems' | 'setup'>('problems')
+  // Problem reports are for platform administrators; a program's owner starts with setup requests.
+  const [supportView, setSupportView] = useState<'problems' | 'setup'>(currentUser.is_admin ? 'problems' : 'setup')
   const [supportBusy, setSupportBusy] = useState(false)
   const [feedbackBusy, setFeedbackBusy] = useState(false)
   const [challengeDirty, setChallengeDirty] = useState(false)
@@ -497,10 +498,10 @@ function AdminPanel({ currentUser, view, onDirtyChange, onProgramCreated }: { cu
       <div hidden={area !== 'health'}><PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} /></div>
       <div hidden={area !== 'feedback'}>
         <nav className="admin-area-nav" aria-label="Support inbox views">
-          <button type="button" aria-pressed={supportView === 'problems'} disabled={adminMutationPending} onClick={() => setSupportView('problems')}>Problems reported</button>
+          {currentUser.is_admin && <button type="button" aria-pressed={supportView === 'problems'} disabled={adminMutationPending} onClick={() => setSupportView('problems')}>Problems reported</button>}
           <button type="button" aria-pressed={supportView === 'setup'} disabled={adminMutationPending} onClick={() => setSupportView('setup')}>Setup requests</button>
         </nav>
-        <div hidden={supportView !== 'problems'}><PilotFeedbackInbox onPendingChange={setFeedbackBusy} /></div>
+        {currentUser.is_admin && <div hidden={supportView !== 'problems'}><PilotFeedbackInbox onPendingChange={setFeedbackBusy} /></div>}
         {area === 'feedback' && supportView === 'setup' && <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={platformMode ? null : selectedCohortId} isAdmin={currentUser.is_admin} disabled={adminMutationPending && !supportBusy} onPendingChange={setSupportBusy} />}
       </div>
 

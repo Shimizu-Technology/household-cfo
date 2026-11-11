@@ -10,7 +10,7 @@ import { clearPreviewGroups } from '../lib/previewGroups'
 const api = vi.hoisted(() => ({ joinPreviewSeat: vi.fn(), leavePreviewSeat: vi.fn() }))
 vi.mock('../api', async importOriginal => ({ ...(await importOriginal<typeof import('../api')>()), ...api }))
 
-const group = (cohort_id: number, name: string, seated = false, challenge_joined = false) => ({ cohort_id, name, status: 'active' as const, program_name: 'Mel program', seated, challenge: true, challenge_joined })
+const group = (cohort_id: number, name: string, seated = false, challenge_joined = false) => ({ cohort_id, name, status: 'active' as const, program_name: 'Mel program', seated, available: true, challenge: true, challenge_joined })
 const staff = (groups: NonNullable<CurrentUser['preview_groups']>): CurrentUser => ({
   id: 31, clerk_id: 's', email: 's@example.invalid', full_name: 'Staff', first_name: 'S', last_name: 'T', role: 'admin', invitation_status: 'accepted',
   invited_at: null, accepted_at: null, last_sign_in_at: null, created_at: '', is_admin: true, is_coach: false, is_participant: false, is_staff: true, preview_groups: groups,
@@ -57,16 +57,32 @@ it('does not switch when the seat cannot be taken, and says nothing changed', as
 })
 
 it('confirms before leaving a group whose challenge was joined, then returns to My household and reports the result', async () => {
-  api.leavePreviewSeat.mockResolvedValue({ message: 'You left this group’s preview and your challenge preview ended. It can’t be restarted. Your own household is unchanged.', preview_groups: [group(7, 'BOG', false, true)] })
+  api.leavePreviewSeat.mockResolvedValue({ message: 'You left this group’s preview and your challenge preview ended. Your own household is unchanged.', preview_groups: [group(7, 'BOG', false, true)] })
   const chooseHousehold = vi.fn()
   render(<><ConfirmHost /><UseAppAs user={staff([group(7, 'BOG', true, true)])} currentCohortId={7} onChooseHousehold={chooseHousehold} onChooseGroup={vi.fn()} /></>)
   fireEvent.click(screen.getByRole('button', { name: 'Leave' }))
-  const answer = await askedConfirm({ title: 'Leave BOG?', message: 'This ends your savings challenge preview in BOG. It counts as leaving and can’t be restarted. Your own household isn’t changed.', confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
+  const answer = await askedConfirm({ title: 'Leave BOG?', message: 'This ends your savings challenge preview in BOG. Your own household isn’t changed.', confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
   answer.cancel()
   await waitFor(() => expect(api.leavePreviewSeat).not.toHaveBeenCalled())
   fireEvent.click(screen.getByRole('button', { name: 'Leave' }))
-  const again = await askedConfirm({ title: 'Leave BOG?', message: 'This ends your savings challenge preview in BOG. It counts as leaving and can’t be restarted. Your own household isn’t changed.', confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
+  const again = await askedConfirm({ title: 'Leave BOG?', message: 'This ends your savings challenge preview in BOG. Your own household isn’t changed.', confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
   again.confirm()
   await waitFor(() => expect(chooseHousehold).toHaveBeenCalled())
   expect(screen.getAllByRole('status').map(item => item.textContent).join(' ')).toContain('challenge preview ended')
+})
+
+it('lists a seat the person can no longer use as no longer available, not selectable, but leavable', async () => {
+  const gone = { ...group(8, 'Old group', true), available: false }
+  api.leavePreviewSeat.mockResolvedValue({ message: 'You left this group’s preview.', preview_groups: [] })
+  render(<UseAppAs user={staff([group(7, 'Bank of Guam 90 day savings'), gone])} onChooseHousehold={vi.fn()} onChooseGroup={vi.fn()} />)
+  const radio = screen.getByRole('radio', { name: /Old group/ }) as HTMLInputElement
+  expect(radio.disabled).toBe(true)
+  expect(radio.closest('label')?.textContent).toContain('No longer available')
+  const leave = screen.getByRole('button', { name: 'No longer available. Leave Old group' })
+  expect(screen.getByRole('radio', { name: /Bank of Guam/ })).toBeTruthy()
+  render(<ConfirmHost />)
+  fireEvent.click(leave)
+  const answer = await askedConfirm({ title: 'Leave Old group?', message: 'You’ll stop using the app as Old group. Your own household isn’t changed.', confirmLabel: 'Leave preview', cancelLabel: 'Stay', caution: true })
+  answer.confirm()
+  await waitFor(() => expect(api.leavePreviewSeat).toHaveBeenCalledWith(8))
 })

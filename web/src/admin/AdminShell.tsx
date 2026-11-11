@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CurrentUser } from '../api'
 import { AccountMenu } from '../components/AccountMenu'
 import { BrandFooter, BrandLogo } from '../components/BrandChrome'
@@ -46,6 +46,25 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
   const workspaces = currentUser.coach_workspaces ?? []
   const showProgram = workspaces.length > 1 || (currentUser.is_admin && workspaces.length > 0)
   const activeWorkspaceId = auth.activeCoachWorkspaceId
+  const activeKey = active?.key ?? requested
+
+  // Choosing another section moves focus to its heading, as the household app does for its
+  // screens, so a keyboard or screen-reader user lands on the new content. Not on first load.
+  const sectionShown = useRef(activeKey)
+  useEffect(() => {
+    if (sectionShown.current === activeKey) return
+    sectionShown.current = activeKey
+    let frame = 0
+    let attempts = 0
+    const focusHeading = () => {
+      // The section may still be opening; wait a moment for its heading.
+      const heading = document.querySelector<HTMLElement>('.admin-content [data-page-heading]')
+      if (heading) heading.focus({ preventScroll: true })
+      else if (attempts++ < 30) frame = window.requestAnimationFrame(focusHeading)
+    }
+    frame = window.requestAnimationFrame(focusHeading)
+    return () => window.cancelAnimationFrame(frame)
+  }, [activeKey])
 
   const linkClick = (path: string) => (event: React.MouseEvent<HTMLAnchorElement>) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
@@ -82,17 +101,18 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
     </select>
   </label>
 
-  return <main className="app staff-app admin-app" hidden={hidden} inert={hidden}>
+  // The sidebar is its own landmark beside the page's one <main>, not inside it.
+  return <div className="app staff-app admin-app" hidden={hidden} inert={hidden}>
     <SeoManager section="Admin" />
-    <aside className="admin-sidebar" aria-label="Admin">
+    <nav className="admin-sidebar" aria-label="Admin">
       <div className="admin-sidebar-brand"><BrandLogo brand={brand} /><strong>{brand.short_name} Admin</strong></div>
       <a className="admin-home-link" href="/" onClick={goHome}>My household</a>
-      <nav className="admin-sidebar-nav" aria-label="Admin sections">
+      <div className="admin-sidebar-nav">
         {sections.map(section => <a key={section.key} href={adminPath(section.key)} aria-current={active?.key === section.key ? 'page' : undefined} onClick={linkClick(adminPath(section.key))}>
           <strong>{section.label}</strong><small>{descriptions[section.key]}</small>
         </a>)}
-      </nav>
-    </aside>
+      </div>
+    </nav>
     <div className="admin-main">
       <header className="admin-header">
         <a className="admin-home-link admin-home-link--phone" href="/" onClick={goHome}>My household</a>
@@ -111,7 +131,7 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
         </details>
       </header>
       <div className="admin-program">{programPicker}</div>
-      <div className="admin-content">
+      <main className="admin-content">
         {active
           ? <AdminSectionContent key={`${active.key}:${activeWorkspaceId ?? 'platform'}`} section={active} currentUser={currentUser} onDirtyChange={onDirtyChange} />
           : requested && <section className="panel admin-unavailable" role="alert">
@@ -119,11 +139,11 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
               <p>Your sections are in the menu. If you need more, ask a program owner.</p>
               <a className="button button--secondary" href={adminPath(sections[0]?.key)} onClick={linkClick(adminPath(sections[0]?.key))}>Go to {sections[0]?.label}</a>
             </section>}
-      </div>
+      </main>
       <BrandFooter />
     </div>
     {guideOpen && <AdminGuideDialog onClose={() => closeHelp(() => setGuideOpen(false))} />}
     {feedbackOpen && <PilotFeedbackDialog initialWorkflow="admin" onClose={() => closeHelp(() => setFeedbackOpen(false))} onSubmit={submitPilotFeedback} />}
     {enterpriseOpen && <EnterpriseSettings currentUser={currentUser} onClose={() => setEnterpriseOpen(false)} />}
-  </main>
+  </div>
 }
