@@ -5257,7 +5257,7 @@ test('Admin UI keeps the challenge on the group page, guards the reason and expl
   await expect(page.getByRole('button', { name: 'Pause the challenge', exact: true })).toBeDisabled()
   await expect(page.getByText('Enter a reason of 5–500 characters to confirm this change.')).toBeVisible()
   await page.getByLabel(/Reason/).fill('Keep this review reason')
-  await page.getByRole('link', { name: /^Settings/ }).or(page.locator('.admin-section-menu > summary')).first().click()
+  await openAdminSection(page, 'Settings')
   await answerConfirm(page, 'dismiss')
   await expect(page.getByLabel(/Reason/)).toHaveValue('Keep this review reason')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -5270,8 +5270,7 @@ test('Admin UI keeps the challenge on the group page, guards the reason and expl
 
 test('Admin UI people rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/admin/people?pilot_e2e_role=admin')
-  const person = page.getByRole('button', { name: /participant@pilot\.test/ }).or(page.getByRole('row').filter({ hasText: 'participant@pilot.test' }).getByRole('button'))
-  await person.first().click()
+  await page.getByRole('button', { name: /Test Participant/ }).first().click()
   const dialog = page.getByRole('dialog')
   await expect(dialog.getByText('Setup started')).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Send the invitation again' })).toHaveCount(0)
