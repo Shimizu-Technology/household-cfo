@@ -9,6 +9,9 @@ class PurchaseChangeRequestTest < ActiveSupport::TestCase
     range = parse("change the walmart purchase from 30 to 35")
     assert_equal [ 3_500, 3_000 ], [ range.new_cents, range.old_cents ]
     assert_equal 7_000, parse("change the target purchase to $70").new_cents
+    natural = parse("the target I bought yesterday cost 64 not 46")
+    assert_equal [ 6_400, 4_600 ], [ natural.new_cents, natural.old_cents ]
+    assert_equal [ 6_400, 4_600 ], parse("they charged me $64 instead of $46 at target").then { |result| [ result.new_cents, result.old_cents ] }
   end
 
   test "reads a category move and a removal" do

@@ -59,6 +59,12 @@ module HouseholdFinance
       old = text.match(NOT_AMOUNT)
       return [ cents(corrected[1], corrected[2]), old && cents(old[1], old[2]) ] if corrected
 
+      # "it cost 64 not 46", "they charged 64 instead of 46": two figures and a "not" settle which is which.
+      if old
+        other = text.scan(AMOUNT).map { |whole, fraction| cents(whole, fraction) }.find { |value| value != cents(old[1], old[2]) }
+        return [ other, cents(old[1], old[2]) ] if other
+      end
+
       [ nil, nil ]
     end
 
