@@ -302,7 +302,7 @@ module HouseholdFinance
       end
       packet = answer_packet.except(:fallback_response).merge(verified_reference_answer: fallback_response)
       json = JSON.generate(packet)
-      return json if json.bytesize <= MAX_PACKET_BYTES || recent_crisis?
+      return json if json.bytesize <= MAX_PACKET_BYTES
 
       bounded_packet = packet.deep_dup
       memory = bounded_packet[:personalization_memory]
@@ -319,7 +319,7 @@ module HouseholdFinance
         return json if json.bytesize <= MAX_PACKET_BYTES
       end
 
-      JSON.generate(packet.slice(:kind, :basis, :write_state, :verified_reference_answer, :guardrails))
+      JSON.generate(packet.slice(:kind, :basis, :write_state, :verified_reference_answer, :guardrails, :care_context))
     end
 
     def conversation_history
@@ -334,8 +334,13 @@ module HouseholdFinance
 
         { role: role.to_s, content: content.to_s.squish.truncate(MAX_HISTORY_MESSAGE_CHARACTERS, omission: "…") }
       end
-      # Safety disclosures are already scoped to this episode by the controller.
-      return candidates if recent_crisis?
+      if recent_crisis?
+        pinned = CareDisclosures.bound_topic(answer_packet[:care_context]).fetch("disclosures").map do |entry|
+          { role: "user", content: entry.fetch("content") }
+        end
+        recent = candidates.last(4).map { |row| row.merge(content: row[:content].truncate(1_000)) }
+        return (pinned + recent).uniq
+      end
 
       candidates = candidates.last(MAX_HISTORY_MESSAGES)
       selected = []
@@ -352,6 +357,9 @@ module HouseholdFinance
 
     def normalized_packet(packet)
       payload = packet.respond_to?(:deep_symbolize_keys) ? packet.deep_symbolize_keys : {}
+      if payload[:care_context].is_a?(Hash)
+        payload[:care_context] = CareDisclosures.bound_topic(payload[:care_context]).deep_symbolize_keys
+      end
       payload[:fallback_response] = payload[:fallback_response].to_s
       payload[:write_state] = payload[:write_state].presence || "no_write"
       payload[:guardrails] = Array(payload[:guardrails]) | default_guardrails

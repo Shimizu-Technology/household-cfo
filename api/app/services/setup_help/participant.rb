@@ -36,7 +36,8 @@ module SetupHelp
           record = requests.find(existing.setup_support_request_id)
           Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
         else
-          record = requests.where(reason: reason, status: SetupSupportRequest::ACTIVE).order(:id).first
+          slot = reason == "leave_challenge" ? requests.where(reason: reason) : requests.where.not(reason: "leave_challenge")
+          record = slot.where(status: SetupSupportRequest::ACTIVE).order(:id).first
           unless record
             record = @household.setup_support_requests.create!(requested_by_user: @user, cohort_id: @membership&.cohort_id,
               participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason)

@@ -1,6 +1,6 @@
 module HouseholdFinance
-  # Private conversation state, never a financial scenario. Expiry is deliberately
-  # not sliding: a brief reply must not keep an old disclosure alive indefinitely.
+  # Private conversation state, never a financial scenario. Ordinary replies keep
+  # a fixed deadline; every new crisis disclosure renews the safety window.
   class ParticipantCareState
     TTL = 48.hours
     REPORT_KINDS = %w[purchase set_aside withdrawal nothing_saved income].freeze
@@ -64,7 +64,7 @@ module HouseholdFinance
       topic = prior || ParticipantCare.topic(kind, persona_context_id: @persona_context_id)
       topic = record_disclosure(topic, message)
       topic = topic.merge("type" => "care", "care_kind" => kind.to_s, "last_care_at" => Time.current.iso8601,
-        "disclosure" => prior&.fetch("disclosure", nil) || message.to_s.first(700),
+        "disclosure" => topic.fetch("disclosure"),
         "last_question" => Array(history).reverse.find { |row| row[:role].to_s == "assistant" }&.fetch(:content, "").to_s.last(700))
       @session.update!(active_topic: topic)
       topic
@@ -80,14 +80,15 @@ module HouseholdFinance
         disclosures << { "content" => topic["disclosure"], "created_at" => topic["started_at"] }
       end
       disclosures << { "content" => message.to_s, "created_at" => Time.current.iso8601(6) }
-      topic.merge("disclosure" => topic["disclosure"] || message.to_s,
-        "disclosures" => disclosures)
+      CareDisclosures.bound_topic(topic.merge("disclosures" => disclosures))
     end
 
     def record_crisis(message)
       @session.with_lock do
         topic = active || ParticipantCare.topic(:crisis, persona_context_id: @persona_context_id)
-        topic = record_disclosure(topic, message).merge("care_kind" => "crisis", "last_care_at" => Time.current.iso8601)
+        expiry = Time.zone.parse(topic.fetch("expires_at"))
+        topic = record_disclosure(topic, message).merge("care_kind" => "crisis", "last_care_at" => Time.current.iso8601,
+          "expires_at" => [ expiry, Time.current + TTL ].max.iso8601)
         @session.update!(active_topic: topic)
         topic
       end

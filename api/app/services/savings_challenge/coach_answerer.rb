@@ -55,7 +55,7 @@ module SavingsChallenge
         return deterministic(daily_rejection_answer) if @daily_rejection
         return deterministic(savings_intake_answer) if @savings_intake
         return deterministic(savings_total_answer) if saved_total_question?
-        return deterministic(calendar_answer) if @message.match?(/\b(?:how (?:many|much) (?:days?|time).*(?:left|remain)|when (?:does|will) (?:my |the |this )?challenge (?:end|finish|start))\b/i)
+        return deterministic(calendar_answer) if challenge_calendar_question?
         return deterministic(target_change_answer) if target_change?
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return targeted(savings_answer) if @message.match?(BORROWING_FROM_SAVINGS)
@@ -85,6 +85,11 @@ module SavingsChallenge
     end
 
     private
+
+    def challenge_calendar_question?
+      @message.match?(/\bwhen (?:does|will) (?:my |the |this )?challenge (?:end|finish|start)\b/i) ||
+        @message.match?(/\bhow (?:many|much) (?:days?|time) (?:are |is |do i have )?(?:left|remaining|remain)(?: (?:in|for|of) (?:the |my |this )?(?:savings )?challenge)?[?.! ]*\z/i)
+    end
 
     def purchase_question?
       text = HouseholdFinance::PurchaseQuestionText.read_only_question_text(HouseholdFinance::PurchaseQuestionText.purchase_clause(@message))

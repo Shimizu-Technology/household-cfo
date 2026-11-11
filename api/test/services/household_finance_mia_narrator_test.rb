@@ -12,16 +12,17 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     refute_includes narrator.send(:narration_request), "5200"
   end
 
-  test "crisis writer retains all episode safety facts beyond normal packet and history bounds" do
+  test "crisis writer retains first safety facts within normal packet and history budgets" do
     first = "I have a gun and 30 pills. I plan to act at 9 tonight."
-    history = [ { role: "user", content: first } ] + Array.new(40) { |i| { role: "user", content: "Still here #{i}. " * 60 } }
+    history = [ { role: "user", content: first } ] + Array.new(61) { |i| { role: "user", content: "Still here #{i}. " * 60 } }
     disclosures = history.map { |row| { content: row[:content] } }
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "I haven't moved it yet.", history: history, api_key: "",
       answer_packet: { kind: "coaching", care_context: { care_kind: "crisis", disclosures: disclosures }, fallback_response: "Stay with someone you trust." })
-    assert_operator narrator.send(:packet_json).bytesize, :>, HouseholdFinance::MiaNarrator::MAX_PACKET_BYTES
+    assert_operator narrator.send(:packet_json).bytesize, :<=, HouseholdFinance::MiaNarrator::MAX_PACKET_BYTES
     assert_includes narrator.send(:narration_request), first
     assert_includes narrator.send(:conversation_history), history.first
-    assert_equal history.size, narrator.send(:conversation_history).size
+    assert_operator narrator.send(:conversation_history).to_json.length, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_CHARACTERS
+    assert_operator narrator.send(:conversation_history).size, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_MESSAGES
   end
 
   test "phrase suppression never rereads a historical soft crisis message" do

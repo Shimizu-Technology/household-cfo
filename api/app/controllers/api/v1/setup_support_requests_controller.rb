@@ -19,6 +19,7 @@ module Api
       def triage = transition("triage")
       def prepare = transition("prepare")
       def decline = transition("decline")
+      def acknowledge = transition("acknowledge")
       private
       def transition(action) = render(json: staff.transition(id: params[:id], action: action, expected_lock_version: params[:expected_lock_version]))
       def staff = SetupHelp::Staff.new(user: current_user, workspace_id: request.headers["X-Coach-Workspace-Id"].presence)

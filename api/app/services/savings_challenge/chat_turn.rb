@@ -136,6 +136,9 @@ module SavingsChallenge
       return unless @enrollment && @attachments.empty? && @answer.present? && write_with_question? && (@intakes.present? || @continued_card_input.present?)
       return if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) || self.class.protected_message?(@message)
 
+      # Exit consent belongs to the whole message, including any uncertainty.
+      return if ParticipantHelp.exit?(question_clause)
+
       alone = self.class.new(household: @household, user: @user, enrollment: @enrollment, session: @session, message: question_clause, persona: @persona, history: @history,
         approved_content: @approved_content, available_product_modules: @available_product_modules, cohort_membership: @cohort_membership,
         reading: @reading.with(facts: [], question: true, setup_changes: {}, goal_change: {}, savings_correction: {}))

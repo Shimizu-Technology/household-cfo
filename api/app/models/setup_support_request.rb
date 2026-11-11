@@ -2,7 +2,7 @@ class SetupSupportRequest < ApplicationRecord
   REASONS = { "practice_numbers" => "I used practice numbers", "wrong_setup" => "My starting setup is wrong",
     "upload_problem" => "I need help with an upload", "other" => "I need help starting again",
     "leave_challenge" => "I asked to pause or leave the challenge" }.freeze
-  STATUSES = %w[requested in_review ready applied canceled declined].freeze
+  STATUSES = %w[requested in_review ready applied canceled declined acknowledged].freeze
   ACTIVE = %w[requested in_review ready].freeze
   belongs_to :household
   belongs_to :requested_by_user, class_name: "User"

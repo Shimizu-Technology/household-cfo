@@ -16,6 +16,34 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     result
   end
 
+  %w[hardship food].each do |kind|
+    test "crisis inside an older #{kind} episode renews care without changing its start" do
+      now = Time.current.change(usec: 0)
+      travel_to(now) { @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(kind)) }
+      started = @session.active_topic.fetch("started_at")
+      travel_to(now + 47.hours + 50.minutes) do
+        topic = @state.record_crisis("I want to die tonight.")
+        assert_equal started, topic["started_at"]
+        assert_equal (Time.current + 48.hours).iso8601, topic["expires_at"]
+      end
+      travel_to(now + 48.hours + 10.minutes) { assert @state.checkin_hold? }
+    end
+  end
+
+  test "sixty two messages bound storage while keeping first safety disclosures and recent turns" do
+    @session.update!(active_topic: {})
+    first = "I want to kill myself. I have a gun in my room."
+    @state.record_crisis(first)
+    @state.record_crisis("I plan to act at 9 tonight.")
+    60.times { |i| @state.transition("Still here #{i}. " * 150, reading("Still here", status: "ongoing"), history: []) }
+    topic = @session.reload.active_topic
+    assert_operator topic["disclosures"].size, :<=, HouseholdFinance::CareDisclosures::LIMIT
+    assert_operator topic.to_json.bytesize, :<, 10_000
+    assert_includes topic.to_json, first
+    assert_includes topic.to_json, "9 tonight"
+    assert_includes topic.to_json, "Still here 59"
+  end
+
   test "only a safety reply belonging to an expired episode can release the check-in prompt" do
     started = 3.days.ago
     topic = HouseholdFinance::ParticipantCare.topic(:crisis).merge("started_at" => started.iso8601, "expires_at" => 1.day.ago.iso8601)

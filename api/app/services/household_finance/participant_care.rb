@@ -188,6 +188,14 @@ module HouseholdFinance
 
     def required?(message) = kind(message).present?
 
+    def crisis_followup(topic)
+      facts = [ topic["disclosure"], *Array(topic["disclosures"]).map { |row| row["content"] } ].join(" ")
+      means = facts.match?(/\b(?:gun|firearm|pistol|rifle)\b/i) ? "the gun" : "anything you could use to hurt yourself"
+      "Please call or text 988 now, call 911 if you might act or feel unsafe, or get next to a trusted person immediately. " \
+        "Put distance between you and #{means}; ask someone you trust to help you stay away from it. " \
+        "Money and setup can wait. Is someone you trust with you right now?"
+    end
+
     def answer(message, care: nil)
       selected = care&.to_sym || kind(message)
       if selected.in?([ :hardship, :food, :housing, :job_loss ])

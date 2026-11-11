@@ -233,3 +233,17 @@ describe('person-specific setup help', () => {
     await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(12, 'triage', 2))
   })
 })
+ it('closes a leave request as acknowledged without preparing a restart', async () => {
+  const leave: SetupSupportRequest = { ...request, reason: 'leave_challenge', reason_label: 'I asked to pause or leave the challenge', permissions: { triage: true, prepare: false, decline: true, acknowledge: true } }
+  mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [leave], next_cursor: null })
+  mocks.updateSetupSupportRequest.mockResolvedValue({ request: { ...leave, status: 'acknowledged', lock_version: 3 } })
+  render(<SetupSupportInbox {...base} />)
+  const close = await screen.findByRole('button', { name: 'Talked with them' })
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false))
+  expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
+  fireEvent.click(close)
+  await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(9, 'acknowledge', 2))
+  expect(await screen.findByText('Acknowledged', { selector: '.setup-support-status' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Talked with them' })).toBeNull()
+ })
+

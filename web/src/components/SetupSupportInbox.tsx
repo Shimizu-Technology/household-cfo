@@ -17,8 +17,8 @@ type Props = {
   onPendingChange?: (pending: boolean) => void
   mutationLifecycle?: CoachWorkspaceMutationLifecycle
 }
-type SupportAction = 'triage' | 'prepare' | 'decline'
-const statusLabels = { requested: 'Requested', in_review: 'In review', ready: 'Participant review ready', applied: 'Restart finished', canceled: 'Canceled', declined: 'Corrections recommended' }
+type SupportAction = 'triage' | 'prepare' | 'decline' | 'acknowledge'
+const statusLabels = { requested: 'Requested', in_review: 'In review', ready: 'Participant review ready', applied: 'Restart finished', canceled: 'Canceled', declined: 'Corrections recommended', acknowledged: 'Acknowledged' }
 
 // Remounting resets both the displayed metadata and any outstanding confirmation.
 export function SetupSupportInbox(props: Props) {
@@ -197,6 +197,7 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, part
               {open && !record.permissions?.triage && !record.permissions?.decline && !(isAdmin && record.permissions?.prepare) && <p>Your current access is read-only for this request.</p>}
               {open && !readOnly && <div className="setup-support-actions">
                 {record.status === 'requested' && record.permissions?.triage && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'triage')}>Mark in review</Button>}
+                {record.permissions?.acknowledge && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'acknowledge')}>Talked with them</Button>}
                 {record.permissions?.decline && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'decline')}>Recommend corrections</Button>}
                 {canPrepare && <Button disabled={blocked} onClick={() => setConfirmation({ id: record.id, version: record.lock_version })}>Prepare participant review</Button>}
               </div>}

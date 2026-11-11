@@ -104,11 +104,11 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_raises(SetupHelp::Error) { @participant.create_request(reason: "other", share_metadata: true, idempotency_key: "") }
     first = request("one")
     assert_equal first[:id], request("one")[:id]
-    assert_not_equal first[:id], request("two", reason: "upload_problem")[:id]
-    assert_equal "upload_problem", @participant.status[:latest_request][:reason]
+    assert_equal first[:id], request("two", reason: "upload_problem")[:id]
+    assert_equal "practice_numbers", @participant.status[:latest_request][:reason]
     assert_raises(SetupHelp::Conflict) { request("one", reason: "wrong_setup") }
-    assert_equal 2, @household.setup_support_requests.count
-    assert_equal 2, @household.household_audit_events.where(event_type: "setup_support.requested").count
+    assert_equal 1, @household.setup_support_requests.count
+    assert_equal 1, @household.household_audit_events.where(event_type: "setup_support.requested").count
     @participant.cancel_request(id: first[:id], expected_lock_version: first[:lock_version])
     assert_equal first[:id], request("one")[:id]
     assert_not_equal first[:id], request("new-after-cancel")[:id]
@@ -128,8 +128,8 @@ class SetupHelpTest < ActiveSupport::TestCase
       assert_equal original[:id], @participant.status[:latest_request][:id]
       assert_equal leave[:id], @participant.request_leave(idempotency_key: "leave-again")[:id]
       upload = request("upload", reason: "upload_problem")
-      assert_equal "upload_problem", upload[:reason]
-      assert_not_includes [ original[:id], leave[:id] ], upload[:id]
+      assert_equal original[:id], upload[:id]
+      assert_equal "wrong_setup", upload[:reason]
       assert_equal before, record.reload.attributes
       listed = staff.list[:records].find { |item| item[:id] == leave[:id] }
       assert_equal false, listed[:permissions][:prepare]
@@ -290,12 +290,12 @@ class SetupHelpTest < ActiveSupport::TestCase
         workspace_member = CoachWorkspaceMembership.create!(coach_workspace_id: @savings_cohort.coach_workspace_id, user: @admin, role: "viewer")
         staff = SetupHelp::Staff.new(user: @admin)
         projected = staff.list[:records].find { |item| item[:id] == request[:id] }
-        assert_equal({ triage: false, prepare: false, decline: false }, projected[:permissions])
+        assert_equal({ triage: false, prepare: false, decline: false, acknowledge: false }, projected[:permissions])
         assert_raises(SetupHelp::Denied) { staff.transition(id: request[:id], action: "triage", expected_lock_version: triaged[:lock_version]) }
         assert_raises(SetupHelp::Denied) { staff.transition(id: request[:id], action: "decline", expected_lock_version: triaged[:lock_version]) }
         assert_raises(SetupHelp::Denied) { staff.transition(id: request[:id], action: "prepare", expected_lock_version: triaged[:lock_version]) }
         workspace_member.update!(role: "reviewer")
-        assert_equal({ triage: true, prepare: true, decline: true }, staff.list[:records].find { |item| item[:id] == request[:id] }[:permissions])
+        assert_equal({ triage: true, prepare: true, decline: true, acknowledge: false }, staff.list[:records].find { |item| item[:id] == request[:id] }[:permissions])
         ready = staff.transition(id: request[:id], action: "prepare", expected_lock_version: triaged[:lock_version])[:request]
         before = savings_projection
         supported = SetupHelp::Restart.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership, request_id: request[:id])
@@ -475,6 +475,30 @@ class SetupHelpTest < ActiveSupport::TestCase
     id = SecureRandom.hex(6)
     User.create!(clerk_id: "setup-#{id}", email: "setup-#{id}@example.com", role: role, invitation_status: "accepted")
   end
+  test "staff acknowledge leave without preparing a restart and cannot acknowledge setup" do
+    leave = @participant.request_leave(idempotency_key: "leave")
+    staff = SetupHelp::Staff.new(user: @admin)
+    assert staff.list[:records].find { |row| row[:id] == leave[:id] }[:permissions][:acknowledge]
+    assert_no_difference "FinancialRestartReview.count" do
+      result = staff.transition(id: leave[:id], action: "acknowledge", expected_lock_version: leave[:lock_version])[:request]
+      assert_equal "acknowledged", result[:status]
+    end
+    assert_equal "acknowledged", SetupSupportRequest.find(leave[:id]).status
+    assert @household.household_audit_events.exists?(event_type: "setup_support.acknowledge")
+    setup = request("setup")
+    assert_raises(SetupHelp::Denied) { staff.transition(id: setup[:id], action: "acknowledge", expected_lock_version: setup[:lock_version]) }
+  end
+
+  test "database enforces one setup slot while keeping leave separate" do
+    request("setup", reason: "wrong_setup")
+    @participant.request_leave(idempotency_key: "leave")
+    assert_raises(ActiveRecord::RecordNotUnique) do
+      SetupSupportRequest.transaction(requires_new: true) do
+        @household.setup_support_requests.create!(requested_by_user: @user, reason: "upload_problem")
+      end
+    end
+  end
+
   def request(key = SecureRandom.uuid, reason: "practice_numbers")
     @participant.create_request(reason: reason, share_metadata: true, idempotency_key: key)[:request]
   end

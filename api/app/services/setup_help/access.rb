@@ -58,10 +58,10 @@ module SetupHelp
 
     def self.permissions_for(request, actor)
       independent = actor.id != request.requested_by_user_id && request.reason != "leave_challenge"
-      return { triage: true, prepare: independent, decline: true } unless request.cohort
+      return { triage: true, prepare: independent, decline: true, acknowledge: request.reason == "leave_challenge" } unless request.cohort
       role = CoachWorkspaceMembership.lock.find_by(coach_workspace_id: request.cohort.coach_workspace_id, user_id: actor.id)&.role
       mutation = role.in?(%w[owner editor reviewer])
-      { triage: mutation, prepare: independent && actor.admin? && role.in?(%w[owner reviewer]), decline: mutation }
+      { triage: mutation, prepare: independent && actor.admin? && role.in?(%w[owner reviewer]), decline: mutation, acknowledge: mutation && request.reason == "leave_challenge" }
     end
     private_class_method :permissions_for
   end

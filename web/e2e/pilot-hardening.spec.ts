@@ -11890,6 +11890,34 @@ test('BOG UI a non-owner can correct records but cannot restart shared setup or 
   expect(flow.creates).toEqual([])
 })
 
+test('Admin UI a coach acknowledges a leave request without offering a restart', async ({ page }) => {
+  let record = { ...setupSupportBrowserRecord(), cohort_id: 41, program_name: 'BOG', reason: 'leave_challenge', reason_label: 'I asked to pause or leave the challenge', permissions: { triage: true, prepare: false, decline: true, acknowledge: true } }
+  let acknowledgments = 0
+  await page.route('http://api.test/api/v1/setup_support_requests**', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { records: [record], next_cursor: null } })
+    expect(new URL(route.request().url()).pathname.endsWith('/acknowledge')).toBe(true)
+    expect(route.request().postDataJSON()).toEqual({ expected_lock_version: record.lock_version })
+    acknowledgments += 1
+    record = { ...record, status: 'acknowledged', lock_version: record.lock_version + 1 }
+    return route.fulfill({ json: { request: record } })
+  })
+  async function openInbox(done = false) {
+    await page.goto(coachProgramUrl('/admin/support'))
+    if (done) await page.getByRole('group', { name: 'Show requests that are' }).getByRole('button', { name: /Done/ }).click()
+    await page.getByRole('button', { name: /Test Participant/ }).first().click()
+  }
+  await openInbox()
+  const inbox = page.getByRole('dialog').getByRole('article', { name: 'Setup help requests', exact: true })
+  await expect(inbox.getByRole('button', { name: 'Prepare participant review', exact: true })).toHaveCount(0)
+  await inbox.getByRole('button', { name: 'Talked with them', exact: true }).click()
+  await expect(inbox.locator('.setup-support-status')).toHaveText('Acknowledged')
+  await expect(inbox.getByRole('button', { name: 'Talked with them', exact: true })).toHaveCount(0)
+  await openInbox(true)
+  await expect(inbox.locator('.setup-support-status')).toHaveText('Acknowledged')
+  expect(acknowledgments).toBe(1)
+})
+
+
 test('BOG UI a selected coach can open own setup help from Context My Money and Mia and confirm an eligible own-household restart', async ({ page }) => {
   const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null, miaSetupOffer: true })
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Ask%20Mia')

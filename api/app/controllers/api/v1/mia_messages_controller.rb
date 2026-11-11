@@ -839,20 +839,24 @@ module Api
         started = Time.zone.parse(topic["started_at"].to_s) rescue nil
         rows = Array(transcript)
         rows = started ? rows.select { |row| (Time.zone.parse(row[:created_at].to_s) rescue Time.zone.at(0)) >= started } : rows.last(4)
-        # The ordinary transcript is bounded. Restore older episode disclosures
-        # before it, so safety facts survive a long unresolved conversation.
-        missing = Array(topic["disclosures"])[0...-1].to_a.reject { |entry| rows.any? { |row| row[:role] == "user" && row[:content] == entry["content"] } }
+        if topic["care_kind"] == "crisis"
+          disclosures = HouseholdFinance::CareDisclosures.bound_topic(topic).fetch("disclosures")
+          # The current turn is supplied separately to the writer.
+          prior = disclosures.reject { |entry| entry["content"] == HouseholdFinance::CareDisclosures.content(Array(topic["disclosures"]).last.to_h["content"]) }
+          return prior.map { |entry| { role: "user", content: entry.fetch("content") } } +
+            rows.select { |row| row[:role] == "assistant" }.last(4).map { |row| row.slice(:role, :content) }
+        end
+        disclosures = HouseholdFinance::CareDisclosures.bound_topic(topic).fetch("disclosures")[0...-1].to_a
+        missing = disclosures.reject { |entry| rows.any? { |row| row[:role] == "user" && row[:content] == entry["content"] } }
         missing.map { |entry| { role: "user", content: entry.fetch("content") } } + rows.map { |row| row.slice(:role, :content) }
       end
 
       def render_care_response(session, content, history:, topic:, message_request:)
         continuation = @participant_reading.care == "none"
-        reference = if content.match?(/\b(?:food|hungry|grocer\w*)\b/i)
+        reference = if topic["care_kind"] == "crisis"
+          HouseholdFinance::ParticipantCare.crisis_followup(topic)
+        elsif content.match?(/\b(?:food|hungry|grocer\w*)\b/i)
           HouseholdFinance::ParticipantCare.answer(content, care: :food)
-        elsif topic["care_kind"] == "crisis" && !continuation && @participant_reading.care != "crisis" && !HouseholdFinance::ParticipantCare.followup?(content)
-          HouseholdFinance::ParticipantCare.answer(content, care: @participant_reading.care)
-        elsif topic["care_kind"] == "crisis" && (continuation || HouseholdFinance::ParticipantCare.followup?(content))
-          "I'm glad you're here. You don't have to handle this alone. Is someone you trust with you right now?"
         elsif continuation && topic["care_kind"] == "housing"
           "Ask your landlord what payment arrangement is possible, even if rent is already overdue; they may or may not agree. Your coach or someone you trust can help you work through the options. What can you realistically cover by the due date?"
         elsif continuation && topic["care_kind"] == "food"

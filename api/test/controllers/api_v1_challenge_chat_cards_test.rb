@@ -504,6 +504,8 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
         "I can't afford medicine this month, what should I do?" => "Protect food, housing, medication",
         "I want to kill myself. What should I do about my goal?" => "988"
       }.each_with_index do |(message, expected), index|
+        # Each row is a fresh scenario; an unresolved crisis intentionally latches.
+        ChatSession.find_by(user: @savings_user, household: @savings_household)&.update!(active_topic: {}, open_topics: [])
         if previous == "patterns"
           ask "Can you identify spending patterns?", "safety-setup-patterns-#{index}"
           ChatSession.find_by!(user: @savings_user, household: @savings_household).update!(active_topic: {

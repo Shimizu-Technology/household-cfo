@@ -161,7 +161,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     end
   end
 
-  [ "How do I quit the challenge?", "I want to leave the challenge", "Can I pause this challenge?", "Please pause the challenge" ].each do |message|
+  [ "How do I quit the challenge?", "I want to leave the challenge", "Please pause the challenge" ].each do |message|
     test "actual exit request notifies the coach: #{message}" do
       enroll_in_challenge
       body = say(message, legacy(question: message.include?("?")))
@@ -219,7 +219,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     body = say("I spent $12 at Shell and I'm thinking about stopping the challenge, how do I pause it?",
       legacy(question: true, facts: [ { kind: "purchase", amount: "12", merchant: "Shell", item: "", day: "", source_text: "I spent $12 at Shell" } ]))
     assert body["challenge_chat_card"].present?
-    assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::EXPLANATION
   end
 
   def set_aside_fact = { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" }
@@ -300,7 +300,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
       narrator.define_method(:initialize, original)
     end
     assert_equal started, session.active_topic["started_at"]
-    assert_equal expiry, session.active_topic["expires_at"]
+    assert_equal (Time.zone.parse(expiry) + 3.minutes).iso8601, session.active_topic["expires_at"]
     assert seen.any?
     assert_includes seen.last.fetch(:history).to_json, first
     assert_includes seen.last.dig(:answer_packet, :care_context).to_json, first
@@ -310,6 +310,68 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     writer = Api::V1::MiaMessagesController.new
     history = writer.send(:care_conversation_history, [], session.active_topic)
     assert_includes history.to_json, first
+  end
+
+  test "a fresh crisis near expiry keeps reload and model-off followup in care with the gun context" do
+    enroll_in_challenge
+    now = Time.current.change(usec: 0)
+    first = "I want to kill myself. I have a gun in my room."
+    travel_to(now) { say(first, legacy(care: "crisis")) }
+    started = session.active_topic.fetch("started_at")
+    travel_to(now + 47.hours + 50.minutes) { say("I want to die tonight.", legacy(care: "crisis")) }
+    travel_to(now + 48.hours + 10.minutes) do
+      get "/api/v1/mia/messages", headers: auth
+      assert_equal true, response.parsed_body["messages"].last["care_hold"]
+      # No reader stub and no provider: exercise the unavailable-reader route too.
+      post "/api/v1/mia/messages", params: { message: "I haven't moved it yet." }, headers: auth, as: :json
+      assert_response :created
+      body = response.parsed_body
+      assert_equal true, body.dig("assistant_message", "care_hold")
+      assert_equal true, body.dig("assistant_message", "safety_reply")
+      assert_includes text(body), "988"
+      assert_includes text(body), "Put distance between you and the gun"
+      assert_equal started, session.active_topic["started_at"]
+      assert_includes session.active_topic.to_json, first
+      assert_nil body["challenge_chat_card"]
+    end
+  end
+
+  [ "I want to stop the challenge reminders", "Stop the challenge reminders please",
+    "pause the challenge notifications for a week", "I want to pause the challenge notifications for a week" ].each do |message|
+    test "reminder preferences do not create a leave ticket: #{message}" do
+      enroll_in_challenge
+      assert_no_difference "SetupSupportRequest.count" do
+        body = say(message, legacy)
+        assert_equal SavingsChallenge::ParticipantHelp::REMINDER_ANSWER, text(body)
+      end
+    end
+  end
+
+  [ "Please don't tell my coach, I want to quit the challenge", "I want to quit the challenge but I'm not sure yet",
+    "I want to leave the challenge? lol no", "Can I leave the challenge?", "I put $50 aside today, but I am thinking about stopping the challenge, how do I pause it?" ].each do |message|
+    test "whole-message consent is required: #{message}" do
+      enroll_in_challenge
+      assert_no_difference "SetupSupportRequest.count" do
+        assert_equal SavingsChallenge::ParticipantHelp::EXPLANATION, text(say(message, legacy))
+      end
+    end
+  end
+
+  [ "Please take me out of the challenge", "Please take me out", "I'm done with this challenge", "I wanna quit the challenge" ].each do |message|
+    test "plain exit requests reach the coach: #{message}" do
+      enroll_in_challenge
+      assert_difference "SetupSupportRequest.count", 1 do
+        assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(say(message, legacy))
+      end
+    end
+  end
+
+  test "rent time questions never return challenge dates" do
+    enroll_in_challenge
+    [ "How much time is left before rent?", "How much time do I have left before rent is due?" ].each do |message|
+      refute_includes text(say(message, legacy(question: true))), "Your challenge runs from"
+    end
+    assert_includes text(say("How many days are left?", legacy(question: true))), "Your challenge runs from"
   end
 
   test "a reload releases the prompt after crisis expiry while retaining the historical safety flag" do

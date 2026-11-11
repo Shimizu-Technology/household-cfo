@@ -14,9 +14,9 @@ import './sections.css'
 type Item = { key: string; kind: 'setup' | 'problem'; title: string; summary: string; at: string; open: boolean; statusWords: string; setup?: SetupSupportRequest; problem?: AdminPilotFeedbackSummary }
 type Show = 'open' | 'done' | 'all'
 
-const setupStatus: Record<SetupSupportRequest['status'], string> = { requested: 'Waiting for you', in_review: 'You’re looking at it', ready: 'Waiting for them', applied: 'Done', canceled: 'Canceled', declined: 'Corrections suggested' }
+const setupStatus: Record<SetupSupportRequest['status'], string> = { requested: 'Waiting for you', in_review: 'You’re looking at it', ready: 'Waiting for them', applied: 'Done', canceled: 'Canceled', declined: 'Corrections suggested', acknowledged: 'Acknowledged' }
 const problemStatus: Record<PilotFeedbackStatus, string> = { submitted: 'New', reviewed: 'Looked at', resolved: 'Done' }
-const setupReason: Record<string, string> = { practice_numbers: 'entered practice numbers', wrong_setup: 'setup needs correcting', upload_problem: 'needs help with an upload', other: 'needs help starting again' }
+const setupReason: Record<string, string> = { practice_numbers: 'entered practice numbers', wrong_setup: 'setup needs correcting', upload_problem: 'needs help with an upload', other: 'needs help starting again', leave_challenge: 'asked to pause or leave the challenge' }
 const area: Record<string, string> = { sign_in: 'Signing in', home: 'Home', setup: 'Setup', ask_mia: 'Ask Mia', voice: 'Voice', budget: 'Budget', transaction_review: 'Reviewing purchases', receipt_upload: 'A receipt', statement_upload: 'A statement', document_upload: 'A document', private_document: 'A private document', admin: 'The coach side', other: 'Something else' }
 
 // Setup requests come 30 at a time, oldest first. Every page is followed, so the counts and the filters
@@ -62,7 +62,7 @@ export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
   useEffect(() => { queueMicrotask(() => void load()) }, [load])
 
   const items: Item[] = useMemo(() => [
-    ...(setups ?? []).map((request): Item => ({ key: `setup:${request.id}`, kind: 'setup', title: request.participant_name || 'Someone', summary: `Setup help: ${setupReason[request.reason] ?? 'needs a hand'}`, at: request.created_at, open: ['requested', 'in_review', 'ready'].includes(request.status), statusWords: setupStatus[request.status], setup: request })),
+    ...(setups ?? []).map((request): Item => ({ key: `setup:${request.id}`, kind: 'setup', title: request.participant_name || 'Someone', summary: `${request.reason === 'leave_challenge' ? 'Challenge help' : 'Setup help'}: ${setupReason[request.reason] ?? 'needs a hand'}`, at: request.created_at, open: ['requested', 'in_review', 'ready'].includes(request.status), statusWords: setupStatus[request.status], setup: request })),
     ...(problems ?? []).map((report): Item => ({ key: `problem:${report.id}`, kind: 'problem', title: report.reporter.full_name || report.reporter.email, summary: `Reported a problem: ${area[report.workflow] ?? 'Something else'}`, at: report.created_at, open: report.status !== 'resolved', statusWords: problemStatus[report.status], problem: report })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [problems, setups])
   const counts = { open: items.filter(item => item.open).length, done: items.filter(item => !item.open).length, all: items.length }
