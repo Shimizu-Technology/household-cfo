@@ -256,6 +256,8 @@ module Api
             name: cohort.name,
             status: cohort.status,
             coach_workspace_id: cohort.coach_workspace_id,
+            # Reports and Today need to know a group runs the savings challenge, and they are read by roles that cannot list groups.
+            savings_challenge_enabled: cohort.savings_challenge_enabled?,
             assignable: mutable,
             blocked_reason: mutable ? nil : "Completed and archived cohorts are read-only.",
             persona_assignment: assignment && Mia::PersonaStudioSerializer.new(assignment.coach_persona, policy: policy).serialize_assignment(assignment)

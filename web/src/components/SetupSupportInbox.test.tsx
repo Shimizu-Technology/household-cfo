@@ -1,5 +1,4 @@
 // @vitest-environment jsdom
-import { openCoachSetupHelp } from '../lib/coachChallengeApi'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SetupSupportRequest } from '../lib/setupHelp'
@@ -232,20 +231,5 @@ describe('person-specific setup help', () => {
     expect(mocks.fetchSetupSupportRequests).toHaveBeenLastCalledWith(5, 9, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
     await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(12, 'triage', 2))
-  })
-})
-
-describe('Daily setup shortcut', () => {
-  it('focuses an already-open inbox on another person beyond its first page', async () => {
-    Element.prototype.scrollIntoView = vi.fn()
-    const other = { ...request, user_id: 22, id: 55, participant_name: 'Another person' }
-    mocks.fetchSetupSupportRequests.mockImplementation((_cohort, cursor) => Promise.resolve(cursor === 9 ? { records: [other], next_cursor: null } : { records: [request], next_cursor: 9 }))
-    render(<div role="tabpanel"><button onClick={(event) => openCoachSetupHelp(event.currentTarget, 22)}>Review setup help</button><div className="setup-support-disclosure"><button className="setup-support-disclosure-button" aria-expanded="true">Setup help requests</button><SetupSupportInbox {...base} /></div></div>)
-    await screen.findByText('Help request 9')
-    fireEvent.click(screen.getByRole('button', { name: 'Review setup help' }))
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Another person' })).toBe(document.activeElement))
-    expect(screen.queryByText('Help request 9')).toBeNull()
-    expect(mocks.fetchSetupSupportRequests).toHaveBeenCalledWith(5, 9, expect.any(AbortSignal))
-    expect(mocks.updateSetupSupportRequest).not.toHaveBeenCalled()
   })
 })

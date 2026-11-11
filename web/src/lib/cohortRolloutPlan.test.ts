@@ -80,7 +80,7 @@ describe('cohort rollout plan builder', () => {
     expect(result.input).toBeNull()
     expect(result.errors).toEqual(expect.arrayContaining([
       'Prepare a version before updating this group.',
-      'The participant list changed. Reload the cohort before planning.',
+      'The participant list changed. Reload the group before planning.',
       'Later must include at least one participant.',
     ]))
   })

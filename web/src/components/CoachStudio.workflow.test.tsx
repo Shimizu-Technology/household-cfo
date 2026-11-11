@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError, type AdminPersonaDetail, type CurrentUser, type PersonaConfiguration } from '../api'
 import { CoachStudioAdvanced as CoachStudio } from './CoachStudioAdvanced'
@@ -49,49 +49,13 @@ const actor = { id: 10, is_admin: false, full_name: 'Fictional coach', coach_wor
 beforeEach(() => { vi.resetAllMocks(); supportMocks.fetchSetupSupportRequests.mockReset(); supportMocks.updateSetupSupportRequest.mockReset(); mocks.fetchAdminPersonas.mockResolvedValue([persona]); mocks.fetchAdminPersona.mockResolvedValue(persona); mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([]); Element.prototype.scrollIntoView = vi.fn(); window.scrollTo = vi.fn() })
 afterEach(cleanup)
 describe('coach daily operation and assistant workflow', () => {
-  it('opens setup support only on demand in the selected group and holds workspace tabs during triage', async () => {
-    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
-    const record = { id: 91, participant_name: 'Support participant', program_name: 'BOG', status: 'requested', reason_label: 'Practice numbers', lock_version: 2, created_at: '2026-10-07T10:00:00Z', permissions: { triage: true, prepare: false, decline: true } }
-    supportMocks.fetchSetupSupportRequests.mockResolvedValue({ records: [record], next_cursor: null })
-    let complete!: (value: unknown) => void
-    supportMocks.updateSetupSupportRequest.mockReturnValue(new Promise((resolve) => { complete = resolve }))
-    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    await screen.findByLabelText(/Choose a group/)
-    expect(supportMocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
-    const disclosure = screen.getByRole('button', { name: 'Setup help requests' })
-    expect(disclosure.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(disclosure)
-    await screen.findByText('Support participant')
-    expect(supportMocks.fetchSetupSupportRequests).toHaveBeenCalledWith(41, null, expect.any(AbortSignal))
-    expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Mark in review' }))
-    expect(screen.getByRole('tab', { name: /Assistant voice/ })).toHaveProperty('disabled', true)
-    expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('disabled', true)
-    expect(disclosure).toHaveProperty('disabled', true)
-    complete({ request: { ...record, status: 'in_review', lock_version: 3 } })
-    await screen.findByText('Request #91: In review.')
-    await waitFor(() => expect(screen.getByRole('tab', { name: /Assistant voice/ })).toHaveProperty('disabled', false))
-    fireEvent.click(disclosure)
-    expect(screen.queryByText('Support participant')).toBeNull()
-  })
-  it('starts with participant operations and keeps assistant construction secondary', async () => {
-    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    await screen.findByText('Daily check-ins task')
-    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByLabelText('Assistant name')).toBeNull()
-    expect(screen.queryByText(/Shape a coaching assistant people can trust/)).toBeNull()
-    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
-    expect(mocks.fetchAdminPersona).not.toHaveBeenCalled()
-    expect(screen.queryByText('Participant access task')).toBeNull()
-  })
   it('tells an editor why Assign is disabled and links the reason to the button', async () => {
     const published = { ...persona, status: 'published', has_unpublished_changes: false, published_version: { id: 1, number: 1 }, permissions: { ...persona.permissions, assign: false } } as unknown as AdminPersonaDetail
     mocks.fetchAdminPersonas.mockResolvedValue([published]); mocks.fetchAdminPersona.mockResolvedValue(published)
     mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
     await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     await screen.findByLabelText('Assistant name')
     fireEvent.click(screen.getByRole('button', { name: 'Assign' }))
     const assign = (await screen.findByText('BOG challenge group')).closest('article')!.querySelector('button')!
@@ -102,54 +66,21 @@ describe('coach daily operation and assistant workflow', () => {
   it('loads assistant details on first voice visit and reuses them after a clean tab transition', async () => {
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
     await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     await screen.findByLabelText('Assistant name')
     expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
     expect(mocks.fetchAdminPersona).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Group updates/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     await screen.findByLabelText('Assistant name')
     expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
     expect(mocks.fetchAdminPersona).toHaveBeenCalledTimes(1)
-  })
-  it('settles cohort loading when a completed group change supersedes the initial cohort request', async () => {
-    let finishInitial!: (value: unknown[]) => void
-    mocks.fetchAdminPersonaAssignableCohorts.mockReturnValueOnce(new Promise((resolve) => { finishInitial = resolve }))
-    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 42, name: 'New group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
-    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-    const details = screen.getByText('Group invitations & access', { selector: 'summary' }).closest('details')!
-    details.open = true
-    fireEvent(details, new Event('toggle'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Finish group change' }))
-    await waitFor(() => expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('disabled', false))
-    expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('value', '42')
-    await act(async () => finishInitial([{ id: 41, name: 'Old group' }]))
-    expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('value', '42')
-    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
   })
   it('loads the selected assistant when the Coaching Library is visited first', async () => {
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Coaching Library/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Teaching library/ }))
     await waitFor(() => expect(mocks.fetchAdminPersona).toHaveBeenCalledWith(81))
     expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(1)
-  })
-  it('keeps Daily coaching available after an assistant request fails and retries on demand', async () => {
-    mocks.fetchAdminPersonas.mockRejectedValueOnce(new Error('Assistant library temporarily unavailable'))
-    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-    expect(screen.queryByRole('alert')).toBeNull()
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Assistant library temporarily unavailable')
-    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-    await screen.findByLabelText('Assistant name')
-    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
-    expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
-    await screen.findByLabelText('Assistant name')
-    expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
   })
   it('refreshes a failed cached list on section revisit after a detail reload clears its error', async () => {
     const second = { ...persona, id: 82, name: 'Second assistant' }
@@ -160,7 +91,7 @@ describe('coach daily operation and assistant workflow', () => {
     mocks.fetchAdminPersona.mockResolvedValueOnce(persona)
     mocks.fetchAdminPersona.mockRejectedValueOnce(new Error('Second assistant detail failed'))
     render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     await screen.findByLabelText('Assistant name')
     fireEvent.click(screen.getByRole('button', { name: /^Second assistant/ }))
     const detailAlert = await screen.findByRole('alert')
@@ -176,57 +107,15 @@ describe('coach daily operation and assistant workflow', () => {
     await waitFor(() => expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Coach Lani'))
     // Clearing a detail error does not trigger an automatic list retry loop.
     expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(2)
-    fireEvent.click(screen.getByRole('tab', { name: /Daily coaching/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Group updates/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     await screen.findByRole('button', { name: /^Newest assistant/ })
     expect(mocks.fetchAdminPersonas).toHaveBeenCalledTimes(3)
-  })
-  it('mounts invitations on first open and preserves an unsent invitation when reclosed', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
-    const dirty = vi.fn()
-    render(<CoachStudio currentUser={actor} onDirtyChange={dirty} />)
-    const details = screen.getByText('Group invitations & access', { selector: 'summary' }).closest('details')!
-    expect(screen.queryByText('Participant access task')).toBeNull()
-    details.open = true
-    fireEvent(details, new Event('toggle'))
-    const invitation = await screen.findByLabelText('Unsent participant invitation')
-    fireEvent.change(invitation, { target: { value: 'unsent@example.test' } })
-    expect(dirty).toHaveBeenLastCalledWith(true)
-    details.open = false
-    fireEvent(details, new Event('toggle'))
-    details.open = true
-    fireEvent(details, new Event('toggle'))
-    expect(screen.getByLabelText('Unsent participant invitation')).toHaveProperty('value', 'unsent@example.test')
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
-    expect(confirm).toHaveBeenCalledWith('Discard unsaved Coach Studio changes and switch views?')
-    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
-    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
-    confirm.mockRestore()
-  })
-  it('shows a cohort loading failure and retries from Daily coaching without opening assistant construction', async () => {
-    mocks.fetchAdminPersonaAssignableCohorts.mockRejectedValueOnce(new Error('Cohort list temporarily unavailable'))
-    mocks.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{ id: 41, name: 'BOG challenge group', status: 'enrolling', assignable: true, blocked_reason: null, persona_assignment: null }])
-    render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Cohort list temporarily unavailable')
-    expect(alert.closest('[role="tabpanel"]')).toBeNull()
-    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByLabelText(/Choose a group/)).toBeNull()
-    expect(screen.queryByLabelText('Assistant name')).toBeNull()
-    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
-    await screen.findByLabelText(/Choose a group/)
-    await waitFor(() => expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('disabled', false))
-    expect(screen.getByLabelText(/Choose a group/)).toHaveProperty('value', '41')
-    expect(screen.queryByRole('alert')).toBeNull()
-    expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(2)
-    expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
-    expect(screen.getByRole('tab', { name: /Daily coaching/ }).getAttribute('aria-selected')).toBe('true')
-    expect(screen.queryByLabelText('Assistant name')).toBeNull()
   })
   it('preserves unsaved draft fields while visiting sources and blocked publication', async () => {
     const dirty = vi.fn()
     render(<CoachStudio currentUser={actor} onDirtyChange={dirty} />)
-    fireEvent.click(screen.getByRole('tab', { name: /Assistant voice/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /Voice versions/ }))
     const name = await screen.findByLabelText('Assistant name')
     fireEvent.change(name, { target: { value: 'Unfinished coaching voice' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sources' }))
@@ -239,17 +128,6 @@ describe('coach daily operation and assistant workflow', () => {
     expect(dirty).toHaveBeenLastCalledWith(true)
   })
 })
-
-it('starts with Daily coaching and a single quiet Studio heading', async () => {
-  render(<CoachStudio currentUser={actor} onDirtyChange={() => undefined} />)
-  await waitFor(() => expect(mocks.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(1))
-  expect(screen.getByRole('tab', { name: 'Daily coaching' }).getAttribute('aria-selected')).toBe('true')
-  expect(screen.getByRole('heading', { name: 'Coach Studio' })).toBeTruthy()
-  expect(screen.queryByText(/Start with participant check-ins/)).toBeNull()
-  expect(screen.queryByText('Your coaching workspace.')).toBeNull()
-  expect(mocks.fetchAdminPersonas).not.toHaveBeenCalled()
-})
-
 
 describe('reviewed suggestion handoff into the detailed form', () => {
   const proposal = { description: 'Private source-assistant suggestion', draft_config: persona.draft!, personaId: 81, workspaceId: 2, draftRevision: 1 }

@@ -4,193 +4,83 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { CurrentUser } from '../api'
 import { useLayoutEffect } from 'react'
 import { CoachStudio } from './CoachStudio'
+import { holdWorkspaceLock } from './coachWorkspaceMutationLifecycle'
 const auth=vi.hoisted(()=>({workspaceId:1,initialAdvancedDirty:false}))
 const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn(),fetchAdminPersona:vi.fn(),fetchAdminPersonaAssignableCohorts:vi.fn()}))
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
-vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({embedded,onDirtyChange,onPendingChange,onGroupsChanged}:{embedded:boolean;onDirtyChange:(dirty:boolean)=>void;onPendingChange?:(pending:boolean)=>void;onGroupsChanged?:()=>void}){useLayoutEffect(()=>{if(!embedded&&auth.initialAdvancedDirty)onDirtyChange(true)},[embedded,onDirtyChange]);return <><p>{embedded?'People and invitations':'Full settings and history'}</p><button onClick={()=>onDirtyChange(true)}>Unsaved group edit</button><button onClick={()=>onPendingChange?.(true)}>Start group mutation</button><button onClick={()=>{onGroupsChanged?.();onPendingChange?.(false)}}>Finish group mutation</button></>}}))
-vi.mock('./CoachProgramSettings',()=>({CoachProgramSettings:()=>null}));vi.mock('./CohortExperienceStudio',()=>({CohortExperienceStudio:()=>null}));vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}));
+vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({onDirtyChange}:{onDirtyChange:(dirty:boolean)=>void}){useLayoutEffect(()=>{if(auth.initialAdvancedDirty)onDirtyChange(true)},[onDirtyChange]);return <p>History editor</p>}}))
+vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}))
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
-beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;window.history.replaceState(null, '', '/#Coach%20Studio');vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
+const steps=()=>screen.getByRole('navigation',{name:'Coaching steps'})
+const current=()=>steps().querySelector('[aria-current=page]')?.textContent
+beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;window.history.replaceState(null,'','/admin/coaching');vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersona.mockResolvedValue(null);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
 afterEach(cleanup)
-it('keeps the next editor dirty when the previous editor unmounts',async()=>{
- const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true;
+it('offers two steps and History, with no People or duplicate Go live tabs',async()=>{
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ expect(within(steps()).getAllByRole('button').map(item=>item.textContent)).toEqual(['1 · Your coach’s voice','2 · Preview and go live'])
+ expect(screen.getByRole('heading',{name:'Coaching'})).toBeTruthy()
+ expect(screen.getByRole('heading',{name:'History'})).toBeTruthy()
+ expect(screen.queryByText(/server revision|release candidate|wave|cohort|Advanced \/ history/i)).toBeNull()
+ expect(screen.queryByRole('button',{name:'People'})).toBeNull()
+})
+it('asks which program to use before showing anything when none is chosen',async()=>{
+ auth.workspaceId=null as unknown as number
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>)
+ expect(await screen.findByRole('heading',{name:'Choose a program'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'Open Settings'})).toBeTruthy()
+})
+it('creates the assistant then makes describe and preview reachable',async()=>{
+ api.createAdminPersona.mockResolvedValue({id:8,name:'Lina',draft_revision:1,permissions:{edit:true,publish:true}})
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>)
+ fireEvent.change(await screen.findByLabelText('Assistant name'),{target:{value:'Lina'}});fireEvent.click(screen.getByRole('button',{name:'Describe this assistant'}))
+ await screen.findByText('Describe with transcripts');expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Lina',description:''})
+ expect(screen.getByRole('button',{name:'Teaching'})).toBeTruthy()
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
+ await screen.findByText('Review saved answers and groups')
+})
+it('opens History in place and comes back to Coaching, asking first when changes are unsaved',async()=>{
+ const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true
  try{
-  render(<CoachStudio currentUser={user} onDirtyChange={dirty}/>);await screen.findByText('Get your program ready');
-  fireEvent.click(screen.getByText('Advanced / history',{selector:'summary'}));
-  fireEvent.click(screen.getByRole('button',{name:'Open advanced settings'}));
-  await screen.findByText('Full settings and history');expect(dirty).toHaveBeenLastCalledWith(true);
-  fireEvent.click(screen.getByRole('button',{name:'Back to simple setup'}));
-  expect(confirm).toHaveBeenCalledWith('Your changes will be lost.');expect(screen.getByText('Full settings and history')).toBeTruthy();
+  render(<CoachStudio currentUser={user} onDirtyChange={dirty}/>);await screen.findByLabelText('Assistant name')
+  fireEvent.click(screen.getByRole('button',{name:'Open history'}))
+  await screen.findByText('History editor');expect(dirty).toHaveBeenLastCalledWith(true)
+  fireEvent.click(screen.getByRole('button',{name:'Back to Coaching'}))
+  expect(confirm).toHaveBeenCalledWith('Your changes will be lost.');expect(screen.getByText('History editor')).toBeTruthy()
+  confirm.mockReturnValue(true);fireEvent.click(screen.getByRole('button',{name:'Back to Coaching'}))
+  await screen.findByLabelText('Assistant name');expect(window.sessionStorage.getItem('hcfo.coachStudio.mode:902')).toBeNull()
  }finally{confirm.mockRestore()}
 })
-it('has three default areas and a short setup checklist without release terminology',async()=>{
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
- const areas=screen.getByRole('navigation',{name:'Coach Studio areas'});
- expect(within(areas).getAllByRole('button').map(item=>item.textContent)).toEqual(['People','Your assistant','Go live']);
- expect(screen.queryByText(/server revision|release candidate|wave|phrase audience/)).toBeNull();
- fireEvent.click(within(areas).getByRole('button',{name:'Your assistant'}));
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('value', 'Mia');
- expect(screen.getByText('More settings',{selector:'summary'}).closest('details')?.open).toBe(false);
- fireEvent.click(screen.getByText('More settings',{selector:'summary'}));
- expect(screen.getByRole('button',{name:'Teaching'})).toBeTruthy();
+it('keeps Group tools open while one of its saves is still going',async()=>{
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ fireEvent.click(screen.getByRole('button',{name:'Open group tools'}))
+ const back=await screen.findByRole('button',{name:'Back to Coaching'});expect(back).toHaveProperty('disabled',false)
+ let release=()=>{};act(()=>{release=holdWorkspaceLock()})
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Back to Coaching'})).toHaveProperty('disabled',true))
+ act(()=>release())
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Back to Coaching'})).toHaveProperty('disabled',false))
 })
-it('creates the assistant then makes describe, preview and advanced history reachable',async()=>{
- api.createAdminPersona.mockResolvedValue({id:8,name:'Lina',draft_revision:1,permissions:{edit:true,publish:true}});
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
- fireEvent.click(screen.getByRole('button',{name:'Your assistant'}));fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Lina'}});fireEvent.click(screen.getByRole('button',{name:'Describe this assistant'}));
- await screen.findByText('Describe with transcripts');expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Lina',description:''});
- await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Preview answers'}));await screen.findByText('Review saved answers and groups');
+it('keeps only the history preference when the app remounts after a program switch',async()=>{
+ const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ fireEvent.click(screen.getByRole('button',{name:'Open history'}));await screen.findByText('History editor');first.unmount();auth.workspaceId=2
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);expect(screen.getByText('History editor')).toBeTruthy()
+ fireEvent.click(screen.getByRole('button',{name:'Back to Coaching'}));await screen.findByLabelText('Assistant name')
+ expect(current()).toBe('1 · Your coach’s voice')
 })
-
-it('keeps only the detailed-view preference when the app remounts after a program switch',async()=>{
- const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
- fireEvent.click(screen.getByRole('button',{name:'Open advanced settings'}));await screen.findByText('Full settings and history');first.unmount();auth.workspaceId=2;
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);expect(screen.getByText('Full settings and history')).toBeTruthy();
- fireEvent.click(screen.getByRole('button',{name:'Back to simple setup'}));await screen.findByText('Get your program ready');
- expect(window.sessionStorage.getItem('hcfo.coachStudio.mode:902')).toBeNull();
- expect(screen.getByLabelText('Program')).toHaveProperty('value','2');
- expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('People');
+it('retains the selected step after an account refresh without retaining private form values',async()=>{
+ api.fetchAdminPersonas.mockResolvedValue([])
+ const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Unsaved private name'}});first.unmount()
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
+ expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Mia')
 })
-
-it('retains the selected area after an account refresh without retaining private form values',async()=>{
- const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready');
- fireEvent.click(screen.getByRole('button',{name:'Your assistant'}));fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Unsaved private name'}});first.unmount();
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name');
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Mia');
- expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
-})
-
-it('switches areas immediately while creating the default assistant from People',async()=>{
- api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{id:42,name:'Only group',assignable:true}]);
- let finishCreate!:(value:unknown)=>void;
- api.createAdminPersona.mockReturnValue(new Promise(resolve=>{finishCreate=resolve}));
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
- expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
- expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Mia',description:''});
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('disabled',true);
- finishCreate({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
- await screen.findByText('Describe with transcripts');
- expect(screen.queryByLabelText('Assistant name')).toBeNull();
- expect(screen.getAllByText('Advanced / history',{selector:'summary'})).toHaveLength(1);
-})
-
-it('keeps unsaved group work when the coach declines to leave for quick assistant setup',async()=>{
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
- try{
-  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
-  await screen.findByText('Get your program ready');
-  fireEvent.click(screen.getByRole('button',{name:'Unsaved group edit'}));
-  fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}));
-  expect(confirm).toHaveBeenCalledWith('Your changes will be lost.');
-  expect(api.createAdminPersona).not.toHaveBeenCalled();
-  expect(screen.getByText('People and invitations')).toBeTruthy();
- }finally{confirm.mockRestore()}
-})
-
-it('opens an existing assistant from the People checklist',async()=>{
- api.fetchAdminPersonas.mockResolvedValue([{id:8,status:'draft'}]);
- api.fetchAdminPersona.mockResolvedValue({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
- await screen.findByText('Describe with transcripts');
- expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant');
- expect(api.createAdminPersona).not.toHaveBeenCalled();
-})
-
-it('review CodeRabbit focuses the assistant destination immediately and announces creation progress',async()=>{
- let finishCreate!:(value:unknown)=>void;
- api.createAdminPersona.mockReturnValue(new Promise(resolve=>{finishCreate=resolve}));
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
- const destination=screen.getByRole('heading',{name:'Your assistant'});
- expect(document.activeElement).toBe(destination);
- expect(screen.getByRole('status').textContent).toContain('Creating your assistant');
- screen.getByText('More settings',{selector:'summary'}).focus();
- const focused=document.activeElement;
- finishCreate({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}});
- await screen.findByText('Describe with transcripts');
- expect(document.activeElement).toBe(focused);
-})
-
-it('review CodeRabbit blocks checklist navigation during group mutations and refreshes saved groups',async()=>{
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- await screen.findByText('Get your program ready');
- fireEvent.click(screen.getByRole('button',{name:'Start group mutation'}));
- expect(screen.getByRole('button',{name:'Describe your assistant'})).toHaveProperty('disabled',true);
- fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}));
- expect(api.createAdminPersona).not.toHaveBeenCalled();
- expect(screen.getByText('People and invitations')).toBeTruthy();
- api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([{id:42,name:'Saved group',assignable:true}]);
- fireEvent.click(screen.getByRole('button',{name:'Finish group mutation'}));
- await waitFor(()=>expect(api.fetchAdminPersonaAssignableCohorts).toHaveBeenCalledTimes(2));
- await waitFor(()=>expect(screen.getByRole('button',{name:'Describe your assistant'})).toHaveProperty('disabled',false));
-})
-
-it('review CodeRabbit announces creation progress while the name is locked',async()=>{
- api.createAdminPersona.mockReturnValue(new Promise(()=>{}));
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);
- fireEvent.click(await screen.findByRole('button',{name:'Describe your assistant'}));
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('disabled',true);
- expect(screen.getByRole('status').textContent).toContain('Creating your assistant');
-})
-
-it('records coach areas in browser history and follows Back and Forward',async()=>{
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
- fireEvent.click(screen.getByRole('button',{name:'Your assistant'}))
- expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
- fireEvent.click(screen.getByRole('button',{name:'Go live'}))
+it('records steps in browser history and follows Back and Forward',async()=>{
+ api.fetchAdminPersonas.mockResolvedValue([{id:8,status:'draft'}]);api.fetchAdminPersona.mockResolvedValue({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true}})
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Describe with transcripts')
+ fireEvent.click(within(steps()).getByRole('button',{name:/Preview and go live/}))
  expect(new URL(location.href).searchParams.get('coach_area')).toBe('live')
  await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,30))})
- await waitFor(()=>expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Your assistant'))
+ await waitFor(()=>expect(current()).toBe('1 · Your coach’s voice'))
  await act(async()=>{window.history.forward();await new Promise(resolve=>setTimeout(resolve,30))})
- await waitFor(()=>expect(screen.getByRole('navigation',{name:'Coach Studio areas'}).querySelector('[aria-current=page]')?.textContent).toBe('Go live'))
-})
-
-async function travel(direction:'back'|'forward') { await act(async()=>{window.history[direction]();await new Promise(resolve=>setTimeout(resolve,30))}) }
-it('R14 cancellation restores the current history entry and discard accepts the original target',async()=>{
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
- fireEvent.click(screen.getByRole('button',{name:'Your assistant'}))
- fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Private edit'}})
- const currentIndex=window.history.state.appHistoryPosition
- await act(async()=>{await new Promise<void>(resolve=>{
-  const restored=(event:PopStateEvent)=>{if(event.state?.appHistoryPosition===currentIndex){window.removeEventListener('popstate',restored);resolve()}}
-  window.addEventListener('popstate',restored);window.history.back()
- })})
- expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Private edit')
- confirm.mockReturnValue(true);await travel('back');await screen.findByText('Get your program ready')
- expect(new URL(location.href).searchParams.get('coach_area')).toBe('people')
- await travel('forward');await screen.findByLabelText('Assistant name')
- expect(new URL(location.href).searchParams.get('coach_area')).toBe('assistant')
- confirm.mockRestore()
-})
-it('R14 checklist creates exactly one history entry',async()=>{
- window.history.replaceState(null,'','/?coach_task=teaching#Coach%20Studio')
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
- const push=vi.spyOn(window.history,'pushState')
- fireEvent.click(screen.getByRole('button',{name:'Describe your assistant'}))
- expect(push).toHaveBeenCalledTimes(1);push.mockRestore()
-})
-
-it('review two restores the saved entry after a multi-entry traversal across the staff shell',async()=>{
- const confirm=vi.spyOn(window,'confirm').mockReturnValue(false)
- const first=render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByText('Get your program ready')
- const earlierUrl=location.href
- first.unmount()
- // The staff shell creates its own entry before Studio mounts again.
- const {pushHistoryEntry}=await import('../lib/browserHistory')
- pushHistoryEntry({section:'Admin'},'/#Admin')
- pushHistoryEntry({section:'Coach Studio'},'/?coach_area=assistant&coach_task=voice#Coach%20Studio')
- render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
- fireEvent.change(screen.getByLabelText('Assistant name'),{target:{value:'Keep this private edit'}})
- const savedUrl=location.href
- expect(savedUrl).not.toBe(earlierUrl)
- await act(async()=>{window.history.go(-2);await new Promise(resolve=>setTimeout(resolve,60))})
- await waitFor(()=>expect(confirm).toHaveBeenCalled())
- await waitFor(()=>expect(location.href).toBe(savedUrl))
- expect(screen.getByLabelText('Assistant name')).toHaveProperty('value','Keep this private edit')
- confirm.mockRestore()
+ await waitFor(()=>expect(current()).toBe('2 · Preview and go live'))
 })

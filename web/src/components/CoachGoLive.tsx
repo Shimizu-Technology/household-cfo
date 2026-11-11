@@ -112,7 +112,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
             run = await fetchAdminPersonaEvaluationRun(persona.id, run.id)
           }
           if (!current()) return
-          if (!run.passed) throw new Error('Safety checks need attention. Review the results in Advanced / history before publishing.')
+          if (!run.passed) throw new Error('Safety checks need attention. Review the results in History → Voice versions → Evaluate & publish before publishing.')
           const detail = run.results ? run : await fetchAdminPersonaEvaluationRun(persona.id, run.id)
           if (!current()) return
           setChecks(detail.results ?? [])

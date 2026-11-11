@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+  cancelAdminUserInvitation,
   fetchDailyContext,
+  removeCoachGroupParticipant,
   captureApiOperation,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
@@ -164,4 +166,23 @@ it('clears the participant program when changing account or entering a coach wor
   await fetchDailyContext()
   expect(new Headers(fetch.mock.calls[1][1]?.headers).has('X-Cohort-Id')).toBe(false)
   expect(new Headers(fetch.mock.calls[1][1]?.headers).get('X-Coach-Workspace-Id')).toBe('21')
+})
+
+it.each([
+  ['cancelling an invitation', () => cancelAdminUserInvitation(7, 42)],
+  ['removing someone from a group', () => removeCoachGroupParticipant(3, 7, 9, 42)],
+])('%s goes to the program it names, not the one currently selected', async (_name, send) => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => new Response('{}'))
+  vi.stubGlobal('fetch', fetch)
+  setActiveCoachWorkspaceId(21)
+  await send()
+  expect(new Headers(fetch.mock.calls[0][1]?.headers).get('X-Coach-Workspace-Id')).toBe('42')
+})
+
+it('sends the selected program when a mutation names none', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => new Response('{}'))
+  vi.stubGlobal('fetch', fetch)
+  setActiveCoachWorkspaceId(21)
+  await cancelAdminUserInvitation(7)
+  expect(new Headers(fetch.mock.calls[0][1]?.headers).get('X-Coach-Workspace-Id')).toBe('21')
 })

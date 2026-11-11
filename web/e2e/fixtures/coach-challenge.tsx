@@ -1,14 +1,37 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
-import { CoachChallengeDashboard } from '../../src/components/CoachChallengeDashboard'
+import { TodaySection } from '../../src/admin/sections/TodaySection'
+import { ReportsSection } from '../../src/admin/sections/ReportsSection'
+import type { CurrentUser } from '../../src/api'
 import { ChallengeExport } from '../../src/components/ChallengeExport'
+import { AuthContext, type AuthContextValue } from '../../src/contexts/authContextValue'
 import '../../src/App.css'
+let savedDay = 60
 let revoked = false
+;(window as unknown as { __revoke: () => void }).__revoke = () => { revoked = true }
 const response = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 window.fetch = async (input, init) => {
   const url = new URL(String(input), 'http://localhost')
   const path = url.pathname
+  const group = (id: number, name: string, savings: boolean) => ({
+    id, name, status: 'active', starts_on: '2026-11-01', ends_on: null, notes: '', member_count: 1, participant_count: 1, staff_count: 0, setup_complete_count: 0,
+    savings_challenge: { state: savings ? 'open' : 'not_set_up', label: 'Open', enabled: savings, on_hold: false, capacity: 30, participant_count: 1, can_open: false, can_pause: savings, can_change: true, participants_can_join: true, blockers: [], recent_events: [] },
+    operational_summary: { available: false, period_days: 7, mia_requests: null, mia_failures: null, average_mia_latency_ms: null, uploads: null, upload_failures: null, participants_active: null },
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', created_by: { id: 10, email: 'c@example.invalid', full_name: 'Coach' },
+  })
+  if (path.endsWith('/admin/cohorts')) return response({ cohorts: [group(1, 'Fictional savings group', true), group(2, 'Household group', false)] })
+  if (path.endsWith('/admin/users')) return response({ users: [] })
+  // One real setup request, for the household group's participant, so the help dialog has something to show.
+  if (path.endsWith('/setup_support_requests'))
+    return response({
+      records: url.searchParams.get('cohort_id') === '2' ? [{
+        id: 31, status: 'requested', reason: 'upload_problem', reason_label: 'I need help with an upload', participant_name: 'Elena', user_id: 3, household_id: 9, cohort_id: 2,
+        program_name: 'Household group', lock_version: 1, review_id: null, review_expires_at: null, review_state: 'none', created_at: '2026-11-10T10:00:00Z', updated_at: '2026-11-10T10:00:00Z',
+        permissions: { triage: true, prepare: false, decline: true },
+      }] : [],
+      next_cursor: null,
+    })
   if (path.endsWith('/participants'))
     return response({
       actor_scope: { user_id: 10, coach_workspace_id: 20 },
@@ -26,6 +49,7 @@ window.fetch = async (input, init) => {
           more_help_requests: false,
         },
       ],
+      total: 2,
       next_offset: null,
     })
   if (path.endsWith('/scopes'))
@@ -49,27 +73,37 @@ window.fetch = async (input, init) => {
     roster_included: false,
     dynamic_filters_supported: false,
   }
+  if (path.endsWith('/sponsor_exports') && init?.method === 'POST') {
+    savedDay = JSON.parse(String(init.body)).checkpoint_day
+    return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: savedDay } })
+  }
   if (path.endsWith('/sponsor_exports'))
-    return init?.method === 'POST'
-      ? response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
-      : response({
+    return response({
           actor_scope: { user_id: 10, coach_workspace_id: 20 },
           cohort_id: 1,
           records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-01-30' }],
           scheduled_checkpoints: [
-            { day: 30, cutoff_on: '2026-01-30' },
-            { day: 60, cutoff_on: '2026-03-01' },
-            { day: 90, cutoff_on: '2026-03-31' },
+            { day: 30, cutoff_on: '2026-01-30', sealable: true },
+            { day: 60, cutoff_on: '2026-03-01', sealable: true },
+            { day: 90, cutoff_on: '2099-03-31', sealable: false },
           ],
           next_cursor: null,
         })
+  if (path.endsWith('/sponsor_exports/5'))
+    return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: savedDay } })
   if (path.endsWith('/sponsor_exports/4'))
     return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
   return response({ errors: ['Unsupported synthetic request'] }, 422)
 }
+const coach = { id: 10, is_admin: false, is_staff: true, role: 'coach', admin_sections: ['today', 'people', 'groups', 'coaching', 'reports', 'support', 'settings'].map(key => ({ key, label: key, access: 'full' })) } as unknown as CurrentUser
+// The coach works inside one program (20), as a signed-in coach always does.
+const auth: AuthContextValue = {
+  isAuthEnabled: false, authIdentityId: null, isSignedIn: true, isLoading: false, isVerifyingApi: false, currentUser: coach, activeCoachWorkspaceId: 20, authError: null,
+  refreshCurrentUser: async () => undefined, selectCoachWorkspace: () => undefined,
+}
 export function Fixture() {
   return (
-    <main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>
+    <AuthContext.Provider value={auth}><main style={{ padding: 16, maxWidth: 1200, margin: 'auto' }}>
       <p>Fictional local component QA. No real participant records, authentication or report delivery.</p>
       <button
         onClick={() => {
@@ -78,9 +112,10 @@ export function Fixture() {
       >
         Synthetic revoke sharing
       </button>
-      <CoachChallengeDashboard userId={10} workspaceId={20} cohorts={[{ id: 1, name: 'Fictional savings cohort' }, { id: 2, name: 'Household group' }]} />
+      <TodaySection currentUser={coach} />
+      <ReportsSection currentUser={coach} />
       <ChallengeExport cohortId={1} scope={{ user_id: 3, household_id: 9 }} />
-    </main>
+    </main></AuthContext.Provider>
   )
 }
 createRoot(document.getElementById('root')!).render(

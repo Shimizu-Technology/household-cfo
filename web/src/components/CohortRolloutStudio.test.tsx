@@ -227,10 +227,10 @@ describe('CohortRolloutStudio', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Review and complete update' }))
     const dialog = screen.getByRole('dialog', { name: 'Complete this update?' })
-    expect(within(dialog).getByText('Completing makes version 4 the cohort default immediately.')).toBeTruthy()
-    expect(within(dialog).getByText('Becomes the cohort default immediately')).toBeTruthy()
+    expect(within(dialog).getByText('Completing makes version 4 the group default immediately.')).toBeTruthy()
+    expect(within(dialog).getByText('Becomes the group default immediately')).toBeTruthy()
     await user.click(within(dialog).getByRole('button', { name: 'Complete update' }))
-    expect(await screen.findByText('Update completed. Version 4 is now the cohort default.')).toBeTruthy()
+    expect(await screen.findByText('Update completed. Version 4 is now the group default.')).toBeTruthy()
   })
 
   it('marks a pre-cutover rollout as record only and never presents exposure as live', async () => {

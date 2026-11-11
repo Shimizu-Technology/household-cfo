@@ -197,6 +197,24 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     refute rows.key?(outside_workspace.id)
   end
 
+  test "assignable groups say whether they run the savings challenge, so roles that cannot list groups can still find reports" do
+    admin = persona_user(role: "admin")
+    coach = persona_user(role: "coach")
+    plain = cohort_for(admin, name: "Plain group", status: "active")
+    savings = cohort_for(admin, name: "Savings group", status: "active")
+    savings.update!(savings_challenge_enabled: true)
+    coach.cohort_memberships.create!(cohort: plain, role: "coach")
+    coach.cohort_memberships.create!(cohort: savings, role: "coach")
+    grant_workspace_role(plain.coach_workspace, coach, "reviewer")
+
+    get "/api/v1/admin/personas/assignable_cohorts", headers: auth_headers(coach)
+
+    assert_response :success
+    rows = response.parsed_body.fetch("cohorts").index_by { |row| row.fetch("id") }
+    assert_equal false, rows.fetch(plain.id).fetch("savings_challenge_enabled")
+    assert_equal true, rows.fetch(savings.id).fetch("savings_challenge_enabled")
+  end
+
   private
 
   def auth_headers(user)

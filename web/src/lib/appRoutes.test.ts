@@ -17,7 +17,7 @@ it('reads /admin and /admin/<section> as the Admin side and everything else as t
 })
 
 it('moves old #Coach Studio and #Admin links to their sections and keeps the query', () => {
-  expect(legacyStaffRedirect({ hash: '#Coach%20Studio', search: '' })).toBe('/admin/today')
+  expect(legacyStaffRedirect({ hash: '#Coach%20Studio', search: '' })).toBe('/admin/coaching')
   expect(legacyStaffRedirect({ hash: '#Coach%20Studio', search: '?coach_area=live&coach_task=voice' })).toBe('/admin/coaching?coach_area=live&coach_task=voice')
   expect(legacyStaffRedirect({ hash: '#Coach%20Studio', search: '?coach_area=people' })).toBe('/admin/today?coach_area=people')
   expect(legacyStaffRedirect({ hash: '#Admin', search: '?x=1' })).toBe('/admin/people?x=1')

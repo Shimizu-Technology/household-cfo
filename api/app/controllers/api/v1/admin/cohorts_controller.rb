@@ -135,6 +135,7 @@ module Api
           payload = {
             id: cohort.id,
             name: cohort.name,
+            coach_workspace_id: cohort.coach_workspace_id,
             status: cohort.status,
             starts_on: cohort.starts_on,
             ends_on: cohort.ends_on,

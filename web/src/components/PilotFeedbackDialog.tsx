@@ -18,7 +18,7 @@ const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string 
   { value: 'statement_upload', label: 'Statement upload' },
   { value: 'document_upload', label: 'Other document upload' },
   { value: 'private_document', label: 'Preview, download, or delete' },
-  { value: 'admin', label: 'Cohort administration' },
+  { value: 'admin', label: 'Group administration' },
   { value: 'other', label: 'Something else' },
 ]
 

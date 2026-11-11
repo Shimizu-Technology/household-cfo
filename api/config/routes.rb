@@ -331,6 +331,7 @@ Rails.application.routes.draw do
         end
         resources :users, only: %i[index create update] do
           post :resend_invitation, on: :member
+          post :cancel_invitation, on: :member
         end
       end
     end

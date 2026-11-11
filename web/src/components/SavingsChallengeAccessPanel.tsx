@@ -104,7 +104,7 @@ export function SavingsChallengeAccessPanel({ cohort, busy, onChanged, onDirtyCh
         <ul className="challenge-access-blockers">{challenge.blockers.map((blocker) => <li key={blocker}>{blocker}</li>)}</ul>
       )}
       {challenge.state === 'open' && challenge.blockers.length > 0 && <p role="alert">Finish the items above so participants can join.</p>}
-      {challenge.participant_count > challenge.capacity && <p role="alert">This cohort has more invited participants than the challenge has places.</p>}
+      {challenge.participant_count > challenge.capacity && <p role="alert">This group has more invited participants than the challenge has places.</p>}
       {notice && <p className="challenge-access-notice" role="status">{notice}</p>}
       {error && <p className="challenge-access-error" role="alert">{error}</p>}
 
