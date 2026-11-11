@@ -27,7 +27,30 @@ module Api
         render json: { errors: [ error.message ] }, status: :unprocessable_entity
       end
 
+      # She picked which purchase Mia meant; the card becomes the change to approve.
+      def purchase_choice
+        current_household.with_lock do
+          @draft.reload
+          detail = @draft.metadata.to_h["purchase_change"]
+          raise ArgumentError, "That choice is no longer open." unless detail && detail["mode"] == "choose" && @draft.pending?
+
+          option = Array(detail["options"])[Integer(params.require(:option), exception: false).to_i.clamp(0, 99)]
+          raise ArgumentError, "Choose one of the purchases shown." unless option
+
+          plan = HouseholdFinance::PurchaseChange.for_choice(household: current_household, change: detail["change"].to_h, transaction_draft_id: option["transaction_draft_id"])
+          raise ArgumentError, plan&.reply || "I can't find that purchase any more. Ask me again. Nothing changed." unless plan&.mode == "confirm"
+
+          HouseholdFinance::PurchaseChange.proposal(plan, household: current_household, user: current_user, source_prompt: @draft.source_prompt).sync_items!(@draft)
+        end
+        render json: { mia_action_draft: serialize_action_draft(@draft.reload), workspace: workspace_payload_for(@draft.year) }
+      rescue ArgumentError => error
+        render json: { errors: [ error.message ] }, status: :unprocessable_entity
+      end
+
       def apply
+        if @draft.metadata.to_h.dig("purchase_change", "mode") == "choose"
+          return render json: { errors: [ "Choose which purchase you mean first. Nothing changed." ] }, status: :unprocessable_entity
+        end
         idempotency_key = request.headers["Idempotency-Key"].to_s.strip
         if idempotency_key.blank? && @draft.draft_type == "action_plan"
           return render json: { errors: [ "Idempotency-Key header is required" ] }, status: :unprocessable_entity
@@ -212,6 +235,8 @@ module Api
             HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message
           end
           [ base, setup_card_unresolved_line(card), next_step ].compact.join(" ")
+        when "purchase_change"
+          purchase_change_applied_message(draft)
         when "debt_plan"
           "Your reviewed changes are saved. #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message if draft.metadata['setup_progress']}".strip
         when "action_plan"
@@ -219,6 +244,17 @@ module Api
         else
           "Your reviewed changes are saved."
         end
+      end
+
+      def purchase_change_applied_message(draft)
+        detail = draft.metadata.to_h["purchase_change"].to_h
+        changed = Array(detail["rows"]).map { |row| "#{row['label'].downcase} #{row['after']}" }.to_sentence
+        lead = if detail["void"]
+          "Done. #{detail['merchant']} (#{detail['amount']}) is out of your spending, and it stays in your history as removed."
+        else
+          "Done. #{detail['merchant']} now has #{changed}."
+        end
+        [ lead, detail["effects"].to_a.first ].compact.join(" ")
       end
 
       # The rows still waiting on an amount moved to a fresh card.

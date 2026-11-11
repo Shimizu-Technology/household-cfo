@@ -155,6 +155,7 @@ Rails.application.routes.draw do
       resources :mia_action_drafts, only: [] do
         patch "setup_card", on: :member
         member do
+          post :purchase_choice
           post :apply
           post :cancel
         end

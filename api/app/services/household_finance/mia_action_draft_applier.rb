@@ -200,6 +200,8 @@ module HouseholdFinance
         apply_setup_value!(item)
       when "upsert_income_schedule_entry"
         apply_income_schedule_entry!(item)
+      when "change_purchase"
+        apply_purchase_change!(item)
       else
         raise ArgumentError, "Unsupported Mia action item"
       end
@@ -351,6 +353,13 @@ module HouseholdFinance
       end
 
       SetupUpdater.new(household, key => payload.fetch(:value)).call
+    end
+
+    def apply_purchase_change!(item)
+      PurchaseChange.apply!(household: household, user: user, cohort_membership: @cohort_membership, payload: item.payload,
+        before: item.before_snapshot, key: @application_item_key || "mia-action-item:#{item.id}")
+    rescue PurchaseChange::Stale => e
+      raise StaleDraftError, e.message
     end
 
     def apply_income_schedule_entry!(item)

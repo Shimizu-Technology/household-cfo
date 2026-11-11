@@ -199,6 +199,10 @@ module Api
           end
           care_current.recent_care = nil unless @care_topic
           care_current.care_topic = nil unless @care_topic
+          # A purchase she already confirmed: find it, show the change on a card.
+          if setup_card_mode? && @care_topic.nil? && !@participant_reading.care? && (purchase_plan = HouseholdFinance::PurchaseChange.plan(household: current_household, message: content))
+            return render_purchase_change_response(session, content, purchase_plan, message_request: message_request)
+          end
           if savings_program_selected? && @care_topic.nil? && @participant_reading.question && @participant_reading.facts.empty? && !@participant_reading.correction && (help = SavingsChallenge::ParticipantHelp.answer(content))
             return render_household_read_response(session, content, help, message_request: message_request)
           end
@@ -651,6 +655,26 @@ module Api
             transaction_draft: nil, budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget, spending_report: nil }
           complete_message_request(message_request, payload)
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [], mia_action_draft: turn.draft)
+          render json: payload, status: :created
+        end
+      end
+
+      def render_purchase_change_response(session, content, plan, message_request:)
+        ApplicationRecord.transaction do
+          current_household.lock!
+          chat_session_scope.authorize!
+          user_message, assistant_message = persist_chat_messages(session, content, [], plan.reply)
+          retire_document_evidence_state(session) if document_evidence_topic_present?(session)
+          draft = if plan.attributes
+            HouseholdFinance::PurchaseChange.create_draft!(plan, household: current_household, user: current_user,
+              user_message: user_message, assistant_message: assistant_message, cohort_membership: current_cohort_membership)
+          end
+          payload = { user_message: serialize_chat_message(user_message, author: "You"),
+            assistant_message: serialize_chat_message(assistant_message),
+            mia_action_draft: draft ? serialize_mia_action_draft(draft) : nil,
+            transaction_draft: nil, budget: nil, spending_report: nil }
+          complete_message_request(message_request, payload)
+          record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: [], mia_action_draft: draft)
           render json: payload, status: :created
         end
       end
