@@ -167,6 +167,22 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_empty plan.fetch("ready_event_ids")
   end
 
+  test "the plan and the upload progress say what was read and what now counts as spending" do
+    # Two purchases are on the statement (one is a transfer, one has no amount); nothing counts until she approves it.
+    assert_equal({ "read_count" => 2, "read_cents" => 1_500, "counted_count" => 0, "counted_cents" => 0 }, review_plan.fetch("spending"))
+    assert_equal review_plan.fetch("spending"), upload_progress.fetch("spending")
+    ready = review_plan.fetch("ready_event_ids")
+    approve_lines({ expect_ready_ids: ready, lines: as_read(ready) })
+    assert_response :success
+    counted = { "read_count" => 2, "read_cents" => 1_500, "counted_count" => 1, "counted_cents" => 1_000 }
+    assert_equal counted, review_plan.fetch("spending")
+    assert_equal counted, upload_progress.fetch("spending")
+    # A purchase she leaves out is saved but never counted; one she gives a category counts at the amount she approved.
+    approve_lines({ lines: [ { event_id: @events.fetch("Ross").id, decision: "leave_out" } ] })
+    assert_response :success
+    assert_equal counted, review_plan.fetch("spending")
+  end
+
   test "repeating the same request changes nothing" do
     ready = review_plan.fetch("ready_event_ids")
     body = { expect_ready_ids: ready, lines: as_read(ready) }
@@ -1073,6 +1089,9 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_response :success
     response.parsed_body.dig("source_review", "participant_review", "plan")
   end
+
+  # What the uploads list shows for this statement (it reads the same saved lines and coverage as the review screen).
+  def upload_progress = FinancialDocuments::SourceReview::ParticipantProgress.new(@household, @source[:revision]).call.deep_stringify_keys
 
   def merchant_of(event) = event.financial_source_evidence.payload["merchant"]
 

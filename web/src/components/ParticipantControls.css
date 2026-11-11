@@ -1,20 +1,20 @@
 /* Participant task screens share the runtime brand contract. Scope these rules
    to their containers so staff forms and the surrounding app keep their layout. */
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) {
   --control-radius: 999px;
   --field-radius: 12px;
   color: var(--text-primary, var(--ink, #31261c));
   font-family: var(--font-body, sans-serif);
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(button, input, select, textarea) {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(button, input, select, textarea) {
   box-sizing: border-box;
   max-width: 100%;
   min-width: 0;
   font: inherit; font-weight: var(--weight-semibold);
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) button {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) button {
   min-height: 44px;
   border-radius: var(--control-radius);
   padding: 10px 16px;
@@ -24,7 +24,7 @@
   overflow-wrap: anywhere;
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
   min-height: 44px;
   width: 100%;
   border: 1px solid var(--border-subtle, var(--line, #dfd3c5));
@@ -36,23 +36,23 @@
   line-height: 1.4;
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(button, input, select, textarea, summary):focus-visible {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(button, input, select, textarea, summary):focus-visible {
   outline: 3px solid var(--focus-color, var(--brand-focus, #7b4a58));
   outline-offset: 3px;
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(input[type=checkbox], input[type=radio]) {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) :is(input[type=checkbox], input[type=radio]) {
   accent-color: var(--action-primary, #7b4a58);
 }
 
-:is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) summary {
+:is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) summary {
   min-height: 44px;
   align-content: center;
   line-height: 1.5;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.statement-source-review, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) * {
+  :is(.statement-source-review, .mia-statement-card, .mia-statement-next, .daily-dialog, .baseline-dialog, .optional-debt-dialog, .evidence-dialog, .challenge-privacy-dialog) * {
     scroll-behavior: auto;
     transition: none;
     animation: none;

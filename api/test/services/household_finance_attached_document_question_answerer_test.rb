@@ -25,8 +25,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "2 transaction rows totaling $143.45"
     assert_includes answer, "largest attached transaction is Pay-Less for $123.45 on Aug 2, 2026"
-    assert_includes answer, "pending review"
-    assert_includes answer, "not actuals"
+    assert_includes answer, "still waiting for you to approve"
+    assert_includes answer, "don't count in your spending until you do"
     assert_not_includes answer, "9999"
     assert_not_includes answer, "every transaction is approved"
   end
@@ -334,7 +334,42 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "Primary salary: $6,200.00, monthly (pending review)"
     assert_includes answer, "Visa: balance $1,750.00, payment $80.00, 19.5% APR (pending review)"
-    assert_includes answer, "nothing from this chat turn was applied"
+    assert_includes answer, "Nothing from this message was saved"
+  end
+
+  test "describes pending setup values apart from spending, and never as spending" do
+    @document_import.items.create!(target_type: "income_source", label: "Primary salary", amount_cents: 620_000, cadence: "monthly", confidence: "high")
+
+    answer = answer_for("What income did this find?")
+
+    assert_includes answer, "1 other value from this file, like income, bills or debts, is also waiting for your approval before it changes your plan."
+    assert_not_includes answer, "count in your spending"
+  end
+
+  test "speaks about the attached files together when more than one is attached" do
+    create_draft!(merchant: "Pay-Less", amount_cents: 40_00, occurred_on: Date.new(2026, 8, 2))
+    second_import = @household.financial_document_imports.create!(
+      uploaded_by_user: @user, document_kind: "receipt", status: "needs_review", filename: "second.png", content_type: "image/png", byte_size: 10, s3_key: "test/second-boundary-receipt.png"
+    )
+    second_import.transaction_drafts.create!(
+      household: @household, occurred_on: Date.new(2026, 8, 3), merchant: "Second receipt", total_amount_cents: 20_00, budget_category: @category, source_type: "receipt", status: "pending", raw_input: "second"
+    )
+
+    answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(@household, message: "How much did I spend in August 2026?", document_imports: [ @document_import, second_import ]).call
+
+    assert_includes answer, "2 purchases from these files are still waiting for you to approve"
+    assert_not_includes answer, "this file"
+  end
+
+  test "does not call ignored lines approved when nothing is waiting" do
+    create_draft!(merchant: "Confirmed", amount_cents: 20_00, occurred_on: Date.new(2026, 8, 4), status: "confirmed")
+    create_draft!(merchant: "Ignored", amount_cents: 90_00, occurred_on: Date.new(2026, 8, 3), status: "ignored")
+
+    answer = answer_for("How much did I spend in August 2026?")
+
+    assert_includes answer, "Nothing from this file is waiting for your approval"
+    assert_not_includes answer, "Everything"
+    assert_not_includes answer, "already approved"
   end
 
   test "returns no answer when any supplied import belongs to another household" do
@@ -367,8 +402,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $60.00"
     assert_not_includes answer, "$150.00"
     assert_not_includes answer, "Ignored"
-    assert_includes answer, "1 extracted value remain pending review; pending transactions are not actuals"
-    assert_includes answer, "One transaction row is already a resolved import result"
+    assert_includes answer, "1 purchase from this file is still waiting for you to approve; it doesn't count in your spending until you do"
+    assert_includes answer, "One purchase from it is already approved"
   end
 
   test "filters and compares July and August before aggregating" do

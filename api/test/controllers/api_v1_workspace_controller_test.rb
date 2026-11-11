@@ -2019,7 +2019,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "1 transaction row totaling $87.45"
     assert_includes content, "Pay-Less — $87.45"
     assert_includes content, "pending review"
-    assert_includes content, "not actuals"
+    assert_includes content, "it doesn't count in your spending until you do"
     assert_not_includes content, "could not safely prepare"
 
     assert_no_difference("ChatMessage.count") do

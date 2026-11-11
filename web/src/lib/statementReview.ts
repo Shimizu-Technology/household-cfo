@@ -22,10 +22,13 @@ export type PlanAttention = {
 /** A line that looks right: the kind and category the server will save for it, exactly as she is shown them. */
 export type PlanReady = { event_id: number; event_type: SourceEvent['event_type']; category_id: number | null; category_name: string | null; as_before: boolean; informational?: boolean; merchant?: string | null; signed_amount_cents?: number | null; posted_on?: string | null; expected_head?: ExpectedLineHead }
 export type CoverageAnswer = 'nothing_missing' | 'something_missing'
+/** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
+export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
 export type StatementPlan = {
   total: number
   done: number
   without_category?: number
+  spending?: StatementSpending
   ready_event_ids: number[]
   ready: PlanReady[]
   coverage: { question: string | null; answer: CoverageAnswer | null; version_id?: number | null }
@@ -44,6 +47,57 @@ export type AccountChange = { source_account_id: number; label?: string; account
 export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
+
+/** "Approve the rest" for one request: exactly the lines shown as looking right (a page at a time), each with the kind and category she saw. */
+export function approveRestInput(plan: StatementPlan): { input: ApproveLinesInput; count: number } {
+  const page = plan.ready.slice(0, APPROVE_PAGE)
+  return {
+    count: page.length,
+    input: {
+      expect_ready_ids: page.map((line) => line.event_id), ...(plan.ready.length > APPROVE_PAGE ? { paged: true } : {}),
+      lines: page.map((line): LineDecision => ({ event_id: line.event_id, decision: 'as_read', shown: { event_type: line.event_type, category_id: line.category_id }, expected_head: line.expected_head })),
+    },
+  }
+}
+
+/** What an answer to one question saves. "Yes" to "Still Dining out?" confirms that category and nothing else: the line keeps what kind of line it is. */
+export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: number): ApproveLinesInput {
+  const shown = { event_type: item.event_type, category_id: item.category_id }
+  const entry: LineDecision = id === 'keep'
+    ? { event_id: item.event_id, decision: 'as_read', shown }
+    : id === 'edit'
+      ? { event_id: item.event_id, decision: 'edited', edit: attentionEdit(item, categoryId) }
+      : id === 'leave_out'
+        ? { event_id: item.event_id, decision: id }
+        // Every answer that saves the line as the statement reads it says what she was shown, so the server can check it.
+        : { event_id: item.event_id, decision: id, shown }
+  entry.expected_head = item.expected_head
+  return { lines: [entry] }
+}
+
+/** The line as the statement reads it, with the category she picked: the same facts the line sheet would open on. */
+export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdit {
+  return { kind: lineKindFor(item.event_type, item.signed_amount_cents), merchant: item.merchant ?? '', posted_on: item.posted_on ?? '',
+    amount_cents: item.signed_amount_cents == null ? 0 : Math.abs(item.signed_amount_cents), category_id: categoryId ?? item.category_id }
+}
+
+/** What the line sheet opens on. */
+export type SheetLine = {
+  expectedHead?: ExpectedLineHead
+  eventId: number
+  merchant: string
+  postedOn: string
+  amountCents: number | null
+  kind: LineKind
+  categoryId: number | null
+  leftOut: boolean
+}
+
+/** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
+export function lineSheetFromAttention(item: PlanAttention): SheetLine {
+  return { eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? null : Math.abs(item.signed_amount_cents),
+    kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
+}
 
 export const LINE_KIND_OPTIONS: Array<{ value: LineKind; label: string }> = [
   { value: 'spending', label: 'Spending' },
@@ -110,7 +164,7 @@ export function statementHeadline(accounts: SourceAccount[], names: Record<numbe
   return `${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line' : 'lines'} from ${describeAccounts(accounts, names)}${period ? `, ${period}` : ''}.`
 }
 
-export type StatementProgress = Pick<StatementPlan, 'total' | 'done' | 'without_category' | 'coverage'>
+export type StatementProgress = Pick<StatementPlan, 'total' | 'done' | 'without_category' | 'spending' | 'coverage'>
 
 export function statementProgressStatus(progress: StatementProgress): string {
   if (progress.total === 0) return 'No lines to review'

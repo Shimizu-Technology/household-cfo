@@ -2240,7 +2240,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
-  await expect(page.getByRole('button', { name: 'Review draft' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review this file' })).toBeVisible()
 
   const attachmentPreview = page.getByRole('button', { name: 'Preview Receipt screenshot' })
   await attachmentPreview.focus()
@@ -2254,7 +2254,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(previewDialog).toBeHidden()
   await expect(attachmentPreview).toBeFocused()
 
-  await page.getByRole('button', { name: 'Review draft' }).click()
+  await page.getByRole('button', { name: 'Review this file' }).click()
   await expect(page).toHaveURL(/#Statements$/)
   await expect(page.getByRole('heading', { name: 'Statements' })).toBeVisible()
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
@@ -9471,6 +9471,56 @@ test('BOG UI completing a statement refreshes Home purchase counts without a pag
   await expect(page.getByRole('button', { name: /Review \d+ purchases/ })).toHaveCount(0)
   await openSection(page, 'Review')
   await expect(page.getByText('All caught up', { exact: false })).toBeVisible()
+})
+
+test('BOG UI Mia posts a card for a statement she has read, and the participant approves it without leaving the chat', async ({ page }) => {
+  const now = new Date().toISOString()
+  const source = {
+    id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-September-statement.pdf', content_type: 'application/pdf', byte_size: 500,
+    document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: null, extraction_error: null,
+    processed_at: now, applied_at: null, source_deleted_at: null, updated_at: now, source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
+  }
+  const spending = (counted: boolean) => ({ read_count: 18, read_cents: 224965, counted_count: counted ? 18 : 0, counted_cents: counted ? 224965 : 0 })
+  let saved: Record<string, unknown> | null = null
+  let workspaceReads = 0
+  const progress = () => saved ? { total: 137, done: 137, spending: spending(true), coverage: { question: null, answer: null } } : { total: 137, done: 0, spending: spending(false), coverage: { question: null, answer: null } }
+  const current = () => ({ ...source, statement_review: progress() })
+  await page.route('http://api.test/api/v1/workspace', (route) => { workspaceReads += 1; return route.fulfill({ json: realWorkspaceData(true) }) })
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [current()] } }))
+  await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: current() } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
+    const query = new URL(route.request().url()).searchParams
+    const data = participantReviewFixture(Number(query.get('page')), query.get('filter') as SourceReviewFilter)
+    const plan = data.participant_review!.plan
+    data.participant_review!.plan = saved
+      ? { ...plan, done: 137, ready: [], ready_event_ids: [], attention: [], coverage: { question: null, answer: null }, spending: spending(true) }
+      : { ...plan, spending: spending(false), coverage: { question: null, answer: null } }
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', (route) => {
+    saved = route.request().postDataJSON() as Record<string, unknown>
+    return route.fulfill({ json: { result: { approved: 127, left_out: 0, unchanged: 0, complete: true } } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.getByRole('region', { name: /^Statement: Fictional checking/ })
+  await expect(card.getByText('I read 18 purchases, $2,249.65.')).toBeVisible()
+  await expect(card.getByText('127 look right. 10 need a quick look. We’ll approve them 100 at a time.')).toBeVisible()
+  // Only a few questions are asked here; the rest wait on the Statements screen.
+  await expect(card.getByRole('listitem')).toHaveCount(3)
+  await expect(card.getByRole('button', { name: 'and 7 more — review them' })).toBeVisible()
+  const sizes = await card.getByRole('button').evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().height)))
+  expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await card.getByRole('button', { name: 'Approve these 100' }).click()
+  await expect(card.getByText('Approved.')).toBeVisible()
+  await expect(card.getByText(/18 purchases, \$2,249\.65, now count in your spending\./)).toBeVisible()
+  expect(saved).toMatchObject({ revision_id: 88, input: { paged: true } })
+  expect((saved as { input: { lines: unknown[] } }).input.lines).toHaveLength(100)
+  // The numbers that read from the statement are read again, and Mia offers what comes next.
+  await expect.poll(() => workspaceReads).toBeGreaterThan(1)
+  await expect(page.getByText('Want me to look for patterns in this statement?')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'See what Mia notices' })).toBeVisible()
 })
 
 test('BOG UI typed statement opens with one summary, the lines that need an answer, and every line in pages', async ({ page }) => {

@@ -218,7 +218,7 @@ function MessageAttachmentList({
             </button>
             {attachment.document_import_id && (
               <button type="button" className="message-attachment-review" onClick={() => onReviewImportId(attachment.document_import_id!)}>
-                {effectiveStatus === 'needs_review' ? 'Review draft' : 'Open import'}
+                {effectiveStatus === 'needs_review' ? 'Review this file' : 'Open file'}
               </button>
             )}
           </div>

@@ -43,6 +43,8 @@ import { useChallengeChatCards } from './lib/useChallengeChatCards'
 import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
+import { MiaStatementCards } from './components/MiaStatementCards'
+import { statementCardEntries } from './lib/statementCards'
 import { ChallengeToday } from './components/ChallengeToday'
 import { setDailyExpectedUser } from './lib/dailyRecovery'
 import { BaselineReview } from './components/BaselineReview'
@@ -634,6 +636,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [freshMiaReplyId, setFreshMiaReplyId] = useState<number | null>(null)
+  // Set when Mia answers a message that carried a statement: the participant answers from the statement card below the reply.
+  const [statementReply, setStatementReply] = useState<{ nonce: number; importIds: number[] } | null>(null)
   const [miaWaitLong, setMiaWaitLong] = useState(false)
   useEffect(() => {
     if (!miaLoading) return
@@ -989,6 +993,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     () => documentImports.filter(documentNeedsReview).length,
     [documentImports],
   )
+  // The chat only makes room for statement cards when there is a card to show.
+  const hasStatementCards = useMemo(() => statementCardEntries(documentImports, Date.now()).length > 0, [documentImports])
   const processingImportsCount = useMemo(
     () => documentImports.filter((documentImport) => !documentImport.context_paused_by_restart && PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
@@ -1589,6 +1595,27 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   useEffect(() => {
     if (miaLoading) { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'sent' }
   }, [miaLoading])
+
+  // After Mia answers an upload, bring the first card for what was just sent into view; the anchor to her message stops following the reply.
+  useEffect(() => {
+    if (!statementReply) return
+    // The card can arrive a moment after Mia's reply (the uploads list refreshes separately), so keep
+    // looking for about a second before giving up.
+    let frame = 0
+    let attempts = 0
+    const look = () => {
+      const cards = Array.from(chatCardRef.current?.querySelectorAll<HTMLElement>('.mia-statement-card:not(.is-approved)') ?? [])
+      const card = cards.find((candidate) => statementReply.importIds.includes(Number(candidate.dataset.importId)))
+      if (!card) {
+        if (++attempts < 60) frame = requestAnimationFrame(look)
+        return
+      }
+      chatScrolledAwayRef.current = true
+      card.scrollIntoView({ block: 'start' })
+    }
+    frame = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(frame)
+  }, [statementReply])
 
   useMiaEntryAnchor({ active: activeSection === 'Ask Mia', messageKey: newestMessageKey, loading: miaLoading, chatRef: chatCardRef, awayRef: chatScrolledAwayRef, anchor: anchorMiaChat, setShowScrollButton: setShowChatScrollButton })
   const queueHistoryPosition = useMiaHistoryPosition({ chatRef: chatCardRef, visibleMessageCount, olderMessageCount: olderServerMessageCount, scope: chatStorageKey })
@@ -2295,6 +2322,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
       void refreshDocumentImports({ quiet: true })
       setFreshMiaReplyId(response.assistant_message.id ?? null)
+      const statementImportIds = readyAttachments.filter((attachment) => attachment.document_kind === 'statement' && attachment.document_import_id).map((attachment) => attachment.document_import_id!)
+      if (statementImportIds.length > 0) setStatementReply({ nonce: response.assistant_message.id ?? Date.now(), importIds: statementImportIds })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       // A refresh may have replaced history while this message was in flight, so remove
       // the placeholder by its client id and skip any server message already present.
@@ -3484,7 +3513,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
-  async function handleReprocessDocumentImport(documentImport: FinancialDocumentImport) {
+  async function handleReprocessDocumentImport(documentImport: FinancialDocumentImport): Promise<boolean> {
     setDocumentAction(`reprocess:${documentImport.id}`)
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -3492,8 +3521,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const reprocessedImport = await reprocessDocumentImport(documentImport.id)
       setDocumentImports((current) => replaceImport(current, reprocessedImport))
       setDocumentsNotice(`Reprocessing started. The review panel will update when ${assistantName} finishes reading the document.`)
+      return true
     } catch (caught) {
       setDocumentsError(participantErrorMessage(caught, 'Document could not be reprocessed.'))
+      return false
     } finally {
       setDocumentAction(null)
     }
@@ -3826,6 +3857,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
   </> : null
 
+  // Mia's card for each statement she has read: approve it here, without leaving the chat.
+  const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
+    imports={documentImports}
+    assistantName={assistantName}
+    challenge={Boolean(isSavingsExperience)}
+    onReview={openDocumentReview}
+    onRetry={handleReprocessDocumentImport}
+    disabled={miaLoading}
+    onSaved={() => { void refreshDocumentImports({ quiet: true }); void refreshWorkspaceAfterDebtChange() }}
+    onAskPatterns={askMiaAboutPatterns}
+  /> : null
+
   const workspace = (
     <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
       <SeoManager section={activeSection} />
@@ -4030,9 +4073,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   onOpenReview={() => switchSection('Review')}
                   pendingPurchaseCount={pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   reviewCount={pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
-                  emptyReviewContent={isSavingsExperience ? challengeReviewContent : undefined}
+                  emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
                     {challengeReviewContent}
+                    {statementCards}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         drafts={pendingMiaActionDrafts}
