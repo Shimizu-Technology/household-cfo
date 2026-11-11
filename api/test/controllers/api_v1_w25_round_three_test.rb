@@ -73,14 +73,17 @@ class ApiV1W25RoundThreeTest < ActionDispatch::IntegrationTest
     %w[none shame].each do |care|
       user, = HouseholdFinance::MiaEvalHousehold.create!
       headers = { "Authorization" => "Bearer test_token_#{user.id}" }
-      with_method(reader, :call, ->(**options) { reader.new(**options.merge(api_key: "", transport: ->(_) { { care: care }.to_json })).call }) do
-        messages.each do |message|
-          post "/api/v1/mia/messages", params: { message: message }, headers: headers, as: :json
-          assert_response :created
-          text = response.parsed_body.dig("assistant_message", "content")
-          assert_includes text, Mia::CrisisBoundary::WELLBEING_CHECK
-          assert_equal 1, text.scan("988").length
-          refute_equal Mia::CrisisBoundary.response, text
+      # This case fixes the reader label; admission outages have separate safety cases.
+      with_method(HouseholdFinance::MiaProviderAdmission, :with_slot, ->(**_, &block) { block.call }) do
+        with_method(reader, :call, ->(**options) { reader.new(**options.merge(api_key: "", transport: ->(_) { { care: care }.to_json })).call }) do
+          messages.each do |message|
+            post "/api/v1/mia/messages", params: { message: message }, headers: headers, as: :json
+            assert_response :created
+            text = response.parsed_body.dig("assistant_message", "content")
+            assert_includes text, Mia::CrisisBoundary::WELLBEING_CHECK
+            assert_equal 1, text.scan("988").length
+            refute_equal Mia::CrisisBoundary.response, text
+          end
         end
       end
     end
