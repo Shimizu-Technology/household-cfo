@@ -31,7 +31,7 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
   end
 
   test "sixty two messages bound storage while keeping first safety disclosures and recent turns" do
-    @session.update!(active_topic: {})
+    @session.release_care_topic!
     first = "I want to kill myself. I have a gun in my room."
     @state.record_crisis(first)
     @state.record_crisis("I plan to act at 9 tonight.")
@@ -70,7 +70,8 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
   end
 
   test "a crisis release is never treated as recently released care" do
-    @session.update!(open_topics: [ HouseholdFinance::ParticipantCare.topic(:crisis) ], active_topic: {})
+    @session.update!(open_topics: [ HouseholdFinance::ParticipantCare.topic(:crisis) ])
+    @session.release_care_topic!
     refute @state.recently_released?
   end
 

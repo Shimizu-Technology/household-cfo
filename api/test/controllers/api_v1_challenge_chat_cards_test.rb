@@ -505,7 +505,10 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
         "I want to kill myself. What should I do about my goal?" => "988"
       }.each_with_index do |(message, expected), index|
         # Each row is a fresh scenario; an unresolved crisis intentionally latches.
-        ChatSession.find_by(user: @savings_user, household: @savings_household)&.update!(active_topic: {}, open_topics: [])
+        if (previous_session = ChatSession.find_by(user: @savings_user, household: @savings_household))
+          previous_session.release_care_topic!
+          previous_session.update!(open_topics: [])
+        end
         if previous == "patterns"
           ask "Can you identify spending patterns?", "safety-setup-patterns-#{index}"
           ChatSession.find_by!(user: @savings_user, household: @savings_household).update!(active_topic: {
