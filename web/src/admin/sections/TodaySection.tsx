@@ -170,7 +170,9 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   }, [group.id, filter, search, attempt])
 
   // After a dialog closes: read the first page again without blanking the list, so focus stays on the row that was opened.
+  const generation = request.current
   async function quietRefresh() {
+    if (generation !== request.current) return
     if (next !== null || records.length > 20) return
     const mine = ++request.current
     try {

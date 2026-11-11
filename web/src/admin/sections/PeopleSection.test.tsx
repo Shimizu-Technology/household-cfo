@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiRequestError } from '../../api'
 import { adminUser, group, person, staff } from '../../test/adminFixtures'
 
 const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), createAdminUser: vi.fn(), updateAdminUser: vi.fn(), resendAdminUserInvitation: vi.fn(), removeCoachGroupParticipant: vi.fn(), cancelAdminUserInvitation: vi.fn() }))
@@ -103,7 +104,7 @@ describe('inviting', () => {
     await waitFor(() => expect(api.createAdminUser).toHaveBeenCalledWith({ email: 'boss@x.test', role: 'admin', cohort_id: undefined, send_invitation_email: true }))
   })
   it('names the addresses that did not work and keeps going', async () => {
-    api.createAdminUser.mockRejectedValueOnce(new Error('Email is invalid')).mockResolvedValue({ user: ana, created: true, invitation_sent: true })
+    api.createAdminUser.mockRejectedValueOnce(new ApiRequestError('Email is invalid', { status: 422 })).mockResolvedValue({ user: ana, created: true, invitation_sent: true })
     render(<PeopleSection currentUser={adminUser()} />)
     await screen.findByRole('table')
     fireEvent.click(screen.getByRole('button', { name: 'Invite people' }))

@@ -13,7 +13,8 @@ vi.mock('../../lib/coachChallengeApi', async original => ({ ...await original<ty
 vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 5, selectCoachWorkspace: vi.fn() }) }))
 const inbox = vi.hoisted(() => ({ props: null as null | { mutationLifecycle?: { begin: () => unknown } } }))
 vi.mock('../../components/SetupSupportInbox', () => ({ SetupSupportInbox: (props: { mutationLifecycle?: { begin: () => unknown } }) => { inbox.props = props; return <p>Setup request details</p> } }))
-vi.mock('../../components/ParticipantHelp', () => ({ ParticipantHelp: () => <p>Shared items</p> }))
+const help = vi.hoisted(() => ({ changed: undefined as undefined | (() => void) }))
+vi.mock('../../components/ParticipantHelp', () => ({ ParticipantHelp: (props: { onTicketChanged: () => void }) => { help.changed = props.onTicketChanged; return <p>Shared items</p> } }))
 import { TodaySection } from './TodaySection'
 
 function Probe() { return <p data-testid="lock">{useWorkspaceMutationInFlight() ? 'locked' : 'free'}</p> }
@@ -144,6 +145,26 @@ describe('the daily list', () => {
     expect(await screen.findByText('Quiet Quin')).toBeTruthy()
     expect(daily.daily).toHaveBeenCalledWith(2, '', 'not_checked_in', 0, expect.anything())
     expect(screen.getAllByRole('button', { name: /^View / })).toHaveLength(3)
+  })
+
+  it('ignores a late ticket completion after closing and changing filters', async () => {
+    render(<TodaySection currentUser={staff()} />)
+    await screen.findByText('Pat Needs')
+    fireEvent.click(screen.getByRole('button', { name: /Everyone/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'View Quiet Quin' }))
+    const late = help.changed!
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    await act(async () => {})
+    let finish!: (value: unknown) => void
+    daily.daily.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: /No check-in today/ }))
+    await screen.findByText('Loading people…')
+    const calls = daily.daily.mock.calls.length
+    act(() => late())
+    expect(daily.daily.mock.calls).toHaveLength(calls)
+    await act(async () => finish(page(2, [quiet(8, 'Quiet Quin')])))
+    expect(await screen.findByText('Quiet Quin')).toBeTruthy()
+    expect(screen.queryByText('Loading people…')).toBeNull()
   })
 
   it('finds a person by name', async () => {
@@ -300,7 +321,7 @@ describe('Invite people from Today', () => {
     expect(screen.getByTestId('lock').textContent).toBe('locked')
     expect(dialog.getByRole('button', { name: 'Close' })).toHaveProperty('disabled', true)
     fireEvent.keyDown(document, { key: 'Escape' })
-    fireEvent.click(screen.getByRole('button', { name: 'Close invite people' }))
+    fireEvent.click(document.querySelector('.pilot-dialog-backdrop')!)
     expect(screen.getByRole('dialog')).toBeTruthy()
     await act(async () => { pending[0]({ user: {}, invitation_sent: true, invitation_status: 'sent' }) })
     await waitFor(() => expect(pending).toHaveLength(2))

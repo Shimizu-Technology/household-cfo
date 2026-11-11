@@ -53,6 +53,27 @@ describe('Help requests', () => {
     expect(screen.getByTestId('lock').textContent).toBe('free')
   })
 
+  it('serializes writes across focus cleanup and reopening the panel', async () => {
+    let finish!: (value: unknown) => void
+    challenge.ticket.mockResolvedValue({ id: 1, status: 'open', message: 'Help' })
+    challenge.ticketStatus.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+      .mockResolvedValueOnce({ id: 1, status: 'resolved' })
+    const first = render(<ParticipantHelp row={row()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Help request 1/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark in review' }))
+    await waitFor(() => expect(challenge.ticketStatus).toHaveBeenCalledTimes(1))
+    fireEvent.focus(window)
+    first.unmount()
+    render(<ParticipantHelp row={row()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Help request 1/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Mark resolved' }))
+    await act(async () => {})
+    expect(challenge.ticketStatus).toHaveBeenCalledTimes(1)
+    await act(async () => { finish({ id: 1, status: 'triaged' }) })
+    expect(await screen.findByRole('heading', { name: 'Help request 1 · Resolved' })).toBeTruthy()
+    expect(challenge.ticketStatus.mock.calls.map(call => call[2])).toEqual(['triaged', 'resolved'])
+  })
+
   it('shows the new status on the request that was changed', async () => {
     challenge.ticket.mockResolvedValue({ id: 1, status: 'open', message: 'Please help' })
     challenge.ticketStatus.mockResolvedValue({ id: 1, status: 'resolved' })

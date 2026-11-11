@@ -6,6 +6,7 @@ import type { CurrentUser } from '../../src/api'
 import { ChallengeExport } from '../../src/components/ChallengeExport'
 import { AuthContext, type AuthContextValue } from '../../src/contexts/authContextValue'
 import '../../src/App.css'
+let savedDay = 60
 let revoked = false
 ;(window as unknown as { __revoke: () => void }).__revoke = () => { revoked = true }
 const response = (data: unknown, status = 200) =>
@@ -72,11 +73,12 @@ window.fetch = async (input, init) => {
     roster_included: false,
     dynamic_filters_supported: false,
   }
+  if (path.endsWith('/sponsor_exports') && init?.method === 'POST') {
+    savedDay = JSON.parse(String(init.body)).checkpoint_day
+    return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: savedDay } })
+  }
   if (path.endsWith('/sponsor_exports'))
-    return init?.method === 'POST'
-      // A saved report is for the day that was asked for.
-      ? response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: JSON.parse(String(init.body)).checkpoint_day } })
-      : response({
+    return response({
           actor_scope: { user_id: 10, coach_workspace_id: 20 },
           cohort_id: 1,
           records: [{ id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-01-30' }],
@@ -87,6 +89,8 @@ window.fetch = async (input, init) => {
           ],
           next_cursor: null,
         })
+  if (path.endsWith('/sponsor_exports/5'))
+    return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 5, report: { ...report, checkpoint_day: savedDay } })
   if (path.endsWith('/sponsor_exports/4'))
     return response({ actor_scope: { user_id: 10, coach_workspace_id: 20 }, cohort_id: 1, export_id: 4, report })
   return response({ errors: ['Unsupported synthetic request'] }, 422)

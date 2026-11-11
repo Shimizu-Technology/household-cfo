@@ -12,6 +12,9 @@ import { savingsDollars } from '../lib/savingsChallenge'
 import { formatDay } from '../lib/plainDates'
 import './ParticipantHelp.css'
 
+// Shared across panel mounts: a later status write waits for the earlier server response.
+const statusWrites = new Map<string, Promise<unknown>>()
+
 export function ParticipantHelp({ row, onTicketChanged }: { row: CoachParticipant; onTicketChanged?: () => void }) {
   const [scopes, setScopes] = useState<SharedScopes | null>(null),
     [error, setError] = useState<string | null>(null),
@@ -90,7 +93,14 @@ export function ParticipantHelp({ row, onTicketChanged }: { row: CoachParticipan
     const release = holdWorkspaceLock()
     try {
       await request(async (signal) => {
-        const result = await coachChallengeApi.ticketStatus(row.enrollment_id, help.id, status, new AbortController().signal)
+        const key = `${row.enrollment_id}:${help.id}`
+        const previous = statusWrites.get(key) ?? Promise.resolve()
+        const write = previous.catch(() => undefined).then(() =>
+          coachChallengeApi.ticketStatus(row.enrollment_id, help.id, status, new AbortController().signal))
+        statusWrites.set(key, write)
+        let result
+        try { result = await write }
+        finally { if (statusWrites.get(key) === write) statusWrites.delete(key) }
         changed.current?.()
         if (current(signal)) {
           setTicket({ ...help, status: result.status })
