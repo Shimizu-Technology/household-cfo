@@ -170,3 +170,15 @@ class HouseholdFinanceFinancialRestartTest < ActiveSupport::TestCase
     @flow.apply(review_id: preview[:review][:id], confirmation: "START OVER")
   end
 end
+
+class HouseholdFinanceFinancialRestartTest
+  test "financial restart preserves personal care while resetting financial continuity" do
+    session = @household.chat_sessions.create!(user: @user)
+    topic = HouseholdFinance::ParticipantCareState.new(session).record_crisis("I have a gun. I want to die.")
+    apply(@flow.preview)
+    assert_equal 1, session.reload.financial_generation
+    assert_equal topic, session.active_topic
+    assert HouseholdFinance::ParticipantCareState.new(session).checkin_hold?
+    assert_includes HouseholdFinance::ParticipantCare.crisis_followup(session.active_topic), "the gun"
+  end
+end

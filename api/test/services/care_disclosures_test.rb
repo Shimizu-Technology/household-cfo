@@ -18,3 +18,18 @@ class CareDisclosuresTest < ActiveSupport::TestCase
     assert_includes content, "9 tonight"
   end
 end
+
+class CareDisclosuresTest
+  test "first three episode turns and expanded means vocabulary survive repeated bounding" do
+    [ "I've been saving up my meds for this.", "I'll drive off the cliff at Two Lovers Point.", "I have medications.", "I'm on a bridge.", "I have knives and rope." ].each do |means|
+      contents = [ "I want to end it all.", "My friend is here.", "I don't know what to say.", means ]
+      topic = { "disclosures" => [] }
+      (contents + Array.new(30) { |i| "Still here #{i}." }).each do |text|
+        topic = HouseholdFinance::CareDisclosures.bound_topic(topic.merge("disclosures" => topic["disclosures"] + [ { "content" => text } ]))
+      end
+      contents.each { |text| assert_includes topic.to_json, text }
+      assert_equal 12, topic["disclosures"].size
+      assert_operator topic.to_json.bytesize, :<, 6_000
+    end
+  end
+end

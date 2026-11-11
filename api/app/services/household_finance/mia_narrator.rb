@@ -89,6 +89,10 @@ module HouseholdFinance
         return ParticipantCare.answer(user_message, care: care)
       end
       if care || answer_packet[:care_context]
+        crisis_topic = answer_packet[:care_context].to_h.deep_stringify_keys
+        if crisis_topic["care_kind"] == "crisis"
+          @answer_packet[:fallback_response] = ParticipantCare.crisis_followup(crisis_topic)
+        end
         @answer_packet[:fallback_response] = ParticipantCare.answer(user_message, care: care) if care && !answer_packet[:care_context]
         @answer_packet[:kind] = "coaching"
         @answer_packet[:care_context] ||= ParticipantMessageReader::Current.care_topic || { care_kind: care, disclosure: user_message }
@@ -130,6 +134,7 @@ module HouseholdFinance
       if checked.guard_result&.sensitive? && !HouseholdFinance::ParticipantCare.reading_available?(user_message)
         @rejection_reason = :reply_guard
         @response_source = "deterministic_safety"
+        return fallback_response if answer_packet[:care_context].to_h.deep_stringify_keys["care_kind"] == "crisis"
         return ParticipantCare.answer(user_message, care: checked.guard_result.care || "hardship")
       end
       return reject_narration(checked.rejection_reason) if checked.rejection_reason
@@ -476,6 +481,9 @@ module HouseholdFinance
 
     def narration_rejection_reason(content, guard_covered: false)
       return :blank_response if content.blank?
+      if recent_crisis? && (!content.match?(/\b988\b/) || !content.match?(/\b(?:put|keep|create)\s+(?:some\s+)?distance\b/i))
+        return :crisis_support_missing
+      end
       if answer_packet[:care_context]
         return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|debt minimums)|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
         without_dates = content.gsub(/\b\d{1,2}(?:st|nd|rd|th)\b/i) { |date| user_message.include?(date) ? "" : date }

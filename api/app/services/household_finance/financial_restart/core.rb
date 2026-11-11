@@ -59,7 +59,10 @@ module HouseholdFinance
         profile.update!(financial_generation: generation, debt_tracking_mode: "individual", debt_summary_balance_cents: 0,
           debt_summary_balance_known: false, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false,
           primary_decision: nil, household_stage: nil, money_stress_level: nil, notes: nil)
-        household.chat_sessions.update_all(financial_generation: generation, active_topic: {}, open_topics: [], rolling_summary: nil, last_compacted_message_id: nil, last_compacted_at: nil, updated_at: Time.current)
+        # This bulk generation rollover bypasses ChatSession's write guard.
+        # Financial continuity resets; personal safety remains with the person.
+        care_topic = Arel.sql("CASE WHEN active_topic->>'type' = 'care' THEN active_topic ELSE '{}'::jsonb END")
+        household.chat_sessions.update_all(financial_generation: generation, active_topic: care_topic, open_topics: [], rolling_summary: nil, last_compacted_message_id: nil, last_compacted_at: nil, updated_at: Time.current)
         MiaMessageRequest.where(chat_session_id: household.chat_sessions.select(:id), status: "processing").where.not(financial_generation: generation).update_all(
           status: "failed", response_status: 409, completed_at: Time.current,
           response_payload: { "code" => "financial_generation_stale", "error" => "Your financial picture restarted. Send a fresh message; earlier conversation context is retained as history." }, updated_at: Time.current)

@@ -88,7 +88,8 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     assert_equal true, response.parsed_body["messages"].last["care_hold"], "a reload keeps the hold"
 
     # Care closes when she moves on, yet the rest of the day still belongs to the hard news.
-    care_session.update!(open_topics: [ care_session.active_topic.merge("last_care_at" => Time.current.iso8601) ], active_topic: {})
+    care_session.update!(open_topics: [ care_session.active_topic.merge("last_care_at" => Time.current.iso8601) ])
+    care_session.release_care_topic!
     get "/api/v1/mia/messages", headers: auth
     assert_equal true, response.parsed_body["messages"].last["care_hold"], "released care still holds for the day"
 
@@ -127,7 +128,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
 
   test "leaving the challenge is explained, and the coach finds the request in the support inbox" do
     enroll_in_challenge
-    body = say("how do i quit the challenge", legacy(question: true))
+    body = say("I want to quit the challenge", legacy(question: false))
     assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(body)
     request = SetupSupportRequest.find_by!(household: @household, reason: "leave_challenge")
     assert_equal [ "requested", @savings_cohort.id, @user.id ], [ request.status, request.cohort_id, request.requested_by_user_id ]
@@ -139,8 +140,8 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     enroll_in_challenge
     participant = SetupHelp::Participant.new(@household, user: @user, cohort_membership: @savings_membership)
     original = participant.create_request(reason: "wrong_setup", share_metadata: true, idempotency_key: "original")[:request]
-    say("how do i pause the challenge", legacy(question: true))
-    say("seriously how do i quit this challenge", legacy(question: true))
+    say("I want to pause the challenge", legacy)
+    say("seriously I want to quit this challenge", legacy)
     requests = SetupSupportRequest.where(household: @household, requested_by_user: @user)
     assert_equal 2, requests.count
     assert_equal original, SetupHelp::Serializer.request(requests.find(original[:id]))
@@ -161,7 +162,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     end
   end
 
-  [ "How do I quit the challenge?", "I want to leave the challenge", "Please pause the challenge" ].each do |message|
+  [ "I want to quit the challenge", "I want to leave the challenge", "Please pause the challenge" ].each do |message|
     test "actual exit request notifies the coach: #{message}" do
       enroll_in_challenge
       body = say(message, legacy(question: message.include?("?")))
@@ -176,7 +177,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     original = participant.instance_method(:request_leave)
     participant.define_method(:request_leave) { |**| raise SetupHelp::Denied, "not allowed" }
     begin
-      body = say("how do i quit the challenge", legacy(question: true))
+      body = say("I want to quit the challenge", legacy(question: false))
     ensure
       participant.define_method(:request_leave, original)
     end
@@ -189,7 +190,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     enroll_in_challenge
     preview = @savings_membership
     preview.define_singleton_method(:preview?) { true }
-    answer = SavingsChallenge::ParticipantHelp.exit_answer("how do i quit the challenge", household: @household, user: @user, membership: preview)
+    answer = SavingsChallenge::ParticipantHelp.exit_answer("I want to quit the challenge", household: @household, user: @user, membership: preview)
     assert_equal SavingsChallenge::ParticipantHelp::NOT_TOLD, answer
     assert_equal 0, SetupSupportRequest.where(household: @household).count
   end
@@ -199,7 +200,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     body = say("I put $50 aside today, how do i quit the challenge?", legacy(question: true, facts: [ { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" } ]))
     assert_equal 5000, body.dig("savings_intake", "amount_cents")
     assert body["challenge_chat_card"].present?
-    assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::EXPLANATION
     assert_includes text(body), "$50"
     refute_match(/\$50\.00/, text(body))
   end
@@ -252,7 +253,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     end
     enroll_in_challenge
     body = say("I put $50 aside today and spent $12 at Shell, how do I quit?", legacy(question: true, facts: [ set_aside_fact ]))
-    assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::EXPLANATION
     assert body["challenge_chat_card"].present?
   end
 

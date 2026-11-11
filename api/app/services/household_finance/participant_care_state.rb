@@ -25,7 +25,7 @@ module HouseholdFinance
         return topic
       end
 
-      @session.update!(active_topic: {})
+      @session.release_care_topic!
       nil
     end
 
@@ -51,7 +51,7 @@ module HouseholdFinance
       released = recovery if prior && prior["care_kind"] == "crisis"
       if released
         archive(prior) if prior
-        @session.update!(active_topic: {}) if prior
+        @session.release_care_topic! if prior
         return nil
       end
       return unless current || prior

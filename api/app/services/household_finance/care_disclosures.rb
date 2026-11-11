@@ -5,7 +5,7 @@ module HouseholdFinance
     LIMIT = 12
     ENTRY_BYTES = 400
     FACTS = {
-      means: /\b(?:gun|firearm|pistol|rifle|pills?|knife|rope|weapon|overdose)\b/i,
+      means: /\b(?:guns?|firearms?|pistols?|rifles?|pills?|meds|medic(?:ines?|ations?)|knives|knife|ropes?|weapons?|overdose|heights?|bridges?|cliffs?|two lovers point|cars?|trucks?|driv(?:e|ing))\b/i,
       plan: /\b(?:plan|tonight|tomorrow|today|at \d|going to|about to)\b/i,
       intent: /\b(?:die|kill|hurt|harm|suicid\w*|end my life|not safe)\b/i
     }.freeze
@@ -48,7 +48,7 @@ module HouseholdFinance
         candidates = kind == :plan ? entries.drop(safety_start) : entries
         candidates.find { |row| row["content"].match?(pattern) }
       end.uniq
-      pinned.unshift(entries.first) if entries.first
+      pinned.unshift(*entries.first(3))
       pinned.uniq!
       recent = (entries - pinned).last(LIMIT - pinned.size)
       selected = entries.select { |row| pinned.include?(row) || recent.include?(row) }

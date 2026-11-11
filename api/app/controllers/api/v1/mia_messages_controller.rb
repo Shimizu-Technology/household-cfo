@@ -92,7 +92,7 @@ module Api
         return if render_preexisting_message_request(session, content, attached_imports)
 
         invalid_evidence = invalid_prior_document_evidence(session)
-        if attached_imports.empty? && invalid_evidence && evidence_style_continuation?(
+        if @care_topic.nil? && attached_imports.empty? && invalid_evidence && evidence_style_continuation?(
           content,
           invalid_evidence.fetch(:document_imports),
           prior_query_scope: invalid_evidence[:query_scope]
@@ -152,11 +152,24 @@ module Api
         care_current.care_topic = @care_topic
         care_current.scenario_current_only = @care_topic.present? || HouseholdFinance::ParticipantCare.scenario_current_only?(history: history)
 
+        if attached_imports.any? && @care_topic
+          @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, api_key: "")
+          care_current.message, care_current.reading = content, @participant_reading
+          @care_topic = @care_state.record_disclosure(@care_topic, content)
+          session.update!(active_topic: @care_topic)
+          care_current.care_topic = @care_topic
+          return render_care_response(session, content, history: care_conversation_history(transcript, @care_topic),
+            topic: @care_topic, message_request: message_request, attached_imports: attached_imports)
+        end
+
         # A plain request for the plan after care must not resolve against the
         # disclosed cost or an incomplete setup topic. Ruby owns these figures.
         if attached_imports.empty? && !savings_program_selected? && HouseholdFinance::ParticipantMessageReader::Current.recent_care.present? && HouseholdFinance::ParticipantMessageReader::Current.recent_care != "crisis" &&
             content.match?(/\A\s*how much (?:is|do i have) left(?: this month)?[?.! ]*\z/i)
           answer = HouseholdFinance::MiaMonthAnswer.for_question(current_household, "How am I doing this month?").response
+          @care_topic = @care_state.transition(content, HouseholdFinance::ParticipantMessageReader.call(message: content, api_key: ""), history: history)
+          care_current.care_topic = @care_topic
+          care_current.recent_care = @care_topic&.fetch("care_kind", nil)
           return render_household_read_response(session, content, answer, message_request: message_request)
         end
 
@@ -188,13 +201,16 @@ module Api
             return render_household_read_response(session, content, answer, message_request: message_request, topic: @care_topic || {})
           end
           prior_care = @care_topic.present? || @care_state.recently_released?
+          prior_care_kind = @care_topic.to_h["care_kind"]
           @care_topic = @care_state.transition(content, @participant_reading, history: history)
           if @care_topic && (@care_topic["care_kind"] == "crisis" || !HouseholdFinance::ParticipantCareState.report?(content, @participant_reading))
             care_current.care_topic = @care_topic
             care_current.recent_care = @care_topic.fetch("care_kind")
             return render_care_response(session, content, history: care_conversation_history(transcript, @care_topic), topic: @care_topic, message_request: message_request)
           end
-          if prior_care && @care_topic.nil? && @participant_reading.care_status == "resolved" && !@participant_reading.question && @participant_reading.facts.empty? && @participant_reading.goal_change.empty? && @participant_reading.savings_correction.empty? && @participant_reading.answer_field.nil? && !HouseholdFinance::ParticipantCare.setup_content?(content, @participant_reading) && (closing = HouseholdFinance::ParticipantCare.closing_reply(content))
+          resolved = @participant_reading.care_status == "resolved" || (!@participant_reading.available && HouseholdFinance::ParticipantCare.explicit_recovery?(content))
+          if prior_care && @care_topic.nil? && resolved && !@participant_reading.question && @participant_reading.facts.empty? && @participant_reading.goal_change.empty? && @participant_reading.savings_correction.empty? && @participant_reading.answer_field.nil? && !HouseholdFinance::ParticipantCare.setup_content?(content, @participant_reading) && (closing = HouseholdFinance::ParticipantCare.closing_reply(content))
+            closing = "I'm glad you're safe. 988 is there any time, day or night." if prior_care_kind == "crisis"
             return render_household_read_response(session, content, closing, message_request: message_request)
           end
           care_current.recent_care = nil unless @care_topic
@@ -754,11 +770,11 @@ module Api
         [ lead, assistant_content, question ].compact_blank.join(" ")
       end
 
-      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil, challenge_join: false)
+      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil, challenge_join: false, attached_imports: [])
         ApplicationRecord.transaction do
           current_household.lock!
           chat_session_scope.authorize!
-          user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+          user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
           retire_document_evidence_state(session) if document_evidence_topic_present?(session)
           session.update!(active_topic: topic)
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
@@ -851,7 +867,7 @@ module Api
         missing.map { |entry| { role: "user", content: entry.fetch("content") } } + rows.map { |row| row.slice(:role, :content) }
       end
 
-      def render_care_response(session, content, history:, topic:, message_request:)
+      def render_care_response(session, content, history:, topic:, message_request:, attached_imports: [])
         continuation = @participant_reading.care == "none"
         reference = if topic["care_kind"] == "crisis"
           HouseholdFinance::ParticipantCare.crisis_followup(topic)
@@ -866,7 +882,7 @@ module Api
         end
         if topic["care_kind"] == "crisis" && HouseholdFinance::ParticipantCare.followup?(content)
           return render_household_read_response(session, content, reference, message_request: message_request,
-            topic: topic.merge("last_question" => reference))
+            topic: topic.merge("last_question" => reference), attached_imports: attached_imports)
         end
         narrator_class = savings_program_selected? ? SavingsChallenge::Narrator : HouseholdFinance::MiaNarrator
         narrator = narrator_class.new(user_message: content, history: history, persona: module_guidance.persona(current_persona),
@@ -874,7 +890,7 @@ module Api
             fallback_response: reference, write_state: "no_write", verified_facts: {} })
         answer = narrator.call
         render_household_read_response(session, content, answer, message_request: message_request,
-          topic: topic.merge("last_question" => answer.last(700)))
+          topic: topic.merge("last_question" => answer.last(700)), attached_imports: attached_imports)
       end
 
       def render_crisis_response(session, content, attached_imports, message_request:)
@@ -1724,7 +1740,9 @@ module Api
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         # A selected crisis response has priority over every care fallback,
         # including a simultaneous rent or food disclosure.
-        if ENV["OPENROUTER_API_KEY"].to_s.strip.blank? && assistant_content != ::Mia::CrisisBoundary.response
+        crisis_topic = HouseholdFinance::ParticipantCareState.new(session).active
+        crisis_topic = nil unless crisis_topic.to_h["care_kind"] == "crisis"
+        if ENV["OPENROUTER_API_KEY"].to_s.strip.blank? && assistant_content != ::Mia::CrisisBoundary.response && !crisis_topic
           assistant_content = HouseholdFinance::ParticipantCare.fallback(content, assistant_content)
           if !HouseholdFinance::MoneyMovementText.food_insecurity?(content) && (care = HouseholdFinance::ParticipantCare.answer(content))
             assistant_content = care unless assistant_content.to_s.start_with?(care)
