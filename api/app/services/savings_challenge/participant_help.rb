@@ -18,6 +18,7 @@ module SavingsChallenge
     DISCUSSION = /\b(?:(?:if|whether)\s+i|(?:i|we)\s+(?:don['’]?t|dont|do not)\s+want to)\s+(?:quit|leave|pause|stop|withdraw)(?=\s*(?:[?.!,;]|\z))/i
     REQUEST = /\A\s*(?:(?:hey|okay|ok|so|mia|seriously|please|pls)[,\s]+)*(?:(?:(?:can|could|would) you (?:please )?)?(?:tell|let) (?:my|the) coach (?:know )?(?:that )?)?(?:(?:(?:i|we) (?:(?:want|need|have) to|wanna)|i['’]?d like to|i would like to|i['’]?m ready to|let me|help me)\s+(?:quit|leave|stop|pause|cancel|withdraw|drop out|opt out|get out of|step away from|take a break from)\b|(?:i|we)(?:['’]m| am|['’]re| are)\s+(?:quitting|leaving|pausing|stopping|withdrawing from|stepping away from)\b|(?:take me out|quit|leave|stop|pause|cancel|withdraw from)\s+(?:the\s+|this\s+|my\s+)?(?:savings\s+)?(?:challenge|program)\b)/i
     CONSENT_VETO = /\b(?:(?:don['’]?t|dont|do not|never)\s+(?:tell|notify|let)\b|not sure|unsure|lol no|just kidding|changed my mind)\b/i
+    NEGATED_EXIT = /\b(?:i|we)\s+(?:don['’]?t|dont|do not|never)\s+want to\s+(quit|leave|pause|stop|cancel|withdraw)\b/i
     DISCUSSION_ONLY = /\b(?:not|never|don['’]?t|dont|do not|wouldn['’]?t|wont|won['’]?t|if|whether|hypothetical|thinking|considering|should|might|why|explain|discuss|what happens|what would|unsure|not sure|lol no|how (?:do|can|could|would|should))\b|\bcan (?:i|we) (?:leave|pause|quit|stop|cancel|withdraw)\b/i
     EXPLANATION = "You can't leave or pause the challenge yourself in the app yet. #{MEANING} Nothing has changed. If you want to step away, I can let your coach know when you ask.".freeze
 
@@ -28,12 +29,18 @@ module SavingsChallenge
       return unless exit?(text)
       return if text.match?(REMINDERS) || text.match?(CONSENT_VETO)
 
-      clause = text.split(/[.!?;,]|\b(?:and|but)\b/i).find do |part|
-        !part.match?(DISCUSSION_ONLY) && exit?(part) && (part.match?(REQUEST) || part.match?(/\A\s*(?:please\s+)?#{TAKE_OUT.source}/i))
-      end
-      return unless clause
+      requests = []
+      text.split(/[.!?;,]|\b(?:and|but)\b/i).each do |part|
+        if (refusal = part.match(NEGATED_EXIT))
+          requests.delete(refusal[1].casecmp?("pause") ? :pause : :leave)
+          next
+        end
+        next if part.match?(DISCUSSION_ONLY) || !exit?(part)
+        next unless part.match?(REQUEST) || part.match?(/\A\s*(?:please\s+)?#{TAKE_OUT.source}/i)
 
-      clause.match?(/\b(?:pause|break|step back)\b/i) ? :pause : :leave
+        requests << (part.match?(/\b(?:pause|break|step back)\b/i) ? :pause : :leave)
+      end
+      requests.last
     end
 
     def self.exit_requested?(message) = exit_request_intent(message).present?

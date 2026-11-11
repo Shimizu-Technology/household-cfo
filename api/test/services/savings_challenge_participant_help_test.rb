@@ -1,6 +1,13 @@
 require "test_helper"
 
 class SavingsChallengeParticipantHelpTest < ActiveSupport::TestCase
+  test "a later refusal retracts only the corresponding request" do
+    help = SavingsChallenge::ParticipantHelp
+    assert_nil help.exit_request_intent("I want to quit the challenge, but I don't want to quit")
+    assert_nil help.exit_request_intent("I want to pause the challenge, but I don't want to pause")
+    assert_equal :pause, help.exit_request_intent("I don't want to quit but I want to pause the challenge")
+    assert_equal :leave, help.exit_request_intent("I want to quit the challenge but I don't want to pause")
+  end
   [ "How do I quit the challenge?", "seriously how do i quit this challenge", "I used to say I want to leave the challenge", "My friend said I want to leave the challenge",
     "I want to leave my job, what happens if I quit the challenge?", "I don't want to leave the challenge",
     "What happens if I quit the challenge?", "I'm thinking about stopping the challenge",
