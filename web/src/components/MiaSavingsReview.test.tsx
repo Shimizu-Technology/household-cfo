@@ -55,9 +55,9 @@ it('takes a withdrawal out without a new-money box, and a correction says what i
   unmount()
   const fix = intake({ amount_cents: 1500, correction: { id: 1, lock_version: 0, current_approved_version_id: 3, current_approved_version: { signed_cents: 2000 } } as never })
   render(<MiaSavingsReview intake={fix} card={card(fix)} today="2026-10-21" onReview={vi.fn()} />)
-  expect(screen.getByText('Replace $20.00 with $15.00 · Today')).toBeTruthy()
+  expect(screen.getByText('Replace $20 with $15 · Today')).toBeTruthy()
   expect(screen.queryByRole('checkbox')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Yes, change it to $15.00' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Yes, change it to $15' })).toBeTruthy()
 })
 
 it('shows a refused approval plainly and can try again', async () => {

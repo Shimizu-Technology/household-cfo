@@ -5,7 +5,7 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
   def self.runnable_methods = public_instance_methods(false).map(&:to_s).grep(/\Atest_/)
 
   GUN = "I want to kill myself. I have a gun in my room.".freeze
-  FOLLOWUPS = [ "I can't pay my rent", "I lost my job", "My truck broke down and I can't get to work", "my mom just died" ].freeze
+  FOLLOWUPS = [ "I can't pay my rent", "I lost my job", "My truck broke down and I can't get to work", "my mom just died", "I want to join the challenge", "Change my saved purchase to $25" ].freeze
 
   def raw(message, **extra)
     post "/api/v1/mia/messages", params: { message: message }.merge(extra), headers: auth, as: :json
