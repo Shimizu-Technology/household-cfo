@@ -4,19 +4,10 @@ import { usePilotDialog } from '../lib/usePilotDialog'
 import { Button } from './Button'
 import type { SourceAccount } from '../lib/sourceReview'
 import type { ReviewedSourceAccount } from '../lib/participantSourceReview'
-import { LINE_KIND_OPTIONS, accountSentence, amountInputText, parseLineAmount, type AccountChange, type AccountLabel, type LineEdit, type LineKind } from '../lib/statementReview'
+import { LINE_KIND_OPTIONS, accountSentence, amountInputText, parseLineAmount, type AccountChange, type AccountLabel, type LineEdit, type LineKind, type SheetLine } from '../lib/statementReview'
 import './StatementSheets.css'
 
-export type SheetLine = {
-  expectedHead?: import('../lib/statementReview').ExpectedLineHead
-  eventId: number
-  merchant: string
-  postedOn: string
-  amountCents: number | null
-  kind: LineKind
-  categoryId: number | null
-  leftOut: boolean
-}
+export type { SheetLine }
 
 type Category = { id: number; name: string }
 

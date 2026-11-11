@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { NEUTRAL_BRAND } from '../contexts/brandContextValue'
-import { BrandLogo } from './BrandChrome'
+import { BrandRuntimeProvider } from '../contexts/BrandContext'
+import { BrandFooter, BrandLogo } from './BrandChrome'
 
 afterEach(cleanup)
 
@@ -23,5 +24,34 @@ describe('participant program logo', () => {
     expect(view.container.querySelector('img')).toBeNull()
     view.rerender(<BrandLogo brand={{ ...brand, logo_url: 'https://api.example.test/replacement.png' }} />)
     expect(view.container.querySelector('img')?.src).toBe('https://api.example.test/replacement.png')
+  })
+})
+
+describe('closing line', () => {
+  const method = { ...NEUTRAL_BRAND, organization_name: 'Household CFO Method', footer: { text: 'Educational guidance only.', privacy_url: null, terms_url: null } }
+  const inBrand = (brand: typeof method, closingLine?: boolean) => render(
+    <BrandRuntimeProvider runtime={{ available: true, source: 'workspace', config: brand } as never} assistantName="Mia">
+      <BrandFooter closingLine={closingLine} />
+    </BrandRuntimeProvider>,
+  )
+
+  it('shows her line above the disclaimer on her own method brand when the screen asks for it', () => {
+    const { container } = inBrand(method, true)
+    const line = container.querySelector('.brand-closing-line')!
+    expect(line.textContent).toContain('Not just to look wealthy on paper. The goal is to feel safe in your actual life.')
+    expect(line.textContent).toContain('The Household CFO Method')
+    expect(container.querySelector('.brand-footer p:not(.brand-closing-line)')?.textContent).toBe('Educational guidance only.')
+    expect(line.compareDocumentPosition(container.querySelector('.brand-footer p:not(.brand-closing-line)')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('is off unless the screen opts in, so the savings program can keep its own name', () => {
+    expect(inBrand(method).container.querySelector('.brand-closing-line')).toBeNull()
+    expect(inBrand(method, false).container.querySelector('.brand-closing-line')).toBeNull()
+  })
+
+  it('is never inherited by a coach workspace with its own organization name', () => {
+    const { container } = inBrand({ ...method, organization_name: 'Island Money Coaching' }, true)
+    expect(container.querySelector('.brand-closing-line')).toBeNull()
+    expect(container.textContent).toContain('Educational guidance only.')
   })
 })

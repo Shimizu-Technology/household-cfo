@@ -17,18 +17,25 @@ export function BrandLogo({ brand }: { brand: BrandConfig }) {
   ) : null
 }
 
-export function BrandFooter({ privacyFallback = false }: { privacyFallback?: boolean } = {}) {
+// Mrs. Mel's closing line belongs to her own method. A coach workspace that sets its own organization
+// name never inherits it, and the savings program (which shows its own name) opts out with `closingLine={false}`.
+const METHOD_ORGANIZATION = 'Household CFO Method'
+const CLOSING_LINE = 'Not just to look wealthy on paper. The goal is to feel safe in your actual life.'
+
+export function BrandFooter({ privacyFallback = false, closingLine = false }: { privacyFallback?: boolean; closingLine?: boolean } = {}) {
   const { brand } = useBrand()
   const supportHref = brand.support.url ?? (brand.support.email ? `mailto:${brand.support.email}` : null)
   const supportLabel = brand.support.label ?? (brand.support.email ? 'Contact support' : 'Support')
   const privacyUrl = brand.footer.privacy_url ?? (privacyFallback ? '/privacy.html' : null)
   const hasLinks = Boolean(supportHref || privacyUrl || brand.footer.terms_url)
+  const showClosingLine = closingLine && brand.organization_name === METHOD_ORGANIZATION
   // Platform attribution is never shown to participants (see brandByline).
-  if (!brand.footer.text && !hasLinks) return null
+  if (!brand.footer.text && !hasLinks && !showClosingLine) return null
 
   return (
     <footer className="brand-footer">
       <div>
+        {showClosingLine && <p className="brand-closing-line">{CLOSING_LINE}<span>The {METHOD_ORGANIZATION}</span></p>}
         {brand.footer.text && <p>{brand.footer.text}</p>}
       </div>
       {hasLinks && <nav aria-label="Program support and policies">

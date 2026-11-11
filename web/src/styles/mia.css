@@ -185,7 +185,8 @@
     width: 28px;
     height: 28px;
     flex-basis: 28px;
-    font-size: var(--text-sm);
+    font-size: 1.125rem;
+    padding-top: 1px;
   }
 
   .chat-shell-copy { display: block; min-width: 0; }
@@ -200,13 +201,46 @@
   .is-chat-page .mia-chat-shell:not(.is-expanded) .chat-shell-header .chat-actions { grid-column: 3; grid-row: 1; width: auto; justify-self: end; flex-wrap: nowrap; }
 }
 
-/* Mia's mark. */
+/* Mia's mark: a serif monogram in the brand colour inside a thin ring (docs/design-system.md, Serif).
+   The initial comes from the assistant's name, so another coach's assistant gets its own. */
 .message-avatar {
-  border: 0;
-  /* Approved mauve keeps white initials above 4.5:1. */
+  border: 1px solid var(--emerald);
+  /* Brand mauve on the soft rose is 5.5:1. */
+  background: var(--emerald-soft);
+  color: var(--emerald);
+  box-shadow: none;
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  /* Cormorant sits high in its box; nudge the capital onto the circle's centre line. */
+  padding-top: 2px;
+  box-sizing: border-box;
+}
+
+/* Her chat bubbles: a square corner on the speaker's side. Mia sits on the warm paper tone,
+   the participant in brand mauve with white text (6.9:1). The author name stays for screen readers. */
+.message-row .message { border-radius: var(--radius-md); }
+.message-row.assistant .message {
+  border: 1px solid var(--line);
+  border-radius: 0 var(--radius-md) var(--radius-md) var(--radius-md);
+  background: var(--cream);
+}
+.message-row.user .message {
+  border-radius: var(--radius-md) var(--radius-md) 0 var(--radius-md);
   background: var(--emerald);
   color: var(--brand-on-primary);
-  box-shadow: none;
+}
+.message-row.user .message :is(p, li, span, a, strong) { color: inherit; }
+.message-row.user .message p { color: var(--brand-on-primary); }
+.message-row > .message > strong:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* First message: a greeting and a few ways to start. */
@@ -219,14 +253,12 @@
   width: 52px;
   height: 52px;
   flex-basis: 52px;
-  font-size: var(--text-xl);
+  font-size: 2rem;
 }
 
-.empty-chat-state h3 {
-  font-family: var(--font-body);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-semibold);
-}
+/* Her greeting is a title: serif, readable on a phone (cards.css sets the family and weight). */
+.empty-chat-state h3 { margin: 0; font-size: clamp(1.875rem, 7vw, 2.25rem); }
+.empty-chat-state p { margin: 0; }
 
 .empty-chat-starters {
   display: flex;
@@ -262,7 +294,7 @@
 
 @media (max-width: 620px) {
   .app.is-chat-page .empty-chat-state h3 {
-    font-size: var(--text-xl);
+    font-size: 1.875rem;
   }
 
   .app.is-chat-page .empty-chat-state p {

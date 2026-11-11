@@ -67,7 +67,7 @@ export function HomeMoneyValues({ answer }: { answer?: DashboardData['month_answ
   return <dl className="home-money-values">
     <MoneyValue label="Money in" cents={answer?.money_in_cents} />
     <MoneyValue label="Money out · planned" cents={answer?.planned_out_cents} />
-    <MoneyValue label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
+    <MoneyValue hero label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
   </dl>
 }
 
@@ -82,7 +82,8 @@ export function MonthPlanLine({ answer }: { answer?: DashboardData['month_answer
   </p>
 }
 
-function MoneyValue({ label, cents }: { label: string; cents: number | null | undefined }) {
+/** The hero figure is the one answer the screen leads with, set in the serif (docs/design-system.md). */
+function MoneyValue({ label, cents, hero = false }: { label: string; cents: number | null | undefined; hero?: boolean }) {
   const value = cents == null ? 'Not entered' : formatReviewMoney(cents)
-  return <div><dt>{label}</dt><dd className={value.length > 14 ? 'is-long-money' : undefined}>{value}</dd></div>
+  return <div className={hero && cents != null ? 'is-hero' : undefined}><dt>{label}</dt><dd className={value.length > 14 ? 'is-long-money' : undefined}>{value}</dd></div>
 }

@@ -4,8 +4,9 @@ import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ChatHistory } from './ChatHistory'
 
-vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: 'Mia' }) }))
-afterEach(() => { cleanup(); vi.resetAllMocks() })
+const brand = vi.hoisted(() => ({ assistantName: 'Mia' }))
+vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => brand }))
+afterEach(() => { cleanup(); vi.resetAllMocks(); brand.assistantName = 'Mia' })
 
 const baseProps = {
   messages: [],
@@ -29,9 +30,33 @@ const baseProps = {
 it('greets with starting points that fill the composer instead of sending', () => {
   const choose = vi.fn()
   render(<ChatHistory {...baseProps} starterPrompts={[{ label: 'Update a debt', message: 'Help me update one of my household debts.' }]} onChoosePrompt={choose} />)
-  expect(screen.getByRole('heading', { name: 'Hi, I’m Mia.' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Håfa adai, I’m Mia.' })).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Update a debt' }))
   expect(choose).toHaveBeenCalledWith('Help me update one of my household debts.')
+})
+
+it('opens with Mrs. Mel’s short lines in fixed copy', () => {
+  render(<ChatHistory {...baseProps} />)
+  expect(screen.getByText('No judgment, no jargon. Tell me what’s going on with your money.')).toBeTruthy()
+})
+
+it('keeps the caller’s own intro for a program that has one', () => {
+  render(<ChatHistory {...baseProps} emptyIntro="Tell me when you set money aside." />)
+  expect(screen.getByRole('heading', { name: 'Håfa adai, I’m Mia.' })).toBeTruthy()
+  expect(screen.getByText('Tell me when you set money aside.')).toBeTruthy()
+})
+
+it('introduces another coach’s assistant plainly, by its short name', () => {
+  brand.assistantName = 'Aria for Island Money Coaching'
+  render(<ChatHistory {...baseProps} />)
+  expect(screen.getByRole('heading', { name: 'Hi, I’m Aria.' })).toBeTruthy()
+  expect(screen.getByText(/I’ll prepare anything that changes your numbers for you to review first\./)).toBeTruthy()
+})
+
+it('keeps the speaker names for screen readers on both sides of the conversation', () => {
+  render(<ChatHistory {...baseProps} totalMessageCount={2} messages={[{ role: 'user', author: 'You', content: 'Rent is $1,700.' }, { role: 'assistant', author: 'Mia', content: 'Thanks, I can prepare that.' }]} />)
+  expect(screen.getByText('You').closest('.message')?.classList.contains('user')).toBe(true)
+  expect(screen.getByText('Mia', { selector: '.message > strong' })).toBeTruthy()
 })
 
 it('opens the server-specified missing money input from Mia’s answer', () => {

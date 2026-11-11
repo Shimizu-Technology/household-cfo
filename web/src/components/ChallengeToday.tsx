@@ -122,7 +122,7 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
       {readFailed&&<button type="button" onClick={refresh}>Try loading again</button>}
       {ready&&context&&actor&&calendar&&<>
         <nav className="daily-actions daily-tabs" aria-label="Journal sections"><button type="button" aria-pressed={section==='today'} onClick={()=>setSection('today')}>Purchases</button><button type="button" aria-pressed={section==='checkpoints'} onClick={()=>setSection('checkpoints')}>Checkpoints</button></nav>
-        {section==='checkpoints'?<ChallengeCheckpoints context={context} scope={actor} refresh={attempt} mutate={mutation.mutate} busy={disabled} onDenied={onDenied} onBaseline={onBaseline}/>:<>
+        {section==='checkpoints'?<ChallengeCheckpoints context={context} scope={actor} refresh={attempt} mutate={mutation.mutate} busy={disabled} onDenied={onDenied} onBaseline={onBaseline} onClose={onClose}/>:<>
           {day?<>
             <section className="daily-overview" aria-label="Current personal daily report">
               <p className="daily-figure">{day.reported_spend_cents===null?(day.canonical_links_changed?'Spending needs a check':'Not checked in yet'):day.spending_state==='no_spend'&&day.approved_purchase_count===0?'No spending':`${savingsDollars(day.reported_spend_cents)} spent`}</p>

@@ -10,6 +10,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   rails_security:
     # ubuntu-26.04 (ubuntu-latest) only ships the newest Ruby patch per series; keep 24.04 until .ruby-version moves past 3.3.7.
@@ -194,7 +197,51 @@ jobs:
         run: npm ci
 
       - name: Install browser dependencies
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        # --with-deps installs system libraries through apt. When the runner can't reach the Ubuntu
+        # archive (it happened for hours on 2026-11-12): retry, then switch to another Ubuntu mirror,
+        # then install only the browser. The last step is enough for Chromium (the runner image has its
+        # libraries; the browser comes from Playwright's CDN) but not for WebKit, which needs apt.
+        run: |
+          browser='${{ matrix.browser }}'
+          # A timed-out attempt can leave sudo apt-get/dpkg running and holding the lock; stop them
+          # and finish any half-configured packages before the next attempt.
+          clear_apt() {
+            sudo pkill -TERM -f '^(/usr/bin/)?(apt-get|dpkg)( |$)' || true
+            sleep 5
+            sudo pkill -KILL -f '^(/usr/bin/)?(apt-get|dpkg)( |$)' || true
+            sudo dpkg --configure -a || true
+          }
+          try_with_deps() { timeout --kill-after=15 300 npx playwright install --with-deps "$browser"; }
+          # apt can hang rather than fail when the archive is unreachable, so each attempt is time-boxed.
+          for attempt in 1 2; do
+            if try_with_deps; then exit 0; fi
+            echo "::warning::playwright install --with-deps failed or timed out (attempt $attempt)"
+            clear_apt
+            sleep 20
+          done
+          # WebKit needs system libraries the runner image lacks, so try another Ubuntu mirror before
+          # giving up on apt: the outage was DNS for archive.ubuntu.com / azure.archive.ubuntu.com only.
+          echo "::warning::Retrying with the mirrors.kernel.org Ubuntu mirror"
+          # The runner image points apt at mirror+file:/etc/apt/apt-mirrors.txt, so the Ubuntu hosts live
+          # in that list rather than in the sources files; replace it as well.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            echo 'http://mirrors.kernel.org/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$f" ] && sudo sed -i -E 's#https?://(azure\.)?archive\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g; s#https?://security\.ubuntu\.com/ubuntu/?#http://mirrors.kernel.org/ubuntu/#g' "$f"
+          done
+          if try_with_deps; then exit 0; fi
+          clear_apt
+          echo "::warning::Falling back to installing $browser without system packages"
+          if timeout --kill-after=15 300 npx playwright install "$browser"; then exit 0; fi
+          clear_apt
+          # Branded Chrome's installer also uses apt; the runner image ships Google Chrome, so use it.
+          if [ "$browser" = chrome ] && command -v google-chrome >/dev/null; then
+            echo "::warning::Using the runner image's Google Chrome: $(google-chrome --version)"
+            exit 0
+          fi
+          echo "::error::Could not install $browser"
+          exit 1
 
       - name: Run browser checks
         run: npm run ${{ matrix.script }} -- --shard=${{ matrix.shard }} --workers=1 --reporter=github,blob,json
