@@ -22,8 +22,8 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
       debt_payment: EMPTY_DEBT, target_runway_months: { months: "", source: "" }, skips: [], help_topic: "", work_out: false, confirm_monthly: false }.merge(over)
   end
 
-  def read(question: false, setup: changes)
-    { care: "none", facts: [], question: question, care_status: "none", spending_preferences: [], setup_changes: setup }
+  def read(question: false, setup: changes, facts: [], care: "none")
+    { care: care, facts: facts, question: question, care_status: "none", spending_preferences: [], setup_changes: setup }
   end
 
   def money(**values) = EMPTY_MONEY.merge(values)
@@ -41,7 +41,8 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     end
     resolver = HouseholdFinance::MiaIntentResolver
     original_resolve = resolver.instance_method(:call)
-    resolver.define_method(:call) { intent } if intent
+    asked = false
+    resolver.define_method(:call) { asked ? nil : (asked = true; intent) } if intent # only the controller's own read; later parsers see no model
     post "/api/v1/mia/messages", params: { message: message }, headers: auth, as: :json
     assert_response :created
     @last_reader_options = captured
@@ -221,5 +222,162 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     guessed = say("put more in my emergency fund", read, intent: invented)
     assert_equal 120_000, row(guessed, "emergency_fund")["total_cents"], "a figure she never wrote never reaches the card"
     assert_match(/Tell me the new amount/, text(guessed))
+  end
+
+  test "a purchase mixed with a change gets both: the change card and the purchase to review" do
+    finish_setup
+    message = "spent 80 at payless, oh and power went up to 200"
+    body = say(message, read(facts: [ { kind: "purchase", amount: "80", merchant: "payless", item: "", day: "", source_text: "spent 80 at payless" } ],
+      setup: changes(fixed_expenses: money(parts: [ part("replace", "power", "200", source: "power went up to 200") ]))))
+    assert_equal [ [ "Power", 20_000 ] ], row(body, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
+    assert body["transaction_draft"], "the purchase is not dropped: #{text(body)}"
+    assert_equal 8_000, body.dig("transaction_draft", "amount_cents")
+    assert_match(/payless/i, body.dig("transaction_draft", "merchant").to_s)
+    assert_match(/power/i, text(body))
+    assert_match(/80/, text(body))
+    assert_equal 1, @household.transaction_drafts.pending.count
+    assert_equal 1, @household.mia_action_drafts.pending.count
+  end
+
+  def remove_bill(name, message)
+    say(message, read(setup: changes(fixed_expenses: money(parts: [ part("remove", name, "", source: message) ]))))
+  end
+
+  test "taking off a bill that has a purchase waiting for review builds no card and says why" do
+    finish_setup
+    insurance = @household.budget_categories.find_by!(name: "Insurance")
+    @household.transaction_drafts.create!(merchant: "Aflac", occurred_on: Date.current, total_amount_cents: 12_000, status: "pending", source_type: "manual_ui", budget_category: insurance)
+    body = remove_bill("insurance", "we cancelled the insurance so take that off")
+    assert_nil card_of(body), "no dead card"
+    assert_equal 0, @household.mia_action_drafts.pending.count
+    assert_match(/Insurance has a purchase waiting for your review.*Review that purchase first.*Nothing changed/, text(body))
+    assert insurance.reload.active?
+    @household.transaction_drafts.pending.update_all(status: "ignored")
+    again = remove_bill("insurance", "ok now take insurance off")
+    assert card_of(again), text(again)
+  end
+
+  test "adding a bill that shares a name with a row in another layer is a distinct row, and applies" do
+    finish_setup
+    HouseholdFinance::AnnualBudgetManager.new(@household.reload).create_category!(name: "Phone", stack_key: "discretionary", monthly_amount: "30")
+    body = say("add phone 60", read(setup: changes(fixed_expenses: money(parts: [ part("add", "phone", "60", source: "add phone 60") ]))))
+    assert card_of(body), text(body)
+    assert_equal [ [ "Phone bill", 6_000 ] ], row(body, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
+    assert_match(/Phone is already a row in your everyday spending, so I added this one as phone bill, \$60 a month/, text(body))
+    apply(card_of(body))
+    assert_equal %w[Rent Power Insurance] + [ "Phone bill" ], stack_names("non_discretionary")
+    assert_equal [ "Phone" ], stack_names("discretionary").grep(/phone/i)
+    assert_equal 2010.0, values[:fixed_expenses].to_f
+    assert_equal 3_000, @household.budget_categories.find_by!(name: "Phone").budget_allocations.first.planned_amount_cents, "the everyday Phone row is untouched"
+  end
+
+  test "taking off a bill by a name that only exists in another layer touches nothing" do
+    finish_setup
+    HouseholdFinance::AnnualBudgetManager.new(@household.reload).create_category!(name: "Phone", stack_key: "discretionary", monthly_amount: "30")
+    body = remove_bill("phone", "take off the phone")
+    assert_nil card_of(body)
+    assert_match(/I don't see phone/, text(body))
+    assert @household.budget_categories.find_by!(name: "Phone").active?
+  end
+
+  test "adding back a bill she cancelled earlier is a new row under a clear name, applied from chat" do
+    finish_setup
+    apply(card_of(remove_bill("insurance", "we cancelled the insurance so take that off")))
+    assert_equal %w[Rent Power], stack_names("non_discretionary")
+    body = say("add insurance 130", read(setup: changes(fixed_expenses: money(parts: [ part("add", "insurance", "130", source: "add insurance 130") ]))))
+    assert_match(/Insurance was taken off earlier and stays in your history, so I added this one as insurance bill, \$130 a month/, text(body))
+    apply(card_of(body))
+    assert_equal [ "Rent", "Power", "Insurance bill" ], stack_names("non_discretionary")
+    assert_equal 1960.0, values[:fixed_expenses].to_f
+    assert @household.budget_categories.archived.exists?(name: "Insurance"), "the old row keeps its history"
+  end
+
+  test "when both names are taken she is asked for another name and no card is built" do
+    finish_setup
+    apply(card_of(remove_bill("insurance", "we cancelled the insurance so take that off")))
+    @household.budget_categories.create!(name: "Insurance bill", stack_key: "non_discretionary", active: false, sort_order: 99)
+    body = say("add insurance 130", read(setup: changes(fixed_expenses: money(parts: [ part("add", "insurance", "130", source: "add insurance 130") ]))))
+    assert_nil card_of(body)
+    assert_match(/What should I call this new one\? Nothing changed\./, text(body))
+  end
+
+  test "a bill that is misrouted by the intent model as a plan change from a purchase report never replaces the bills" do
+    finish_setup
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: "set fixed expenses",
+      needs_clarification: false, clarification: "", topic: {}, action: { type: "update_household_setup", setup_updates: { fixed_expenses: "120" } }, read_only_plan: {}, source: "model")
+    body = say("paid 120 for the power bill today", read(facts: [ { kind: "purchase", amount: "120", merchant: "", item: "power bill", day: "today", source_text: "paid 120 for the power bill today" } ]), intent: intent)
+    assert_nil card_of(body), "no plan change card: #{text(body)}"
+    assert_equal 0, @household.mia_action_drafts.pending.count, "nothing proposed that replaces the bills"
+    assert_equal 1950.0, values[:fixed_expenses].to_f
+    assert_equal %w[Rent Power Insurance], stack_names("non_discretionary")
+  end
+
+  test "a payment the model labelled as a new bills total is not turned into one when bills are itemized" do
+    finish_setup
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: "set fixed expenses",
+      needs_clarification: false, clarification: "", topic: {}, action: { type: "update_household_setup", setup_updates: { fixed_expenses: "60" } }, read_only_plan: {}, source: "model")
+    body = say("i paid 60 for phone", read, intent: intent)
+    assert_nil card_of(body), text(body)
+    assert_match(/Tell me the new amount/, text(body))
+    changed = say("my bills are 2100 now", read, intent: HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: "set fixed expenses",
+      needs_clarification: false, clarification: "", topic: {}, action: { type: "update_household_setup", setup_updates: { fixed_expenses: "2100" } }, read_only_plan: {}, source: "model"))
+    assert_equal 210_000, row(changed, "fixed_expenses")["total_cents"], "a stated change still reaches the card"
+  end
+
+  def model_intent(action, message) = HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: message,
+    needs_clarification: false, clarification: "", topic: {}, action: action, read_only_plan: {}, source: "model")
+
+  test "restoring a debt and switching debt tracking keep their own review, not a dead end" do
+    finish_setup
+    truck = @household.debts.find_by!(label: "Truck")
+    truck.update!(active: false, archived_at: Time.current)
+    restore = say("actually bring the truck back", read, intent: model_intent({ type: "restore_debt", debt_id: truck.id, debt_name: "Truck" }, "restore the truck"))
+    assert_no_match(/Tell me the new amount/, text(restore))
+    draft = restore["mia_action_draft"]
+    assert draft, text(restore)
+    assert_equal "debt_plan", draft["draft_type"]
+    apply(draft)
+    assert truck.reload.active?
+
+    tracking = say("just track my debts as one total", read, intent: model_intent({ type: "update_debt_tracking", debt_tracking_mode: "summary", amount: "unknown", minimum_payment: "385" }, "track debts as one total"))
+    assert_no_match(/Tell me the new amount/, text(tracking))
+    assert tracking["mia_action_draft"], text(tracking)
+    assert_equal "debt_plan", tracking["mia_action_draft"]["draft_type"]
+  end
+
+  test "weekly and twice-a-month pay after setup are offered as a month, and yes saves it" do
+    finish_setup
+    weekly = say("i get 1000 every week now", read(setup: changes(primary_income: money(total_amount: "1000", total_cadence: "weekly", total_source: "i get 1000 every week now"))))
+    assert_match(/That's about \$4,333 a month \(1,000 × 52 ÷ 12\)\. Use \$4,333\?\z/, text(weekly))
+    say("yes", read)
+    assert_equal 433_300, rows(say("hold on", read))&.find { |item| item["key"] == "primary_income" }&.fetch("total_cents")
+    twice = say("actually i get 1200 twice a month", read(setup: changes(primary_income: money(total_amount: "1200", total_cadence: "twice_monthly", total_source: "i get 1200 twice a month"))))
+    assert_match(/\$2,400/, text(twice))
+    yes = say("yes", read)
+    assert_equal 240_000, row(yes, "primary_income")["total_cents"]
+    apply(card_of(yes))
+    assert_equal 2400.0, values[:primary_income].to_f
+  end
+
+  test "taking off every bill leaves fixed essentials at a stated zero on the card, and saves it" do
+    finish_setup
+    message = "we moved in with family so no more rent, power or insurance"
+    body = say(message, read(setup: changes(fixed_expenses: money(parts: %w[rent power insurance].map { |name| part("remove", name, "", source: message) }))))
+    assert card_of(body), text(body)
+    fixed = row(body, "fixed_expenses")
+    assert_equal 0, fixed["total_cents"], text(body)
+    assert_equal [ true, true, true ], fixed["parts"].map { |item| item["removed"] }
+    apply(card_of(body))
+    assert_equal [], stack_names("non_discretionary")
+    assert_equal 0.0, values[:fixed_expenses].to_f
+  end
+
+  test "care comes first on a completed household: a hardship message is not turned into a bill change" do
+    finish_setup
+    message = "my husband just lost his job and rent is due friday, its 1700 now"
+    body = say(message, read(care: "hardship", setup: changes(fixed_expenses: money(parts: [ part("replace", "rent", "1700", source: "rent is due friday, its 1700 now") ]))))
+    assert_nil card_of(body), "care replies take precedence over a change card"
+    assert_match(/landlord|rent|payment arrangement|coach|trust/i, text(body))
+    assert_equal 1950.0, values[:fixed_expenses].to_f
   end
 end

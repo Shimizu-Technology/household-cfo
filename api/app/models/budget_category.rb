@@ -17,6 +17,12 @@ class BudgetCategory < ApplicationRecord
   scope :archived, -> { where(active: false) }
   scope :ordered, -> { order(:sort_order, :name) }
 
+  # A purchase she hasn't confirmed yet that points at this row; archiving or
+  # splitting the row now would strand it.
+  def purchases_waiting?
+    transaction_drafts.pending.exists? || transaction_draft_splits.joins(:transaction_draft).where(transaction_drafts: { status: "pending" }).exists?
+  end
+
   def stack_label
     HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(stack_key, stack_key.to_s.humanize.presence || "Custom")
   end

@@ -465,21 +465,25 @@ module HouseholdFinance
       bills = @setup_bills.fetch(key)
       stack_key = HouseholdFieldRegistry.stack_key(key)
       months = PlanCoverage.new(household).month_numbers(annual_budget_manager.year)
+      # A bill is found only in its own layer, so a same-named row elsewhere in
+      # the budget is never archived or reallocated by mistake.
+      in_layer = household.budget_categories.active.where(stack_key: stack_key)
       items = bills.fetch("remove").map do |name|
-        category = household.budget_categories.active.where("LOWER(name) = ?", name.downcase).first
+        category = in_layer.where("LOWER(name) = ?", name.downcase).first
         next validation_result("#{name} isn't in your budget any more. Nothing changed.") unless category
+        next validation_result("#{category.name} has a purchase waiting for your review. Review that purchase first, then ask me again. Nothing changed.") if category.purchases_waiting?
         setup_item_from_command(type: "archive_category", category_id: category.id, category_name: category.name)
       end
       bills.fetch("keep").each do |bill|
         next if bill["saved_label"].present? && bill["cents"] == bill["saved_cents"]
         name = bill["saved_label"].presence || bill.fetch("label").to_s.squish
-        category = household.budget_categories.active.where("LOWER(name) = ?", name.downcase).first
-        saved = category && household.expense_items.where(active: true).where("LOWER(label) = ?", name.downcase).sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
+        category = in_layer.where("LOWER(name) = ?", name.downcase).first
+        saved = category && household.expense_items.where(active: true, stack_key: stack_key).where("LOWER(label) = ?", name.downcase).sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
         next if category && saved == bill.fetch("cents")
         if category
           items << setup_item_from_command(type: "set_allocation", category_id: category.id, category_name: category.name, amount: Money.dollars(bill.fetch("cents")).to_s, months: months, year: annual_budget_manager.year)
-        elsif household.budget_categories.archived.where("LOWER(name) = ?", name.downcase).exists?
-          items << validation_result("#{name} was taken off your budget earlier. Bring it back in Budget first, or give it a new name. Nothing changed.")
+        elsif (other = household.budget_categories.where("LOWER(name) = ?", name.downcase).first)
+          items << validation_result(other.active? ? "#{name} is already a row elsewhere in your budget. Give this one a different name. Nothing changed." : "#{name} was taken off earlier and stays in your history under that name. Give this one a different name. Nothing changed.")
         else
           items << setup_item_from_command(type: "create_category", new_name: name, stack_key: stack_key, amount: Money.dollars(bill.fetch("cents")).to_s, months: months, year: annual_budget_manager.year)
         end

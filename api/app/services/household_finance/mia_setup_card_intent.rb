@@ -5,6 +5,10 @@ module HouseholdFinance
   # still be a figure she wrote; anything else is dropped.
   class MiaSetupCardIntent
     TYPES = %w[update_household_setup create_debt update_debt archive_debt schedule_income_change].freeze
+    REGISTRY_BILLS = HouseholdFieldRegistry::BILL_KEYS
+    # "i paid 60 for phone" reports a payment. It never becomes a new total that
+    # would replace separately saved bills, whatever the model labelled it.
+    PAYMENT_WORDS = /\b(?:paid|spent|bought|purchased|picked up|grabbed|filled)\b/i
     INCOME_CADENCES = { "monthly" => "monthly", "weekly" => "weekly", "biweekly" => "biweekly", "semi_monthly" => "twice_monthly" }.freeze
 
     def initialize(household, message:)
@@ -39,6 +43,7 @@ module HouseholdFinance
         case HouseholdFieldRegistry.kind(key)
         when :text then changes[key] = value.to_s.squish if quoted_text?(value)
         when :income, :bills
+          next if REGISTRY_BILLS.include?(key) && reported_payment? && itemized?(key)
           cents = quoted_cents(value)
           changes[key] = { "total" => { "amount_cents" => cents, "cadence" => "monthly", "quote" => value.to_s } } if cents
         when :balance
@@ -50,6 +55,10 @@ module HouseholdFinance
         end
       end
     end
+
+    def reported_payment? = message.match?(PAYMENT_WORDS) && !message.match?(MiaSetupCard::CHANGED_WORDS)
+
+    def itemized?(key) = household.expense_items.where(active: true, stack_key: HouseholdFieldRegistry.stack_key(key)).where.not(cadence: "one_time").count > 1
 
     def add_debt(changes, action)
       name = debt_name(action)

@@ -7,6 +7,10 @@ module HouseholdFinance
     RESUMED = "Of course, let's keep going.".freeze
     UNKNOWN_MINIMUM = /\b(?:idk|dont know|don['’]?t know|not sure|no idea)\b/i
     BARE_YES = /\A(?:yes|yeah|yea|yep|ya|sure|correct|right|ok(?:ay)?|that works|sounds (?:good|right)|use (?:it|that)|do (?:it|that))[\s.!]*\z/i
+    # Money she reports having done is logged by the normal review, beside any
+    # change on this card. A bill or income fact is setup, not an event.
+    MONEY_EVENT_KINDS = %w[purchase set_aside withdrawal nothing_saved].freeze
+    EVENT_NOT_LOGGED = "I haven't set up the purchase you mentioned, so send it again after this.".freeze
     TITLE = "Your setup so far".freeze
     CHANGE_TITLE = "Your changes".freeze
     Plan = Data.define(:reply, :update_text, :continues, :next_field, :work_out, :superseded) do
@@ -77,8 +81,10 @@ module HouseholdFinance
 
     def plan
       return @plan if defined?(@plan)
-      @plan = build_plan
+      @plan = flag_unlogged_event(build_plan)
     end
+
+    def money_event? = @reading.facts.any? { |fact| fact["kind"].in?(MONEY_EVENT_KINDS) }
 
     def commit!(user_message:, assistant_message:)
       return unless plan
@@ -120,7 +126,7 @@ module HouseholdFinance
         return plan
       end
       if update_text.present? || offered_now?
-        return Plan.new(reply: nil, update_text: update_text, continues: true, next_field: next_field) if @reading.question && !offered_now?
+        return Plan.new(reply: nil, update_text: update_text, continues: true, next_field: next_field) if (@reading.question || money_event?) && !offered_now?
         lead = [ update_text.presence, offered_now? && card.updates.select { |update| update.action == :offer }.map { |update| MiaSetupCardReply.offer_lead(card, update.field) } ].flatten.compact_blank.join(" ")
         return composed_plan(lead, update_text.presence, next_field, asked)
       end
@@ -130,6 +136,12 @@ module HouseholdFinance
       return help_plan(changes["help_topic"], next_field) if changes["help_topic"]
       return if @reading.question || @reading.facts.any? || (!@resuming && !asked)
       composed_plan(@resuming ? RESUMED : KEEP_GOING, nil, next_field, asked)
+    end
+
+    # A reply that takes her whole turn can't also log what she did, so it says so.
+    def flag_unlogged_event(plan)
+      return plan unless plan && !plan.continues && plan.reply.present? && money_event?
+      plan.with(reply: "#{plan.reply} #{EVENT_NOT_LOGGED}")
     end
 
     def offered_now? = card.updates.any? { |update| update.action == :offer }
@@ -217,7 +229,7 @@ module HouseholdFinance
     end
 
     def compose(lead, next_field, asked:)
-      return lead if card.updates.any? { |update| update.action.in?(%i[no_breakdown combined too_long not_found]) }
+      return lead if card.updates.any? { |update| update.action.in?(%i[no_breakdown combined too_long not_found purchases_waiting name_taken]) }
       closing = frequency_question(next_field) || offer_or_question(next_field, asked) || finish_text
       first_save = "Nothing saves until you tap Apply." if @card_touched && !card_draft && (next_field || !@status.settled?)
       [ lead.presence, first_save, closing ].compact.join(" ")

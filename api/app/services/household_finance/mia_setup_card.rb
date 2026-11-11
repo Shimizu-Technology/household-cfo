@@ -25,7 +25,7 @@ module HouseholdFinance
     # layer. A saved row with one of these names is a total, not a named bill.
     AGGREGATE_LABELS = [ "Fixed essentials", "Flexible spending", "Everyday spending", "Expected sinking fund", "Unexpected sinking fund", "Planned yearly costs", "Surprise fund" ].map(&:downcase).freeze
 
-    NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long kept_edit].freeze
+    NOOP_ACTIONS = %i[not_found no_breakdown debt_on_file card_full combined too_long kept_edit purchases_waiting name_taken].freeze
     # How many times a year a stated amount comes. Mia offers the monthly
     # figure and only counts it once she says yes.
     TIMES_A_YEAR = { "weekly" => 52, "biweekly" => 26, "twice_monthly" => 24, "quarterly" => 4, "twice_yearly" => 2, "yearly" => 1 }.freeze
@@ -503,9 +503,19 @@ module HouseholdFinance
         fields.delete(field) if seeded
         return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: lump.sum { |part| part["cents"].to_i })
       else
+        if field.in?(BILL_FIELDS) && (clash = name_clash(field, label))
+          renamed = renamed_label(field, new_part["label"])
+          if renamed
+            new_part["label"] = renamed
+          else
+            fields.delete(field) if seeded
+            return updates << Update.new(field: field, action: :name_taken, label: label, note: clash)
+          end
+        end
         state["parts"] << new_part
       end
-      action = new_part["counted"] ? (match && !match["removed"] ? :changed : :added) : :needs_monthly
+      action = new_part["counted"] ? (match && !match["removed"] ? :changed : (renamed ? :renamed : :added)) : :needs_monthly
+      return updates << Update.new(field: field, action: :renamed, label: new_part["label"], cents: new_part["cents"], note: "#{clash}, so I added this one as #{new_part['label'].downcase}") if action == :renamed
       updates << Update.new(field: field, action: action, label: new_part["label"], cents: new_part["counted"] ? new_part["cents"] : nil, note: new_part["note"]) unless action == :needs_monthly && proposable_part(field).equal?(new_part)
     end
 
@@ -524,12 +534,37 @@ module HouseholdFinance
         return updates << Update.new(field: field, action: :not_found, label: label)
       end
       return updates << Update.new(field: field, action: :combined, label: label, note: match["label"]) if combined_row?(match, label)
+      if match["saved_label"] && saved_bill_category(field, match["saved_label"])&.purchases_waiting?
+        fields.delete(field) if seeded
+        return updates << Update.new(field: field, action: :purchases_waiting, label: match["label"])
+      end
       match["saved_label"] ? match["removed"] = true : state["parts"].delete(match)
       if state["parts"].empty? && saved_totals[field]
         fields[field] = { "parts" => [] }
         return updates << Update.new(field: field, action: :no_breakdown, label: label, cents: saved_totals[field])
       end
       updates << Update.new(field: field, action: :removed, label: match["label"], cents: match["cents"])
+    end
+
+    # The active budget row behind one saved bill, in its own layer.
+    def saved_bill_category(field, name)
+      household.budget_categories.active.where(stack_key: REGISTRY.stack_key(field)).where("LOWER(name) = ?", name.to_s.downcase).first
+    end
+
+    # A new bill can't take the name of a row that lives elsewhere in her budget,
+    # or one she took off earlier (its history keeps the name). Says why.
+    def name_clash(field, name)
+      category = household.budget_categories.where("LOWER(name) = ?", name.to_s.downcase).first
+      return unless category
+      return "#{name} was taken off earlier and stays in your history" unless category.active?
+      return if category.stack_key == REGISTRY.stack_key(field)
+      layer = REGISTRY.bill_field_for_stack(category.stack_key)
+      "#{name} is already a row in your #{layer ? MiaSetupCardReply::FIELD_NAMES.fetch(layer) : 'budget'}"
+    end
+
+    def renamed_label(field, name)
+      candidate = name.to_s.match?(/\bbill\z/i) ? "#{name} 2" : "#{name} bill"
+      candidate.truncate(80, omission: "") unless name_clash(field, candidate)
     end
 
     # Saved money enters the card only once a part is added to it: named bills
