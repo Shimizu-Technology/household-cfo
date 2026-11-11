@@ -42,6 +42,13 @@ module HouseholdFinance
       cents.to_i / 100.0
     end
 
+    # How Mia writes money in a sentence: whole dollars as "$50", cents kept when
+    # there are any ("$12.50").
+    def plain(cents)
+      cents = cents.to_i
+      ActiveSupport::NumberHelper.number_to_currency(dollars(cents), precision: (cents % 100).zero? ? 0 : 2)
+    end
+
     def cents(value)
       decimal = BigDecimal(value.to_s.presence || "0")
       (decimal * 100).round.to_i

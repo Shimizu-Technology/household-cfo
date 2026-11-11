@@ -164,8 +164,8 @@ class ApiV1MiaQaChatRegressionsTest < ActionDispatch::IntegrationTest
     post_message(user, "how much do we owe on the credit card")
 
     assert_response :created
-    assert_includes reply, "$3,200.00"
-    assert_includes reply, "$95.00"
+    assert_includes reply, "$3,200"
+    assert_includes reply, "$95"
     assert_includes reply, "not a per-card figure"
     refute_includes reply, "check the annual plan"
   end

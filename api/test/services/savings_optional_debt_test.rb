@@ -175,7 +175,7 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       coach = coach("How much do I owe on my card according to what I approved?")
       answer = coach.call
       assert coach.deterministic?
-      assert_includes answer, "Visa, $300.00 as of 2026-11-01"
+      assert_includes answer, "Visa, $300 as of 2026-11-01"
       assert_includes answer, "interest rate (APR), minimum payment and due date"
       assert_includes answer, "unknown, not zero"
       assert_includes answer, "not a live balance"

@@ -22,7 +22,7 @@ it('celebrates an approved checkpoint with one Biba card, the real figure and on
  expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
  fireEvent.click(await screen.findByRole('checkbox',{name:/I checked the dates, savings, goal/}));fireEvent.click(screen.getByRole('button',{name:'Approve Day 30 checkpoint'}))
  const card=await screen.findByRole('region',{name:'Biba! Day 30 is done.'})
- expect(card.textContent).toContain('You’ve set aside $550.00, which reaches your $500.00 target.')
+ expect(card.textContent).toContain('You’ve set aside $550, which reaches your $500 target.')
  expect(card.querySelectorAll('button')).toHaveLength(1)
  fireEvent.click(screen.getByRole('button',{name:'Back to my savings'}));expect(close).toHaveBeenCalledTimes(1);expect(screen.queryByRole('heading',{name:/Biba/})).toBeNull()
 })

@@ -62,7 +62,7 @@ module SavingsChallenge
         next unless cents.positive?
         day = HouseholdFinance::ParticipantReportDay.call(day: fact["day"], message: fact["source_text"].presence || (@reading.facts.many? ? "" : @message), today: @enrollment.local_today)
         if day.state == :missing && fact["kind"] != "purchase"
-          @rejections << { question: "You mentioned #{ActionController::Base.helpers.number_to_currency(cents / 100.0)} set aside or taken out. Which day was that?" }
+          @rejections << { question: "You mentioned #{HouseholdFinance::Money.plain(cents)} set aside or taken out. Which day was that?" }
           next
         end
         date = day.state == :missing ? @enrollment.local_today : day.date

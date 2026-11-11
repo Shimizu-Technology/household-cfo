@@ -33,10 +33,14 @@ export function savingsInputCents(value: string, allowZero = false): number {
 export function savingsDollars(cents: number | null): string {
   return cents === null ? 'Not yet reported' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
-// Targets read naturally in whole dollars; fractional dollars retain exact cents.
-export function savingsTargetDollars(cents: number): string {
-  return cents % 100 === 0 ? `$${new Intl.NumberFormat('en-US').format(cents / 100)}` : savingsDollars(cents)
+// Whole dollars read as "$50"; any cents are kept ("$12.50"). For sentences and chat cards.
+export function savingsPlainDollars(cents: number): string {
+  if (cents % 100 !== 0) return savingsDollars(cents)
+  const whole = new Intl.NumberFormat('en-US').format(Math.abs(cents) / 100)
+  return `${cents < 0 ? '-' : ''}$${whole}`
 }
+// Targets read naturally in whole dollars; fractional dollars retain exact cents.
+export const savingsTargetDollars = savingsPlainDollars
 export function savingsInputDollars(cents: number): string {
   const magnitude = Math.abs(cents)
   return `${Math.floor(magnitude / 100)}.${String(magnitude % 100).padStart(2, '0')}`

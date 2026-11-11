@@ -92,7 +92,7 @@ module SavingsChallenge
     def purchase_answer
       @purchase_prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
       item = HouseholdFinance::PurchaseQuestionText.item_label(@message).presence || "purchase"
-      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "I would hold off on the #{item} rather than add a payment you cannot cover." : "Check what would pay for the #{item} before deciding."
+      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "The open question on the #{item} is how you would cover it without adding a payment you cannot keep up with." : "Check what would pay for the #{item} before deciding."
       "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
     end
 
@@ -136,9 +136,7 @@ module SavingsChallenge
       end
     end
 
-    def money(cents)
-      ActionController::Base.helpers.number_to_currency(cents.to_i / 100.0)
-    end
+    def money(cents) = HouseholdFinance::Money.plain(cents)
 
     def privacy_answer
       "Participation does not give an employer or sponsor access to your balances, statements, purchases, chat or feelings. Your records are private by default; coach monetary summaries and selected details require separate choices in Privacy & reminders. Sponsor reporting uses fixed, coarse cohort summaries with suppression, not individual financial records. You choose what to share, and can revoke a grant. What access would you like to review?"

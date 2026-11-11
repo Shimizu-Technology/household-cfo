@@ -14,7 +14,7 @@ afterEach(cleanup)
 it('uses plain contribution words and a local day, with a review before any save', () => {
   const onReview = vi.fn()
   render(<MiaSavingsReview intake={intake()} today="2026-10-21" onReview={onReview} />)
-  expect(screen.getByText('$50.00 set aside · Today')).toBeTruthy()
+  expect(screen.getByText('$50 set aside · Today')).toBeTruthy()
   expect(screen.getByText(/Check it, then save it to your challenge/)).toBeTruthy()
   expect(screen.getByRole('region').textContent).not.toMatch(/contribution|unreviewed|preview|2026-10-21/i)
   expect(onReview).not.toHaveBeenCalled()
@@ -24,7 +24,7 @@ it('uses plain contribution words and a local day, with a review before any save
 
 it('formats older days without an ISO date', () => {
   render(<MiaSavingsReview intake={intake({ kind: 'withdrawal', effective_on: '2026-10-19' })} today="2026-10-21" onReview={vi.fn()} />)
-  expect(screen.getByText('$50.00 taken out · Mon, Oct 19')).toBeTruthy()
+  expect(screen.getByText('$50 taken out · Mon, Oct 19')).toBeTruthy()
 })
 
 it('approves a saving in the card only after the new-money box and Yes, and keeps Open in Savings', async () => {
@@ -32,12 +32,12 @@ it('approves a saving in the card only after the new-money box and Yes, and keep
   const saved = intake()
   vi.mocked(updateChallengeChatCard).mockResolvedValue({ record: { ...card(saved), status: 'closed' }, challenge: {} as never })
   render(<MiaSavingsReview intake={saved} card={card(saved)} today="2026-10-21" onReview={onReview} onApproved={onApproved} />)
-  const yes = screen.getByRole('button', { name: 'Yes, add $50.00' }) as HTMLButtonElement
+  const yes = screen.getByRole('button', { name: 'Yes, add $50' }) as HTMLButtonElement
   expect(yes.disabled).toBe(true)
   fireEvent.click(screen.getByLabelText(/new money I set aside after expenses/))
   expect(yes.disabled).toBe(false)
   fireEvent.click(yes)
-  await screen.findByText('$50.00 added')
+  await screen.findByText('$50 added')
   expect(updateChallengeChatCard).toHaveBeenCalledWith(4, { action: 'approve_savings', expected_lock_version: 2, accepted: true, new_money_confirmed: true })
   fireEvent.click(screen.getByRole('button', { name: 'Done' }))
   expect(onApproved).toHaveBeenCalledOnce()
@@ -49,8 +49,8 @@ it('takes a withdrawal out without a new-money box, and a correction says what i
   vi.mocked(updateChallengeChatCard).mockResolvedValue({ record: { ...card(withdrawal), status: 'closed' }, challenge: {} as never })
   const { unmount } = render(<MiaSavingsReview intake={withdrawal} card={card(withdrawal)} today="2026-10-21" onReview={vi.fn()} />)
   expect(screen.queryByRole('checkbox')).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Yes, take out $50.00' }))
-  await screen.findByText('$50.00 taken out')
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, take out $50' }))
+  await screen.findByText('$50 taken out')
   expect(updateChallengeChatCard).toHaveBeenCalledWith(4, { action: 'approve_savings', expected_lock_version: 2, accepted: true })
   unmount()
   const fix = intake({ amount_cents: 1500, correction: { id: 1, lock_version: 0, current_approved_version_id: 3, current_approved_version: { signed_cents: 2000 } } as never })
@@ -65,9 +65,9 @@ it('shows a refused approval plainly and can try again', async () => {
   vi.mocked(updateChallengeChatCard).mockRejectedValueOnce(new Error('offline'))
   render(<MiaSavingsReview intake={saved} card={card(saved)} today="2026-10-21" onReview={vi.fn()} />)
   fireEvent.click(screen.getByLabelText(/new money I set aside/))
-  fireEvent.click(screen.getByRole('button', { name: 'Yes, add $50.00' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, add $50' }))
   await screen.findByRole('alert')
-  await waitFor(() => expect((screen.getByRole('button', { name: 'Yes, add $50.00' }) as HTMLButtonElement).disabled).toBe(false))
+  await waitFor(() => expect((screen.getByRole('button', { name: 'Yes, add $50' }) as HTMLButtonElement).disabled).toBe(false))
 })
 
 it('sends her to Savings when the day is still unknown or there is no saved card', () => {

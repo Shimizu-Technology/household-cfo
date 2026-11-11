@@ -186,7 +186,7 @@ describe('Mia daily report card', () => {
     await waitFor(() => expect(fetchDailyRequestStatus).toHaveBeenCalledWith('purchase_approve', 'approve-key'))
     expect((within(card).getByRole('button', { name: 'Save to today' }) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => { resolveStatus({ actor_scope: baselineScope, state: 'committed', record: dailyVersion, replayed: true }) })
-    await within(card).findByText(/\$20\.00/)
+    await within(card).findByText(/\$20/)
     await ready(card)
     fireEvent.click(within(card).getByRole('button', { name: 'Save to today' }))
     await within(card).findByRole('heading', { name: 'Saved to today' })

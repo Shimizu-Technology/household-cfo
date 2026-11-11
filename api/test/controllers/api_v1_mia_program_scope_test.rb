@@ -28,7 +28,7 @@ class ApiV1MiaProgramScopeTest < ActionDispatch::IntegrationTest
   test "fresh second program never receives first program history or household Mia payload" do
     post_message(@first_cohort, "How much savings progress do I have?", "same-request")
     assert_response :created
-    assert_includes response.parsed_body.dig("assistant_message", "content"), "$75.00"
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "$75"
     get "/api/v1/mia/messages", headers: auth(@second_cohort)
     assert_response :success
     assert_empty response.parsed_body.fetch("messages")
@@ -45,7 +45,7 @@ class ApiV1MiaProgramScopeTest < ActionDispatch::IntegrationTest
     first_ids = response.parsed_body.values_at("user_message", "assistant_message").pluck("id")
     post_message(@second_cohort, "How much savings progress do I have?", "same-request")
     assert_response :created
-    refute_includes response.body, "$75.00"
+    refute_includes response.body, "$75"
     second_ids = response.parsed_body.values_at("user_message", "assistant_message").pluck("id")
     refute_equal first_ids, second_ids
     assert_no_difference "ChatMessage.count" do
