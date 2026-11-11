@@ -1,33 +1,17 @@
 module HouseholdFinance
-  # Mia's whole reply on a setup turn. It is built from what Ruby just changed,
-  # so every figure in it is already on the card.
+  # Mia's whole reply on a change-card turn. It is built from what Ruby just
+  # changed, so every figure in it is already on the card.
   module MiaSetupCardReply
-    QUESTIONS = {
-      "household_name" => [ "What would you like to call your household?", "What name should go on your household plan?" ],
-      "primary_goal" => [ "What's the main thing you'd like your money to do for your household?", "What would you most like this plan to help with?" ],
-      "primary_income" => [ "About how much does your household bring home each month after taxes?", "What's your monthly take-home, roughly?" ],
-      "fixed_expenses" => [ "What are your must-pay bills each month? One total or a list like rent 1500, power 140 both work.", "What do your regular bills come to each month?" ],
-      "flexible_spend" => [ "About how much goes to everyday spending each month, like groceries and gas?", "What's your usual everyday spending in a month?" ],
-      "debt_payment" => [ "What do you pay on debts each month? List each one with its minimum, or say no debts.", "Which debts do you have, and what's the minimum on each? You can say no debts." ]
-    }.freeze
-    HELP = {
-      "household_name" => "A household name is just a label you choose, like your family name.",
-      "primary_goal" => "A goal is something you want your money plan to help with, like covering the bills or building a little cushion. It can start small, or you can say skip.",
-      "primary_income" => "Monthly take-home is the money you actually receive after taxes in a usual month.",
-      "fixed_expenses" => "Fixed essentials are the bills you need to cover every month, like rent and utilities.",
-      "flexible_spend" => "Everyday spending is what you plan for things like groceries, gas and other costs that change month to month.",
-      "debt_payment" => "This is the minimum you have to pay on each debt every month, not the balance you owe."
-    }.freeze
-    FIELD_NAMES = {
-      "household_name" => "your household name", "primary_goal" => "your goal", "primary_income" => "income",
-      "fixed_expenses" => "fixed essentials", "flexible_spend" => "everyday spending", "debt_payment" => "debts"
-    }.freeze
+    REGISTRY = HouseholdFieldRegistry
+    QUESTIONS = REGISTRY::FIELDS.to_h { |field| [ field.key, field.questions ] }.freeze
+    HELP = REGISTRY::FIELDS.to_h { |field| [ field.key, field.help ] }.freeze
+    FIELD_NAMES = REGISTRY::FIELDS.to_h { |field| [ field.key, field.name ] }.freeze
 
     module_function
 
-    def updated_text(updates, card, card_open: true)
+    def updated_text(updates, card, card_open: true, complete: false)
       lines = []
-      updates.group_by(&:field).each { |field, group| lines.concat(field_lines(field, group, card, card_open)) }
+      updates.group_by(&:field).each { |field, group| lines.concat(field_lines(field, group, card, card_open, complete)) }
       lines.join(" ")
     end
 
@@ -39,6 +23,8 @@ module HouseholdFinance
     def help(field) = HELP.fetch(field)
 
     def question(field, card:, previous:)
+      offer = card.offer_question_for(field)
+      return offer if offer
       labels = card.unresolved_labels(field)
       return "#{labels.first.match?(/s\z/i) ? 'What are' : "What's"} #{labels.first.downcase} in a usual month? I only have it as #{unresolved_note(card, field)}." if labels.one?
       return "What are #{labels.to_sentence} in a usual month?" if labels.any?
@@ -52,35 +38,86 @@ module HouseholdFinance
     PAYCHECK_QUESTION = "Sure, let's work it out. About how much is one paycheck after taxes, and how often do you get it: every week, every two weeks, or twice a month?".freeze
     PAYCHECK_FREQUENCY_QUESTION = "How often do you get that paycheck: every week, every two weeks, or twice a month?".freeze
     BIMONTHLY_QUESTION = "Do you mean twice a month, or every two months?".freeze
-    CADENCE_PHRASES = { "weekly" => "Paid every week is 52 paychecks a year", "biweekly" => "Paid every two weeks is 26 paychecks a year", "quarterly" => "Four times a year", "twice_yearly" => "Twice a year", "yearly" => "Spread over a year" }.freeze
+    CADENCE_PHRASES = { "weekly" => "Every week is 52 times a year", "biweekly" => "Every two weeks is 26 times a year", "twice_monthly" => "Twice a month is 24 times a year",
+      "quarterly" => "Four times a year", "twice_yearly" => "Twice a year", "yearly" => "Once a year" }.freeze
 
+    # The working behind an offered figure, for "help me work it out".
     def working(proposal)
-      stated, monthly = money(proposal[:stated_cents]), money(proposal[:monthly_cents])
-      sum = proposal[:times] == 1 ? "#{stated} ÷ 12" : "#{stated} × #{proposal[:times]} ÷ 12"
-      "#{CADENCE_PHRASES.fetch(proposal[:cadence])}, so #{sum} comes to about #{monthly} a month. I put it on your card but didn't count it yet. Should I use #{monthly}, or is a usual month different?"
+      monthly = money(proposal[:monthly_cents])
+      if proposal[:kind] == :range
+        return "Halfway between #{money(proposal[:low_cents])} and #{money(proposal[:high_cents])} is #{monthly}. Want to use #{monthly} for now? You can change it any time."
+      end
+      stated = money(proposal[:stated_cents])
+      yearly = money(proposal[:stated_cents] * proposal[:times])
+      return "#{stated} a year ÷ 12 is #{proposal[:exact] ? '' : 'about '}#{monthly} a month. Use #{monthly}?" if proposal[:times] == 1
+      return "#{CADENCE_PHRASES.fetch(proposal[:cadence])}, so #{stated} × 2 = #{monthly} a month. Use #{monthly}?" if proposal[:times] == 24
+      "#{CADENCE_PHRASES.fetch(proposal[:cadence])}, so #{stated} × #{proposal[:times]} = #{yearly} a year, and ÷ 12 is about #{monthly} a month. Use #{monthly}?"
     end
 
-    def finished(card)
-      card ? "That's everything I need. Look over your card and tap Apply when it's right." : nil
+    def finished(card, complete: false)
+      return unless card
+      complete ? "Look over your card and tap Apply when it's right." : "That's everything I need. Look over your card and tap Apply when it's right."
+    end
+
+    # She moved past the offered figure; it waits on the card, unasked.
+    def parked(field, card)
+      note = card.offer(field)&.fetch("note", nil).to_s.sub(/, (?:about )?\$[\d,.]+(?: a month)? if that's right\z/, "")
+      "I'll leave #{FIELD_NAMES.fetch(field)} as #{note.presence || 'it is'} for now. You can tap it on the card any time."
+    end
+
+    # A number that would have replaced a row she set herself.
+    def kept_edit(field, card:, amount_text:, suggestion:)
+      kept = card.fields.dig(field, "value") || (cents = card.money_total(field) || card.fields.dig(field, "cents")) && money(cents)
+      lead = kept ? "You set #{FIELD_NAMES.fetch(field)} to #{kept} on the card, so I kept it." : "I kept #{FIELD_NAMES.fetch(field)} as you set it on the card."
+      what = amount_text ? "What's the #{amount_text} for" : "What's that number for"
+      "#{lead} #{what}#{suggestion ? ", #{FIELD_NAMES.fetch(suggestion)} or something else" : ''}?"
+    end
+
+    # One plain sentence after Apply that says what changed.
+    def applied_sentence(card)
+      parts = card.rows.flat_map { |row| applied_parts(row) }
+      return if parts.empty? || parts.length > 4
+      "Done: #{parts.to_sentence}."
+    end
+
+    private_class_method def self.applied_parts(row)
+      field = row[:key]
+      name = FIELD_NAMES.fetch(field)
+      case REGISTRY.kind(field)
+      when :text then [ field == "household_name" ? "your household name is #{row[:value_text]}" : "your goal is saved" ]
+      when :months then [ "#{name} is #{row[:value_text]}" ]
+      when :balance then [ "#{name} is #{money(row[:total_cents])}" ]
+      when :debts
+        return [ "no debts" ] if row[:value_text] == "No debts"
+        row[:parts].map { |part| part[:removed] ? "#{part[:label].downcase} is off your debts" : "#{part[:label].downcase} minimum is #{money(part[:cents])}" }.presence || [ "#{name} are #{money(row[:total_cents])} a month" ]
+      else
+        changes = row[:parts].map { |part| part[:removed] ? "#{part[:label].downcase} is off" : "#{part[:label].downcase} is #{money(part[:cents])}" }
+        total = row[:total_cents] && "#{name} #{field.in?(REGISTRY::INCOME_KEYS) ? 'is' : 'are'} #{money(row[:total_cents])} a month"
+        changes.length > 3 ? [ total ].compact : (changes + [ total ]).compact
+      end
     end
 
     private_class_method def self.unresolved_note(card, field)
-      Array(card.fields.dig(field, "parts")).find { |part| !part["counted"] }&.fetch("note").to_s
+      Array(card.fields.dig(field, "parts")).find { |part| !part["counted"] && !part["removed"] }&.fetch("note").to_s
     end
 
-    private_class_method def self.field_lines(field, group, card, card_open)
-      if field.in?(MiaSetupCard::TEXT_FIELDS)
+    private_class_method def self.field_lines(field, group, card, card_open, complete)
+      kind = REGISTRY.kind(field)
+      if kind == :text
         return group.flat_map { |update| update.action == :too_long ? single_lines(field, update, card_open) : [ field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." ] }
       end
+      return group.flat_map { |update| update.action == :set ? [ "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{update.label} #{update.label == '1' ? 'month' : 'months'}." ] : [] } if kind == :months
+      return group.flat_map { |update| update.action == :total ? [ "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{money(update.cents)}." ] : [] } if kind == :balance
       lines = []
       added = group.select { |update| update.action == :added && update.cents }
       lines << "Added #{added.map { |update| phrase(update) }.to_sentence}." if added.any?
-      group.reject { |update| update.action == :card_full }.each { |update| lines.concat(single_lines(field, update, card_open)) }
+      group.reject { |update| update.action.in?(%i[card_full kept_edit]) }.each { |update| lines.concat(single_lines(field, update, card_open)) }
       full = group.select { |update| update.action == :card_full }.map { |update| update.label.downcase }
       lines << "Your card holds #{MiaSetupCard::MAX_PARTS} rows here, so I left #{full.to_sentence} off. You can combine a few, or give me one total." if full.any?
       if added.many? || group.any? { |update| update.action.in?(%i[changed removed]) }
         total = field == MiaSetupCard::DEBT_FIELD ? debt_total(card) : card.money_total(field)
-        lines << "#{FIELD_NAMES.fetch(field).capitalize} #{field == 'primary_income' ? 'is' : 'are'} #{money(total)} so far." if total
+        verb = field.in?(REGISTRY::INCOME_KEYS) ? "is" : "are"
+        lines << (complete ? "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} would be #{money(total)} a month." : "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} #{verb} #{money(total)} so far.") if total
       end
       lines.compact
     end
@@ -103,12 +140,13 @@ module HouseholdFinance
     end
 
     private_class_method def self.none_line(field)
-      { "primary_income" => "Noted: no income right now.", "fixed_expenses" => "Noted: no must-pay bills.", "flexible_spend" => "Noted: no everyday spending." }.fetch(field)
+      { "primary_income" => "Noted: no income right now.", "business_income" => "Noted: no business income right now.", "fixed_expenses" => "Noted: no must-pay bills.",
+        "flexible_spend" => "Noted: no everyday spending." }.fetch(field) { "Noted: nothing for #{FIELD_NAMES.fetch(field)}." }
     end
 
     private_class_method def self.total_line(field, update)
       amount = update.note ? "#{update.note}, so #{money(update.cents)} a month" : "#{money(update.cents)} a month"
-      "#{FIELD_NAMES.fetch(field).capitalize}: #{amount}."
+      "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{amount}."
     end
 
     private_class_method def self.phrase(update) = "#{update.label.downcase} #{money(update.cents)}"

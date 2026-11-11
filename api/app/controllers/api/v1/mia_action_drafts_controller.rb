@@ -141,6 +141,11 @@ module Api
           asked = HouseholdFinance::MiaSetupCardTurn.active_field(session)
           next unless asked
           household = current_household.reload
+          # She answered Mia's question on the card herself. That question is
+          # done, and the next unlabelled number can't land on the row she set.
+          if params[:field].to_s == asked && params[:action_name].to_s == "set"
+            next session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => nil, "setup_card_work_out" => nil, "setup_card_superseded" => asked))
+          end
           next if HouseholdFinance::SetupStatus.new(household).missing_field_keys.include?(asked) && !card.field_known?(asked) && !household.setup_skipped_fields.to_a.include?(asked)
 
           session.update!(active_topic: session.active_topic.to_h.merge("setup_card_field" => HouseholdFinance::MiaSetupCardTurn.next_open_field(household, card)))
@@ -183,6 +188,9 @@ module Api
         when "income_schedule"
           "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
         when "household_setup"
+          state = draft.metadata.to_h["setup_card"]
+          changed = state && state["change_mode"] && HouseholdFinance::MiaSetupCardReply.applied_sentence(HouseholdFinance::MiaSetupCard.new(draft.household, state: state))
+          return changed if changed && !carried
           base = "Your household details are saved."
           card = carried_setup_card(carried)
           next_step = if (field = card&.unresolved_field_keys&.first)

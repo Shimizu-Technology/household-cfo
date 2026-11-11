@@ -60,6 +60,7 @@ module HouseholdFinance
       card = MiaSetupCard.new(draft.household, state: state)
       blocked = state["blocked"].to_h
       { title: draft.title, rows: card.rows.map { |row| blocked[row[:key]] ? row.merge(note: blocked[row[:key]]) : row }, can_apply: draft.mia_action_items.any?, revision: state["revision"].to_i }
+        .merge(state["change_mode"] ? { still_to_add: [], skipped: [] } : card.still_to_add)
     end
 
     def scope_note
