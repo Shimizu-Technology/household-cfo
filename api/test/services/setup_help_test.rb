@@ -104,14 +104,49 @@ class SetupHelpTest < ActiveSupport::TestCase
     assert_raises(SetupHelp::Error) { @participant.create_request(reason: "other", share_metadata: true, idempotency_key: "") }
     first = request("one")
     assert_equal first[:id], request("one")[:id]
-    assert_equal first[:id], request("two", reason: "upload_problem")[:id]
-    assert_equal "practice_numbers", @participant.status[:latest_request][:reason]
+    assert_not_equal first[:id], request("two", reason: "upload_problem")[:id]
+    assert_equal "upload_problem", @participant.status[:latest_request][:reason]
     assert_raises(SetupHelp::Conflict) { request("one", reason: "wrong_setup") }
-    assert_equal 1, @household.setup_support_requests.count
-    assert_equal 1, @household.household_audit_events.where(event_type: "setup_support.requested").count
+    assert_equal 2, @household.setup_support_requests.count
+    assert_equal 2, @household.household_audit_events.where(event_type: "setup_support.requested").count
     @participant.cancel_request(id: first[:id], expected_lock_version: first[:lock_version])
     assert_equal first[:id], request("one")[:id]
     assert_not_equal first[:id], request("new-after-cancel")[:id]
+  end
+
+  %w[requested in_review ready].each do |status|
+    test "a leave request preserves #{status} setup work and cannot prepare a financial restart" do
+      original = request("setup", reason: "wrong_setup")
+      staff = SetupHelp::Staff.new(user: @admin)
+      action = { "in_review" => "triage", "ready" => "prepare" }[status]
+      original = staff.transition(id: original[:id], action: action, expected_lock_version: original[:lock_version])[:request] if action
+      record = SetupSupportRequest.find(original[:id])
+      before = record.attributes
+      leave = @participant.request_leave(idempotency_key: "leave")
+      assert_not_equal original[:id], leave[:id]
+      assert_equal before, record.reload.attributes
+      assert_equal original[:id], @participant.status[:latest_request][:id]
+      assert_equal leave[:id], @participant.request_leave(idempotency_key: "leave-again")[:id]
+      upload = request("upload", reason: "upload_problem")
+      assert_equal "upload_problem", upload[:reason]
+      assert_not_includes [ original[:id], leave[:id] ], upload[:id]
+      assert_equal before, record.reload.attributes
+      listed = staff.list[:records].find { |item| item[:id] == leave[:id] }
+      assert_equal false, listed[:permissions][:prepare]
+      assert_no_difference "FinancialRestartReview.count" do
+        assert_raises(SetupHelp::Denied) { staff.transition(id: leave[:id], action: "prepare", expected_lock_version: leave[:lock_version]) }
+      end
+      assert_raises(SetupHelp::Error) { SetupHelp::Restart.new(@household, user: @user, request_id: leave[:id]).preview }
+      assert_raises(HouseholdFinance::FinancialRestart::Flow::Error) do
+        HouseholdFinance::FinancialRestart::Core.new(@household, user: @user).create_review!(cohort_id: nil,
+          purpose: "supported_setup", support_request: SetupSupportRequest.find(leave[:id]))
+      end
+      assert_nil SetupSupportRequest.find(leave[:id]).financial_restart_review_id
+      if status == "ready"
+        preview = SetupHelp::Restart.new(@household, user: @user, request_id: original[:id]).preview
+        assert_equal original[:review_id], preview[:review][:id]
+      end
+    end
   end
 
   test "ordinary support is shared only with accepted platform admins and never exposes private inventory" do

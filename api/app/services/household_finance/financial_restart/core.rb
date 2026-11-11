@@ -34,6 +34,7 @@ module HouseholdFinance
       end
 
       def create_review!(cohort_id:, purpose:, support_request: nil)
+        raise Flow::Error, "A leave request cannot restart your setup. Nothing changed." if support_request&.reason == "leave_challenge"
         data = inventory
         household.financial_restart_reviews.create!(requested_by_user: user, cohort_id: cohort_id, purpose: purpose,
           setup_support_request: support_request, financial_generation: household.financial_generation,

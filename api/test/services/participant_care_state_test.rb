@@ -16,6 +16,19 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     result
   end
 
+  test "only a safety reply belonging to an expired episode can release the check-in prompt" do
+    started = 3.days.ago
+    topic = HouseholdFinance::ParticipantCare.topic(:crisis).merge("started_at" => started.iso8601, "expires_at" => 1.day.ago.iso8601)
+    @session.update!(active_topic: topic)
+    assert_not @state.checkin_hold?(safety_reply_at: started + 1.minute)
+    assert @state.checkin_hold?(safety_reply_at: Time.current), "a new wellbeing check has its own hold"
+    @session.update!(active_topic: {}, open_topics: [ topic.merge("last_care_at" => (started + 1.hour).iso8601) ])
+    assert_not @state.checkin_hold?(safety_reply_at: started + 1.minute)
+    assert @state.checkin_hold?(safety_reply_at: Time.current)
+    @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:crisis), open_topics: [])
+    assert @state.checkin_hold?(safety_reply_at: Time.current)
+  end
+
   test "a practical challenge question releases care even if the reader calls it ongoing" do
     text = "can i stop the challenge for a bit"
     assert_nil @state.transition(text, reading(text, status: "ongoing", question: true), history: [])

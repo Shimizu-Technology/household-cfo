@@ -30,6 +30,10 @@ module HouseholdFinance
     end
 
     def transition(message, reading, history:)
+      @session.with_lock { transition_locked(message, reading, history: history) }
+    end
+
+    def transition_locked(message, reading, history:)
       prior = active
       report = self.class.report?(message, reading)
       financial = MiaMonthAnswer.question?(message) || ::Mia::FinancialReadOnlyRequest.matches?(message) || PurchaseQuestionText.purchase_question?(message) || message.match?(/\A\s*how much (?:is|do i have) left(?: this month)?[?.! ]*\z/i)
@@ -58,6 +62,7 @@ module HouseholdFinance
       kind = :hardship if kind.to_s == "essentials"
       kind = "crisis" if prior && prior["care_kind"] == "crisis"
       topic = prior || ParticipantCare.topic(kind, persona_context_id: @persona_context_id)
+      topic = record_disclosure(topic, message)
       topic = topic.merge("type" => "care", "care_kind" => kind.to_s, "last_care_at" => Time.current.iso8601,
         "disclosure" => prior&.fetch("disclosure", nil) || message.to_s.first(700),
         "last_question" => Array(history).reverse.find { |row| row[:role].to_s == "assistant" }&.fetch(:content, "").to_s.last(700))
@@ -65,15 +70,44 @@ module HouseholdFinance
       topic
     end
 
+    private :transition_locked
+
+    # Every participant turn in an unresolved care episode can clarify means,
+    # intent, timing or a prior ambiguous reference. Never replace earlier facts.
+    def record_disclosure(topic, message)
+      disclosures = Array(topic["disclosures"]).dup
+      if disclosures.empty? && topic["disclosure"].present?
+        disclosures << { "content" => topic["disclosure"], "created_at" => topic["started_at"] }
+      end
+      disclosures << { "content" => message.to_s, "created_at" => Time.current.iso8601(6) }
+      topic.merge("disclosure" => topic["disclosure"] || message.to_s,
+        "disclosures" => disclosures)
+    end
+
+    def record_crisis(message)
+      @session.with_lock do
+        topic = active || ParticipantCare.topic(:crisis, persona_context_id: @persona_context_id)
+        topic = record_disclosure(topic, message).merge("care_kind" => "crisis", "last_care_at" => Time.current.iso8601)
+        @session.update!(active_topic: topic)
+        topic
+      end
+    end
+
     # The daily check-in prompt waits while care is open, and for the rest of the
     # day (Guam time) after the last care reply, even if care has since closed.
     # Read-only: a plain page load must not change the conversation.
-    def checkin_hold?
+    def checkin_hold?(safety_reply_at: nil)
       topic = @session.active_topic.to_h.deep_stringify_keys
       if topic["type"] == "care"
         expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
         expiry ||= (@session.chat_messages.maximum(:created_at) || @session.updated_at) + TTL
         return true if expiry > Time.current
+      end
+
+      # A historical safety flag expires only with its own care episode. An
+      # unrelated earlier episode cannot release a new wellbeing check.
+      if safety_reply_at && !safety_reply_in_episode?(topic, safety_reply_at)
+        return true unless Array(@session.open_topics).any? { |row| safety_reply_in_episode?(row.to_h.deep_stringify_keys, safety_reply_at, archived: true) }
       end
 
       Array(@session.open_topics).any? do |row|
@@ -99,6 +133,13 @@ module HouseholdFinance
     end
 
     private
+
+    def safety_reply_in_episode?(topic, replied_at, archived: false)
+      return false unless topic["type"] == "care"
+      started = Time.zone.parse(topic["started_at"].to_s) rescue nil
+      ended = Time.zone.parse(topic[archived ? "last_care_at" : "expires_at"].to_s) rescue nil
+      started.present? && ended.present? && replied_at >= started && replied_at <= ended + 1.second
+    end
 
     def archive(topic)
       @session.update!(open_topics: (Array(@session.open_topics).reject { |row| row.to_h["type"] == "care" } + [ topic ]).last(8))

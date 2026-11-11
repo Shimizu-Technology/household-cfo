@@ -3877,19 +3877,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const staffPreviewing = Boolean(auth.currentUser?.is_staff && data.workspace.cohort)
   const hasAdminSide = adminSectionsOf(auth.currentUser).length > 0
 
+  const dailyCheckInPrompt = isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !checkInHeld && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />
+
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
                     {isSavingsExperience && !challengeNotOpen && joinCardOpen && !safetyHold && auth.currentUser && <MiaJoinCard onJoined={onJoinCardJoined} onDone={closeJoinCard} />}
                     {isSavingsExperience && !challengeNotOpen && savingsJoined && !safetyHold && auth.currentUser && challengeParticipantScope && data.workspace.cohort?.id && <MiaCheckpointCard actor={challengeParticipantScope} cohortId={data.workspace.cohort.id} refreshKey={dailyRefreshKey} onDone={() => setDailyRefreshKey(value => value + 1)} onOpenCheckpoints={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} />}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !checkInHeld && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {dailyCheckInPrompt}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} card={card} onApproved={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onDismissed={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
                     })}
                     {isSavingsExperience && !safetyHold && challengeCards.goals.map(card => <MiaChallengeGoal key={card.id} card={card} onDone={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onChangeAmount={amount => void handleAskMia(`Let's do $${amount} instead`)} />)}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
-  </> : null
+  </> : dailyCheckInPrompt
 
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
   const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
@@ -4145,7 +4147,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                       />
                     )}
-                  </> : null}
+                  </> : challengeReviewContent}
                 />
 
               {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}

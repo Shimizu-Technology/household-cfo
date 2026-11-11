@@ -4,7 +4,7 @@ module HouseholdFinance
 
     def topic(care, persona_context_id: nil)
       { "type" => "care", "title" => "Personal support", "care_kind" => (care.to_sym == :essentials ? "hardship" : care.to_s),
-        "started_at" => Time.current.iso8601, "last_care_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
+        "started_at" => Time.current.iso8601(6), "last_care_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
         "persona_context_id" => persona_context_id }
     end
 

@@ -11,7 +11,7 @@ module SetupHelp
         Access.participant!(@household, user: @user, cohort_membership: @membership)
         owner = @household.household_memberships.exists?(user_id: @user.id, role: "owner")
         eligibility = Eligibility.new(@household)
-        latest = requests.order(id: :desc).first
+        latest = requests.where.not(reason: "leave_challenge").order(id: :desc).first
         { household_id: @household.id, cohort_id: @membership&.cohort_id, financial_generation: @household.financial_generation,
           available: owner, owner_required: !owner, setup_complete: HouseholdFinance::SetupStatus.new(@household).complete?,
           self_restart_available: owner && eligibility.available?, blockers: eligibility.blockers,
@@ -36,7 +36,7 @@ module SetupHelp
           record = requests.find(existing.setup_support_request_id)
           Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
         else
-          record = requests.where(status: SetupSupportRequest::ACTIVE).order(:id).first
+          record = requests.where(reason: reason, status: SetupSupportRequest::ACTIVE).order(:id).first
           unless record
             record = @household.setup_support_requests.create!(requested_by_user: @user, cohort_id: @membership&.cohort_id,
               participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason)
@@ -49,19 +49,9 @@ module SetupHelp
       end
     end
 
-    # Mia tells the coach that this participant asked to pause or leave the challenge.
-    # An open request of theirs is never doubled; it is reworded so the coach sees this ask.
+    # Leave requests have their own support lifecycle and never consume setup work.
     def request_leave(idempotency_key:)
-      result = create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key)
-      @household.with_lock do
-        record = requests.find(result.fetch(:request).fetch(:id))
-        if record.reason != "leave_challenge" && SetupSupportRequest::ACTIVE.include?(record.status)
-          previous = record.reason
-          record.update!(reason: "leave_challenge")
-          audit!(record, "reason_changed", previous_reason: previous)
-        end
-        Serializer.request(record)
-      end
+      create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key).fetch(:request)
     end
 
     def cancel_request(id:, expected_lock_version:)

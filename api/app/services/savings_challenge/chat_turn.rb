@@ -254,6 +254,7 @@ module SavingsChallenge
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
         message: @message, attachments: @attachments, daily_report: @intake, daily_rejection: parser&.rejection, savings_intake: @intake)
       reference = coach.call
+      @targeted = true if coach.targeted?
       if coach.deterministic?
         @answer = reference
       else

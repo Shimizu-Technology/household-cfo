@@ -838,8 +838,11 @@ module Api
       def care_conversation_history(transcript, topic)
         started = Time.zone.parse(topic["started_at"].to_s) rescue nil
         rows = Array(transcript)
-        rows = started ? rows.select { |row| (Time.zone.parse(row[:created_at].to_s) rescue Time.zone.at(0)) >= started - 1.minute } : rows.last(4)
-        rows.map { |row| row.slice(:role, :content) }
+        rows = started ? rows.select { |row| (Time.zone.parse(row[:created_at].to_s) rescue Time.zone.at(0)) >= started } : rows.last(4)
+        # The ordinary transcript is bounded. Restore older episode disclosures
+        # before it, so safety facts survive a long unresolved conversation.
+        missing = Array(topic["disclosures"])[0...-1].to_a.reject { |entry| rows.any? { |row| row[:role] == "user" && row[:content] == entry["content"] } }
+        missing.map { |entry| { role: "user", content: entry.fetch("content") } } + rows.map { |row| row.slice(:role, :content) }
       end
 
       def render_care_response(session, content, history:, topic:, message_request:)
@@ -871,8 +874,8 @@ module Api
       end
 
       def render_crisis_response(session, content, attached_imports, message_request:)
+        HouseholdFinance::ParticipantCareState.new(session, persona_context_id: current_participant_runtime.continuity_id).record_crisis(content)
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
-        session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:crisis, persona_context_id: current_participant_runtime.continuity_id).merge("disclosure" => content.first(700)))
         payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
@@ -1785,7 +1788,7 @@ module Api
       def serialize_chat_message(message, author: nil)
         payload = message.as_api_json(author: author)
         # The latest reply tells the app whether the daily check-in prompt should wait (care now, or earlier today).
-        payload[:care_hold] = true if message.role == "assistant" && HouseholdFinance::ParticipantCareState.new(message.chat_session).checkin_hold?
+        payload[:care_hold] = HouseholdFinance::ParticipantCareState.new(message.chat_session).checkin_hold?(safety_reply_at: payload[:safety_reply] ? message.created_at : nil) if message.role == "assistant"
         imports_by_id = attachment_imports_by_id(payload[:attachments])
         payload[:attachments] = Array(payload[:attachments]).map { |attachment| serialize_chat_attachment(attachment, imports_by_id: imports_by_id) }
         payload

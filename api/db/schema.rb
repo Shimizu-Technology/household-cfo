@@ -3327,13 +3327,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
     t.datetime "updated_at", null: false
     t.index ["cohort_id"], name: "index_setup_support_requests_on_cohort_id"
     t.index ["financial_restart_review_id"], name: "index_setup_support_requests_on_financial_restart_review_id"
-    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
-    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
+    t.index ["household_id", "requested_by_user_id", "reason", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
+    t.index ["household_id", "requested_by_user_id", "reason"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])))"
     t.index ["household_id"], name: "index_setup_support_requests_on_household_id"
     t.index ["prepared_by_user_id"], name: "index_setup_support_requests_on_prepared_by_user_id"
     t.index ["requested_by_user_id"], name: "index_setup_support_requests_on_requested_by_user_id"
     t.check_constraint "cohort_id IS NULL AND participant_membership_id IS NULL AND participant_membership_started_at IS NULL OR cohort_id IS NOT NULL AND participant_membership_id IS NOT NULL AND participant_membership_started_at IS NOT NULL", name: "setup_support_program_identity"
-    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying::text, 'wrong_setup'::character varying::text, 'upload_problem'::character varying::text, 'other'::character varying::text, 'leave_challenge'::character varying::text])", name: "setup_support_reason"
+    t.check_constraint "reason::text <> 'leave_challenge'::text OR financial_restart_review_id IS NULL AND prepared_by_user_id IS NULL AND (status::text <> ALL (ARRAY['ready'::character varying, 'applied'::character varying]::text[]))", name: "setup_support_leave_no_restart"
+    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying, 'wrong_setup'::character varying, 'upload_problem'::character varying, 'other'::character varying, 'leave_challenge'::character varying]::text[])", name: "setup_support_reason"
     t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'in_review'::character varying::text, 'ready'::character varying::text, 'applied'::character varying::text, 'canceled'::character varying::text, 'declined'::character varying::text])", name: "setup_support_status"
   end
 

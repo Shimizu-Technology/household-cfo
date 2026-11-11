@@ -94,15 +94,15 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
 
     travel_to Time.zone.now.tomorrow.change(hour: 9) do
       get "/api/v1/mia/messages", headers: auth
-      assert_nil response.parsed_body["messages"].last["care_hold"], "the next morning the prompt is free"
+      assert_equal false, response.parsed_body["messages"].last["care_hold"], "the next morning the prompt is free"
     end
   end
 
   test "an ordinary reply carries no hold" do
     body = say("Help me set up my household", read)
-    assert_nil body.dig("assistant_message", "care_hold")
+    assert_equal false, body.dig("assistant_message", "care_hold")
     get "/api/v1/mia/messages", headers: auth
-    assert_nil response.parsed_body["messages"].last["care_hold"]
+    assert_equal false, response.parsed_body["messages"].last["care_hold"]
   end
 
   test "the hold is read from care state without changing the conversation" do
@@ -135,17 +135,39 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     assert HouseholdAuditEvent.exists?(event_type: "setup_support.requested", auditable_id: request.id)
   end
 
-  test "asking twice does not double the request, and an open setup request is reworded so the coach sees this one" do
+  test "asking twice reuses only the leave request and preserves the setup request" do
     enroll_in_challenge
-    cohort_membership = @savings_membership
-    SetupHelp::Participant.new(@household, user: @user, cohort_membership: cohort_membership).create_request(reason: "wrong_setup", share_metadata: true, idempotency_key: "first-#{SecureRandom.hex(4)}")
+    participant = SetupHelp::Participant.new(@household, user: @user, cohort_membership: @savings_membership)
+    original = participant.create_request(reason: "wrong_setup", share_metadata: true, idempotency_key: "original")[:request]
     say("how do i pause the challenge", legacy(question: true))
     say("seriously how do i quit this challenge", legacy(question: true))
     requests = SetupSupportRequest.where(household: @household, requested_by_user: @user)
-    assert_equal 1, requests.count
-    assert_equal "leave_challenge", requests.first.reason
-    changed = HouseholdAuditEvent.find_by!(event_type: "setup_support.reason_changed", auditable_id: requests.first.id)
-    assert_equal "wrong_setup", changed.metadata["previous_reason"]
+    assert_equal 2, requests.count
+    assert_equal original, SetupHelp::Serializer.request(requests.find(original[:id]))
+    assert_equal 1, requests.where(reason: "leave_challenge").count
+  end
+
+  [ "I don't want to leave the challenge, can you help me keep going?", "What happens if I quit the challenge?",
+    "I'm thinking about stopping the challenge", "Should I leave the challenge?", "Can you explain why I might want to leave the challenge?",
+    "What happens if I quit?", "I am not ready to leave the challenge" ].each do |message|
+    test "exit discussion does not notify the coach: #{message}" do
+      enroll_in_challenge
+      body = nil
+      assert_no_difference "SetupSupportRequest.count" do
+        body = say(message, legacy(question: true))
+      end
+      assert_equal SavingsChallenge::ParticipantHelp::EXPLANATION, text(body)
+      refute_match(/I've let your coach know/, text(body))
+    end
+  end
+
+  [ "How do I quit the challenge?", "I want to leave the challenge", "Can I pause this challenge?", "Please pause the challenge" ].each do |message|
+    test "actual exit request notifies the coach: #{message}" do
+      enroll_in_challenge
+      body = say(message, legacy(question: message.include?("?")))
+      assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(body)
+      assert_equal 1, SetupSupportRequest.where(household: @household, reason: "leave_challenge").count
+    end
   end
 
   test "Mia never claims the coach was told when the note could not be sent" do
@@ -232,6 +254,77 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     body = say("I put $50 aside today and spent $12 at Shell, how do I quit?", legacy(question: true, facts: [ set_aside_fact ]))
     assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
     assert body["challenge_chat_card"].present?
+  end
+
+  [ "how much have I saved so far?", "how many days are left?", "when are my checkpoints?", "who can see my savings?" ].each do |question|
+    test "a saving keeps the supported read answer: #{question}" do
+      enroll_in_challenge
+      savings_plan
+      savings_approve(savings_draft(2000))
+      alone = say(question, legacy(question: true))
+      combined = say("I put $50 aside today, #{question}", legacy(question: true, facts: [ set_aside_fact ]))
+      assert_equal "savings", combined.dig("challenge_chat_card", "kind")
+      assert_equal 5000, combined.dig("savings_intake", "amount_cents")
+      assert_includes text(combined), text(alone)
+      assert_includes text(combined), "$20" if question.include?("saved")
+      assert_equal 2000, SavingsChallenge::Projection.new(@savings_enrollment.reload).call[:reported_cents]
+    end
+  end
+
+  [ "Should I put $50 aside today?", "If I put $50 aside today, how am I doing?" ].each do |message|
+    test "a hypothetical saving stays a question even with reader facts: #{message}" do
+      enroll_in_challenge
+      fact = set_aside_fact.merge(source_text: message)
+      body = say(message, legacy(question: true, facts: [ fact ]))
+      assert_nil body["challenge_chat_card"]
+      assert_nil body["savings_intake"]
+    end
+  end
+
+  test "repeated crisis disclosures retain means intent and timing in the writer history and packet" do
+    enroll_in_challenge
+    now = Time.current.change(usec: 0)
+    travel_to(now - 3.minutes) { say("Can I afford a $300 stroller?", legacy(question: true)) }
+    first = "I want to kill myself. I have a gun in my room."
+    travel_to(now) { say(first, legacy(care: "crisis")) }
+    started = session.active_topic.fetch("started_at")
+    expiry = session.active_topic.fetch("expires_at")
+    travel_to(now + 3.minutes) { say("I want to die tonight.", legacy(care: "crisis")) }
+    seen = []
+    narrator = SavingsChallenge::Narrator
+    original = narrator.instance_method(:initialize)
+    narrator.define_method(:initialize) { |**options| seen << options; original.bind(self).call(**options) }
+    begin
+      travel_to(now + 6.minutes) { say("I haven't moved it yet.", legacy(care_status: "ongoing")) }
+    ensure
+      narrator.define_method(:initialize, original)
+    end
+    assert_equal started, session.active_topic["started_at"]
+    assert_equal expiry, session.active_topic["expires_at"]
+    assert seen.any?
+    assert_includes seen.last.fetch(:history).to_json, first
+    assert_includes seen.last.dig(:answer_packet, :care_context).to_json, first
+    assert_includes seen.last.fetch(:history).to_json, "die tonight"
+    refute_match(/stroller/i, seen.last.to_json)
+    # Even beyond the rolling transcript, the episode's disclosures survive.
+    writer = Api::V1::MiaMessagesController.new
+    history = writer.send(:care_conversation_history, [], session.active_topic)
+    assert_includes history.to_json, first
+  end
+
+  test "a reload releases the prompt after crisis expiry while retaining the historical safety flag" do
+    enroll_in_challenge
+    say("I want to kill myself", legacy(care: "crisis"))
+    get "/api/v1/mia/messages", headers: auth
+    assert_equal true, response.parsed_body["messages"].last["care_hold"]
+    travel 49.hours do
+      before = session.active_topic
+      get "/api/v1/mia/messages", headers: auth
+      reply = response.parsed_body["messages"].last
+      assert_equal true, reply["safety_reply"]
+      assert_equal false, reply["care_hold"]
+      assert_equal before, session.active_topic, "reload must remain read-only"
+    end
   end
 
   test "a plain statement or a plain question is untouched by the question half" do

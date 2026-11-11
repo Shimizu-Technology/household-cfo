@@ -276,7 +276,7 @@ module HouseholdFinance
     # Support does not need the disclosed price. Keep it out of the writer's
     # inputs as well as the financial resolver; current ordinal dates can stay.
     def care_model_text(text)
-      return text unless answer_packet[:care_context]
+      return text if !answer_packet[:care_context] || recent_crisis?
 
       text.to_s.gsub(/\$?\d[\d,.]*(?![\w])/i) do |span|
         ordinal = text.to_s.match?(/#{Regexp.escape(span)}(?:st|nd|rd|th)\b/i)
@@ -302,7 +302,7 @@ module HouseholdFinance
       end
       packet = answer_packet.except(:fallback_response).merge(verified_reference_answer: fallback_response)
       json = JSON.generate(packet)
-      return json if json.bytesize <= MAX_PACKET_BYTES
+      return json if json.bytesize <= MAX_PACKET_BYTES || recent_crisis?
 
       bounded_packet = packet.deep_dup
       memory = bounded_packet[:personalization_memory]
@@ -333,8 +333,11 @@ module HouseholdFinance
         next if content.blank?
 
         { role: role.to_s, content: content.to_s.squish.truncate(MAX_HISTORY_MESSAGE_CHARACTERS, omission: "…") }
-      end.last(MAX_HISTORY_MESSAGES)
+      end
+      # Safety disclosures are already scoped to this episode by the controller.
+      return candidates if recent_crisis?
 
+      candidates = candidates.last(MAX_HISTORY_MESSAGES)
       selected = []
       used_characters = 0
       candidates.reverse_each do |message|

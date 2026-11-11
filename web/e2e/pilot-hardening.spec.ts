@@ -10084,6 +10084,22 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
 })
+test('BOG UI daily prompt returns on reload after server expires a crisis episode', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const reply = { id: 8192, role: 'assistant', author: 'Mia', content: 'Call or text 988 now, or 911 in an emergency.', safety_reply: true, care_hold: true }
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [reply], oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(page.getByText('Call or text 988 now, or 911 in an emergency.', { exact: true })).toBeVisible()
+  await expect(prompt).toHaveCount(0)
+  reply.care_hold = false
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Your check-in', exact: true })).toHaveCount(0)
+})
 test('BOG UI explicit check-in reopens today after a chat question and on the next day', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-09-28T02:00:00Z') })
   await openDaily(page, { active: true })

@@ -31,6 +31,8 @@ describe('daily check-in helpers', () => {
     const { latestReplyHoldsCheckIn } = await import('./dailyCheckIn')
     expect(latestReplyHoldsCheckIn([{ role: 'user' }, { role: 'assistant', care_hold: true }])).toBe(true)
     expect(latestReplyHoldsCheckIn([{ role: 'assistant', safety_reply: true }])).toBe(true)
+    expect(latestReplyHoldsCheckIn([{ role: 'assistant', safety_reply: true, care_hold: true }])).toBe(true)
+    expect(latestReplyHoldsCheckIn([{ role: 'assistant', safety_reply: true, care_hold: false }])).toBe(false)
     expect(latestReplyHoldsCheckIn([{ role: 'assistant', care_hold: true }, { role: 'user' }, { role: 'assistant' }])).toBe(false)
     // Words never decide it: a reply that sounds like support without the server's flag does not hold the prompt.
     expect(latestReplyHoldsCheckIn([{ role: 'assistant', content: 'I am sorry for your loss.' } as { role: string }])).toBe(false)

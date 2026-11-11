@@ -1133,12 +1133,14 @@ module HouseholdFinance
       imports_by_id = attachment_imports_by_id(messages)
       oldest_message_id = messages.first&.id
       older_message_count = oldest_message_id ? scoped_messages.where("id < ?", oldest_message_id).count : 0
-      latest_assistant_id = messages.reverse.find { |message| message.role == "assistant" }&.id
-      care_hold = !history && latest_assistant_id && ParticipantCareState.new(chat_session).checkin_hold?
+      latest_assistant = messages.reverse.find { |message| message.role == "assistant" }
+      latest_assistant_id = latest_assistant&.id
+      safety_reply_at = latest_assistant.created_at if latest_assistant&.as_api_json&.dig(:safety_reply)
+      care_hold = !history && latest_assistant_id && ParticipantCareState.new(chat_session).checkin_hold?(safety_reply_at: safety_reply_at)
       {
         messages: messages.map do |message|
           payload = serialize_chat_message(message, imports_by_id: imports_by_id)
-          payload[:care_hold] = true if care_hold && message.id == latest_assistant_id
+          payload[:care_hold] = !!care_hold if message.id == latest_assistant_id && !history
           history ? payload.merge(financial_restart: nil, setup_help: nil, presentation: {}, read_only: true) : payload
         end,
         oldest_message_id: oldest_message_id,
