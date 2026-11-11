@@ -281,7 +281,7 @@ module Api
         item = current_experience_capabilities.fetch(:modules).find { |candidate| candidate.fetch(:id) == module_id.to_s }
         return if item&.fetch(:enabled, false)
 
-        message = item&.fetch(:unavailable_message, nil) || "This tool is not included in your cohort right now."
+        message = item&.fetch(:unavailable_message, nil) || "This tool is not included in your group right now."
         render json: {
           error: message,
           errors: [ message ],

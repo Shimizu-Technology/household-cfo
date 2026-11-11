@@ -49,6 +49,21 @@ module SetupHelp
       end
     end
 
+    # Mia tells the coach that this participant asked to pause or leave the challenge.
+    # An open request of theirs is never doubled; it is reworded so the coach sees this ask.
+    def request_leave(idempotency_key:)
+      result = create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key)
+      @household.with_lock do
+        record = requests.find(result.fetch(:request).fetch(:id))
+        if record.reason != "leave_challenge" && SetupSupportRequest::ACTIVE.include?(record.status)
+          previous = record.reason
+          record.update!(reason: "leave_challenge")
+          audit!(record, "reason_changed", previous_reason: previous)
+        end
+        Serializer.request(record)
+      end
+    end
+
     def cancel_request(id:, expected_lock_version:)
       @household.with_lock do
         record = own_request!(id)
@@ -104,11 +119,12 @@ module SetupHelp
       raise Stale, "This setup help request changed. Refresh it before continuing. Nothing changed." unless value.is_a?(Integer) && value >= 0 && record.lock_version == value
     end
 
-    def audit!(record, action, retirement_reason: nil)
+    def audit!(record, action, retirement_reason: nil, previous_reason: nil)
       @household.household_audit_events.create!(user: @user, actor_type: "user", event_type: "setup_support.#{action}",
         auditable_type: "SetupSupportRequest", auditable_id: record.id, occurred_at: Time.current,
         metadata: { requested_by_user_id: record.requested_by_user_id, cohort_id: record.cohort_id, reason: record.reason, status: record.status,
-          review_id: record.financial_restart_review_id, lock_version: record.lock_version, retirement_reason: retirement_reason }.compact)
+          review_id: record.financial_restart_review_id, lock_version: record.lock_version, retirement_reason: retirement_reason,
+          previous_reason: previous_reason }.compact)
     end
   end
 end

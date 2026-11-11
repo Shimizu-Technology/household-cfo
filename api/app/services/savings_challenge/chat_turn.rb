@@ -93,8 +93,9 @@ module SavingsChallenge
         "challenge_chat_cards" => Array(payload["challenge_chat_cards"]).filter_map { |card| cards[card["id"]]&.as_api_json })
     end
 
-    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil, reading: nil)
+    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil, reading: nil, cohort_membership: nil)
       @household, @user, @enrollment, @session, @message, @attachments = household, user, enrollment, session, message.to_s, attachments
+      @cohort_membership = cohort_membership
       @persona, @history, @approved_content = persona, history, approved_content
       @available_product_modules = available_product_modules
       @topic = {}
@@ -104,6 +105,25 @@ module SavingsChallenge
     attr_reader :answer, :intake, :intakes, :cards, :supplied_content_context, :patterns
 
     def call
+      compose
+      add_exit_answer
+      self
+    end
+
+    # A write beside a question answers both: the card is made and the question is answered.
+    # The one question every challenge participant can ask is how to leave or pause.
+    def add_exit_answer
+      return unless @enrollment && @attachments.empty? && @answer.present? && ParticipantHelp.exit?(@message)
+      return if @reading.care? || self.class.protected_message?(@message) || ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
+      return if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+
+      exit_answer = ParticipantHelp.exit_answer(@message, household: @household, user: @user, membership: @cohort_membership)
+      wrote = @intakes.present? || @goal_cents.present? || @continued_card_input.present?
+      @answer = wrote ? "#{@answer} #{exit_answer}" : exit_answer
+    end
+    private :add_exit_answer
+
+    def compose
       @supplied_content_context = []
       if ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
         @answer = ::Mia::CrisisBoundary.response
@@ -206,6 +226,8 @@ module SavingsChallenge
       end
       self
     end
+
+    private :compose
 
     # Caller holds the household lock and has rechecked current challenge access.
     # The proposal is not a financial draft until the participant chooses Yes.

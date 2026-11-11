@@ -4,7 +4,7 @@ module HouseholdFinance
 
     def topic(care, persona_context_id: nil)
       { "type" => "care", "title" => "Personal support", "care_kind" => (care.to_sym == :essentials ? "hardship" : care.to_s),
-        "started_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
+        "started_at" => Time.current.iso8601, "last_care_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
         "persona_context_id" => persona_context_id }
     end
 
@@ -181,7 +181,7 @@ module HouseholdFinance
       return reference if ParticipantCareState.report?(message, ParticipantMessageReader::Current.reading) if ParticipantMessageReader::Current.reading
       care = ParticipantMessageReader::Current.recent_care
       return reference unless care.present?
-      return reference unless reference.to_s.match?(/That took effort, and it matters|not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
+      return reference unless reference.to_s.match?(/That’s a CFO move|not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
 
       answer(message, care: care)
     end

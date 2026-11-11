@@ -38,7 +38,7 @@ import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { HomeMoneyValues, HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
-import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
+import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyHoldsCheckIn, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
 import { useChallengeChatCards } from './lib/useChallengeChatCards'
 import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
@@ -897,6 +897,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
   const safetyHold = latestReplyIsSafety(currentMessages)
+  const checkInHeld = latestReplyHoldsCheckIn(currentMessages)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
   const assistantName = shortAssistantName(data?.profile.coach.name) || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
@@ -1751,7 +1752,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   } = {}) => {
     const unavailableCapability = data?.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[section] && !module.enabled)
     if (unavailableCapability) {
-      const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+      const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this group right now.`
       setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
       setRouteAnnouncement(message)
     } else if (options.source !== 'history') {
@@ -1861,7 +1862,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       lastHandledLocationRef.current = locationKey
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
       if (unavailableCapability) {
-        const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+        const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this group right now.`
         setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
         setRouteAnnouncement(message)
       }
@@ -3881,7 +3882,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {isSavingsExperience && !challengeNotOpen && joinCardOpen && !safetyHold && auth.currentUser && <MiaJoinCard onJoined={onJoinCardJoined} onDone={closeJoinCard} />}
                     {isSavingsExperience && !challengeNotOpen && savingsJoined && !safetyHold && auth.currentUser && challengeParticipantScope && data.workspace.cohort?.id && <MiaCheckpointCard actor={challengeParticipantScope} cohortId={data.workspace.cohort.id} refreshKey={dailyRefreshKey} onDone={() => setDailyRefreshKey(value => value + 1)} onOpenCheckpoints={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} />}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !checkInHeld && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} card={card} onApproved={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onDismissed={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null

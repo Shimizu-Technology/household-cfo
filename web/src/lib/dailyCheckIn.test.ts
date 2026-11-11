@@ -27,6 +27,16 @@ describe('daily check-in helpers', () => {
     expect(latestReplyIsSafety([{ role: 'assistant', content: 'Call or text 988' } as { role: string }])).toBe(false)
   })
 
+  it('holds the check-in prompt under a server-flagged care reply, and not under an ordinary one', async () => {
+    const { latestReplyHoldsCheckIn } = await import('./dailyCheckIn')
+    expect(latestReplyHoldsCheckIn([{ role: 'user' }, { role: 'assistant', care_hold: true }])).toBe(true)
+    expect(latestReplyHoldsCheckIn([{ role: 'assistant', safety_reply: true }])).toBe(true)
+    expect(latestReplyHoldsCheckIn([{ role: 'assistant', care_hold: true }, { role: 'user' }, { role: 'assistant' }])).toBe(false)
+    // Words never decide it: a reply that sounds like support without the server's flag does not hold the prompt.
+    expect(latestReplyHoldsCheckIn([{ role: 'assistant', content: 'I am sorry for your loss.' } as { role: string }])).toBe(false)
+    expect(latestReplyHoldsCheckIn([])).toBe(false)
+  })
+
   it('counts a day as checked in only after a spending or no-spend report is saved', async () => {
     const { dayCheckedIn } = await import('./dailyCheckIn')
     const day = dailyContext.day!

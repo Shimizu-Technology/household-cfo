@@ -948,6 +948,8 @@ export type MiaAnswerPresentation = {
 export type MiaMessage = {
   // Set by the server on crisis and wellbeing-check replies.
   safety_reply?: boolean
+  // Set on the newest Mia reply while she is in personal support, and for the rest of that day after.
+  care_hold?: boolean
   setup_help?: { available: boolean; money_inputs?: Array<'profile' | 'budget' | 'debt' | 'accounts'> } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number

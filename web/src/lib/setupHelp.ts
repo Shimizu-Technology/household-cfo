@@ -1,4 +1,5 @@
-export type SetupSupportReason = 'practice_numbers' | 'wrong_setup' | 'upload_problem' | 'other'
+// leave_challenge is only ever raised by Mia, when a participant asks to pause or leave; it is not one of the picker choices below.
+export type SetupSupportReason = 'practice_numbers' | 'wrong_setup' | 'upload_problem' | 'other' | 'leave_challenge'
 export type SetupSupportStatus = 'requested' | 'in_review' | 'ready' | 'applied' | 'canceled' | 'declined'
 export type SetupSupportRequest = {
   permissions?: { triage: boolean; prepare: boolean; decline: boolean }

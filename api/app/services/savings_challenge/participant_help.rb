@@ -1,10 +1,31 @@
 module SavingsChallenge
-  # What a participant can do about the challenge itself. Only the platform
-  # can pause a challenge, for a whole cohort, so nothing here promises that.
+  # What a participant can do about the challenge itself. Only the program can
+  # pause or end one, so Mia explains that plainly and tells the coach the
+  # participant asked. Nothing here changes the participant's challenge.
   module ParticipantHelp
-    EXIT = /\b(?:pause|leave|quit|stop|cancel|withdraw(?: from)?|get out of|take a (?:pause|break) from|step (?:back|away) from)\s+(?:doing\s+)?(?:the\s+|this\s+|my\s+)?(?:savings\s+|bog\s+)?(?:challenge|program)\b/i
-    ANSWER = "You can't pause the challenge yourself in the app. Your program team would be the place to ask. You don't have to do anything in it today.".freeze
+    EXIT = /\b(?:paus(?:e|ing)|leav(?:e|ing)|quit(?:ting)?|stop(?:ping)?|cancel(?:l?ing)?|withdraw(?:ing)?(?: from)?|get(?:ting)? out of|tak(?:e|ing) a (?:pause|break) from|step(?:ping)? (?:back|away) from)\s+(?:doing\s+)?(?:the\s+|this\s+|my\s+)?(?:savings\s+|bog\s+)?(?:challenge|program)\b/i
+    MEANING = "Stepping away would stop your daily check-ins, and what you've already saved stays in your record.".freeze
+    TOLD = "No judgment. You can't leave or pause the challenge yourself in the app yet, so I've let your coach know you asked. " \
+      "#{MEANING} Nothing changes until your coach reaches out, so you don't have to do anything in the challenge today.".freeze
+    NOT_TOLD = "No judgment. You can't leave or pause the challenge yourself in the app yet, and I couldn't reach your coach from here, so please tell them directly. " \
+      "#{MEANING} Nothing changes until you do, so you don't have to do anything in the challenge today.".freeze
 
-    def self.answer(message) = (ANSWER if message.to_s.match?(EXIT))
+    def self.exit?(message) = message.to_s.match?(EXIT)
+
+    # The reply for a participant asking to leave or pause, after telling the coach
+    # through the support inbox. It says "I've let your coach know" only when that happened.
+    def self.exit_answer(message, household:, user:, membership:)
+      return unless exit?(message)
+
+      coach_told?(household: household, user: user, membership: membership) ? TOLD : NOT_TOLD
+    end
+
+    def self.coach_told?(household:, user:, membership:)
+      SetupHelp::Participant.new(household, user: user, cohort_membership: membership).request_leave(idempotency_key: "mia-leave-#{SecureRandom.uuid}")
+      true
+    rescue StandardError => error
+      Rails.logger.warn("[ParticipantHelp] coach not told: #{error.class}: #{error.message}")
+      false
+    end
   end
 end

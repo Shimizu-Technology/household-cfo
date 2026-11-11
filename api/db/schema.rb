@@ -3333,7 +3333,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
     t.index ["prepared_by_user_id"], name: "index_setup_support_requests_on_prepared_by_user_id"
     t.index ["requested_by_user_id"], name: "index_setup_support_requests_on_requested_by_user_id"
     t.check_constraint "cohort_id IS NULL AND participant_membership_id IS NULL AND participant_membership_started_at IS NULL OR cohort_id IS NOT NULL AND participant_membership_id IS NOT NULL AND participant_membership_started_at IS NOT NULL", name: "setup_support_program_identity"
-    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying::text, 'wrong_setup'::character varying::text, 'upload_problem'::character varying::text, 'other'::character varying::text])", name: "setup_support_reason"
+    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying::text, 'wrong_setup'::character varying::text, 'upload_problem'::character varying::text, 'other'::character varying::text, 'leave_challenge'::character varying::text])", name: "setup_support_reason"
     t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'in_review'::character varying::text, 'ready'::character varying::text, 'applied'::character varying::text, 'canceled'::character varying::text, 'declined'::character varying::text])", name: "setup_support_status"
   end
 

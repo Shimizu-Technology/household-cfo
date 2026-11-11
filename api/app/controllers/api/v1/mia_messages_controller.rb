@@ -192,7 +192,7 @@ module Api
           if @care_topic && (@care_topic["care_kind"] == "crisis" || !HouseholdFinance::ParticipantCareState.report?(content, @participant_reading))
             care_current.care_topic = @care_topic
             care_current.recent_care = @care_topic.fetch("care_kind")
-            return render_care_response(session, content, history: history, topic: @care_topic, message_request: message_request)
+            return render_care_response(session, content, history: care_conversation_history(transcript, @care_topic), topic: @care_topic, message_request: message_request)
           end
           if prior_care && @care_topic.nil? && @participant_reading.care_status == "resolved" && !@participant_reading.question && @participant_reading.facts.empty? && @participant_reading.goal_change.empty? && @participant_reading.savings_correction.empty? && @participant_reading.answer_field.nil? && !HouseholdFinance::ParticipantCare.setup_content?(content, @participant_reading) && (closing = HouseholdFinance::ParticipantCare.closing_reply(content))
             return render_household_read_response(session, content, closing, message_request: message_request)
@@ -203,7 +203,7 @@ module Api
           if setup_card_mode? && @care_topic.nil? && !@participant_reading.care? && (purchase_plan = HouseholdFinance::PurchaseChange.plan(household: current_household, message: content))
             return render_purchase_change_response(session, content, purchase_plan, message_request: message_request)
           end
-          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && @participant_reading.facts.empty? && !@participant_reading.correction && (help = SavingsChallenge::ParticipantHelp.answer(content))
+          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && @participant_reading.facts.empty? && !@participant_reading.correction && (help = SavingsChallenge::ParticipantHelp.exit_answer(content, household: current_household, user: current_user, membership: current_cohort_membership))
             return render_household_read_response(session, content, help, message_request: message_request)
           end
           if (@setup_card_context || @participant_reading.setup_changes.present?) && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
@@ -814,7 +814,8 @@ module Api
         @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
         turn = SavingsChallenge::ChatTurn.new(household: current_household, user: current_user, enrollment: enrollment,
           session: session, message: content, attachments: attached_imports, persona: module_guidance.persona(current_persona),
-          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context, reading: @participant_reading).call
+          history: history, approved_content: @approved_coach_content, available_product_modules: module_guidance.context, reading: @participant_reading,
+          cohort_membership: current_cohort_membership).call
         @used_coach_content = turn.supplied_content_context
         ApplicationRecord.transaction do
           current_household.lock!
@@ -830,6 +831,15 @@ module Api
           record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports)
           render json: payload, status: :created
         end
+      end
+
+      # A care reply continues the conversation where she disclosed it. Earlier turns
+      # (a purchase asked about days ago) are not support and must not surface in it.
+      def care_conversation_history(transcript, topic)
+        started = Time.zone.parse(topic["started_at"].to_s) rescue nil
+        rows = Array(transcript)
+        rows = started ? rows.select { |row| (Time.zone.parse(row[:created_at].to_s) rescue Time.zone.at(0)) >= started - 1.minute } : rows.last(4)
+        rows.map { |row| row.slice(:role, :content) }
       end
 
       def render_care_response(session, content, history:, topic:, message_request:)
@@ -1774,6 +1784,8 @@ module Api
 
       def serialize_chat_message(message, author: nil)
         payload = message.as_api_json(author: author)
+        # The latest reply tells the app whether the daily check-in prompt should wait (care now, or earlier today).
+        payload[:care_hold] = true if message.role == "assistant" && HouseholdFinance::ParticipantCareState.new(message.chat_session).checkin_hold?
         imports_by_id = attachment_imports_by_id(payload[:attachments])
         payload[:attachments] = Array(payload[:attachments]).map { |attachment| serialize_chat_attachment(attachment, imports_by_id: imports_by_id) }
         payload

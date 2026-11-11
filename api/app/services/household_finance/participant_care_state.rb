@@ -58,11 +58,31 @@ module HouseholdFinance
       kind = :hardship if kind.to_s == "essentials"
       kind = "crisis" if prior && prior["care_kind"] == "crisis"
       topic = prior || ParticipantCare.topic(kind, persona_context_id: @persona_context_id)
-      topic = topic.merge("type" => "care", "care_kind" => kind.to_s,
+      topic = topic.merge("type" => "care", "care_kind" => kind.to_s, "last_care_at" => Time.current.iso8601,
         "disclosure" => prior&.fetch("disclosure", nil) || message.to_s.first(700),
         "last_question" => Array(history).reverse.find { |row| row[:role].to_s == "assistant" }&.fetch(:content, "").to_s.last(700))
       @session.update!(active_topic: topic)
       topic
+    end
+
+    # The daily check-in prompt waits while care is open, and for the rest of the
+    # day (Guam time) after the last care reply, even if care has since closed.
+    # Read-only: a plain page load must not change the conversation.
+    def checkin_hold?
+      topic = @session.active_topic.to_h.deep_stringify_keys
+      if topic["type"] == "care"
+        expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
+        expiry ||= (@session.chat_messages.maximum(:created_at) || @session.updated_at) + TTL
+        return true if expiry > Time.current
+      end
+
+      Array(@session.open_topics).any? do |row|
+        archived = row.to_h.deep_stringify_keys
+        next false unless archived["type"] == "care"
+
+        last = Time.zone.parse((archived["last_care_at"] || archived["started_at"]).to_s) rescue nil
+        last.present? && last.to_date == Time.zone.today
+      end
     end
 
     # A money question can end the topic before recovery is said out loud.
