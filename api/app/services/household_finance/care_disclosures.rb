@@ -47,8 +47,9 @@ module HouseholdFinance
       pinned.uniq!
       recent = (entries - pinned).last(LIMIT - pinned.size)
       selected = entries.select { |row| pinned.include?(row) || recent.include?(row) }
+      topic = topic.merge("last_question" => clip(topic["last_question"])) if topic.key?("last_question")
       topic.merge("disclosure" => content(topic["disclosure"].presence || selected.first.to_h["content"]),
-        "disclosures" => selected, "last_question" => clip(topic["last_question"]))
+        "disclosures" => selected)
     end
   end
 end

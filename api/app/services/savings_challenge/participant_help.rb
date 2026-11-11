@@ -3,7 +3,7 @@ module SavingsChallenge
   # pause or end one, so Mia explains that plainly and tells the coach the
   # participant asked. Nothing here changes the participant's challenge.
   module ParticipantHelp
-    EXIT = /\b(?:paus(?:e|ing)|leav(?:e|ing)|quit(?:ting)?|stop(?:ping)?|cancel(?:l?ing)?|withdraw(?:ing)?(?: from)?|get(?:ting)? out of|tak(?:e|ing) a (?:pause|break) from|step(?:ping)? (?:back|away) from)\s+(?:doing\s+)?(?:the\s+|this\s+|my\s+)?(?:savings\s+|bog\s+)?(?:challenge|program)\b(?=\s*(?:[?.!,;…]|\z|(?:please|pls|for|today|now|but|and)\b))/i
+    EXIT = /\b(?:paus(?:e|ing)|leav(?:e|ing)|quit(?:ting)?|stop(?:ping)?|cancel(?:l?ing)?|withdraw(?:ing)?(?: from)?|get(?:ting)? out of|tak(?:e|ing) a (?:pause|break) from|step(?:ping)? (?:back|away) from)\s+(?:doing\s+)?(?:the\s+|this\s+|my\s+)?(?:savings\s+|bog\s+)?(?:challenge|program)\b(?=\s*(?:[?.!,;…]|\z|(?:please|pls|for|today|now|but|and|tho|though|rn|early|already)\b))/i
     REMINDERS = /\b(?:reminders?|notifications?|alerts?)\b/i
     REMINDER_ANSWER = "You can change challenge reminders without leaving. Open Privacy & reminders and turn off the reminders you don't want. Nothing about your challenge has changed.".freeze
     TAKE_OUT = /\b(?:take me out(?: of (?:the |this |my )?(?:challenge|program))?|i(?:['’]m| am) done with (?:the|this|my) (?:challenge|program))(?=\s*(?:[?.!,;…]|\z))/i
