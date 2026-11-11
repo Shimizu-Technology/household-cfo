@@ -1,4 +1,9 @@
+import { useState } from 'react'
+import { updateChallengeChatCard } from '../api'
+import type { ChallengeChatCard } from '../lib/challengeChatCards'
+import { participantErrorMessage } from '../lib/participantErrorMessage'
 import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
+import './MiaDailyCheckIn.css'
 
 // "Today", "Yesterday", or "Mon, Oct 20".
 function plainDay(iso: string, today?: string): string {
@@ -12,9 +17,64 @@ function plainDay(iso: string, today?: string): string {
   return new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${iso}T00:00:00Z`))
 }
 
-export function MiaSavingsReview({intake,today,onReview}:{intake:SavingsIntake;today?:string;onReview:()=>void}) {
+type Props = {
+  intake: SavingsIntake
+  today?: string
+  onReview: () => void
+  // With the saved card, she can approve right here. Without it (or while the
+  // day is still unknown) the card sends her to Savings, as before.
+  card?: ChallengeChatCard
+  onApproved?: () => void
+  onDismissed?: () => void
+}
+
+export function MiaSavingsReview({ intake, today, onReview, card, onApproved, onDismissed }: Props) {
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [newMoney, setNewMoney] = useState(false)
+  const [error, setError] = useState('')
   const amount = savingsDollars(intake.amount_cents)
   const original = intake.correction?.current_approved_version
-  const title = original ? `Replace ${savingsDollars(original.signed_cents)} with ${amount}` : intake.kind==='purchase' ? `${amount} at ${intake.merchant}` : intake.kind==='withdrawal' ? `${amount} taken out` : `${amount} set aside`
-  return <section className="daily-note" aria-label="Savings to check"><strong>{title} · {plainDay(intake.effective_on, today)}</strong><p>{intake.kind==='purchase' ? 'Check it, then save it in Today. Nothing is saved until you do.' : intake.kind==='withdrawal' ? 'Check it, then save it to your challenge. Nothing changes until you do.' : 'Check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.'}</p><button type="button" className="secondary-button" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
+  const withdrawal = intake.kind === 'withdrawal'
+  const title = original ? `Replace ${savingsDollars(original.signed_cents)} with ${amount}` : intake.kind === 'purchase' ? `${amount} at ${intake.merchant}` : withdrawal ? `${amount} taken out` : `${amount} set aside`
+  const inPlace = Boolean(card) && intake.kind !== 'purchase' && Boolean(intake.effective_on) && !intake.date_required
+  const needsNewMoney = inPlace && !withdrawal && !intake.correction
+
+  async function act(action: 'approve_savings' | 'dismiss') {
+    if (!card || busy) return
+    setBusy(true); setError('')
+    try {
+      if (action === 'dismiss') {
+        await updateChallengeChatCard(card.id, { action: 'dismiss', expected_lock_version: card.lock_version })
+        onDismissed?.()
+      } else {
+        await updateChallengeChatCard(card.id, { action, expected_lock_version: card.lock_version, accepted: true, ...(needsNewMoney ? { new_money_confirmed: true } : {}) })
+        setSaved(true)
+      }
+    } catch (failure) {
+      setError(participantErrorMessage(failure, 'We couldn’t confirm that. Try again; it won’t save twice.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (saved) {
+    return <section className="mia-daily-card is-saved" aria-label="Savings saved"><h3>{withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`}</h3><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p><button type="button" className="mia-daily-dismiss" onClick={() => onApproved?.()}>Done</button></section>
+  }
+
+  if (inPlace) {
+    return <section className="mia-daily-card" aria-label="Savings to check" aria-busy={busy}>
+      <h3>{title} · {plainDay(intake.effective_on, today)}</h3>
+      <p>{withdrawal ? 'This takes the money out of your challenge total. Nothing changes until you tap Yes.' : original ? 'This replaces the earlier amount in your total. Nothing changes until you tap Yes.' : 'Only new money you set aside counts. Nothing is saved until you tap Yes.'}</p>
+      {needsNewMoney && <label className="mia-card-check"><input type="checkbox" checked={newMoney} disabled={busy} onChange={event => setNewMoney(event.target.checked)} /><span>This was new money I set aside after expenses, not borrowed or money I already had.</span></label>}
+      {error && <p role="alert">{error}</p>}
+      <div className="mia-daily-actions">
+        <button type="button" className="mia-daily-save" disabled={busy || (needsNewMoney && !newMoney)} onClick={() => void act('approve_savings')}>{busy ? 'Saving…' : withdrawal ? `Yes, take out ${amount}` : original ? `Yes, change it to ${amount}` : `Yes, add ${amount}`}</button>
+        <button type="button" className="secondary-button" disabled={busy} onClick={event => { event.currentTarget.focus(); onReview() }}>Open in Savings</button>
+        <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void act('dismiss')}>Not now</button>
+      </div>
+    </section>
+  }
+
+  return <section className="daily-note" aria-label="Savings to check"><strong>{title} · {plainDay(intake.effective_on, today)}</strong><p>{intake.kind==='purchase' ? 'Check it, then save it in Today. Nothing is saved until you do.' : withdrawal ? 'Check it, then save it to your challenge. Nothing changes until you do.' : 'Check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.'}</p><button type="button" className="secondary-button" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
 }

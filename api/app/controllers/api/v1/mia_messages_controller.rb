@@ -216,6 +216,10 @@ module Api
           end
         end
 
+        if savings_program_selected? && attached_imports.empty? && @participant_reading&.care? == false && SavingsChallenge::JoinRequest.matches?(content)
+          return render_join_response(session, content, message_request: message_request)
+        end
+
         # Challenge goal/pattern continuations must not fall through to household goal reads.
         if savings_program_selected? && attached_imports.empty? && SavingsChallenge::ChatTurn.special?(content, session: session)
           return render_savings_response(session, content, attached_imports, message_request: message_request)
@@ -748,7 +752,7 @@ module Api
         [ lead, assistant_content, question ].compact_blank.join(" ")
       end
 
-      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil)
+      def render_household_read_response(session, content, answer, message_request:, topic: {}, financial_restart: nil, setup_help: nil, challenge_join: false)
         ApplicationRecord.transaction do
           current_household.lock!
           chat_session_scope.authorize!
@@ -763,6 +767,7 @@ module Api
             payload[:assistant_message] = serialize_chat_message(assistant_message)
             payload[:financial_restart] = financial_restart
           end
+          payload[:challenge_join] = true if challenge_join
           if setup_help
             assistant_message.update!(setup_help: setup_help)
             payload[:assistant_message] = serialize_chat_message(assistant_message)
@@ -779,6 +784,24 @@ module Api
         enrollment = SavingsEnrollment.in_use.find_by(household: current_household, user: current_user, cohort: cohort)
         SavingsChallenge::AccessPolicy.new(household: current_household, user: current_user, cohort: cohort, enrollment: enrollment).call!
         enrollment
+      end
+
+      # "I want to join": the join card carries the dates and terms; Mia only
+      # explains. Already in, or a group that isn't taking members, gets a plain answer.
+      def render_join_response(session, content, message_request:)
+        enrollment = require_savings_chat_access!
+        cohort = current_cohort_membership.cohort
+        offer = enrollment ? nil : SavingsChallenge::EnrollmentOffer.call(cohort: cohort, user: current_user, membership: current_cohort_membership)
+        reply = if enrollment
+          "You're already in. Your 90 days run #{SavingsChallenge::JoinRequest.range_text(enrollment.starts_on, enrollment.ends_on)}. Nothing else to do to join."
+        elsif offer[:accepting_enrollments]
+          dates = offer[:personal_starts_on] && offer[:personal_ends_on] ? " Your 90 days would run #{SavingsChallenge::JoinRequest.range_text(offer[:personal_starts_on], offer[:personal_ends_on])}." : ""
+          "Happy to help you join.#{dates} The card below has the terms. Nothing happens until you check the box and tap Accept and join."
+        else
+          "This group isn't taking new members right now, so I can't add you yet. Your program team can tell you more. Nothing was changed."
+        end
+        offering = enrollment.nil? && offer[:accepting_enrollments]
+        render_household_read_response(session, content, reply, message_request: message_request, challenge_join: offering)
       end
 
       def render_savings_response(session, content, attached_imports, message_request:)
@@ -850,10 +873,13 @@ module Api
 
       CHALLENGE_NOT_OPEN_REPLY = "Your savings challenge isn't open yet, so I can't count or save anything toward it right now. Nothing was recorded or changed. Home will show your challenge as soon as it opens, and I'll be ready to help then.".freeze
 
+      CHALLENGE_JOIN_NOT_OPEN_REPLY = "Your savings challenge opens soon. When your program team opens it, you can join right here in the chat or on Home. There's nothing to do yet, and nothing was recorded.".freeze
+
       CHALLENGE_PAUSED_REPLY = "Your savings challenge is paused right now. Your record is safe and nothing is lost; you can continue when it resumes. Nothing was recorded or changed.".freeze
 
       def render_challenge_not_open_response(content, state = "not_open")
         base = state == "paused" ? CHALLENGE_PAUSED_REPLY : CHALLENGE_NOT_OPEN_REPLY
+        base = CHALLENGE_JOIN_NOT_OPEN_REPLY if state == "not_open" && SavingsChallenge::JoinRequest.matches?(content)
         reply = with_wellbeing_check(content, base)
         # A bare "I have a plan" has no saved previous turn to read here, so it
         # gets the safety line without being treated as a full crisis.

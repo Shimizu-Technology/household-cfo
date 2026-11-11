@@ -43,7 +43,7 @@ module Api
         card = own_chat_cards.lock.find(path_id)
         input = request.request_parameters.to_h.deep_symbolize_keys
         action = input[:action].to_s
-        raise ArgumentError, "Choose a supported card action" unless %w[save_state dismiss approve_goal].include?(action)
+        raise ArgumentError, "Choose a supported card action" unless %w[save_state dismiss approve_goal approve_savings].include?(action)
         if card.status == "closed"
           if action == "save_state" && input.dig(:state, :phase) != "saved"
             raise HouseholdFinance::Operations::Base::StaleOperation, "This check-in was finished or closed in another window. Reopen Ask Mia."
@@ -51,7 +51,10 @@ module Api
           if action == "approve_goal" && (!card.state["approved_plan_version_id"] || card.state["approved_plan_version_id"] != enrollment!.current_accepted_plan_version_id)
             raise HouseholdFinance::Operations::Base::StaleOperation, "This goal was replaced or closed. Reopen Ask Mia to review the current goal."
           end
-          return render json: { record: card.as_api_json, challenge: action == "approve_goal" ? challenge_data : nil }
+          if action == "approve_savings" && !card.state["approved"]
+            raise HouseholdFinance::Operations::Base::StaleOperation, "This savings card was already reviewed. Open Savings to confirm or fix its record."
+          end
+          return render json: { record: card.as_api_json, challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
         end
         raise HouseholdFinance::Operations::Base::StaleOperation, "This card changed in another window. Reopen Ask Mia before continuing." unless input[:expected_lock_version] == card.lock_version
         case action
@@ -74,8 +77,40 @@ module Api
               expected_draft_lock_version: draft.lock_version, expected_plan_version_id: draft.base_plan_version_id },
             idempotency_key: "chat-goal-approve-#{card.id}").subject
           card.update!(status: "closed", state: { approved_plan_version_id: approved.id })
+        when "approve_savings"
+          approve_savings_card!(card, input)
         end
-        render json: { record: card.as_api_json, challenge: action == "approve_goal" ? challenge_data : nil }
+        render json: { record: card.as_api_json, challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
+      end
+
+      # The same two steps Savings Home takes (stage, then approve), done from
+      # the chat card once she says Yes. Every check on those operations still applies.
+      def approve_savings_card!(card, input)
+        raise ArgumentError, "Review and accept the amount" unless card.kind == "savings" && input[:accepted] == true
+
+        intake = card.input.deep_symbolize_keys
+        raise ArgumentError, "Choose a savings review card" unless intake[:kind].in?(%w[contribution withdrawal])
+        raise ArgumentError, "Which day was this? Open Savings to choose the date." if intake[:date_required] || intake[:effective_on].blank?
+
+        withdrawal = intake[:kind] == "withdrawal"
+        correction = intake[:correction].presence&.deep_symbolize_keys
+        if !withdrawal && !correction && input[:new_money_confirmed] != true
+          raise ArgumentError, "Tick the box to confirm this was new money you set aside."
+        end
+        funding = if withdrawal then "withdrawal"
+        elsif correction then correction.dig(:current_approved_version, :funding_source) || "new_money_reserved"
+        else "new_money_reserved"
+        end
+        runner = HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
+        stage = { cohort_id: enrollment!.cohort_id, signed_cents: intake[:signed_cents] || (withdrawal ? -intake[:amount_cents] : intake[:amount_cents]),
+          effective_on: intake[:effective_on], funding_source: funding, expected_version_id: correction&.dig(:current_approved_version_id),
+          reason: intake[:reason].to_s }
+        stage.merge!(entry_id: correction[:id], expected_entry_lock_version: correction[:lock_version]) if correction
+        draft = runner.run(operation_key: "savings.entry.stage", input: stage, idempotency_key: "chat-savings-stage-#{card.id}").subject
+        runner.run(operation_key: "savings.entry.approve", idempotency_key: "chat-savings-approve-#{card.id}",
+          input: { cohort_id: enrollment!.cohort_id, draft_id: draft.id, accepted: true, expected_draft_lock_version: draft.lock_version,
+                   expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version })
+        card.update!(status: "closed", state: { entry_draft_id: draft.id, approved: true })
       end
 
       def request_status
