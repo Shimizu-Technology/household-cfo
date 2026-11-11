@@ -37,6 +37,30 @@ class ApiV1AdminCancelInvitationTest < ActionDispatch::IntegrationTest
     assert_equal 1, ParticipantInvitationCancellation.where(id: record.id).count
   end
 
+  test "the database itself refuses to change or remove a cancellation" do
+    post "/api/v1/admin/users/#{@invitee.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    record = ParticipantInvitationCancellation.order(:id).last
+    table = ParticipantInvitationCancellation.quoted_table_name
+    [ "UPDATE #{table} SET subject_email = 'changed@example.test' WHERE id = #{record.id}", "DELETE FROM #{table} WHERE id = #{record.id}" ].each do |statement|
+      assert_raises(ActiveRecord::StatementInvalid) do
+        ActiveRecord::Base.transaction(requires_new: true) { ActiveRecord::Base.connection.execute(statement) }
+      end
+    end
+    assert_equal @invitee.email, record.reload.subject_email
+  end
+
+  test "someone who accepted is refused even if their status still says pending" do
+    accepted = pending_participant("cancel-accepted", @group)
+    accepted.update!(accepted_at: 2.days.ago)
+    assert_no_difference -> { ParticipantInvitationCancellation.count } do
+      post "/api/v1/admin/users/#{accepted.id}/cancel_invitation", headers: auth(@owner, @workspace), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_match(/already joined/, response.parsed_body.fetch("errors").first)
+    assert_equal "pending", accepted.reload.invitation_status
+    assert_equal 1, accepted.cohort_memberships.count
+  end
+
   test "someone who already joined is refused and keeps their group" do
     joined = user("cancel-joined", "participant")
     @group.cohort_memberships.create!(user: joined, role: "participant")

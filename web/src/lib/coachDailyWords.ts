@@ -17,6 +17,6 @@ export function householdStatus(row: CoachDailyPerson) {
 }
 
 export function savingsStatus(row: CoachDailyPerson) {
-  if (!row.enrollment_id) return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : 'Joined · Hasn’t started the challenge'
+  if (!row.enrollment_id) return row.membership_status === 'invited' ? 'Invited · Hasn’t joined yet' : row.membership_status === 'revoked' ? 'Account access removed' : 'Joined · Hasn’t started the challenge'
   return `${row.check_in?.completed === true ? 'Checked in today' : row.check_in?.completed === false ? 'No check-in yet' : 'Check-in unavailable'} · ${row.setup_status === 'plan_reviewed' ? 'Target confirmed' : 'No target confirmed yet'}`
 }

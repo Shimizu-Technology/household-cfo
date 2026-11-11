@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchAdminPilotFeedback, fetchAdminPilotFeedbackReport, fetchAdminPilotFeedbackScreenshotUrl, updateAdminPilotFeedbackStatus } from '../../api'
 import type { AdminPilotFeedbackDetail, AdminPilotFeedbackScreenshotUrl, AdminPilotFeedbackSummary, CurrentUser, PilotFeedbackStatus } from '../../api'
 import { Button } from '../../components/Button'
 import { SetupSupportInbox } from '../../components/SetupSupportInbox'
+import { useCoachWorkspaceMutationLifecycle } from '../../components/coachWorkspaceMutationLifecycle'
 import { useAuthContext } from '../../contexts/authContextValue'
 import { fetchSetupSupportRequests } from '../../setupHelpApi'
 import type { SetupSupportRequest } from '../../lib/setupHelp'
@@ -18,6 +19,21 @@ const problemStatus: Record<PilotFeedbackStatus, string> = { submitted: 'New', r
 const setupReason: Record<string, string> = { practice_numbers: 'entered practice numbers', wrong_setup: 'setup needs correcting', upload_problem: 'needs help with an upload', other: 'needs help starting again' }
 const area: Record<string, string> = { sign_in: 'Signing in', home: 'Home', setup: 'Setup', ask_mia: 'Ask Mia', voice: 'Voice', budget: 'Budget', transaction_review: 'Reviewing purchases', receipt_upload: 'A receipt', statement_upload: 'A statement', document_upload: 'A document', private_document: 'A private document', admin: 'The coach side', other: 'Something else' }
 
+// Setup requests come 30 at a time, oldest first. Every page is followed, so the counts and the filters
+// cover all of them and a newer request is never missing.
+const MAX_SETUP_PAGES = 40
+async function fetchAllSetupRequests() {
+  const records: SetupSupportRequest[] = []
+  let cursor: number | null = null
+  for (let page = 0; page < MAX_SETUP_PAGES; page += 1) {
+    const next: Awaited<ReturnType<typeof fetchSetupSupportRequests>> = await fetchSetupSupportRequests(null, cursor)
+    records.push(...next.records.filter(record => !records.some(known => known.id === record.id)))
+    if (next.next_cursor === null) return records
+    cursor = next.next_cursor
+  }
+  throw new Error('There are more setup requests than can be shown at once.')
+}
+
 // Setup requests and problem reports in one list, newest first.
 export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
   const { activeCoachWorkspaceId } = useAuthContext()
@@ -27,14 +43,19 @@ export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
   const [show, setShow] = useState<Show>('open')
   const [openKey, setOpenKey] = useState<string | null>(null)
   const canLoadSetup = activeCoachWorkspaceId !== null || currentUser.is_admin
+  const latestLoad = useRef(0)
+  const lifecycle = useCoachWorkspaceMutationLifecycle(activeCoachWorkspaceId)
 
   const load = useCallback(async () => {
+    // Closing two requests in a row starts two refreshes; only the newest one may write to the screen.
+    const mine = ++latestLoad.current
     setError(null)
     const [setup, problem] = await Promise.allSettled([
-      canLoadSetup ? fetchSetupSupportRequests(null, null) : Promise.resolve({ records: [] as SetupSupportRequest[], next_cursor: null }),
+      canLoadSetup ? fetchAllSetupRequests() : Promise.resolve([] as SetupSupportRequest[]),
       currentUser.is_admin ? fetchAdminPilotFeedback('all') : Promise.resolve({ feedback_reports: [] as AdminPilotFeedbackSummary[] }),
     ])
-    setSetups(setup.status === 'fulfilled' ? setup.value.records : [])
+    if (mine !== latestLoad.current) return
+    setSetups(setup.status === 'fulfilled' ? setup.value : [])
     setProblems(problem.status === 'fulfilled' ? problem.value.feedback_reports : [])
     if (setup.status === 'rejected' || problem.status === 'rejected') setError('Some requests couldn’t be loaded. Try again in a moment.')
   }, [canLoadSetup, currentUser.is_admin])
@@ -63,7 +84,7 @@ export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
         <span className="admin-list-meta"><span className={`admin-pill ${item.open ? 'is-invited' : 'is-joined'}`}>{item.statusWords}</span> · {lastActiveWords(item.at)}</span>
       </button></li>)}</ul>}
     {opened?.setup && <AdminDialog title={opened.title} labelId="admin-support-title" onClose={() => { setOpenKey(null); void load() }}>
-      <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={opened.setup.cohort_id} participantId={opened.setup.user_id} isAdmin={currentUser.is_admin} />
+      <SetupSupportInbox actorId={currentUser.id} workspaceId={activeCoachWorkspaceId} cohortId={opened.setup.cohort_id} participantId={opened.setup.user_id} isAdmin={currentUser.is_admin} mutationLifecycle={lifecycle} />
     </AdminDialog>}
     {opened?.problem && <ProblemDetail summary={opened.problem} onClose={() => setOpenKey(null)} onChanged={load} />}
   </section>

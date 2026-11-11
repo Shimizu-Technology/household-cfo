@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ApiRequestError, fetchSharedChallengeSource } from '../api'
 import {
   coachChallengeApi,
@@ -7,11 +7,12 @@ import {
   type SharedScopes,
   type SharedRecordRef,
 } from '../lib/coachChallengeApi'
+import { holdWorkspaceLock } from './coachWorkspaceMutationLifecycle'
 import { savingsDollars } from '../lib/savingsChallenge'
 import { formatDay } from '../lib/plainDates'
 import './ParticipantHelp.css'
 
-export function ParticipantHelp({ row }: { row: CoachParticipant }) {
+export function ParticipantHelp({ row, onTicketChanged }: { row: CoachParticipant; onTicketChanged?: () => void }) {
   const [scopes, setScopes] = useState<SharedScopes | null>(null),
     [error, setError] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
@@ -23,7 +24,9 @@ export function ParticipantHelp({ row }: { row: CoachParticipant }) {
     [helpCursor, setHelpCursor] = useState<number | null>(null),
     [helpStarted, setHelpStarted] = useState(false)
   const live = useRef(true),
-    controller = useRef<AbortController | null>(null)
+    controller = useRef<AbortController | null>(null),
+    changed = useRef(onTicketChanged)
+  useLayoutEffect(() => { changed.current = onTicketChanged }, [onTicketChanged])
   useEffect(() => {
     live.current = true
     const clear = () => {
@@ -81,6 +84,23 @@ export function ParticipantHelp({ row }: { row: CoachParticipant }) {
     return () => owned.abort()
   }, [row.enrollment_id])
   const current = (signal: AbortSignal) => live.current && !signal.aborted
+  // A status change is a write: it keeps the program from being switched until it settles, and it is not cancelled if
+  // this panel closes first, so the answer is never left unknown. The screen behind is told when it lands.
+  async function changeStatus(help: NonNullable<typeof ticket>, status: 'triaged' | 'resolved') {
+    const release = holdWorkspaceLock()
+    try {
+      await request(async (signal) => {
+        const result = await coachChallengeApi.ticketStatus(row.enrollment_id, help.id, status, new AbortController().signal)
+        changed.current?.()
+        if (current(signal)) {
+          setTicket({ ...help, status: result.status })
+          setTickets((items) => items.map((item) => (item.id === help.id ? { ...item, status: result.status } : item)))
+        }
+      })
+    } finally {
+      release()
+    }
+  }
   function selected(ref: SharedRecordRef, supportId?: number) {
     void request(async (signal) => {
       const result = await coachChallengeApi.selected(row.enrollment_id, ref, supportId, signal)
@@ -204,7 +224,8 @@ export function ParticipantHelp({ row }: { row: CoachParticipant }) {
             void request(async (signal) => {
               const result = await coachChallengeApi.help(row.enrollment_id, helpStarted ? helpCursor : null, signal)
               if (current(signal)) {
-                setTickets(result.records)
+                // Each page is added to the ones already shown; a request that appears twice is shown once.
+                setTickets((items) => [...items, ...result.records.filter((record) => !items.some((item) => item.id === record.id))])
                 setHelpCursor(result.next_cursor)
                 setHelpStarted(true)
               }
@@ -228,17 +249,7 @@ export function ParticipantHelp({ row }: { row: CoachParticipant }) {
               <button
                 key={status}
                 disabled={busy || ticket.status === status}
-                onClick={() =>
-                  void request(async (signal) => {
-                    const result = await coachChallengeApi.ticketStatus(row.enrollment_id, ticket.id, status, signal)
-                    if (current(signal)) {
-                      setTicket({ ...ticket, status: result.status })
-                      setTickets((items) =>
-                        items.map((item) => (item.id === ticket.id ? { ...item, status: result.status } : item))
-                      )
-                    }
-                  })
-                }
+                onClick={() => void changeStatus(ticket, status)}
               >
                 {status === 'triaged' ? 'Mark in review' : 'Mark resolved'}
               </button>

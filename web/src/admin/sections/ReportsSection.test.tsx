@@ -105,4 +105,15 @@ describe('Reports', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show earlier saved reports' }))
     await waitFor(() => expect(reports.exports).toHaveBeenCalledTimes(6))
   })
+  it('lists every saved copy that was loaded, so an older one can still be opened', async () => {
+    reports.exports.mockResolvedValue(index({ records: [{ id: 9, checkpoint_day: 30, resolved_cutoff_on: '2026-11-09' }, { id: 4, checkpoint_day: 30, resolved_cutoff_on: '2026-11-02' }] }))
+    reports.report.mockResolvedValue({ export_id: 4, report })
+    render(<ReportsSection currentUser={adminUser()} />)
+    expect(await screen.findByText('Earlier saved reports')).toBeTruthy()
+    const earlier = screen.getByText('Earlier saved reports').parentElement!
+    expect(within(earlier).getAllByRole('button', { name: 'View report' })).toHaveLength(1)
+    fireEvent.click(within(earlier).getByRole('button', { name: 'View report' }))
+    await waitFor(() => expect(reports.report).toHaveBeenCalledWith(2, 4, expect.any(AbortSignal)))
+    expect(await screen.findByText('5–9 people')).toBeTruthy()
+  })
 })

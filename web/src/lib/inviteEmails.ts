@@ -7,6 +7,13 @@ export const MAX_INVITES_AT_ONCE = 100
 export function parseInviteEmails(text: string): { emails: string[]; problems: string[] } {
   const entries = text.split(/[,;\n]+/)
     .flatMap(line => line.match(/[^<>]*<[^<>]*>|[^<>]+|[<>]/g) ?? [])
+    // Addresses typed ahead of a "Name <address>" are their own entries, not part of the name.
+    .flatMap(segment => {
+      const named = segment.match(/^([^<>]*)(<[^<>]*>)$/)
+      if (!named) return [segment]
+      const words = named[1].trim().split(/\s+/).filter(Boolean)
+      return [...words.filter(word => word.includes('@')), `${words.filter(word => !word.includes('@')).join(' ')} ${named[2]}`.trim()]
+    })
     .flatMap(line => line.includes('<') || line.includes('>') || (line.match(/@/g)?.length === 1) ? [line.trim()] : line.trim().split(/\s+/))
     .filter(Boolean)
   const emails: string[] = []

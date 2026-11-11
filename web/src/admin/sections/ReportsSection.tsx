@@ -72,10 +72,14 @@ function GroupReports({ group }: { group: RosterGroup }) {
   const rows: Row[] = (index?.scheduled_checkpoints ?? []).map(item => ({ day: item.day, cutoff: item.cutoff_on, sealable: item.sealable ?? false, savedId: index!.records.find(record => record.checkpoint_day === item.day)?.id ?? null }))
   const canSave = index?.can_seal !== false
 
-  async function view(row: Row) {
-    if (busy || row.savedId === null) return
+  // The newest copy of each day is on its row; every other saved copy that was loaded is listed so it can be opened too.
+  const shownIds = new Set(rows.map(row => row.savedId))
+  const earlierCopies = (index?.records ?? []).filter(record => !shownIds.has(record.id))
+
+  async function view(exportId: number) {
+    if (busy) return
     setBusy(true); setError(null)
-    try { const result = await coachChallengeApi.report(group.id, row.savedId, new AbortController().signal); setReport({ report: result.report, exportId: result.export_id }) }
+    try { const result = await coachChallengeApi.report(group.id, exportId, new AbortController().signal); setReport({ report: result.report, exportId: result.export_id }) }
     catch (caught) { setError(message(caught, 'That report couldn’t be opened.')) }
     finally { setBusy(false) }
   }
@@ -88,10 +92,17 @@ function GroupReports({ group }: { group: RosterGroup }) {
       {rows.map(row => <li key={row.day} className="admin-report-row">
         <div><strong>Day {row.day}</strong><span>{row.cutoff ? formatDay(row.cutoff, { year: true }) : 'Needs a start date first'} · {row.savedId !== null ? 'Report saved' : !row.cutoff ? 'Not ready' : row.sealable ? 'Ready to save' : 'Not ready yet'}</span>
           {row.savedId === null && row.sealable && !canSave && <span>Only the coaches of this group can save it: a program owner or reviewer on its team.</span>}</div>
-        {row.savedId !== null ? <Button variant="secondary" disabled={busy} onClick={() => void view(row)}>View report</Button>
+        {row.savedId !== null ? <Button variant="secondary" disabled={busy} onClick={() => void view(row.savedId!)}>View report</Button>
           : row.sealable && canSave ? <Button disabled={busy} onClick={() => setSaving(row)}>Save the report</Button> : null}
       </li>)}
     </ul>}
+    {earlierCopies.length > 0 && <div className="admin-report-earlier">
+      <h4>Earlier saved reports</h4>
+      <ul className="admin-list">{earlierCopies.map(record => <li key={record.id} className="admin-report-row">
+        <div><strong>Day {record.checkpoint_day}</strong><span>As of {formatDay(record.resolved_cutoff_on, { year: true })}</span></div>
+        <Button variant="secondary" disabled={busy} onClick={() => void view(record.id)}>View report</Button>
+      </li>)}</ul>
+    </div>}
     {index && index.next_cursor !== null && <Button variant="secondary" disabled={more} onClick={() => void showEarlier()}>{more ? 'Loading…' : 'Show earlier saved reports'}</Button>}
     {saving && <SaveReport groupId={group.id} row={saving} onClose={() => setSaving(null)} onSaved={async next => { setSaving(null); setReport(next); await load() }} />}
     {report && <ReportView data={report} group={group} onClose={() => setReport(null)} />}

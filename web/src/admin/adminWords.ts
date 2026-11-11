@@ -38,13 +38,14 @@ export function lastActiveWords(value: string | null, now = new Date()) {
   if (!value) return 'Not yet'
   const then = new Date(value)
   if (Number.isNaN(then.getTime())) return 'Not yet'
-  const days = Math.floor((startOfDay(now) - startOfDay(then)) / 86_400_000)
+  const days = Math.round((calendarDay(now) - calendarDay(then)) / 86_400_000)
   if (days <= 0) return 'Today'
   if (days === 1) return 'Yesterday'
   if (days < 7) return `${days} days ago`
   return shortDay(value)
 }
-const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+// Whole calendar days, so a 23- or 25-hour day around a clock change still counts as one day.
+const calendarDay = (date: Date) => Date.UTC(date.getFullYear(), date.getMonth(), date.getDate())
 
 export const groupStatusLabel: Record<AdminCohort['status'], string> = { draft: 'Not started', enrolling: 'Signing up', active: 'Running', completed: 'Finished', archived: 'Archived' }
 

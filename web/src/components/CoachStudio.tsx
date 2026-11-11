@@ -8,7 +8,7 @@ import { CoachTeachingWorkspace } from './CoachTeaching'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { ProgramCreatedNotice } from './ProgramCreatedNotice'
 import { CoachGoLive } from './CoachGoLive'
-import { useCoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
+import { useCoachWorkspaceMutationLifecycle, useWorkspaceMutationInFlight } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 import { confirmDiscard } from '../lib/confirmAction'
 import { adminPath, navigateTo } from '../lib/appRoutes'
@@ -32,6 +32,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [toolsDirty, setToolsDirty] = useState(false)
   const [advancedDirty, setAdvancedDirty] = useState(false)
   const [advancedBusy, setAdvancedBusy] = useState(false)
+  const toolsSaving = useWorkspaceMutationInFlight()
   const trackAdvancedDirty = useCallback((value: boolean) => { setAdvancedDirty(value); onDirtyChange(value) }, [onDirtyChange])
   if (advanced) return <><Button variant="secondary" disabled={advancedBusy} onClick={async () => {
     if (advancedDirty && !(await confirmDiscard('Your changes will be lost.'))) return
@@ -39,7 +40,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     onDirtyChange(false); setAdvanced(null)
   }}>Back to Coaching</Button><CoachStudioAdvanced currentUser={currentUser} onDirtyChange={trackAdvancedDirty} onPendingChange={setAdvancedBusy} initialSection={advanced.section} proposedState={advanced.proposal} /></>
   // Group tools: every role that may see Coaching can reach its groups' tools here; the server says what each may do.
-  if (toolsOpen) return <><Button variant="secondary" onClick={async () => {
+  if (toolsOpen) return <><Button variant="secondary" disabled={toolsSaving} onClick={async () => {
     if (toolsDirty && !(await confirmDiscard('Your changes will be lost.'))) return
     onDirtyChange(false); setToolsDirty(false); setToolsOpen(false)
   }}>Back to Coaching</Button><section className="screen-grid coach-simple">

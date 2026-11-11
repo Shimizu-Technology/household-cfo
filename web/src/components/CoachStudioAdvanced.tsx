@@ -921,8 +921,8 @@ export function CoachStudioAdvanced({ currentUser, onDirtyChange, initialSection
 
                     {mode !== 'setup' && <div className={`coach-save-bar${dirty ? ' is-floating' : ''}`}>
                       <div>
-                        <strong>{dirty ? 'You have changes that aren’t saved yet.' : 'Everything is saved.'}</strong>
-                        <small>{dirty ? 'Save before you preview.' : `Saved draft ${selectedPersona.draft_revision ?? '(read-only)'}`}</small>
+                        <strong>{dirty ? 'You have changes that aren’t saved yet.' : personaSourcesDirty ? 'Some changes in Sources aren’t saved yet.' : 'Everything is saved.'}</strong>
+                        <small>{dirty ? 'Save before you preview.' : personaSourcesDirty ? 'Go back to Sources to save them before you preview.' : `Saved draft ${selectedPersona.draft_revision ?? '(read-only)'}`}</small>
                       </div>
                       {selectedPersona.permissions.edit && <Button onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null}>{pendingAction === 'save' ? 'Saving draft' : 'Save draft'}</Button>}
                     </div>}

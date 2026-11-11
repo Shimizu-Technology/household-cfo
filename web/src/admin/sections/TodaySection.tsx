@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { resendAdminUserInvitation, type AdminUser, type CurrentUser } from '../../api'
+import { ApiRequestError, resendAdminUserInvitation, type AdminUser, type CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
 import { ParticipantHelp } from '../../components/ParticipantHelp'
 import { SetupSupportInbox } from '../../components/SetupSupportInbox'
-import { useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
+import { useCoachWorkspaceMutationLifecycle, useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
 import { useAuthContext } from '../../contexts/authContextValue'
 import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { coachChallengeApi, type CoachDailyPage, type CoachDailyPerson, type DailyFilter } from '../../lib/coachChallengeApi'
@@ -17,7 +17,8 @@ import './sections.css'
 const FOLLOW_UPS = 5
 // Today reads one page of each group's people, a few groups at a time, and updates the screen once.
 const AT_A_TIME = 4
-type Overview = Record<number, CoachDailyPage | null>
+// A group's first page, or why there is none: this person may not read it (a real 403), or it didn't load and can be tried again.
+type Overview = Record<number, CoachDailyPage | 'denied' | 'failed'>
 
 const savingsFilters: Array<[DailyFilter, string]> = [['all', 'Everyone'], ['needs_help', 'Need you'], ['checked_in', 'Checked in'], ['not_checked_in', 'No check-in today']]
 const householdFilters: Array<[DailyFilter, string]> = [['all', 'Everyone'], ['needs_help', 'Need you'], ['invited', 'Invited'], ['joined', 'Joined'], ['setup_done', 'Setup done']]
@@ -33,6 +34,7 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
   const [inviting, setInviting] = useState(false)
   const [resending, setResending] = useState<number | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  const [attempt, setAttempt] = useState(0)
   useHoldWorkspaceLock(resending !== null)
   const live = useMemo(() => groups.filter(group => group.status !== 'archived' && group.status !== 'completed'), [groups])
 
@@ -42,22 +44,26 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
       const next: Overview = {}
       for (let start = 0; start < live.length; start += AT_A_TIME) {
         await Promise.all(live.slice(start, start + AT_A_TIME).map(group => coachChallengeApi.daily(group.id, '', 'needs_help', 0, controller.signal)
-          .then(page => { next[group.id] = page.cohort_id === group.id ? page : null })
-          // A group whose people list this person may not read simply has no list here.
-          .catch(() => { next[group.id] = null })))
+          .then(page => { next[group.id] = page.cohort_id === group.id ? page : 'failed' })
+          // A group whose people list this person may not read simply has no list here; any other failure can be tried again.
+          .catch(caught => { if (!controller.signal.aborted) next[group.id] = caught instanceof ApiRequestError && caught.status === 403 ? 'denied' : 'failed' })))
         if (controller.signal.aborted) return
       }
       setOverview(next)
     }
     queueMicrotask(() => void read())
     return () => controller.abort()
-  }, [live])
+  }, [live, attempt])
 
+  const pageOf = (group: RosterGroup) => { const found = overview[group.id]; return typeof found === 'object' ? found : null }
   const checking = live.some(group => !(group.id in overview))
-  const readable = live.filter(group => overview[group.id])
-  const needing = (group: RosterGroup) => overview[group.id]?.counts.needs_help ?? 0
+  const readable = live.filter(group => pageOf(group))
+  const unavailable = live.filter(group => overview[group.id] === 'failed')
+  const needing = (group: RosterGroup) => pageOf(group)?.counts.needs_help ?? 0
   const activeId = readable.some(group => group.id === chosen) ? chosen : (readable.find(group => needing(group) > 0) ?? readable[0])?.id ?? null
   const active = live.find(group => group.id === activeId) ?? null
+  const activePage = active ? pageOf(active) : null
+  const tryAgain = () => { setOverview({}); setAttempt(value => value + 1) }
   const followUps = people.filter(person => person.role === 'participant' && person.cohorts.length > 0 && ['invited', 'bounced'].includes(inviteStateOf(person)))
     .sort((a, b) => Number(inviteStateOf(b) === 'bounced') - Number(inviteStateOf(a) === 'bounced'))
   const canInvite = access.people
@@ -86,8 +92,10 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
       {readable.length > 1 && <label className="admin-field admin-today-group"><span>Group</span>
         <select value={activeId ?? ''} onChange={event => setChosen(Number(event.target.value))}>{readable.map(group => <option key={group.id} value={group.id}>{group.name}{needing(group) > 0 ? ` · ${needing(group)} ${needing(group) === 1 ? 'needs' : 'need'} you` : ''}</option>)}</select>
       </label>}
-      {active ? <DailyList key={active.id} group={active} overview={overview[active.id]!} currentUser={currentUser} workspaceId={activeCoachWorkspaceId} canInvite={canInvite} onInvite={() => setInviting(true)} />
-        : <p className="admin-muted admin-all-clear" role="status">{checking ? 'Checking…' : 'You can see individual people only in the groups you coach. Support has the setup requests.'}</p>}
+      {!checking && unavailable.length > 0 && <p className="admin-alert error" role="alert">We couldn’t load the people in {unavailable.map(group => group.name).join(', ')}. <Button variant="secondary" size="compact" onClick={tryAgain}>Try again</Button></p>}
+      {active && activePage ? <DailyList key={active.id} group={active} overview={activePage} currentUser={currentUser} workspaceId={activeCoachWorkspaceId} canInvite={canInvite} onInvite={() => setInviting(true)} />
+        : checking ? <p className="admin-muted admin-all-clear" role="status">Checking…</p>
+        : unavailable.length === 0 && <p className="admin-muted admin-all-clear" role="status">You can see individual people only in the groups you coach. Support has the setup requests.</p>}
 
       {followUps.length > 0 && <>
         <h3 className="admin-subhead">Invitations to follow up</h3>
@@ -101,7 +109,7 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
 
       <h3 className="admin-subhead">Your groups</h3>
       <ul className="admin-list">{groups.filter(group => group.status !== 'archived').map(group => {
-        const counts = overview[group.id]?.counts
+        const counts = pageOf(group)?.counts
         const line = <><strong>{group.name}</strong>
           <span>{groupSummary(group, joinedCount(people, group.id))}</span>
           {counts && group.savingsChallenge && group.detail?.savings_challenge?.state === 'open' && <span>{counts.checked_in ?? 0} checked in today · {counts.needs_help} need you</span>}</>
@@ -139,6 +147,7 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   const [attempt, setAttempt] = useState(0)
   const request = useRef(0)
   const first = useRef(true)
+  const lifecycle = useCoachWorkspaceMutationLifecycle(workspaceId)
 
   // The first page the screen already has is not asked for twice.
   useEffect(() => {
@@ -207,8 +216,8 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
       <p className="admin-muted">{group.name}</p>
       <p className="admin-need-line">{dailyNeed(open)}</p>
       <p className="admin-muted">{savings ? savingsStatus(open) : householdStatus(open)}</p>
-      {open.setup_help.length > 0 && <SetupSupportInbox actorId={currentUser.id} workspaceId={workspaceId} cohortId={group.id} participantId={open.participant.id} isAdmin={currentUser.is_admin} />}
-      {open.enrollment_id !== null && <ParticipantHelp row={{ ...open, enrollment_id: open.enrollment_id, check_in: open.check_in! }} />}
+      {open.setup_help.length > 0 && <SetupSupportInbox actorId={currentUser.id} workspaceId={workspaceId} cohortId={group.id} participantId={open.participant.id} isAdmin={currentUser.is_admin} mutationLifecycle={lifecycle} />}
+      {open.enrollment_id !== null && <ParticipantHelp row={{ ...open, enrollment_id: open.enrollment_id, check_in: open.check_in! }} onTicketChanged={() => void quietRefresh()} />}
       {open.enrollment_id === null && open.setup_help.length === 0 && <p className="admin-muted">Private money details and conversations stay private.</p>}
     </AdminDialog>}
   </div>

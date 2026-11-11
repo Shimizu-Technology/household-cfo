@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_11_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_11_150000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -4543,6 +4543,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_11_140000) do
   SQL
   execute <<~SQL
     CREATE TRIGGER financial_baseline_versions_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER participant_invitation_cancellations_immutable BEFORE DELETE OR UPDATE ON public.participant_invitation_cancellations FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER source_account_identity_versions_immutable BEFORE DELETE OR UPDATE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();

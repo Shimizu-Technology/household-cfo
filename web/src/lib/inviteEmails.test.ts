@@ -12,6 +12,12 @@ describe('parseInviteEmails', () => {
     expect(emails).toEqual(['dee@example.com'])
     expect(problems).toEqual(['“not-an-email” isn’t a complete email address.'])
   })
+  it('keeps a bare address typed before a named one', () => {
+    const { emails, problems } = parseInviteEmails('ana@example.com Bo <bo@example.com>')
+    expect(emails).toEqual(['ana@example.com', 'bo@example.com'])
+    expect(problems).toEqual([])
+    expect(parseInviteEmails('Cy Lee <cy@example.com> dee@example.com, ed@example.com Fay <fay@example.com>').emails).toEqual(['cy@example.com', 'dee@example.com', 'ed@example.com', 'fay@example.com'])
+  })
   it('returns nothing for an empty box', () => {
     expect(parseInviteEmails('  \n ')).toEqual({ emails: [], problems: [] })
   })

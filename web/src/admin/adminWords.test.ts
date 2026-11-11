@@ -29,6 +29,19 @@ describe('last active', () => {
     expect(lastActiveWords(new Date(2026, 9, 1, 9).toISOString(), now)).toBe('Oct 1')
     expect(lastActiveWords(null, now)).toBe('Not yet')
   })
+  it('counts calendar days across the spring clock change, when a day is only 23 hours', () => {
+    const zone = process.env.TZ
+    process.env.TZ = 'America/Los_Angeles'
+    try {
+      const afterChange = new Date(2026, 2, 9, 12)
+      expect(lastActiveWords(new Date(2026, 2, 8, 10).toISOString(), afterChange)).toBe('Yesterday')
+      expect(lastActiveWords(new Date(2026, 2, 6, 10).toISOString(), afterChange)).toBe('3 days ago')
+      expect(lastActiveWords(new Date(2026, 2, 9, 1).toISOString(), afterChange)).toBe('Today')
+    } finally {
+      if (zone === undefined) delete process.env.TZ
+      else process.env.TZ = zone
+    }
+  })
 })
 
 describe('group line', () => {

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiRequestError } from '../../api'
 import { registerConfirmHost, type ConfirmRequest } from '../../lib/confirmAction'
 import { adminUser, editorUser, group, person, reviewerUser, savings, staff } from '../../test/adminFixtures'
 
@@ -9,7 +10,8 @@ vi.mock('../../api', async original => ({ ...await original<typeof import('../..
 const daily = vi.hoisted(() => ({ daily: vi.fn() }))
 vi.mock('../../lib/coachChallengeApi', async original => ({ ...await original<typeof import('../../lib/coachChallengeApi')>(), coachChallengeApi: { daily: daily.daily } }))
 vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: 5, selectCoachWorkspace: vi.fn() }) }))
-vi.mock('../../components/SetupSupportInbox', () => ({ SetupSupportInbox: () => <p>Setup request details</p> }))
+const inbox = vi.hoisted(() => ({ props: null as null | { mutationLifecycle?: { begin: () => unknown } } }))
+vi.mock('../../components/SetupSupportInbox', () => ({ SetupSupportInbox: (props: { mutationLifecycle?: { begin: () => unknown } }) => { inbox.props = props; return <p>Setup request details</p> } }))
 vi.mock('../../components/ParticipantHelp', () => ({ ParticipantHelp: () => <p>Shared items</p> }))
 import { TodaySection } from './TodaySection'
 
@@ -86,10 +88,30 @@ describe('Today for a program owner', () => {
   })
 
   it('never says nobody needs you when it could not read the people', async () => {
-    daily.daily.mockRejectedValue(new Error('forbidden'))
+    daily.daily.mockRejectedValue(new ApiRequestError('Not allowed', { status: 403 }))
     render(<TodaySection currentUser={adminUser()} />)
     expect(await screen.findByText(/only in the groups you coach/)).toBeTruthy()
     expect(screen.queryByText('No one has asked for help.')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('keeps a timeout or server error apart from "not your group": it says so and offers another try', async () => {
+    daily.daily.mockRejectedValueOnce(new ApiRequestError('Server error', { status: 503 })).mockRejectedValueOnce(new ApiRequestError('Server error', { status: 503 }))
+    render(<TodaySection currentUser={adminUser()} />)
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('We couldn’t load the people in')
+    expect(screen.queryByText(/only in the groups you coach/)).toBeNull()
+    daily.daily.mockImplementation((id: number) => Promise.resolve(id === 2 ? page(2, [row(7, 'Pat Needs')]) : page(3, [], { program_type: 'household' })))
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText('Pat Needs')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('gives the setup inbox the shared lifecycle, so the program picker locks while a request is changed from here', async () => {
+    render(<TodaySection currentUser={staff()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'View help for Pat Needs' }))
+    await screen.findByText('Setup request details')
+    expect(inbox.props?.mutationLifecycle).toBeTruthy()
   })
 
   it('says so plainly when no one has asked', async () => {

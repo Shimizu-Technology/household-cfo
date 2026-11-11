@@ -222,8 +222,9 @@ module Api
             memberships = user.cohort_memberships.includes(:cohort).to_a
             problem = if user.id == current_user.id || !user.participant? || user.coach_workspace_memberships.exists?
               "Only a participant’s invitation can be cancelled here."
-            elsif user.invitation_status != "pending"
-              user.revoked? ? "This invitation was already cancelled." : "This person already joined, so there is no invitation to cancel."
+            elsif user.invitation_status != "pending" || user.accepted_at.present?
+              # Anyone who ever accepted has an account worth keeping, even if their status was later changed.
+              user.revoked? && user.accepted_at.blank? ? "This invitation was already cancelled." : "This person already joined, so there is no invitation to cancel."
             elsif memberships.empty? || memberships.any? { |membership| membership.cohort.coach_workspace_id != workspace.id }
               "This person is also in another program, so only an administrator can change their invitation."
             end

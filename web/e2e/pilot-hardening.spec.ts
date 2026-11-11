@@ -6978,7 +6978,7 @@ test('Coach Studio confirms immediate assigned-cohort impact before publishing a
   await showAssistantStage(page, 'Evaluate & publish')
   await page.getByRole('button', { name: 'Run exact preview' }).click()
   await completePersonaReleaseChecks(page)
-  await expect(page.getByText('Publishing updates future participant messages', { exact: false })).toBeVisible()
+  await expect(page.getByText('A group with a saved version keeps its current voice', { exact: false })).toBeVisible()
 
   await showAssistantStage(page, 'Evaluate & publish')
   await page.getByRole('button', { name: 'Publish next version' }).click()
@@ -13342,7 +13342,7 @@ test('Admin UI group tools go back to an earlier version, after asking, and say 
   await answerConfirm(page, 'dismiss', 'Go back to version 1?', 'keep their current tools')
   expect(writes).toEqual([])
   await page.getByRole('button', { name: 'Go back to this version' }).click()
-  await answerConfirm(page, 'accept', 'It is saved as a new version and nothing is deleted.')
+  await answerConfirm(page, 'accept', 'It is published as a new version and nothing is deleted.')
   await expect(page.getByRole('status')).toContainText('Version 1 is back, saved as version 3.')
   expect(writes).toEqual([{ path: '/api/v1/admin/cohorts/41/experience_configuration/versions/100/rollback', body: { experience_configuration: { draft_revision: 1, expected_published_version_id: 101 } } }])
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)

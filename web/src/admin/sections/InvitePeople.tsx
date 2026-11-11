@@ -2,14 +2,14 @@ import { useState, type FormEvent } from 'react'
 import { ApiRequestError, createAdminUser } from '../../api'
 import type { AdminUser, CurrentUser, UserRole } from '../../api'
 import { Button } from '../../components/Button'
-import { useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
+import { holdWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
 import { confirmAction } from '../../lib/confirmAction'
 import { MAX_INVITES_AT_ONCE, parseInviteEmails } from '../../lib/inviteEmails'
 import { AdminDialog } from '../AdminDialog'
 import { roleLabel } from '../adminWords'
 import type { RosterGroup } from '../useAdminRoster'
 
-type Result = { added: string[]; already: string[]; unsent: string[]; problems: string[] }
+type Result = { added: string[]; already: string[]; unsent: string[]; problems: string[]; notes: string[] }
 
 // One way to invite: paste one or many emails, choose a group (and a role, for admins). A group is only
 // preselected when it is the only one, so a long list of emails never goes to the wrong group by default.
@@ -31,7 +31,6 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
   const [result, setResult] = useState<Result | null>(null)
   const needsGroup = role !== 'admin'
   const parsed = parseInviteEmails(text)
-  useHoldWorkspaceLock(busy)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -46,32 +45,38 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
     })
     if (!confirmed) return
     setBusy(true); setError(null)
-    const outcome: Result = { added: [], already: [], unsent: [], problems: [] }
+    // Every invitation in the batch goes to the program it was started in, and the result is shown here:
+    // the dialog stays open, and the program stays put, until the last one has been answered.
+    const release = holdWorkspaceLock()
+    const outcome: Result = { added: [], already: [], unsent: [], problems: [], notes: parsed.problems }
     const inGroup = new Set(people.filter(person => person.cohorts.some(item => String(item.cohort.id) === groupId)).map(person => person.email.toLowerCase()))
-    for (const email of parsed.emails) {
-      if (needsGroup && inGroup.has(email)) { outcome.already.push(email); continue }
-      try {
-        const response = await createAdminUser({ email, role, cohort_id: needsGroup ? groupId : undefined, send_invitation_email: sendEmail })
-        if (response.already_invited && !response.invitation_sent) outcome.already.push(email)
-        else {
-          outcome.added.push(email)
-          if (sendEmail && response.invitation_status === 'failed') outcome.unsent.push(email)
+    try {
+      for (const email of parsed.emails) {
+        if (needsGroup && inGroup.has(email)) { outcome.already.push(email); continue }
+        try {
+          const response = await createAdminUser({ email, role, cohort_id: needsGroup ? groupId : undefined, send_invitation_email: sendEmail })
+          if (response.already_invited && !response.invitation_sent) outcome.already.push(email)
+          else {
+            outcome.added.push(email)
+            if (sendEmail && response.invitation_status === 'failed') outcome.unsent.push(email)
+          }
+        } catch (caught) {
+          outcome.problems.push(`${email}: ${caught instanceof ApiRequestError || caught instanceof Error ? caught.message : 'This invitation could not be saved.'}`)
         }
-      } catch (caught) {
-        outcome.problems.push(`${email}: ${caught instanceof ApiRequestError || caught instanceof Error ? caught.message : 'This invitation could not be saved.'}`)
       }
-    }
+    } finally { release() }
     setBusy(false)
     setResult(outcome)
     if (outcome.added.length > 0) onDone()
   }
 
   const staffRoles: UserRole[] = ['participant', 'coach', 'admin']
-  return <AdminDialog title="Invite people" labelId="admin-invite-title" onClose={onClose}>
+  return <AdminDialog title="Invite people" labelId="admin-invite-title" onClose={onClose} locked={busy}>
     {result ? <div className="admin-invite-result" role="status">
       <p className="admin-result-headline">{result.added.length === 0 ? 'No one new was invited.' : `${result.added.length} ${result.added.length === 1 ? 'person' : 'people'} invited.`}</p>
       {result.unsent.length > 0 && <p>The email didn’t go out for {result.unsent.join(', ')}. Open them in People and choose Send the invitation again.</p>}
       {result.already.length > 0 && <p>Already in this group: {result.already.join(', ')}.</p>}
+      {result.notes.length > 0 && <div><p>Not everything you typed was used:</p><ul>{result.notes.map(item => <li key={item}>{item}</li>)}</ul></div>}
       {result.problems.length > 0 && <div role="alert"><p>These didn’t work:</p><ul>{result.problems.map(item => <li key={item}>{item}</li>)}</ul></div>}
       <div className="admin-actions"><Button onClick={onClose}>Done</Button></div>
     </div> : <form className="admin-stack" onSubmit={submit} noValidate>

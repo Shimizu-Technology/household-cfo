@@ -3,8 +3,9 @@ import { createAdminCohort, fetchAdminPersonaAssignableCohorts, updateAdminCohor
 import type { AdminCohort, AdminCohortStatus, AdminPersonaAssignableCohort, CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
 import { SavingsChallengeAccessPanel } from '../../components/SavingsChallengeAccessPanel'
-import { useHoldWorkspaceLock } from '../../components/coachWorkspaceMutationLifecycle'
+import { holdWorkspaceLock, useHoldWorkspaceLock, useWorkspaceMutationInFlight } from '../../components/coachWorkspaceMutationLifecycle'
 import { useAuthContext } from '../../contexts/authContextValue'
+import { confirmDiscard } from '../../lib/confirmAction'
 import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
@@ -67,10 +68,13 @@ function NewGroup({ platformMode, onClose, onCreated }: { platformMode: boolean;
     if (platformMode) { setError('Choose a program at the top of the page first, so the group has a home.'); return }
     if (!name.trim()) { setError('Give the group a name.'); return }
     setBusy(true); setError(null)
+    // The program stays put until the group exists and the list has reloaded, so the new group is never lost.
+    const release = holdWorkspaceLock()
     try { await onCreated(await createAdminCohort({ name: name.trim(), status: 'enrolling', ...(starts ? { starts_on: starts } : {}) })) }
     catch (caught) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
+    finally { release() }
   }
-  return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose}>
+  return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose} locked={busy}>
     <form className="admin-stack" onSubmit={submit} noValidate>
       <label className="admin-field"><span>Group name</span><input autoFocus maxLength={120} value={name} placeholder="Tuesday evening group" onChange={event => setName(event.target.value)} /></label>
       <label className="admin-field"><span>Start date (optional)</span><input type="date" value={starts} onChange={event => setStarts(event.target.value)} /></label>
@@ -111,6 +115,20 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
   const [challengeDirty, setChallengeDirty] = useState(false)
   const detailsDirty = JSON.stringify(draft) !== JSON.stringify(draftFor(group))
   useHoldWorkspaceLock(saving || challengeBusy)
+  // A tool save or rollback in flight must finish where the person can see its answer before they move on.
+  const working = useWorkspaceMutationInFlight()
+  // Leaving the Details draft, the tools draft or the challenge panel behind asks first, as the rest of the Admin side does.
+  const keepOrDiscard = async (unsaved: boolean) => !unsaved || confirmDiscard('Your changes will be lost.')
+  async function goBack() {
+    if (await keepOrDiscard(detailsDirty || toolsDirty || challengeDirty)) onBack()
+  }
+  async function showTab(next: 'details' | 'tools') {
+    if (next === tab) return
+    // The Details draft lives on this page, so only the tools draft is lost by switching away from Tools.
+    if (tab === 'tools' && !(await keepOrDiscard(toolsDirty))) return
+    setToolsDirty(false)
+    setTab(next)
+  }
   const voice = assignable.find(item => item.id === group.id)?.persona_assignment?.persona.name
 
   useEffect(() => { onDirtyChange(detailsDirty || toolsDirty || challengeDirty) }, [detailsDirty, toolsDirty, challengeDirty, onDirtyChange])
@@ -137,7 +155,7 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
   return <section className="admin-section">
     <header className="admin-section-head admin-group-head">
       <div>
-        <button type="button" className="admin-back" onClick={onBack}>‹ All groups</button>
+        <button type="button" className="admin-back" disabled={working} onClick={() => void goBack()}>‹ All groups</button>
         <h2 data-page-heading tabIndex={-1}>{group.name}</h2>
         <p>{groupLine(group, joined).replace(`${group.name} · `, '')}</p>
       </div>
@@ -145,8 +163,8 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
     {group.status === 'archived' && <p className="admin-alert">This group is archived, so it is hidden from Today and Reports. To bring it back, change where it stands under Details and save.</p>}
     {group.savings_challenge?.enabled && <SavingsChallengeAccessPanel key={group.id} cohort={group} busy={saving || challengeBusy} onChanged={afterChallengeChange} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />}
     <div className="admin-chips" role="group" aria-label="Group settings">
-      <button type="button" aria-pressed={tab === 'details'} onClick={() => setTab('details')}>Details</button>
-      <button type="button" aria-pressed={tab === 'tools'} onClick={() => setTab('tools')}>Tools people can use</button>
+      <button type="button" aria-pressed={tab === 'details'} disabled={working} onClick={() => void showTab('details')}>Details</button>
+      <button type="button" aria-pressed={tab === 'tools'} disabled={working} onClick={() => void showTab('tools')}>Tools people can use</button>
     </div>
     {tab === 'details' ? <>
       <form className="admin-stack admin-group-form" onSubmit={save}>

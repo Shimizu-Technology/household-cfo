@@ -23,6 +23,18 @@ export function useWorkspaceMutationInFlight() {
   return useSyncExternalStore(subscribeHolds, () => holds > 0, () => false)
 }
 
+// For work that must finish for the program it started in, even if its screen goes away first (a batch of
+// invitations, a new group and its reload): holds the program picker until the returned function is called.
+export function holdWorkspaceLock() {
+  changeHolds(1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    changeHolds(-1)
+  }
+}
+
 // For saves that are not tickets (a form, an invite): holds the program picker while `busy`.
 export function useHoldWorkspaceLock(busy: boolean) {
   useEffect(() => {

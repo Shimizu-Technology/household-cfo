@@ -235,7 +235,7 @@ export function CohortExperienceStudio({
 
   async function rollback(versionId: number, versionNumber: number) {
     if (!configuration || dirty || pendingAction || !configuration.permissions.rollback) return
-    if (!(await confirmAction('It is saved as a new version and nothing is deleted. People already in the group keep their current tools until you update the group in Coaching → Go live.', { title: `Go back to version ${versionNumber}?`, confirmLabel: 'Go back to it', cancelLabel: 'Not yet' }))) return
+    if (!(await confirmAction('It is published as a new version and nothing is deleted. People with a saved group version keep their current tools until you update the group in Coaching → Go live. People without a saved group version may see the restored tools after they refresh.', { title: `Go back to version ${versionNumber}?`, confirmLabel: 'Go back to it', cancelLabel: 'Not yet' }))) return
     const ticket = mutationLifecycle.begin()
     setPendingAction('rollback')
     setError(null)

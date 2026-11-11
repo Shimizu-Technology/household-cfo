@@ -204,7 +204,7 @@ export function CoachContentLibrary({ currentUser, selectedPersona, mutationLife
             const ids = (selectedPersona.content_packs ?? []).filter((version) => version.pack_id !== selectedPack.id).map((version) => version.id)
             const next = await updateAdminPersonaContentPacks(selectedPersona.id, selectedPersona.draft_revision ?? 0, [...ids, selectedPack.current_published_version.id])
             if (mutationLifecycle.isCurrent(ticket)) onPersonaChange(next)
-          }, `Collection saved to Mia’s draft. Open Assistant voice → Evaluate & publish for a fresh preview. ${selectedPersona?.published_version ? 'The published voice has not changed.' : 'This voice has not been published.'}`)}
+          }, `Collection saved to Mia’s draft. Open History → Voice versions → Evaluate & publish for a fresh preview. ${selectedPersona?.published_version ? 'The published voice has not changed.' : 'This voice has not been published.'}`)}
         />}
         </div>
       </div>
@@ -225,7 +225,7 @@ function CollectionAttachment({ pack, persona, busy, dirty, onAttach }: {
     : !persona.permissions.edit || persona.status === 'archived' ? 'This assistant is read-only for your role. Choose one you can edit.'
     : dirty ? 'Save or discard library edits before changing Mia’s teaching.'
     : busy ? 'Another change is still saving.'
-    : attached ? 'This collection version is saved to Mia’s draft. Open Assistant voice → Evaluate & publish to review it before participants use it.'
+    : attached ? 'This collection version is saved to Mia’s draft. Open History → Voice versions → Evaluate & publish to review it before participants use it.'
     : `Add ${pack.name} v${version.version} to ${persona.name}’s draft. A fresh voice preview and publication are required.`
   return <section className="coach-content-next" aria-label="Use collection with Mia">
     <h4>Use with Mia</h4><p>{reason}</p>
