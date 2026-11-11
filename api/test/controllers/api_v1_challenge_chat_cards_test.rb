@@ -64,7 +64,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
       assert_equal "daily_report", card["kind"], message
       assert_equal [ 1800 ], card.dig("input", "purchases").map { |row| row["amount_cents"] }
       refute_match(/\$18.00 set aside|Did you set aside new money/i, response.parsed_body.dig("assistant_message", "content"))
-      assert_match(/Got it: \$18.00 at Port of Mocha/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_match(/Got it: \$18 at Port of Mocha/i, response.parsed_body.dig("assistant_message", "content"))
     end
     before = SavingsChatCard.where(status: "pending").count
     2.times { |index| ask "I spent $18 on lunch at Port of Mocha and I saved nothing today", "repeat-negative-#{index}" }

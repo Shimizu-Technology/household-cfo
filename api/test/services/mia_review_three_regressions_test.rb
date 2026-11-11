@@ -54,7 +54,11 @@ class MiaReviewThreeRegressionsTest < ActiveSupport::TestCase
     refute_includes narrator.call, "Chelu"
     policy = Mia::LanguagePolicy.new(user_message: "I keep buying things and I feel ashamed.", persona: voice)
     assert_nil policy.server_phrase
+    # As needed never repeats back to back, and is free again after three other replies.
     policy = Mia::LanguagePolicy.new(user_message: message, history: [ { role: "assistant", content: "Chelu, pump the brakes." } ], persona: voice)
+    assert_nil policy.server_phrase
+    older = [ { role: "assistant", content: "Chelu, pump the brakes." }, *Array.new(3) { { role: "assistant", content: "Sure." } } ]
+    policy = Mia::LanguagePolicy.new(user_message: message, history: older, persona: voice)
     assert_equal "Chelu, pump the brakes.", policy.server_phrase
   end
 

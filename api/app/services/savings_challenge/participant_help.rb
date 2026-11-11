@@ -4,13 +4,15 @@ module SavingsChallenge
   # participant asked. Nothing here changes the participant's challenge.
   module ParticipantHelp
     EXIT = /\b(?:paus(?:e|ing)|leav(?:e|ing)|quit(?:ting)?|stop(?:ping)?|cancel(?:l?ing)?|withdraw(?:ing)?(?: from)?|get(?:ting)? out of|tak(?:e|ing) a (?:pause|break) from|step(?:ping)? (?:back|away) from)\s+(?:doing\s+)?(?:the\s+|this\s+|my\s+)?(?:savings\s+|bog\s+)?(?:challenge|program)\b/i
+    # "How do I quit?" in the challenge chat has no other object to mean.
+    EXIT_BARE = /\b(?:how (?:do|can|could|would|should) (?:i|we)|can (?:i|we)|(?:i|we) (?:want|wanna|need|have) to|i['’]?d like to|i['’]?m (?:thinking (?:about|of)|ready to)|let me)\s+(?:quit|leave|stop|pause|cancel|withdraw|drop out|opt out)(?:\s+(?:it|this|now|please|pls|tho|though|early|already))*\s*(?:[?.!,]|\z)/i
     MEANING = "Stepping away would stop your daily check-ins, and what you've already saved stays in your record.".freeze
     TOLD = "No judgment. You can't leave or pause the challenge yourself in the app yet, so I've let your coach know you asked. " \
       "#{MEANING} Nothing changes until your coach reaches out, so you don't have to do anything in the challenge today.".freeze
     NOT_TOLD = "No judgment. You can't leave or pause the challenge yourself in the app yet, and I couldn't reach your coach from here, so please tell them directly. " \
       "#{MEANING} Nothing changes until you do, so you don't have to do anything in the challenge today.".freeze
 
-    def self.exit?(message) = message.to_s.match?(EXIT)
+    def self.exit?(message) = message.to_s.match?(EXIT) || message.to_s.match?(EXIT_BARE)
 
     # The reply for a participant asking to leave or pause, after telling the coach
     # through the support inbox. It says "I've let your coach know" only when that happened.

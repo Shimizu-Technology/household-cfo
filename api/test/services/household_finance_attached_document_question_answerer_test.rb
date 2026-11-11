@@ -87,11 +87,11 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     merchant_answer = answer_for("How much did I spend at Market Cafe?")
     category_answer = answer_for("What categories are in this receipt?")
 
-    assert_includes grocery_answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $30.00"
-    assert_includes merchant_answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $100.00"
-    assert_includes category_answer, "Groceries: $30.00"
-    assert_includes category_answer, "Dining: $70.00"
-    assert_not_includes category_answer, "$200.00"
+    assert_includes grocery_answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $30"
+    assert_includes merchant_answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $100"
+    assert_includes category_answer, "Groceries: $30"
+    assert_includes category_answer, "Dining: $70"
+    assert_not_includes category_answer, "$200"
   end
 
   test "flags only exact merchant amount and date duplicate charges" do
@@ -122,7 +122,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
       assert_includes answer, "cannot answer that question reliably"
       assert_includes answer, "I will not guess from the file name or extracted prose"
       assert_not_includes answer, "1 transaction row totaling"
-      assert_not_includes answer, "$50.00"
+      assert_not_includes answer, "$50"
       assert_not_includes answer, "Attached transactions"
     end
   end
@@ -140,8 +140,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "more extracted rows than Mia can verify completely"
     assert_includes answer, "did not calculate a partial total"
-    assert_not_includes answer, "$10.00"
-    assert_not_includes answer, "$30.00"
+    assert_not_includes answer, "$10"
+    assert_not_includes answer, "$30"
   end
 
   test "refuses a partial setup answer when persisted values exceed the complete bound" do
@@ -156,7 +156,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     ).call
 
     assert_includes answer, "more extracted rows than Mia can verify completely"
-    assert_not_includes answer, "$5,000.00"
+    assert_not_includes answer, "$5,000"
     assert_not_includes answer, "Primary"
   end
 
@@ -217,7 +217,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     answer = answer_for("Does this receipt fit my plan?")
 
     assert_includes answer, "Groceries would remain within plan with $0.98 left"
-    assert_not_includes answer, "$1.00 left"
+    assert_not_includes answer, "$1 left"
   end
 
   test "refuses a partial plan comparison when complete pending evidence exceeds its bound" do
@@ -292,8 +292,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     ).call
 
     assert_includes answer, "pending transactions"
-    assert_includes answer, "Groceries would remain within plan with $30.00 left"
-    assert_includes answer, "Dining would remain within plan with $60.00 left"
+    assert_includes answer, "Groceries would remain within plan with $30 left"
+    assert_includes answer, "Dining would remain within plan with $60 left"
   end
 
   test "reports each month separately when attached plan comparisons span periods" do
@@ -308,8 +308,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("Do these receipts fit my plan?")
 
-    assert_includes answer, "Groceries in Jul 2026 would be $10.00 over plan"
-    assert_includes answer, "Groceries in Aug 2026 would remain within plan with $60.00 left"
+    assert_includes answer, "Groceries in Jul 2026 would be $10 over plan"
+    assert_includes answer, "Groceries in Aug 2026 would remain within plan with $60 left"
   end
 
   test "does not add resolved attached rows to plan impact a second time" do
@@ -332,8 +332,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("What income and debt values did this find?")
 
-    assert_includes answer, "Primary salary: $6,200.00, monthly (pending review)"
-    assert_includes answer, "Visa: balance $1,750.00, payment $80.00, 19.5% APR (pending review)"
+    assert_includes answer, "Primary salary: $6,200, monthly (pending review)"
+    assert_includes answer, "Visa: balance $1,750, payment $80, 19.5% APR (pending review)"
     assert_includes answer, "Nothing from this message was saved"
   end
 
@@ -388,7 +388,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     answer = answer_for("What is the total in this attachment?")
 
     assert_includes answer, "failed extraction and produced no verified rows"
-    assert_not_includes answer, "$99.00"
+    assert_not_includes answer, "$99"
     assert_not_includes answer, "Stale merchant"
   end
 
@@ -399,8 +399,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("How much did I spend in August 2026?")
 
-    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $60.00"
-    assert_not_includes answer, "$150.00"
+    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $60"
+    assert_not_includes answer, "$150"
     assert_not_includes answer, "Ignored"
     assert_includes answer, "1 purchase from this file is still waiting for you to approve; it doesn't count in your spending until you do"
     assert_includes answer, "One purchase from it is already approved"
@@ -413,10 +413,10 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("How much did I spend in July and August 2026?")
 
-    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $80.00"
-    assert_includes answer, "Jul 2026: $30.00"
-    assert_includes answer, "Aug 2026: $50.00"
-    assert_not_includes answer, "$170.00"
+    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $80"
+    assert_includes answer, "Jul 2026: $30"
+    assert_includes answer, "Aug 2026: $50"
+    assert_not_includes answer, "$170"
     assert_not_includes answer, "September market"
   end
 
@@ -427,9 +427,9 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("What is the total from Jul 1 through Aug 31, 2026?")
 
-    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30.00"
+    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30"
     assert_not_includes answer, "no attached transaction row matching the named merchant"
-    assert_not_includes answer, "$60.00"
+    assert_not_includes answer, "$60"
   end
 
   test "matches a yearless date range that wraps from December into January" do
@@ -439,10 +439,10 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("How much did I spend from Dec 15 through Jan 15?")
 
-    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30.00"
-    assert_includes answer, "Dec 2025: $10.00"
-    assert_includes answer, "Jan 2026: $20.00"
-    assert_not_includes answer, "$60.00"
+    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30"
+    assert_includes answer, "Dec 2025: $10"
+    assert_includes answer, "Jan 2026: $20"
+    assert_not_includes answer, "$60"
   end
 
   test "filters an exact named or ISO date rather than the entire month" do
@@ -452,8 +452,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     named = answer_for("What is the total on Aug 2?")
     iso = answer_for("What is the total on 2026-08-03?")
 
-    assert_includes named, "1 transaction row matching that merchant, category, date, or amount filter totaling $10.00"
-    assert_includes iso, "1 transaction row matching that merchant, category, date, or amount filter totaling $20.00"
+    assert_includes named, "1 transaction row matching that merchant, category, date, or amount filter totaling $10"
+    assert_includes iso, "1 transaction row matching that merchant, category, date, or amount filter totaling $20"
   end
 
   test "does not raise or partially filter an invalid full-date range" do
@@ -466,9 +466,9 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_includes named, "could not apply that date or date range"
     assert_includes iso, "could not apply that date or date range"
     [ named, iso ].each do |answer|
-      assert_not_includes answer, "$10.00"
-      assert_not_includes answer, "$20.00"
-      assert_not_includes answer, "$30.00"
+      assert_not_includes answer, "$10"
+      assert_not_includes answer, "$20"
+      assert_not_includes answer, "$30"
       assert_not_includes answer, "transaction row matching"
     end
   end
@@ -480,8 +480,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     today = answer_for("How much did I spend today?")
     yesterday = answer_for("How much did I spend yesterday?")
 
-    assert_includes today, "1 transaction row matching that merchant, category, date, or amount filter totaling $10.00"
-    assert_includes yesterday, "1 transaction row matching that merchant, category, date, or amount filter totaling $20.00"
+    assert_includes today, "1 transaction row matching that merchant, category, date, or amount filter totaling $10"
+    assert_includes yesterday, "1 transaction row matching that merchant, category, date, or amount filter totaling $20"
   end
 
   test "filters this month and from last month without treating time as a merchant" do
@@ -491,8 +491,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     current = answer_for("How much did I spend this month?")
     prior = answer_for("How much did I spend from last month?")
 
-    assert_includes current, "1 transaction row matching that merchant, category, date, or amount filter totaling $30.00"
-    assert_includes prior, "1 transaction row matching that merchant, category, date, or amount filter totaling $40.00"
+    assert_includes current, "1 transaction row matching that merchant, category, date, or amount filter totaling $30"
+    assert_includes prior, "1 transaction row matching that merchant, category, date, or amount filter totaling $40"
     assert_not_includes prior, "no attached transaction row matching the named merchant"
   end
 
@@ -502,9 +502,9 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("What is the total from 2026?")
 
-    assert_includes answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $10.00"
+    assert_includes answer, "1 transaction row matching that merchant, category, date, or amount filter totaling $10"
     assert_not_includes answer, "no attached transaction row matching the named merchant"
-    assert_not_includes answer, "$30.00"
+    assert_not_includes answer, "$30"
   end
 
   test "recognizes narrow generic review requests but not substantive questions" do

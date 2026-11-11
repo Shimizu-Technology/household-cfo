@@ -72,7 +72,10 @@ class MiaPhraseArtifactAudienceTest < ActiveSupport::TestCase
     ).sanitize("#{PARTICIPANT_PHRASE}, review groceries today.")
 
     assert_equal "#{PARTICIPANT_PHRASE}, review groceries today.", current
-    assert_equal "#{PARTICIPANT_PHRASE}, review groceries today.", repeated
+    assert_not_includes repeated, PARTICIPANT_PHRASE, "an as-needed phrase is not repeated back to back"
+    older = policy(runtime, history: [ { role: "assistant", content: "#{PARTICIPANT_PHRASE}, we checked the list." }, *Array.new(3) { { role: "assistant", content: "Sure." } } ])
+      .sanitize("#{PARTICIPANT_PHRASE}, review groceries today.")
+    assert_equal "#{PARTICIPANT_PHRASE}, review groceries today.", older
   end
 
   test "another participant cannot authorize a phrase through their message or transcript" do

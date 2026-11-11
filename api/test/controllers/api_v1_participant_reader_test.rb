@@ -214,7 +214,7 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
         assert_response :created
         json = response.parsed_body
         assert_equal 1, json.fetch("challenge_chat_cards").length
-        assert_match(/Got it: \$20\.00 set aside today/, json.dig("assistant_message", "content"))
+        assert_match(/Got it: \$20 set aside today/, json.dig("assistant_message", "content"))
       end
     end
   end

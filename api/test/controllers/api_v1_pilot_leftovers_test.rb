@@ -200,6 +200,49 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
   end
 
+  def set_aside_fact = { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" }
+
+  test "a saving told with a question about progress is saved as a card and the progress is answered" do
+    enroll_in_challenge
+    body = say("I put $50 aside today, how am I doing?", legacy(question: true, facts: [ set_aside_fact ]))
+    assert_equal 5000, body.dig("savings_intake", "amount_cents"), "the saving is not swallowed by the question"
+    assert_equal "savings", body.dig("challenge_chat_card", "kind")
+    assert_match(/Got it: \$50 set aside today/, text(body))
+    assert_match(/Day 30: /, text(body), "and the question gets its answer")
+    refute_match(/\$50\.00/, text(body))
+  end
+
+  test "a saving told with a question about the goal makes both cards and answers" do
+    enroll_in_challenge
+    body = say("I put $50 aside today, what should my goal be?", legacy(question: true, facts: [ set_aside_fact ]))
+    kinds = Array(body["challenge_chat_cards"]).map { |card| card["kind"] }.sort
+    assert_equal %w[goal savings], kinds
+    assert_match(/Got it: \$50 set aside today/, text(body))
+    assert_match(/target for you to confirm/, text(body))
+  end
+
+  test "a bare question about quitting is a question about the challenge" do
+    [ "how do i quit?", "can i quit", "i want to quit.", "i'm thinking about stopping, how do i pause" ].each do |message|
+      assert SavingsChallenge::ParticipantHelp.exit?(message), message
+    end
+    [ "how do i stop overspending", "how do i quit smoking", "can i pause my gym membership" ].each do |message|
+      assert_not SavingsChallenge::ParticipantHelp.exit?(message), message
+    end
+    enroll_in_challenge
+    body = say("I put $50 aside today and spent $12 at Shell, how do I quit?", legacy(question: true, facts: [ set_aside_fact ]))
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
+    assert body["challenge_chat_card"].present?
+  end
+
+  test "a plain statement or a plain question is untouched by the question half" do
+    enroll_in_challenge
+    body = say("I put $50 aside today", legacy(facts: [ set_aside_fact ]))
+    assert_equal "Got it: $50 set aside today. It's below for you to check. Nothing counts toward your challenge until you save it.", text(body)
+    other = say("how am I doing?", legacy(question: true))
+    assert_match(/Day 30: /, text(other))
+    assert_nil other["challenge_chat_card"]
+  end
+
   test "a hard moment is not answered with the leave explanation" do
     enroll_in_challenge
     body = say("my dad passed away friday and i dont think i can keep going with the challenge", legacy(care: "grief"))

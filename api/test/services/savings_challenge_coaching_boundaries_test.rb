@@ -92,9 +92,9 @@ class SavingsChallengeCoachingBoundariesTest < ActiveSupport::TestCase
       savings_approve(savings_draft(-2500, funding: "withdrawal"))
       savings_draft(20_000, entry: contribution.savings_entry)
       response = answer("What is my savings progress?")
-      assert_includes response, "So far you've saved $75.00 to your challenge."
+      assert_includes response, "So far you've saved $75 to your challenge."
       refute_includes response, "matches a statement"
-      assert_includes response, "goal is $300.00"
+      assert_includes response, "goal is $300"
       assert_includes response, "open Savings"
       assert_includes response, "2 savings records are waiting for you to save in Savings"
       assert_equal 2, SavingsEntryVersion.count
