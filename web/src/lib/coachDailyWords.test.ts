@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { householdStatus, savingsStatus } from './coachDailyWords'
+import { dailyNeed, householdStatus, savingsStatus } from './coachDailyWords'
 import type { CoachDailyPerson } from './coachChallengeApi'
 
 const person = (over: Partial<CoachDailyPerson>) => ({ membership_status: 'joined', enrollment_id: null, setup_status: 'complete', check_in: null, ...over }) as unknown as CoachDailyPerson
@@ -13,4 +13,8 @@ describe('savings status in plain words', () => {
     expect(savingsStatus(person({ membership_status: 'invited' }))).toBe('Invited · Hasn’t joined yet')
     expect(savingsStatus(person({}))).toBe('Joined · Hasn’t started the challenge')
   })
+})
+
+it('names a challenge pause or leave request without calling it a setup problem', () => {
+  expect(dailyNeed(person({ setup_help: [{ id: 9, reason: 'leave_challenge', status: 'requested' }], help_requests: [], shared_items: [] }))).toBe('Asked to pause or leave the challenge')
 })
