@@ -471,7 +471,7 @@ module HouseholdFinance
     def mark_saved_bills_removed(field)
       saved = saved_bill_parts(field)
       return unless saved.length > 1
-      fields[field]["parts"].first["label"] = default_total_label(field)
+      fields[field]["parts"].first["label"] = free_total_label(field)
       fields[field]["parts"].first["kind"] = "part"
       fields[field]["parts"].concat(saved.map { |part| part.merge("removed" => true) })
     end
@@ -612,6 +612,13 @@ module HouseholdFinance
     def default_label(field) = REGISTRY.fetch(field).default_label
     def other_label(field) = REGISTRY.fetch(field).other_label || "Other"
     def default_total_label(field) = CARD_LABELS.fetch(field)
+
+    # A new whole-layer total needs a budget row name that isn't already used,
+    # including by a row archived when the bills were split.
+    def free_total_label(field)
+      taken = household.budget_categories.pluck(:name).map(&:downcase)
+      [ default_total_label(field), other_label(field), "All #{default_total_label(field).downcase}" ].find { |label| !taken.include?(label.downcase) } || default_total_label(field)
+    end
 
     def apply_debts(change)
       if change["none"]

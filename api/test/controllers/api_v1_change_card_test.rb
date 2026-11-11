@@ -196,6 +196,18 @@ class ApiV1ChangeCardTest < ActionDispatch::IntegrationTest
     assert_equal [ [ "Phone", 6_500 ] ], row(phone, "fixed_expenses")["parts"].map { |item| [ item["label"], item["cents"] ] }
   end
 
+  test "after bills are split, a new overall total replaces them under a free name" do
+    finish_setup
+    @household.budget_categories.create!(name: "Fixed essentials", stack_key: "non_discretionary", active: false, sort_order: 99)
+    body = say("my bills are like 2100 now", read(setup: changes(fixed_expenses: money(total_amount: "2100", total_cadence: "monthly", total_source: "my bills are like 2100 now"))))
+    fixed = row(body, "fixed_expenses")
+    assert_equal 210_000, fixed["total_cents"]
+    assert_equal [ [ "Other must-pay bills", nil ], [ "Rent", true ], [ "Power", true ], [ "Insurance", true ] ], fixed["parts"].map { |item| [ item["label"], item["removed"] ] }
+    apply(card_of(body))
+    assert_equal 2100.0, values[:fixed_expenses].to_f
+    assert_equal [ "Other must-pay bills" ], stack_names("non_discretionary")
+  end
+
   test "a change the reader missed but the intent model found goes on the same card" do
     finish_setup
     intent = HouseholdFinance::MiaIntentResolver::Result.new(intent: "household_action", confidence: 0.9, continuation: false, resolved_message: "set emergency fund",
