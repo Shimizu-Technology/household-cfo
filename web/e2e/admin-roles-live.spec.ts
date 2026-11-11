@@ -27,7 +27,7 @@ async function refused(page: Page, path: string) {
   await expect(page.getByRole('heading', { name: 'That section isn’t part of your role' })).toBeVisible()
 }
 
-test.describe('program owner', () => {
+test.describe('Admin UI real server: program owner', () => {
   test.skip(!web || role !== 'owner', 'Needs the seeded local API, signed in as the program owner')
   test('has every section, and Today, Groups tools and cancelling an invitation work', async ({ page }) => {
     test.setTimeout(120_000)
@@ -68,7 +68,7 @@ test.describe('program owner', () => {
   })
 })
 
-test.describe('editor', () => {
+test.describe('Admin UI real server: editor', () => {
   test.skip(!web || role !== 'editor', 'Needs the seeded local API, signed in as an editor')
   test('has Today and Coaching, reads only what an editor may, and edits group tools under Coaching', async ({ page }) => {
     test.setTimeout(120_000)
@@ -91,7 +91,7 @@ test.describe('editor', () => {
   })
 })
 
-test.describe('reviewer', () => {
+test.describe('Admin UI real server: reviewer', () => {
   test.skip(!web || role !== 'reviewer', 'Needs the seeded local API, signed in as a reviewer')
   test('has Today, Coaching and Reports, can save a report, and can see but not change group tools', async ({ page }) => {
     test.setTimeout(120_000)
@@ -114,7 +114,7 @@ test.describe('reviewer', () => {
   })
 })
 
-test.describe('platform administrator', () => {
+test.describe('Admin UI real server: platform administrator', () => {
   test.skip(!web || role !== 'admin', 'Needs the seeded local API, signed in as the platform administrator')
   test('has every section, filters staff, and can cancel an invitation without choosing a program first', async ({ page }) => {
     test.setTimeout(120_000)

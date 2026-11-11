@@ -13351,8 +13351,6 @@ test('Admin UI group tools go back to an earlier version, after asking, and say 
 test('Admin UI an editor reaches group tools under Coaching and saves a draft, and has no Groups section', async ({ page }) => {
   const saves: string[] = []
   page.on('request', request => { if (request.method() === 'PATCH' && request.url().includes('/experience_configuration')) saves.push(new URL(request.url()).pathname) })
-  await page.goto(coachProgramUrl('/admin/coaching', '&pilot_e2e_workspace_role=editor'))
-  await expect(page.locator('.admin-sidebar, .admin-section-menu').first()).toBeVisible()
   await page.goto(coachProgramUrl('/admin/groups', '&pilot_e2e_workspace_role=editor'))
   await expect(page.getByRole('heading', { name: 'That section isn’t part of your role' })).toBeVisible()
   await page.getByRole('link', { name: /^Go to Today/ }).click()
@@ -13659,7 +13657,8 @@ test('Admin UI People adds a person without mistaking a failed email for deliver
   const row = page.locator('.admin-table tbody tr, .admin-list-row').filter({ hasText: 'New Participant' }).first()
   await expect(row).toContainText('Invited')
   await expect(row).not.toContainText('Joined')
-  await row.getByRole('button').first().click().catch(async () => row.click())
+  // A table row on a wide screen has the person's name as its button; a phone row is the button itself.
+  await (await row.getByRole('button').count() ? row.getByRole('button').first() : row).click()
   const person = page.getByRole('dialog')
   await person.getByRole('button', { name: 'Send the invitation again' }).click()
   await expect(person.getByText('Invitation sent again.')).toBeVisible()
