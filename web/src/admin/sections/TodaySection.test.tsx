@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiRequestError } from '../../api'
+import { useWorkspaceMutationInFlight } from '../../components/coachWorkspaceMutationLifecycle'
 import { registerConfirmHost, type ConfirmRequest } from '../../lib/confirmAction'
 import { adminUser, editorUser, group, person, reviewerUser, savings, staff } from '../../test/adminFixtures'
 
@@ -15,6 +16,7 @@ vi.mock('../../components/SetupSupportInbox', () => ({ SetupSupportInbox: (props
 vi.mock('../../components/ParticipantHelp', () => ({ ParticipantHelp: () => <p>Shared items</p> }))
 import { TodaySection } from './TodaySection'
 
+function Probe() { return <p data-testid="lock">{useWorkspaceMutationInFlight() ? 'locked' : 'free'}</p> }
 const bog = group(2, 'Bank of Guam 90 day savings', { savings_challenge: savings('open') })
 const household = group(3, 'Mel’s Household Group', { status: 'active' })
 const row = (id: number, name: string, over = {}) => ({ participant: { id, name }, needs_help: true, setup_help: [{ id: 1, reason: 'upload_problem', status: 'requested' }], help_requests: [], shared_items: [], enrollment_id: null, check_in: null, membership_status: 'joined', setup_status: 'complete', ...over })
@@ -266,6 +268,47 @@ describe('Invite people from Today', () => {
     fireEvent.click(dialog.getByRole('button', { name: 'Invite 3 people' }))
     await waitFor(() => expect(api.createAdminUser).toHaveBeenCalledTimes(3))
     expect(asked.map(request => request.title)).toEqual(['Invite 3 people to Bank of Guam 90 day savings?'])
+    unregister()
+  })
+
+  it('keeps the entries it could not use in the result instead of dropping them', async () => {
+    api.createAdminUser.mockResolvedValue({ user: {}, invitation_sent: true, invitation_status: 'sent' })
+    const unregister = registerConfirmHost(request => request.resolve(true))
+    render(<TodaySection currentUser={staff()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Invite people' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    fireEvent.change(dialog.getByLabelText('Group'), { target: { value: '2' } })
+    fireEvent.change(dialog.getByLabelText(/Email addresses/), { target: { value: 'bo@x.test, not-an-email' } })
+    fireEvent.click(dialog.getByRole('button', { name: 'Invite' }))
+    expect(await screen.findByText('1 person invited.')).toBeTruthy()
+    expect(screen.getByText('Not everything you typed was used:')).toBeTruthy()
+    expect(screen.getByText('“not-an-email” isn’t a complete email address.')).toBeTruthy()
+    unregister()
+  })
+
+  it('cannot be closed while the batch runs, holds the program until the last answer, and then shows every result', async () => {
+    const pending: Array<(value: unknown) => void> = []
+    api.createAdminUser.mockImplementation(() => new Promise(resolve => { pending.push(resolve) }))
+    const unregister = registerConfirmHost(request => request.resolve(true))
+    render(<><Probe /><TodaySection currentUser={staff()} /></>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Invite people' }))
+    const dialog = within(await screen.findByRole('dialog'))
+    fireEvent.change(dialog.getByLabelText('Group'), { target: { value: '2' } })
+    fireEvent.change(dialog.getByLabelText(/Email addresses/), { target: { value: 'a@x.test, b@x.test' } })
+    fireEvent.click(dialog.getByRole('button', { name: 'Invite 2 people' }))
+    await waitFor(() => expect(pending).toHaveLength(1))
+    expect(screen.getByTestId('lock').textContent).toBe('locked')
+    expect(dialog.getByRole('button', { name: 'Close' })).toHaveProperty('disabled', true)
+    fireEvent.keyDown(document, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close invite people' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    await act(async () => { pending[0]({ user: {}, invitation_sent: true, invitation_status: 'sent' }) })
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => { pending[1]({ user: {}, invitation_sent: true, invitation_status: 'sent' }) })
+    expect(await screen.findByText('2 people invited.')).toBeTruthy()
+    expect(screen.getByTestId('lock').textContent).toBe('free')
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
     unregister()
   })
 })
