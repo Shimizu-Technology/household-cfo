@@ -193,31 +193,36 @@ export function MiaSetupCard({
         </p>
       )}
       {draft.stale && <p className="mia-action-stale-note" role="status">Your numbers changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
-      <div className="setup-card-footer">
-        <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
-        {confirmingCancel && hasAnswers
-          ? (
-            <>
-              <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
-              <div className="mia-action-draft-actions">
-                <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
-                <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
-                  {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
-                </button>
-              </div>
-            </>
-          )
-          : (
+      <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
+      {confirmingCancel && hasAnswers
+        ? (
+          <>
+            <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
             <div className="mia-action-draft-actions">
+              <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
+              <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
+                {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
+              </button>
+            </div>
+          </>
+        )
+        : (
+          // The actions stay at the bottom of the chat while a long card
+          // scrolls. On a phone only Apply rides along, so a tall bar never
+          // hides the card's own rows.
+          <div className="setup-card-actions">
+            <div className="mia-action-draft-actions setup-card-apply">
               <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
                 {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
               </button>
+            </div>
+            <div className="mia-action-draft-actions setup-card-secondary">
               <button ref={notNowButton} type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
                 {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
               </button>
             </div>
-          )}
-      </div>
+          </div>
+        )}
     </article>
   )
 }

@@ -59,6 +59,14 @@ module HouseholdFinance
       complete ? "Look over your card and tap Apply when it's right." : "That's everything I need. Look over your card and tap Apply when it's right."
     end
 
+    # What she said, before Mia offers the month it comes to.
+    def offer_lead(card, field)
+      part = card.offer(field)
+      return unless part
+      return "Got it, somewhere from #{money(part['range'].first)} to #{money(part['range'].last)}." if part["range"]
+      "Got it, #{money(part['stated_cents'])} #{MiaSetupCard::CADENCE_NOTES.fetch(part['cadence'], '')}.".sub(/ \.\z/, ".")
+    end
+
     # She moved past the offered figure; it waits on the card, unasked.
     def parked(field, card)
       note = card.offer(field)&.fetch("note", nil).to_s.sub(/, (?:about )?\$[\d,.]+(?: a month)? if that's right\z/, "")

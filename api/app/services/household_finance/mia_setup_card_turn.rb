@@ -121,7 +121,8 @@ module HouseholdFinance
       end
       if update_text.present? || offered_now?
         return Plan.new(reply: nil, update_text: update_text, continues: true, next_field: next_field) if @reading.question && !offered_now?
-        return composed_plan(update_text, update_text.presence, next_field, asked)
+        lead = [ update_text.presence, offered_now? && card.updates.select { |update| update.action == :offer }.map { |update| MiaSetupCardReply.offer_lead(card, update.field) } ].flatten.compact_blank.join(" ")
+        return composed_plan(lead, update_text.presence, next_field, asked)
       end
       if (field = work_out_field(changes, asked))
         return work_out_plan(field, next_field)
