@@ -70,6 +70,9 @@ export function ChatHistory({
   const { assistantName } = useBrand()
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
   const assistantInitial = Array.from(assistantName.trim())[0]?.toUpperCase() ?? 'A'
+  const displayName = shortAssistantName(assistantName)
+  // Mrs. Mel's own greeting stays hers; another coach's assistant introduces itself plainly.
+  const greeting = displayName === 'Mia' ? 'Håfa adai' : 'Hi'
   const shownReviewContent = totalMessageCount === 0 && onOpenReview ? emptyReviewContent : reviewContent
   return (
     <div className="chat-card-wrap">
@@ -82,8 +85,8 @@ export function ChatHistory({
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
             <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
-            <h3>Hi, I’m {assistantName}.</h3>
-            <p>{emptyIntro ?? 'Tell me what changed, like a purchase, a bill, or a raise, or ask what to do next. I’ll prepare anything that changes your numbers for you to review first.'}</p>
+            <h3>{greeting}, I’m {displayName}.</h3>
+            <p>{emptyIntro ?? 'No judgment, no jargon. Tell me what’s going on with your money.'}</p>
             {onChoosePrompt && starterPrompts.length > 0 && (
               <div className="empty-chat-starters" role="group" aria-label="Ways to start">
                 {starterPrompts.map((prompt) => (
