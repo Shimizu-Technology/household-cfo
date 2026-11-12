@@ -13,9 +13,19 @@ module SavingsChallenge
       message.to_s.gsub(/\b(?:pause|stop|cancel|turn off)\s+(?:the |this |my )?(?:challenge )?(?:reminders?|notifications?|alerts?)\b/i, "")
     end
 
+    # The exit verb must target the challenge, not merely share a sentence
+    # with it ("quit smoking when does my challenge end?"). A short standalone
+    # exit is also clear in the selected challenge conversation.
+    def self.challenge_exit?(match)
+      return true if match[0].match?(/\b(?:challenge|program)\b/i)
+      tail = match.post_match
+      return true if tail.match?(/\A\s+(?:or\s+(?:leave|quit|pause|stop|withdraw)\s+)?(?:(?:from|of|in)\s+)?(?:(?:the|this|my|our)\s+)?(?:savings\s+)?(?:challenge|program)\b/i)
+      match[0].match?(/\A(?:quit|leave|pause|cancel|withdraw|drop out|opt out|take me out)\z/i) && tail.match?(/\A[.!?,; ]*\z/)
+    end
+
     def self.leave_mention?(text)
-      text.split(/[.!?;]|\b(?:and|but)\b/i).any? do |clause|
-        clause.match?(EXIT) && (clause.match?(/\b(?:challenge|program)\b/i) || clause.match?(/\b(?:quit|leave|pause|cancel|withdraw|drop out|opt out|take me out)\s*[, ]*\z/i))
+      text.split(/[.!?;,]|\b(?:and|but)\b/i).any? do |clause|
+        clause.to_enum(:scan, EXIT).any? { challenge_exit?(Regexp.last_match) }
       end
     end
 
@@ -27,6 +37,7 @@ module SavingsChallenge
       return [] if text.match?(VETO)
       intents = []
       text.split(/[.!?;,]|\b(?:and|but)\b/i).each do |part|
+        next unless leave_mention?(part)
         if (refusal = part.match(RETRACTION))
           if refusal[1].casecmp?("stop")
             intents.clear
@@ -37,7 +48,9 @@ module SavingsChallenge
         end
         next unless part.match?(EXIT)
         part.to_enum(:scan, EXIT).each do
-          word = Regexp.last_match[0]
+          match = Regexp.last_match
+          next unless challenge_exit?(match)
+          word = match[0]
           if word.match?(/\b(?:stop|stopping|step(?:ping)? away)\b/i)
             intents.concat(%w[leave pause])
           else

@@ -22,10 +22,13 @@ class SavingsChallengeParticipantHelpTest < ActiveSupport::TestCase
   end
   test "unrelated quitting does not become challenge leave intent" do
     help = SavingsChallenge::ParticipantHelp
-    [ "I want to quit smoking. When does my challenge end?", "I want to leave work and see my challenge dates" ].each do |message|
+    [ "I want to quit smoking. When does my challenge end?", "I want to quit smoking, when does my challenge end?",
+      "I want to quit smoking when does my challenge end?", "I want to leave work and see my challenge dates" ].each do |message|
       refute help.exit?(message)
       assert_empty help.card_intents(message)
     end
+    assert_equal [ "pause" ], help.card_intents("I want to quit smoking and pause the challenge")
+    assert_equal [ "leave" ], help.card_intents("I want to pause my gym membership but leave the challenge")
     message = "I want to quit the challenge and turn off reminders"
     assert_equal 1, help.exit_answer(message).scan(/Nothing (?:has|about)/).size
   end

@@ -19,6 +19,7 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
     original_reader = reader.method(:call)
     guard = Mia::ReplyGuard.method(:call)
     narrator = HouseholdFinance::MiaNarrator.instance_method(:openrouter_response)
+    narrator_private = HouseholdFinance::MiaNarrator.private_method_defined?(:openrouter_response)
     ENV["OPENROUTER_API_KEY"] = "synthetic-key"
     data = legacy
     reader.define_singleton_method(:call) do |**options|
@@ -31,6 +32,7 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
     reader.define_singleton_method(:call, original_reader)
     Mia::ReplyGuard.define_singleton_method(:call, guard)
     HouseholdFinance::MiaNarrator.define_method(:openrouter_response, narrator)
+    HouseholdFinance::MiaNarrator.send(:private, :openrouter_response) if narrator_private
     ENV["OPENROUTER_API_KEY"] = ""
   end
 
