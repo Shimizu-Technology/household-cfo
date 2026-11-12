@@ -97,7 +97,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
   test "a bare plan statement after distress gets the crisis reply but a budget plan does not" do
     post "/api/v1/mia/messages", params: { message: "i cant do this anymore", request_id: "plan-1" }, headers: auth, as: :json
     post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-2" }, headers: auth, as: :json
-    assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+    assert_equal HouseholdFinance::ParticipantCare.crisis_followup(@savings_household.chat_sessions.order(:id).last.active_topic), response.parsed_body.dig("assistant_message", "content")
   end
 
   test "a bare plan statement without prior distress is not a crisis" do
@@ -131,7 +131,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, content.scan("988").length, content
       post "/api/v1/mia/messages", params: { message: "i give up, i cannot afford rent", request_id: "rent-hopeless" }, headers: auth, as: :json
       content = response.parsed_body.dig("assistant_message", "content")
-      assert_equal ::Mia::CrisisBoundary.response, content
+      assert_equal HouseholdFinance::ParticipantCare.crisis_followup(@savings_household.chat_sessions.order(:id).last.active_topic), content
       assert_equal 1, content.scan("988").length, content
       assert_equal 0, $model_calls_in_test2
     ensure

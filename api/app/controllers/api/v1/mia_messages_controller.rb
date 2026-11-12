@@ -155,8 +155,7 @@ module Api
         if attached_imports.any? && @care_topic
           @participant_reading = HouseholdFinance::ParticipantMessageReader.call(message: content, api_key: "")
           care_current.message, care_current.reading = content, @participant_reading
-          @care_topic = @care_state.record_disclosure(@care_topic, content)
-          session.update!(active_topic: @care_topic)
+          @care_topic = @care_state.record_turn(content) || @care_topic
           care_current.care_topic = @care_topic
           return render_care_response(session, content, history: care_conversation_history(transcript, @care_topic),
             topic: @care_topic, message_request: message_request, attached_imports: attached_imports)
@@ -218,9 +217,6 @@ module Api
           # A purchase she already confirmed: find it, show the change on a card.
           if setup_card_mode? && @care_topic.nil? && !@participant_reading.care? && (purchase_plan = HouseholdFinance::PurchaseChange.plan(household: current_household, message: content))
             return render_purchase_change_response(session, content, purchase_plan, message_request: message_request)
-          end
-          if savings_program_selected? && @care_topic.nil? && @participant_reading.question && @participant_reading.facts.empty? && !@participant_reading.correction && (help = SavingsChallenge::ParticipantHelp.exit_answer(content, household: current_household, user: current_user, membership: current_cohort_membership))
-            return render_household_read_response(session, content, help, message_request: message_request)
           end
           if (@setup_card_context || @participant_reading.setup_changes.present?) && !@participant_reading.care? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(content) && (@participant_reading.available || !HouseholdFinance::ParticipantCare.required?(content))
             setup_card_turn = HouseholdFinance::MiaSetupCardTurn.new(household: current_household, user: current_user, session: session, reading: @participant_reading, message: content,
@@ -537,7 +533,12 @@ module Api
             SavingsChatCard.where(chat_message_id: messages.select(:id)).delete_all
             messages.delete_all
             requests.delete_all
-            session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
+            # Deletion erases all participant text. Retain only the care deadline
+            # to suppress check-ins; no kind, question, disclosure or summary survives.
+            care = session.active_topic.to_h
+            hold = care["type"] == "care" ? care.slice("type", "expires_at") : {}
+            session.release_care_topic!(replacement: hold)
+            session.update!(rolling_summary: nil, open_topics: [], last_compacted_message_id: nil, last_compacted_at: nil)
           end
         end
         head :no_content
@@ -776,7 +777,20 @@ module Api
           chat_session_scope.authorize!
           user_message, assistant_message = persist_chat_messages(session, content, attached_imports, answer)
           retire_document_evidence_state(session) if document_evidence_topic_present?(session)
-          session.update!(active_topic: topic)
+          session.with_lock do
+            persisted = session.active_topic.to_h
+            if topic["type"] == "care"
+              # Narration runs outside this lock. A newer crisis or disclosure
+              # must win over the captured topic, including its reply wording.
+              if persisted["type"] == "care" && persisted.except("last_question") != topic.except("last_question")
+                answer = HouseholdFinance::ParticipantCare.crisis_followup(persisted) if persisted["care_kind"] == "crisis"
+                assistant_message.update!(content: answer)
+              end
+              session.update!(active_topic: persisted.merge("last_question" => answer.to_s.last(700))) if persisted["type"] == "care" && persisted["care_kind"].present?
+            else
+              session.update!(active_topic: topic)
+            end
+          end
           payload = { user_message: serialize_chat_message(user_message, author: "You"),
             assistant_message: serialize_chat_message(assistant_message), mia_action_draft: nil,
             transaction_draft: nil, budget: nil, spending_report: nil }
@@ -894,8 +908,11 @@ module Api
       end
 
       def render_crisis_response(session, content, attached_imports, message_request:)
-        HouseholdFinance::ParticipantCareState.new(session, persona_context_id: current_participant_runtime.continuity_id).record_crisis(content)
-        user_message, assistant_message = persist_chat_messages(session, content, attached_imports, ::Mia::CrisisBoundary.response)
+        state = HouseholdFinance::ParticipantCareState.new(session, persona_context_id: current_participant_runtime.continuity_id)
+        prior = state.active
+        topic = state.record_crisis(content)
+        reply = prior.to_h["care_kind"] == "crisis" ? HouseholdFinance::ParticipantCare.crisis_followup(topic) : ::Mia::CrisisBoundary.response
+        user_message, assistant_message = persist_chat_messages(session, content, attached_imports, reply)
         payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),

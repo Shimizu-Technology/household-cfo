@@ -90,3 +90,15 @@ it('reports whether a received card was stored so fallback reviews remain availa
   act(() => expect(valid.result.current.accept(card)).toBe(true))
   expect(valid.result.current.reports).toHaveLength(1)
 })
+
+it('restores leave cards and replaces an older choice when a new offer arrives', async () => {
+  const leave: ChallengeChatCard = { ...card, kind: 'leave', input: { intents: ['leave'] } }
+  vi.mocked(fetchChallengeChatCards).mockResolvedValue(response([leave]))
+  const hook = renderHook(() => useChallengeChatCards(true, scope, actor, 3))
+  await waitFor(() => expect(hook.result.current.leaves).toEqual([leave]))
+  const pause: ChallengeChatCard = { ...leave, id: 32, input: { intents: ['pause'] } }
+  act(() => { hook.result.current.accept(pause) })
+  expect(hook.result.current.leaves).toEqual([pause])
+  act(() => { hook.result.current.accept({ ...pause, status: 'closed' }) })
+  expect(hook.result.current.leaves).toEqual([])
+})

@@ -13,6 +13,9 @@ class AllowLeaveChallengeSupportRequests < ActiveRecord::Migration[8.0]
   end
 
   def down
+    if select_value("SELECT COUNT(*) FROM setup_support_requests WHERE reason = 'leave_challenge' OR status = 'acknowledged'").to_i.positive?
+      raise ActiveRecord::IrreversibleMigration, "Leave requests must retain their meaning. Resolve them before rolling back."
+    end
     # Restoring the old uniqueness rule must not discard outstanding support work.
     duplicates = select_value(<<~SQL)
       SELECT COUNT(*) FROM (
@@ -24,9 +27,7 @@ class AllowLeaveChallengeSupportRequests < ActiveRecord::Migration[8.0]
 
     remove_check_constraint :setup_support_requests, name: "setup_support_leave_no_restart"
     replace_active_indexes(separate_leave: false)
-    execute "UPDATE setup_support_requests SET status = 'declined' WHERE status = 'acknowledged'"
     replace_status_check(%w[requested in_review ready applied canceled declined])
-    execute "UPDATE setup_support_requests SET reason = 'other' WHERE reason = 'leave_challenge'"
     replace_reason_check(REASONS)
   end
 

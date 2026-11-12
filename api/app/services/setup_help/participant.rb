@@ -19,31 +19,38 @@ module SetupHelp
       end
     end
 
-    def create_request(reason:, share_metadata:, idempotency_key:)
+    def create_request(reason:, share_metadata:, idempotency_key:, leave_intent: nil)
       raise Error, "Setup help isn't available while you preview a group. Nothing changed." if @membership&.preview?
       raise Error, "Choose a setup help reason." unless SetupSupportRequest::REASONS.key?(reason)
       raise Error, "Confirm sharing this request's purpose and status with support." unless share_metadata == true
+      if reason == "leave_challenge" && !leave_intent.in?(%w[leave pause])
+        raise Error, "Choose whether to leave or pause. Nothing changed."
+      end
+      owner_required = reason != "leave_challenge"
       key = idempotency_key.to_s.strip
       raise Error, "Idempotency-Key is required and must be at most 200 characters." unless key.present? && key.length <= 200
-      digest = Digest::SHA256.hexdigest(JSON.generate(reason: reason, share_metadata: true, cohort_id: @membership&.cohort_id))
+      fingerprint = { reason: reason, share_metadata: true, cohort_id: @membership&.cohort_id }
+      fingerprint[:leave_intent] = leave_intent if reason == "leave_challenge"
+      digest = Digest::SHA256.hexdigest(JSON.generate(fingerprint))
       @household.with_lock do
         HouseholdFinance::FinancialGenerationGuard.request!(@household)
-        Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
+        Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required)
         retire_outdated_requests!
         existing = SetupHelpRequestKey.find_by(household: @household, user: @user, idempotency_key: key)
         if existing
           raise Conflict, "This request identity was already used for different setup help. Nothing changed." unless existing.request_fingerprint == digest
           record = requests.find(existing.setup_support_request_id)
-          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required, request: record)
         else
           slot = reason == "leave_challenge" ? requests.where(reason: reason) : requests.where.not(reason: "leave_challenge")
           record = slot.where(status: SetupSupportRequest::ACTIVE).order(:id).first
           unless record
             record = @household.setup_support_requests.create!(requested_by_user: @user, cohort_id: @membership&.cohort_id,
-              participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason)
+              participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason, leave_intent: leave_intent)
             audit!(record, "requested")
           end
-          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required, request: record)
+          record.update!(leave_intent: leave_intent) if reason == "leave_challenge" && record.leave_intent != leave_intent
           SetupHelpRequestKey.create!(household: @household, user: @user, setup_support_request: record, idempotency_key: key, request_fingerprint: digest)
         end
         { request: Serializer.request(record), setup_help: status }
@@ -51,8 +58,8 @@ module SetupHelp
     end
 
     # Leave requests have their own support lifecycle and never consume setup work.
-    def request_leave(idempotency_key:)
-      create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key).fetch(:request)
+    def request_leave(idempotency_key:, intent: "leave")
+      create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key, leave_intent: intent).fetch(:request)
     end
 
     def cancel_request(id:, expected_lock_version:)

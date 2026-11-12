@@ -477,7 +477,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     say("my dad passed friday n the rosary n food is gonna be like 900, im not sure im up for this challenge rn", legacy(care: "grief"))
     body = say("how do i pause the challenge tho", legacy(care_status: "ongoing", question: true))
     assert_match(/can't leave or pause the challenge yourself/i, text(body))
-    assert_match(/let your coach know/i, text(body))
+    assert body["challenge_chat_cards"].any? { |card| card["kind"] == "leave" }
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge")
     refute_match(/Start with one purchase/, text(body))
     assert_not care_topic
   end
@@ -488,7 +489,8 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     @user, @household = @savings_user, @savings_household
     body = say("how do i quit this challenge", legacy(question: true))
     assert_match(/can't leave or pause the challenge yourself/i, text(body))
-    assert_match(/let your coach know/i, text(body))
+    assert body["challenge_chat_cards"].any? { |card| card["kind"] == "leave" }
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge")
     other = say("how much did i save so far", legacy(question: true))
     refute_match(/let your coach know/i, text(other))
     assert_not SavingsChallenge::ParticipantHelp.exit?("how do i stop overspending during the challenge")
@@ -897,17 +899,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/You're welcome/, text(body))
   end
 
-  test "the leave and pause answers say only what is true" do
-    told = SavingsChallenge::ParticipantHelp::TOLD
-    assert_match(/can't leave or pause the challenge yourself/, told)
-    assert_match(/I've let your coach know/, told)
-    assert_match(/stop your daily check-ins/, told)
-    assert_match(/stays in your record/, told)
-    untold = SavingsChallenge::ParticipantHelp::NOT_TOLD
-    refute_match(/I've let your coach know/, untold)
-    assert_match(/couldn't reach your coach/, untold)
-    assert_match(/tell them directly/, untold)
-  end
+
 
   [ "should i finance a new iphone, 45 dollars a month", "should i finance a new iphone, 45 bucks a month" ].each do |message|
     test "#{message} is not a price" do

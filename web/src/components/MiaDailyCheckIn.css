@@ -122,3 +122,5 @@
 @media (max-width: 380px) {
   .mia-purchase-rows > div { grid-template-columns: 1fr; gap: 0; }
 }
+
+.mia-leave-card .mia-daily-save { border-radius: var(--field-radius, 12px); white-space: normal; overflow-wrap: anywhere; }

@@ -18,6 +18,14 @@ module HouseholdFinance
       message.to_s.match?(/\b(?:all good now|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now|(?:i|we) figured it out|(?:i|we)(?: am| are|['’]m|['’]re|m|re) (?:okay|ok|safe) now|(?:i|we) (?:am|are) safe)\b/i)
     end
 
+    # A declaration of safety cannot cancel means, intent, a plan or uncertainty
+    # in the same turn, regardless of whether the semantic reader is available.
+    def crisis_recovery?(message)
+      text = message.to_s
+      explicit_recovery?(text) && !text.match?(/\b(?:but|still|for now|i guess|kind of|maybe)\b/i) &&
+        !CareDisclosures.safety_fact?(text)
+    end
+
     # Carrying on with setup, in her words. "i cant keep going" must never match.
     SETUP_RESUME = /\b(?:lets?|let['’]s|lemme|can we|could we|ok(?:ay)?|want to|wanna|ready to)\s+(?:pls\s+|please\s+|just\s+)?(?:keep\s+go\w*|continue|carry\s+on|go\s+on|finish|(?:get|go)\s+back\s+to\s+(?:the\s+|this\s+|my\s+)?(?:setup|this|it|numbers|bills?)|pick\s+(?:this|it)\s+back\s+up)\b|\b(?:finish|continue|resume)\s+(?:the\s+|my\s+|our\s+|this\s+)?setup\b/i
     SETUP_NOT_RESUMING = /\b(?:can['’]?t|cant|cannot|don['’]?t|dont|won['’]?t|wont|never|not)\b[^.!?]{0,20}\b(?:keep|continue|carry|finish|go on)\b|\b(?:tomorrow|tmrw|later|another time)\b/i

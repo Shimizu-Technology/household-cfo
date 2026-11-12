@@ -503,3 +503,45 @@ class SetupHelpTest < ActiveSupport::TestCase
     @participant.create_request(reason: reason, share_metadata: true, idempotency_key: key)[:request]
   end
 end
+
+class SetupHelpTest
+  test "leave tickets stay listable and closable after challenge withdrawal" do
+    setup_savings_context
+    travel_to Time.find_zone!("Pacific/Guam").local(2026, 11, 15, 12) do
+      with_savings_runtime do
+        savings_enroll
+        participant = SetupHelp::Participant.new(@savings_household, user: @savings_user, cohort_membership: @savings_membership)
+        record = participant.request_leave(idempotency_key: "leave-before-withdraw", intent: "pause")
+        @savings_enrollment.update!(status: "withdrawn")
+        staff = SetupHelp::Staff.new(user: @savings_owner)
+        assert staff.list[:records].any? { |row| row[:id] == record[:id] }
+        result = staff.transition(id: record[:id], action: "acknowledge", expected_lock_version: record[:lock_version])
+        assert_equal "acknowledged", result[:request][:status]
+        assert_nil SetupSupportRequest.find(record[:id]).financial_restart_review_id
+      end
+    end
+  end
+
+  test "partners may request leave while setup restart stays owner-only" do
+    @household.household_memberships.find_by!(user: @user).update!(role: "partner")
+    assert_equal "pause", @participant.request_leave(idempotency_key: "partner-leave", intent: "pause")[:leave_intent]
+    assert_raises(SetupHelp::Denied) { @participant.create_request(reason: "other", share_metadata: true, idempotency_key: "partner-setup") }
+  end
+
+  test "rollback never reclassifies an active or acknowledged leave ticket" do
+    require Rails.root.join("db/migrate/20261111150000_allow_leave_challenge_support_requests")
+    record = @participant.request_leave(idempotency_key: "rollback-leave")
+    %w[requested acknowledged].each do |status|
+      request = SetupSupportRequest.find(record[:id])
+      request.update!(status: status)
+      assert_raises(ActiveRecord::IrreversibleMigration) { AllowLeaveChallengeSupportRequests.new.down }
+      assert_equal [ "leave_challenge", status ], request.reload.attributes.values_at("reason", "status")
+    end
+  end
+  test "ordinary support retry fingerprints remain compatible with existing request keys" do
+    first = @participant.create_request(reason: "other", share_metadata: true, idempotency_key: "legacy-setup")
+    key = SetupHelpRequestKey.find_by!(household: @household, idempotency_key: "legacy-setup")
+    assert_equal Digest::SHA256.hexdigest(JSON.generate(reason: "other", share_metadata: true, cohort_id: nil)), key.request_fingerprint
+    assert_equal first, @participant.create_request(reason: "other", share_metadata: true, idempotency_key: "legacy-setup")
+  end
+end

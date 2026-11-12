@@ -42,7 +42,14 @@ module SetupHelp
       elsif !actor.admin? || ChallengePrivacy::PrivateFinanceAccess.pilot_household?(request.household)
         raise Denied, "This setup support request is unavailable."
       end
-      requester!(request)
+      if request.reason == "leave_challenge"
+        # Historical tickets are pinned to an actor and membership incarnation.
+        # Withdrawal ends participation, not staff's ability to close the ticket.
+        member = request.cohort&.cohort_memberships&.find_by(id: request.participant_membership_id, user_id: request.requested_by_user_id)
+        raise Denied, "This support request is unavailable." if request.cohort && (!member || member.created_at != request.participant_membership_started_at)
+      else
+        requester!(request)
+      end
       mutation = prepare ? "prepare" : action
       if mutation && !permissions_for(request, actor).fetch(mutation.to_sym, false)
         raise Denied, "This account does not have permission for that support action."

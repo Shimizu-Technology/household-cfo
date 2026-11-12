@@ -179,20 +179,102 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
 end
 
 class ApiV1CrisisPathSafetyTest
-  [ "Please tell my coach I want to quit the challenge. I'm not happy with it.",
-    "I want to quit the challenge, I don't have the money anymore", "I don't want to quit but I want to pause the challenge" ].each do |message|
-    test "unrelated negation preserves explicit coach request: #{message}" do
-      enroll_in_challenge
-      body = say(message, legacy)
-      assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(body)
-      assert_equal 1, SetupSupportRequest.where(household: @household, reason: "leave_challenge").count
+  %i[household challenge].each do |mode|
+    %i[off on timeout].each do |model|
+      [ "I'm okay now but I still have the gun", "I'm safe now but the gun is still in my room", "I am safe for now I guess" ].each do |message|
+        test "#{mode} #{model} hedged recovery retains crisis: #{message}" do
+          enroll_in_challenge if mode == :challenge
+          say(GUN, legacy(care: "crisis"))
+          original = session.reload.active_topic
+          body = model == :off ? raw(message) : with_reader_timeout(available: model == :on) { raw(message) }
+          assert_crisis(body)
+          assert_equal original["expires_at"], session.reload.active_topic["expires_at"]
+          refute_includes text(body), "glad you're safe"
+          assert_crisis(raw("I haven't moved it yet."))
+        end
+      end
+    end
+    %w[current all].each do |picture|
+      test "#{mode} #{picture} deletion erases all care text but holds check-ins" do
+        enroll_in_challenge if mode == :challenge
+        say(GUN, legacy(care: "crisis"))
+        expiry = session.active_topic["expires_at"]
+        delete "/api/v1/mia/messages", params: { picture: picture }, headers: auth
+        assert_response :no_content
+        assert_equal({ "type" => "care", "expires_at" => expiry }, session.reload.active_topic)
+        assert_empty session.open_topics
+        assert_nil session.rolling_summary
+        assert_empty session.chat_messages
+        get "/api/v1/mia/messages", headers: auth
+        assert_response :success
+        assert_equal true, response.parsed_body["care_hold"]
+        assert_empty response.parsed_body["messages"]
+        refute_includes response.body, "gun"
+      end
     end
   end
-  test "procedural quit question and reminder enable request explain without notifying" do
-    enroll_in_challenge
-    assert_no_difference "SetupSupportRequest.count" do
-      assert_equal SavingsChallenge::ParticipantHelp::EXPLANATION, text(raw("How do I quit?"))
-      assert_match(/turn on the reminders you want/, text(raw("Can you turn on reminders for me?")))
+
+  test "a crisis recorded by another request during narration wins the persisted care write" do
+    say("my mom just died", legacy(care: "grief"))
+    narrator = HouseholdFinance::MiaNarrator
+    original = narrator.instance_method(:call)
+    other = open_session
+    headers = auth
+    narrator.define_method(:call) do
+      other.post "/api/v1/mia/messages", params: { message: ApiV1CrisisPathSafetyTest::GUN }, headers: headers, as: :json
+      "I'm sorry about your mom. Who can sit with you?"
+    end
+    body = raw("could you stay a moment")
+    assert_equal 201, other.response.status
+    assert_crisis(body)
+    assert_includes session.reload.active_topic.to_json, "gun in my room"
+    assert_equal other.response.parsed_body.dig("assistant_message", "care_hold"), true
+  ensure
+    narrator.define_method(:call, original)
+  end
+
+  test "later-day upload refreshes care activity before a financial release" do
+    say("my mom just died", legacy(care: "grief"))
+    travel 1.day do
+      import = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user,
+        document_kind: "statement", status: "needs_review", filename: "synthetic.pdf", content_type: "application/pdf",
+        byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.pdf", checksum_sha256: SecureRandom.hex(32))
+      raw("here is my statement", document_import_ids: [ import.id ])
+      assert_equal Time.zone.today, Time.zone.parse(session.reload.active_topic["last_care_at"]).to_date
+      raw("How much is left this month?")
+      assert HouseholdFinance::ParticipantCareState.new(session.reload).checkin_hold?
+    end
+  end
+
+  test "replaying a completed request after expiry preserves the expired safety identity" do
+    say(GUN, legacy(care: "crisis"))
+    post "/api/v1/mia/messages", params: { message: "I haven't moved it yet.", request_id: "expiry-replay" }, headers: auth, as: :json
+    assert_response :created
+    travel 49.hours do
+      post "/api/v1/mia/messages", params: { message: "I haven't moved it yet.", request_id: "expiry-replay" }, headers: auth, as: :json
+      assert_response :created
+      get "/api/v1/mia/messages", headers: auth
+      assert_response :success
+      assert_equal false, response.parsed_body["care_hold"]
+      assert_equal false, response.parsed_body["messages"].last["care_hold"]
+    end
+  end
+  test "empty current-generation page retains care hold after restart" do
+    say(GUN, legacy(care: "crisis"))
+    @household.update!(financial_generation: @household.financial_generation + 1)
+    session.update!(financial_generation: @household.financial_generation)
+    get "/api/v1/mia/messages", headers: auth
+    assert_response :success
+    assert_empty response.parsed_body["messages"]
+    assert_equal true, response.parsed_body["care_hold"]
+  end
+  %i[household challenge].each do |mode|
+    test "#{mode} a reader classifying hedged recovery as crisis retains the means followup" do
+      enroll_in_challenge if mode == :challenge
+      say(GUN, legacy(care: "crisis"))
+      [ "I'm okay now but I still have the gun", "I'm safe now but the gun is still in my room", "I am safe for now I guess" ].each do |message|
+        assert_crisis(say(message, legacy(care: "crisis")))
+      end
     end
   end
 end

@@ -55,7 +55,11 @@ module SavingsChallenge
         return deterministic(daily_rejection_answer) if @daily_rejection
         return deterministic(savings_intake_answer) if @savings_intake
         return deterministic(savings_total_answer) if saved_total_question?
-        return deterministic(calendar_answer) if challenge_calendar_question?
+        if challenge_calendar_question?
+          answer = calendar_answer
+          answer += " I don't have your rent due date in this challenge. Check your lease or ask your landlord to confirm it." if @message.match?(/\brent\b/i)
+          return deterministic(answer)
+        end
         return deterministic(target_change_answer) if target_change?
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
         return targeted(savings_answer) if @message.match?(BORROWING_FROM_SAVINGS)

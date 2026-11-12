@@ -126,27 +126,9 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
 
   # -- 2 and 3. A saving beside a question about leaving: both answered, the coach told ----------
 
-  test "leaving the challenge is explained, and the coach finds the request in the support inbox" do
-    enroll_in_challenge
-    body = say("I want to quit the challenge", legacy(question: false))
-    assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(body)
-    request = SetupSupportRequest.find_by!(household: @household, reason: "leave_challenge")
-    assert_equal [ "requested", @savings_cohort.id, @user.id ], [ request.status, request.cohort_id, request.requested_by_user_id ]
-    assert_equal "I asked to pause or leave the challenge", SetupHelp::Serializer.request(request)[:reason_label]
-    assert HouseholdAuditEvent.exists?(event_type: "setup_support.requested", auditable_id: request.id)
-  end
 
-  test "asking twice reuses only the leave request and preserves the setup request" do
-    enroll_in_challenge
-    participant = SetupHelp::Participant.new(@household, user: @user, cohort_membership: @savings_membership)
-    original = participant.create_request(reason: "wrong_setup", share_metadata: true, idempotency_key: "original")[:request]
-    say("I want to pause the challenge", legacy)
-    say("seriously I want to quit this challenge", legacy)
-    requests = SetupSupportRequest.where(household: @household, requested_by_user: @user)
-    assert_equal 2, requests.count
-    assert_equal original, SetupHelp::Serializer.request(requests.find(original[:id]))
-    assert_equal 1, requests.where(reason: "leave_challenge").count
-  end
+
+
 
   [ "I don't want to leave the challenge, can you help me keep going?", "What happens if I quit the challenge?",
     "I'm thinking about stopping the challenge", "Should I leave the challenge?", "Can you explain why I might want to leave the challenge?",
@@ -157,43 +139,16 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
       assert_no_difference "SetupSupportRequest.count" do
         body = say(message, legacy(question: true))
       end
-      assert_equal SavingsChallenge::ParticipantHelp::EXPLANATION, text(body)
+      assert_includes text(body), "Nothing has changed."
       refute_match(/I've let your coach know/, text(body))
     end
   end
 
-  [ "I want to quit the challenge", "I want to leave the challenge", "Please pause the challenge" ].each do |message|
-    test "actual exit request notifies the coach: #{message}" do
-      enroll_in_challenge
-      body = say(message, legacy(question: message.include?("?")))
-      assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(body)
-      assert_equal 1, SetupSupportRequest.where(household: @household, reason: "leave_challenge").count
-    end
-  end
 
-  test "Mia never claims the coach was told when the note could not be sent" do
-    enroll_in_challenge
-    participant = SetupHelp::Participant
-    original = participant.instance_method(:request_leave)
-    participant.define_method(:request_leave) { |**| raise SetupHelp::Denied, "not allowed" }
-    begin
-      body = say("I want to quit the challenge", legacy(question: false))
-    ensure
-      participant.define_method(:request_leave, original)
-    end
-    assert_equal SavingsChallenge::ParticipantHelp::NOT_TOLD, text(body)
-    refute_match(/I've let your coach know/, text(body))
-    assert_equal 0, SetupSupportRequest.where(household: @household, reason: "leave_challenge").count
-  end
 
-  test "a staff preview cannot raise a leave request, and Mia says to ask directly" do
-    enroll_in_challenge
-    preview = @savings_membership
-    preview.define_singleton_method(:preview?) { true }
-    answer = SavingsChallenge::ParticipantHelp.exit_answer("I want to quit the challenge", household: @household, user: @user, membership: preview)
-    assert_equal SavingsChallenge::ParticipantHelp::NOT_TOLD, answer
-    assert_equal 0, SetupSupportRequest.where(household: @household).count
-  end
+
+
+
 
   test "a saving with a question about quitting makes the card and answers the question" do
     enroll_in_challenge
@@ -353,19 +308,12 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
     test "whole-message consent is required: #{message}" do
       enroll_in_challenge
       assert_no_difference "SetupSupportRequest.count" do
-        assert_equal SavingsChallenge::ParticipantHelp::EXPLANATION, text(say(message, legacy))
+        assert_includes text(say(message, legacy)), "Nothing has changed."
       end
     end
   end
 
-  [ "Please take me out of the challenge", "Please take me out", "I'm done with this challenge", "I wanna quit the challenge" ].each do |message|
-    test "plain exit requests reach the coach: #{message}" do
-      enroll_in_challenge
-      assert_difference "SetupSupportRequest.count", 1 do
-        assert_equal SavingsChallenge::ParticipantHelp::TOLD, text(say(message, legacy))
-      end
-    end
-  end
+
 
   test "rent time questions never return challenge dates" do
     enroll_in_challenge
@@ -414,7 +362,7 @@ class ApiV1PilotLeftoversTest < ActionDispatch::IntegrationTest
   test "a hard moment is not answered with the leave explanation" do
     enroll_in_challenge
     body = say("my dad passed away friday and i dont think i can keep going with the challenge", legacy(care: "grief"))
-    refute_includes text(body), SavingsChallenge::ParticipantHelp::TOLD
+    refute_includes text(body), "I've let your coach know"
     assert_equal 0, SetupSupportRequest.where(household: @household, reason: "leave_challenge").count
   end
 

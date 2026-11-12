@@ -277,6 +277,7 @@ module HouseholdFinance
       page = chat_message_page(before_id: before_id, limit: limit, history: history)
       {
         messages: page.fetch(:messages),
+        care_hold: !!page[:care_hold],
         oldest_message_id: page[:oldest_message_id],
         older_message_count: page.fetch(:older_message_count),
         has_older_messages: page.fetch(:older_message_count).positive?,
@@ -1136,13 +1137,14 @@ module HouseholdFinance
       latest_assistant = messages.reverse.find { |message| message.role == "assistant" }
       latest_assistant_id = latest_assistant&.id
       safety_reply_at = latest_assistant.created_at if latest_assistant&.as_api_json&.dig(:safety_reply)
-      care_hold = !history && latest_assistant_id && ParticipantCareState.new(chat_session).checkin_hold?(safety_reply_at: safety_reply_at)
+      care_hold = !history && ParticipantCareState.new(chat_session).checkin_hold?(safety_reply_at: safety_reply_at)
       {
         messages: messages.map do |message|
           payload = serialize_chat_message(message, imports_by_id: imports_by_id)
           payload[:care_hold] = !!care_hold if message.id == latest_assistant_id && !history
           history ? payload.merge(financial_restart: nil, setup_help: nil, presentation: {}, read_only: true) : payload
         end,
+        care_hold: !!care_hold,
         oldest_message_id: oldest_message_id,
         older_message_count: older_message_count
       }

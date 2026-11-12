@@ -32,7 +32,7 @@ module SavingsChallenge
     def self.special?(message, session:)
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
-      patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
+      ParticipantHelp.exit?(message) || patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
         amount_reply?(message, session: session) ||
         (message.match?(GOAL) && message.match?(GOAL_ADVICE)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
@@ -299,9 +299,22 @@ module SavingsChallenge
         pending_intake_card(kind, input) || SavingsChatCard.create!(savings_enrollment: @enrollment,
           chat_message: assistant_message, kind: kind, input: input)
       end
+      intents = ParticipantHelp.card_intents(@message)
+      retired_leave_cards = []
+      if ParticipantHelp.exit?(@message) && @enrollment
+        pending = SavingsChatCard.where(savings_enrollment: @enrollment, kind: "leave", status: "pending").for_picture(@household.financial_generation)
+        retired_leave_cards = pending.to_a
+        pending.update_all(status: "closed")
+      end
+      if intents.any? && @enrollment && @attachments.empty? && !@reading.care? && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+        @cards << SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "leave", input: { intents: intents })
+      end
       @cards.unshift(@card) if @card
       @cards << @continued_card.reload if @cards.empty? && @continued_card
       @session.update!(active_topic: @topic)
+      # Closed offers are authoritative too: a veto must remove a card already
+      # visible in this browser, without waiting for a page reload.
+      @cards.concat(retired_leave_cards.map(&:reload))
       (@cards.first || @continued_card&.reload)&.as_api_json
     end
 

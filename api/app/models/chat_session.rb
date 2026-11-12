@@ -23,9 +23,9 @@ class ChatSession < ApplicationRecord
 
   # Only the care state machine may release care after recovery or expiry.
   # Other writers (including stale document/setup turns) retain the episode.
-  def release_care_topic!
+  def release_care_topic!(replacement: {})
     @releasing_care_topic = true
-    update!(active_topic: {})
+    update!(active_topic: replacement)
   ensure
     @releasing_care_topic = false
   end

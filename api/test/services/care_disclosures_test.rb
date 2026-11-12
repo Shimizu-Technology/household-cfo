@@ -33,3 +33,35 @@ class CareDisclosuresTest
     end
   end
 end
+
+class CareDisclosuresTest
+  test "each category survives a long intent sentence before separate means and timing" do
+    text = "I want to die " + ("because everything feels impossible " * 11) + ". I have a gun. I plan to act at 9 tonight."
+    bounded = HouseholdFinance::CareDisclosures.content(text)
+    assert_operator bounded.bytesize, :<=, 400
+    %w[die gun].each { |word| assert_includes bounded, word }
+    assert_includes bounded, "9 tonight"
+  end
+
+  test "earlier hardship never displaces later distinct safety facts" do
+    [ [ "My car broke down.", "Rent is due tomorrow.", "I'm worried.", "I want to die.", "I have a gun.", "I plan to act at 9 tonight." ],
+      [ "I want to end it all.", "idk", "I don't know", "My truck broke down too", "I've been saving up my meds for this." ] ].each do |episode|
+      topic = { "disclosures" => [] }
+      (episode + Array.new(30) { |i| "Still here #{i}" }).each do |content|
+        topic = HouseholdFinance::CareDisclosures.bound_topic(topic.merge("disclosures" => topic["disclosures"] + [ { "content" => content } ]))
+      end
+      episode.select { |text| text.match?(/die|gun|9 tonight|meds|end it all/) }.each { |fact| assert_includes topic.to_json, fact }
+      assert_operator topic["disclosures"].size, :<=, 12
+    end
+    refute HouseholdFinance::CareDisclosures.means?("My truck broke down")
+    refute HouseholdFinance::CareDisclosures.safety_fact?("Rent is due tomorrow")
+  end
+  test "vehicle means near intent also receive excerpt space in oversized text" do
+    text = ("Ordinary details. " * 100) + "I'll drive my truck to end my life tonight."
+    bounded = HouseholdFinance::CareDisclosures.content(text)
+    assert_includes bounded, "drive"
+    assert_includes bounded, "truck"
+    assert_includes bounded, "end my life"
+    assert_operator bounded.bytesize, :<=, 400
+  end
+end

@@ -116,7 +116,7 @@ describe('staff setup request safety', () => {
     const signal = mocks.fetchSetupSupportRequests.mock.calls[0][2] as AbortSignal
     rerender(<SetupSupportInbox {...base} actorId={2} />)
     expect(signal.aborted).toBe(true)
-    await screen.findByText('No setup help requests here.')
+    await screen.findByText('No support requests here.')
     await act(async () => pending.resolve({ records: [request], next_cursor: null }))
     expect(screen.queryByText('Fictional Participant')).toBeNull()
   })
@@ -130,7 +130,7 @@ describe('staff setup request safety', () => {
   })
   it('requires explicit workspace context for coaches and does not fetch in platform mode', () => {
     render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} />)
-    expect(screen.getByText('Choose a program to view its setup requests.')).toBeTruthy()
+    expect(screen.getByText('Choose a program to view its support requests.')).toBeTruthy()
     expect(mocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
   })
   it('loads ordinary platform requests for admins and allows only the server-granted actions', async () => {

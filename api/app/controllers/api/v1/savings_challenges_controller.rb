@@ -10,7 +10,7 @@ module Api
         "plan_approve" => "savings.plan.approve", "entry_stage" => "savings.entry.stage", "entry_approve" => "savings.entry.approve",
         "zero_attest" => "savings.zero.attest" }.freeze
 
-      rescue_from ArgumentError do |error|
+      rescue_from ArgumentError, SetupHelp::Error, SetupHelp::Denied, SetupHelp::Conflict do |error|
         render json: { errors: [ error.message ], code: "savings_input_invalid" }, status: :unprocessable_entity
       end
       rescue_from SavingsChallenge::AccessPolicy::Unavailable do |error|
@@ -43,7 +43,10 @@ module Api
         card = own_chat_cards.lock.find(path_id)
         input = request.request_parameters.to_h.deep_symbolize_keys
         action = input[:action].to_s
-        raise ArgumentError, "Choose a supported card action" unless %w[save_state dismiss approve_goal approve_savings].include?(action)
+        raise ArgumentError, "Choose a supported card action" unless %w[save_state dismiss approve_goal approve_savings request_leave].include?(action)
+        if action == "request_leave" && !(card.kind == "leave" && input[:accepted] == true && input[:intent].in?(%w[leave pause]) && Array(card.input["intents"]).include?(input[:intent]))
+          raise ArgumentError, "Choose leave or pause on this card"
+        end
         if card.status == "closed"
           if action == "save_state" && input.dig(:state, :phase) != "saved"
             raise HouseholdFinance::Operations::Base::StaleOperation, "This check-in was finished or closed in another window. Reopen Ask Mia."
@@ -54,7 +57,10 @@ module Api
           if action == "approve_savings" && !card.state["approved"]
             raise HouseholdFinance::Operations::Base::StaleOperation, "This savings card was already reviewed. Open Savings to confirm or fix its record."
           end
-          return render json: { record: card.as_api_json, challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
+          if action == "request_leave" && card.state["leave_intent"] != input[:intent]
+            raise HouseholdFinance::Operations::Base::StaleOperation, "This card was closed or a different choice was sent. Reopen Ask Mia."
+          end
+          return render json: { record: card.as_api_json, assistant_message: leave_card_confirmation(card), challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
         end
         raise HouseholdFinance::Operations::Base::StaleOperation, "This card changed in another window. Reopen Ask Mia before continuing." unless input[:expected_lock_version] == card.lock_version
         case action
@@ -77,11 +83,29 @@ module Api
               expected_draft_lock_version: draft.lock_version, expected_plan_version_id: draft.base_plan_version_id },
             idempotency_key: "chat-goal-approve-#{card.id}").subject
           card.update!(status: "closed", state: { approved_plan_version_id: approved.id })
+        when "request_leave"
+          session = card.chat_message.chat_session
+          session.lock!
+          if HouseholdFinance::ParticipantCareState.new(session).active
+            raise ArgumentError, "Your wellbeing comes first. Please return to Mia before sending this request."
+          end
+          record = SetupHelp::Participant.new(current_household, user: current_user, cohort_membership: current_cohort_membership)
+            .request_leave(idempotency_key: "chat-leave-#{card.id}", intent: input[:intent])
+          reply = "I've let your coach know you'd like to #{input[:intent]} the challenge. Nothing about your challenge has changed. Your coach will talk with you about the next step."
+          assistant = session.chat_messages.create!(card.chat_message.attributes.slice("coach_persona_version_id", "assistant_author", "cohort_id", "cohort_release_id").merge(role: "assistant", content: reply))
+          card.update!(status: "closed", state: { leave_intent: input[:intent], support_request_id: record[:id], assistant_message_id: assistant.id })
         when "approve_savings"
           approve_savings_card!(card, input)
         end
-        render json: { record: card.as_api_json, challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
+        render json: { record: card.as_api_json, assistant_message: leave_card_confirmation(card), challenge: action.in?(%w[approve_goal approve_savings]) ? challenge_data : nil }
       end
+
+      def leave_card_confirmation(card)
+        return unless card.kind == "leave" && card.state["assistant_message_id"]
+
+        card.chat_message.chat_session.chat_messages.where(role: "assistant").find(card.state["assistant_message_id"]).as_api_json
+      end
+      private :leave_card_confirmation
 
       # The same two steps Savings Home takes (stage, then approve), done from
       # the chat card once she says Yes. Every check on those operations still applies.

@@ -20,7 +20,7 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
       return true
     }
     const report = registerServerDailyCard(card, scope)
-    setLoaded(current => ({ scope, cards: [...(current?.scope === scope ? current.cards.filter(row => row.id !== card.id && !(card.kind === 'goal' && row.kind === 'goal')) : []), card], reports: [...(current?.scope === scope ? current.reports.filter(row => row.nonce !== report?.nonce) : []), ...(report ? [report] : [])] }))
+    setLoaded(current => ({ scope, cards: [...(current?.scope === scope ? current.cards.filter(row => row.id !== card.id && !(['goal', 'leave'].includes(card.kind) && row.kind === card.kind)) : []), card], reports: [...(current?.scope === scope ? current.reports.filter(row => row.nonce !== report?.nonce) : []), ...(report ? [report] : [])] }))
     return true
   }, [scope, actor, cohortId])
   useEffect(() => {
@@ -53,5 +53,5 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
     clearDailyCards(scope)
     setLoaded({ scope, cards: [], reports: [] })
   }, [scope])
-  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], savings: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'savings' && card.status === 'pending') : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
+  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], savings: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'savings' && card.status === 'pending') : [], leaves: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'leave' && card.status === 'pending') : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
 }

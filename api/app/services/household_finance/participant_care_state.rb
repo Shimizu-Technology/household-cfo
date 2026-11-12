@@ -13,7 +13,7 @@ module HouseholdFinance
 
     def active
       topic = @session.active_topic.to_h.deep_stringify_keys
-      return unless topic["type"] == "care"
+      return unless topic["type"] == "care" && topic["care_kind"].present?
       expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
       legacy = expiry.nil?
       expiry ||= (@session.chat_messages.order(:id).last&.created_at || @session.updated_at) + TTL
@@ -25,6 +25,7 @@ module HouseholdFinance
         return topic
       end
 
+      archive(topic)
       @session.release_care_topic!
       nil
     end
@@ -48,7 +49,7 @@ module HouseholdFinance
         !(prior && (ParticipantCare.brush_off?(message) || ParticipantCare.current_hardship_sign?(message)))
       released = current.nil? && !ParticipantCare.followup?(message) &&
         (recovered || report || reading.answer_field.present? || ParticipantCare.setup_content?(message, reading) || financial || (reading.question && message.match?(PRODUCT_QUESTION)) || MiaSetupGuide.setup_request?(message) || (reading.available && settled))
-      released = recovery if prior && prior["care_kind"] == "crisis"
+      released = ParticipantCare.crisis_recovery?(message) if prior && prior["care_kind"] == "crisis"
       if released
         archive(prior) if prior
         @session.release_care_topic! if prior
@@ -81,6 +82,16 @@ module HouseholdFinance
       end
       disclosures << { "content" => message.to_s, "created_at" => Time.current.iso8601(6) }
       CareDisclosures.bound_topic(topic.merge("disclosures" => disclosures))
+    end
+
+    def record_turn(message)
+      @session.with_lock do
+        topic = active
+        next unless topic
+        topic = record_disclosure(topic, message).merge("last_care_at" => Time.current.iso8601)
+        @session.update!(active_topic: topic)
+        topic
+      end
     end
 
     def record_crisis(message)

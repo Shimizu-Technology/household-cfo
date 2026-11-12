@@ -973,6 +973,7 @@ export type MiaMessage = {
 }
 
 export type MiaMessagesData = {
+  care_hold?: boolean
   historical_message_count?: number
   messages: MiaMessage[]
   oldest_message_id: number | null
@@ -5330,6 +5331,6 @@ export async function changeSavingsChallengeAccess(
 export function fetchChallengeChatCards(signal?: AbortSignal): Promise<import('./lib/challengeChatCards').ChallengeChatCards> {
   return fetchJson('/api/v1/savings_challenge/chat_cards', { signal, cache: 'no-store' })
 }
-export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; challenge?: SavingsChallenge | null }> {
+export function updateChallengeChatCard(id: number, input: { action: 'save_state'; state: import('./lib/dailyCheckIn').DailyCardState; expected_lock_version: number } | { action: 'dismiss'; expected_lock_version: number } | { action: 'approve_goal'; expected_lock_version: number; accepted: true } | { action: 'request_leave'; expected_lock_version: number; accepted: true; intent: 'leave' | 'pause' } | { action: 'approve_savings'; expected_lock_version: number; accepted: true; new_money_confirmed?: boolean }): Promise<{ record: import('./lib/challengeChatCards').ChallengeChatCard; assistant_message?: MiaMessage | null; challenge?: SavingsChallenge | null }> {
   return fetchJson(`/api/v1/savings_challenge/chat_cards/${savingsRecordId(id)}`, { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
 }

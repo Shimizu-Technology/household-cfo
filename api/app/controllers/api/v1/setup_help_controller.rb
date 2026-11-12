@@ -24,6 +24,7 @@ module Api
 
       def show = render(json: { setup_help: participant.status })
       def create_request
+        raise SetupHelp::Error, "Use the leave or pause card in Mia to tell your coach." if params[:reason] == "leave_challenge"
         render json: participant.create_request(reason: params[:reason], share_metadata: params[:share_metadata], idempotency_key: request.headers["Idempotency-Key"]), status: :created
       end
       def cancel_request

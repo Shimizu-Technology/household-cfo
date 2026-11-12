@@ -140,4 +140,9 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
       end
     end
   end
+  test "recovery with a stated plan keeps crisis care" do
+    @state.record_crisis("I want to die. I have a gun.")
+    message = "I'm safe now. I have a plan."
+    assert_equal "crisis", @state.transition(message, reading(message), history: []).fetch("care_kind")
+  end
 end
