@@ -145,4 +145,23 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     message = "I'm safe now. I have a plan."
     assert_equal "crisis", @state.transition(message, reading(message), history: []).fetch("care_kind")
   end
+  test "expiry recognizes a safety reply whose narration finished after care activity time" do
+    start = Time.current
+    @state.record_crisis("I want to die. I have a gun.")
+    replied_at = start + 30.seconds
+    travel_to(start + 49.hours) do
+      assert_nil @state.active
+      assert_not @state.checkin_hold?(safety_reply_at: replied_at)
+      assert @state.checkin_hold?(safety_reply_at: Time.current)
+    end
+  end
+  test "stale expiry reads cannot clear a newer crisis episode" do
+    stale = ChatSession.find(@session.id)
+    travel 49.hours do
+      topic = @state.record_crisis("I want to die. I have a gun.")
+      state = HouseholdFinance::ParticipantCareState.new(stale)
+      assert_equal "crisis", state.active.fetch("care_kind")
+      assert_equal topic, @session.reload.active_topic
+    end
+  end
 end

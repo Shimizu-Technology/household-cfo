@@ -12,6 +12,10 @@ module HouseholdFinance
     end
 
     def active
+      @session.with_lock { active_locked }
+    end
+
+    def active_locked
       topic = @session.active_topic.to_h.deep_stringify_keys
       return unless topic["type"] == "care" && topic["care_kind"].present?
       expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
@@ -29,6 +33,7 @@ module HouseholdFinance
       @session.release_care_topic!
       nil
     end
+    private :active_locked
 
     def transition(message, reading, history:)
       @session.with_lock { transition_locked(message, reading, history: history) }
@@ -149,11 +154,17 @@ module HouseholdFinance
     def safety_reply_in_episode?(topic, replied_at, archived: false)
       return false unless topic["type"] == "care"
       started = Time.zone.parse(topic["started_at"].to_s) rescue nil
-      ended = Time.zone.parse(topic[archived ? "last_care_at" : "expires_at"].to_s) rescue nil
-      started.present? && ended.present? && replied_at >= started && replied_at <= ended + 1.second
+      end_key = archived ? (topic["ended_at"].present? ? "ended_at" : "last_care_at") : "expires_at"
+      ended = Time.zone.parse(topic[end_key].to_s) rescue nil
+      tolerance = end_key == "ended_at" ? 0 : 1.second
+      started.present? && ended.present? && replied_at >= started && replied_at <= ended + tolerance
     end
 
     def archive(topic)
+      # Narration can finish seconds after last_care_at. Record the episode's
+      # actual end so its completed safety reply is still recognized after expiry.
+      expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
+      topic = topic.merge("ended_at" => [ Time.current, expiry ].compact.min.iso8601(6))
       @session.update!(open_topics: (Array(@session.open_topics).reject { |row| row.to_h["type"] == "care" } + [ topic ]).last(8))
     end
   end
