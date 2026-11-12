@@ -5367,6 +5367,8 @@ test('Coach Studio simple preview failure offers a plain retry and a route to sa
     return route.fulfill({ json: { persona: personaDetailFixture(), preview: { status: 'unavailable', notice: 'Internal provider provenance and compilation details.' }, behavioral_preview_evidence: null } })
   })
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await expect(page).toHaveURL(/\/admin\/coaching/)
+  await expect(page.locator('.coach-studio-screen')).toHaveAttribute('aria-busy', 'false')
   const areas = page.getByRole('navigation', { name: 'Coaching steps', exact: true })
   await areas.getByRole('button', { name: /Preview and go live/ }).click()
   await expect(page.getByText(/You can use the standard voice or edit it first/)).toBeVisible()
@@ -10084,6 +10086,26 @@ test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',a
   await page.unroute('http://api.test/api/v1/mia/messages')
   const card=await sendMiaDailyReport(page);await expect(card).toBeVisible()
 })
+test('BOG UI daily prompt returns on reload after server expires a crisis episode', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const reply = { id: 8192, role: 'assistant', author: 'Mia', content: 'Call or text 988 now, or 911 in an emergency.', safety_reply: true, care_hold: true }
+  await page.route('http://api.test/api/v1/workspace', route => {
+    const workspace = realWorkspaceData(false)
+    return route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, experience_mode: 'savings_challenge' }, mia: { ...workspace.mia, care_hold: reply.care_hold, messages: [reply] } } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [reply], oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(page.getByText('Call or text 988 now, or 911 in an emergency.', { exact: true })).toBeVisible()
+  await expect(prompt).toHaveCount(0)
+  reply.care_hold = false
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(prompt).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Your check-in', exact: true })).toHaveCount(0)
+})
 test('BOG UI explicit check-in reopens today after a chat question and on the next day', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-09-28T02:00:00Z') })
   await openDaily(page, { active: true })
@@ -11874,6 +11896,34 @@ test('BOG UI a non-owner can correct records but cannot restart shared setup or 
   expect(flow.creates).toEqual([])
 })
 
+test('Admin UI a coach acknowledges a leave request without offering a restart', async ({ page }) => {
+  let record = { ...setupSupportBrowserRecord(), cohort_id: 41, program_name: 'BOG', reason: 'leave_challenge', reason_label: 'I asked to pause or leave the challenge', permissions: { triage: true, prepare: false, decline: true, acknowledge: true } }
+  let acknowledgments = 0
+  await page.route('http://api.test/api/v1/setup_support_requests**', route => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { records: [record], next_cursor: null } })
+    expect(new URL(route.request().url()).pathname.endsWith('/acknowledge')).toBe(true)
+    expect(route.request().postDataJSON()).toEqual({ expected_lock_version: record.lock_version })
+    acknowledgments += 1
+    record = { ...record, status: 'acknowledged', lock_version: record.lock_version + 1 }
+    return route.fulfill({ json: { request: record } })
+  })
+  async function openInbox(done = false) {
+    await page.goto(coachProgramUrl('/admin/support'))
+    if (done) await page.getByRole('group', { name: 'Show requests that are' }).getByRole('button', { name: /Done/ }).click()
+    await page.getByRole('button', { name: /Test Participant/ }).first().click()
+  }
+  await openInbox()
+  const inbox = page.getByRole('dialog').getByRole('article', { name: 'Support requests', exact: true })
+  await expect(inbox.getByRole('button', { name: 'Prepare participant review', exact: true })).toHaveCount(0)
+  await inbox.getByRole('button', { name: 'Talked with them', exact: true }).click()
+  await expect(inbox.locator('.setup-support-status')).toHaveText('Acknowledged')
+  await expect(inbox.getByRole('button', { name: 'Talked with them', exact: true })).toHaveCount(0)
+  await openInbox(true)
+  await expect(inbox.locator('.setup-support-status')).toHaveText('Acknowledged')
+  expect(acknowledgments).toBe(1)
+})
+
+
 test('BOG UI a selected coach can open own setup help from Context My Money and Mia and confirm an eligible own-household restart', async ({ page }) => {
   const flow = await mockSetupHelpBrowser(page, { selfEligible: true, userId: 902, cohortId: null, miaSetupOffer: true })
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Ask%20Mia')
@@ -12538,7 +12588,9 @@ test('BOG UI guided income edit preserves a saved mid-month effective date', asy
   await form.getByRole('button', { name: 'Continue', exact: true }).click()
   await expect(form.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
   await form.getByRole('button', { name: 'Continue', exact: true }).click()
+  await expect(form.getByRole('heading', { name: 'How much, and how often?', exact: true })).toBeFocused()
   await form.getByLabel('Amount', { exact: true }).fill('6600.25')
+  await expect(form.locator('.income-schedule-preview')).toContainText('$6,600.25')
   const saved = page.waitForRequest(request => request.method() === 'PATCH' && request.url().includes('/income_schedule_entries/913'))
   await form.getByRole('button', { name: 'Save income change', exact: true }).click()
   expect((await saved).postDataJSON().income_schedule_entry).toMatchObject({ amount: '6600.25', effective_on: `${currentYear}-11-15` })
@@ -13738,7 +13790,7 @@ for (const role of ['coach', 'admin'] as const) {
     })
     await page.goto(role === 'coach' ? coachProgramUrl('/admin/support') : '/admin/support?pilot_e2e_role=admin')
     await page.getByRole('button', { name: /Test Participant/ }).first().click()
-    const inbox = page.getByRole('dialog').getByRole('article', { name: 'Setup help requests', exact: true })
+    const inbox = page.getByRole('dialog').getByRole('article', { name: 'Support requests', exact: true })
     const request = inbox.getByRole('region', { name: 'Request #1701', exact: true })
     await expect(request).toContainText('I entered practice numbers')
     await expect(inbox).toContainText('Financial details, documents and private conversations stay private.')
@@ -13761,3 +13813,152 @@ for (const role of ['coach', 'admin'] as const) {
     expect(restartWrites).toEqual([])
   })
 }
+
+test('BOG UI daily prompt stays held on an empty restarted conversation', async ({ page }) => {
+  await openDaily(page, { active: true })
+  let held = true
+  await page.route('http://api.test/api/v1/workspace', route => {
+    const workspace = realWorkspaceData(false)
+    return route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, experience_mode: 'savings_challenge' }, mia: { ...workspace.mia, care_hold: held, messages: [] } } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [], care_hold: held, oldest_message_id: null, older_message_count: 0 } }) : route.fallback())
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const prompt = page.getByRole('group', { name: /asks about today/ })
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  await expect(prompt).toHaveCount(0)
+  held = false
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(prompt).toBeVisible()
+})
+
+test('BOG UI leave card waits for a tap, survives reload and confirms the chosen intent', async ({ page }) => {
+  await openDaily(page, { active: true })
+  let card = { id: 8765, kind: 'leave', input: { intents: ['leave', 'pause'] }, state: {} as Record<string, unknown>, status: 'pending', lock_version: 0, enrollment_id: 10, message_id: 20 }
+  const calls: unknown[] = []
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: card.status === 'pending' ? [card] : [], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards/8765', route => {
+    const input = route.request().postDataJSON()
+    calls.push(input)
+    card = { ...card, status: 'closed', lock_version: 1, state: { leave_intent: input.intent, support_request_id: 91 } }
+    return route.fulfill({ json: { record: card, assistant_message: { id: 8766, role: 'assistant', author: 'Mia', content: "I've let your coach know you'd like to pause the challenge. Nothing about your challenge has changed." } } })
+  })
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const region = page.getByRole('region', { name: 'Talk with your coach', exact: true })
+  await expect(region).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+  expect(calls).toEqual([])
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(region).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+  await region.getByRole('button', { name: 'Tell my coach I’d like to pause', exact: true }).click()
+  await expect(page.getByText("I've let your coach know you'd like to pause the challenge. Nothing about your challenge has changed.", { exact: true })).toBeVisible()
+  await expect(region).toHaveCount(0)
+  expect(calls).toEqual([{ action: 'request_leave', expected_lock_version: 0, accepted: true, intent: 'pause' }])
+})
+
+test('BOG UI leave veto removes an already visible offer without notifying the coach', async ({ page }) => {
+  await openDaily(page, { active: true })
+  let pending = true
+  const card = { id: 8771, kind: 'leave', input: { intents: ['leave'] }, state: {}, status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 20 }
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: pending ? [card] : [], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.route('http://api.test/api/v1/mia/messages', route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    pending = false
+    return route.fulfill({ json: { user_message: { id: 8772, role: 'user', author: 'You', content: "Don't tell my coach I want to leave" }, assistant_message: { id: 8773, role: 'assistant', author: 'Mia', content: "I haven't told your coach. Nothing has changed." }, challenge_chat_cards: [{ ...card, status: 'closed' }] } })
+  })
+  let notifications = 0
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards/8771', route => { notifications += 1; return route.abort() })
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  const region = page.getByRole('region', { name: 'Talk with your coach', exact: true })
+  await expect(region).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill("Don't tell my coach I want to leave")
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(page.getByText("I haven't told your coach. Nothing has changed.", { exact: true })).toBeVisible()
+  await expect(region).toHaveCount(0)
+  expect(notifications).toBe(0)
+})
+
+test('BOG UI persisted care hides every financial review without a safety flag', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const reply = { id: 8800, role: 'assistant', author: 'Mia', content: 'Food for you and your family comes first.', care_hold: true, safety_reply: false }
+  await page.route('http://api.test/api/v1/workspace', route => {
+    const workspace = realWorkspaceData(false)
+    return route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, experience_mode: 'savings_challenge' }, mia: { ...workspace.mia, care_hold: true, messages: [reply] } } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [reply], care_hold: true, oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+  const base = { enrollment_id: 1, message_id: 20, status: 'pending', lock_version: 0, state: {} }
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: [
+    { ...base, id: 8810, kind: 'leave', input: { intents: ['leave'] } },
+    { ...base, id: 8811, kind: 'goal', input: { target_cents: 50000 } },
+    { ...base, id: 8812, kind: 'savings', input: { kind: 'contribution', amount_cents: 5000, signed_cents: 5000, effective_on: '2026-09-28' } },
+    { ...base, id: 8813, kind: 'daily_report', input: miaDailyReport },
+  ], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.getByText(reply.content, { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+  for (const name of ['Talk with your coach', 'Your check-in', 'Your savings', 'Your goal']) {
+    await expect(page.getByRole('region', { name, exact: true })).toHaveCount(0)
+  }
+  await expect(page.locator('.mia-daily-card')).toHaveCount(0)
+})
+
+test('BOG UI a history poll started before crisis cannot replace the new care hold or messages', async ({ page }) => {
+  await openDaily(page, { active: true })
+  let started!: () => void
+  const readStarted = new Promise<void>(resolve => { started = resolve })
+  let release!: () => void
+  const released = new Promise<void>(resolve => { release = resolve })
+  let first = true
+  const crisis = { id: 8822, role: 'assistant', author: 'Mia', content: 'Please call or text 988 now. Money and setup can wait.', safety_reply: true, care_hold: true }
+  await page.route('http://api.test/api/v1/mia/messages**', async route => {
+    if (route.request().method() === 'POST') return route.fulfill({ json: {
+      user_message: { id: 8821, role: 'user', author: 'You', content: 'I feel unsafe' }, assistant_message: crisis,
+    } })
+    if (route.request().method() !== 'GET') return route.fallback()
+    if (first) {
+      first = false
+      started()
+      await released
+      return route.fulfill({ json: { messages: [{ id: 8801, role: 'assistant', author: 'Mia', content: 'Old financial reply' }], care_hold: false, oldest_message_id: 8801, older_message_count: 0 } })
+    }
+    return route.fulfill({ json: { messages: [crisis], care_hold: true, oldest_message_id: crisis.id, older_message_count: 0 } })
+  })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await readStarted
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('I feel unsafe')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(page.getByText(crisis.content, { exact: true })).toBeVisible()
+  const oldRead = page.waitForResponse(response => response.url().includes('/mia/messages') && response.request().method() === 'GET')
+  release()
+  await oldRead
+  await expect(page.getByText('Old financial reply', { exact: true })).toHaveCount(0)
+  await expect(page.getByText(crisis.content, { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+})
+
+
+test('BOG UI recovered care keeps the daily prompt quiet and makes explicit review available', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const reply = { id: 8830, role: 'assistant', author: 'Mia', content: 'Your coach already has your request. You can review this choice.', care_hold: true, care_active: false, safety_reply: false }
+  await page.route('http://api.test/api/v1/workspace', route => {
+    const workspace = realWorkspaceData(false)
+    return route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, experience_mode: 'savings_challenge' }, mia: { ...workspace.mia, care_hold: true, care_active: false, messages: [reply] } } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [reply], care_hold: true, care_active: false, oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+  const card = { id: 8831, kind: 'leave', input: { intents: ['leave'] }, state: {}, status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 8830 }
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: [card], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.getByText(reply.content, { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Talk with your coach', exact: true })).toBeVisible()
+})

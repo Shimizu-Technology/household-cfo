@@ -116,7 +116,7 @@ describe('staff setup request safety', () => {
     const signal = mocks.fetchSetupSupportRequests.mock.calls[0][2] as AbortSignal
     rerender(<SetupSupportInbox {...base} actorId={2} />)
     expect(signal.aborted).toBe(true)
-    await screen.findByText('No setup help requests here.')
+    await screen.findByText('No support requests here.')
     await act(async () => pending.resolve({ records: [request], next_cursor: null }))
     expect(screen.queryByText('Fictional Participant')).toBeNull()
   })
@@ -130,7 +130,7 @@ describe('staff setup request safety', () => {
   })
   it('requires explicit workspace context for coaches and does not fetch in platform mode', () => {
     render(<SetupSupportInbox {...base} workspaceId={null} cohortId={null} />)
-    expect(screen.getByText('Choose a program to view its setup requests.')).toBeTruthy()
+    expect(screen.getByText('Choose a program to view its support requests.')).toBeTruthy()
     expect(mocks.fetchSetupSupportRequests).not.toHaveBeenCalled()
   })
   it('loads ordinary platform requests for admins and allows only the server-granted actions', async () => {
@@ -233,3 +233,17 @@ describe('person-specific setup help', () => {
     await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(12, 'triage', 2))
   })
 })
+ it('closes a leave request as acknowledged without preparing a restart', async () => {
+  const leave: SetupSupportRequest = { ...request, reason: 'leave_challenge', reason_label: 'I asked to pause or leave the challenge', permissions: { triage: true, prepare: false, decline: true, acknowledge: true } }
+  mocks.fetchSetupSupportRequests.mockResolvedValue({ records: [leave], next_cursor: null })
+  mocks.updateSetupSupportRequest.mockResolvedValue({ request: { ...leave, status: 'acknowledged', lock_version: 3 } })
+  render(<SetupSupportInbox {...base} />)
+  const close = await screen.findByRole('button', { name: 'Talked with them' })
+  await waitFor(() => expect((close as HTMLButtonElement).disabled).toBe(false))
+  expect(screen.queryByRole('button', { name: 'Prepare participant review' })).toBeNull()
+  fireEvent.click(close)
+  await waitFor(() => expect(mocks.updateSetupSupportRequest).toHaveBeenCalledWith(9, 'acknowledge', 2))
+  expect(await screen.findByText('Acknowledged', { selector: '.setup-support-status' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Talked with them' })).toBeNull()
+ })
+

@@ -175,12 +175,12 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       coach = coach("How much do I owe on my card according to what I approved?")
       answer = coach.call
       assert coach.deterministic?
-      assert_includes answer, "Visa, $300.00 as of 2026-11-01"
+      assert_includes answer, "Visa, $300 as of 2026-11-01"
       assert_includes answer, "interest rate (APR), minimum payment and due date"
       assert_includes answer, "unknown, not zero"
       assert_includes answer, "not a live balance"
-      refute_includes answer, "$999.00"
-      refute_includes answer, "$0.00"
+      refute_match(/\$999(?:\.00)?(?![\d.])/, answer)
+      refute_match(/\$0(?:\.00)?(?![\d.])/, answer)
       refute_includes answer, "Start with one purchase"
     end
   end
@@ -192,7 +192,7 @@ class SavingsOptionalDebtTest < ActiveSupport::TestCase
       debt_approve(debt_stage(debt_terms(label: "Mystery", balance_cents: nil)))
       answer = coach("how much do I owe on my card").call
       assert_includes answer, "Mystery, balance not entered"
-      refute_includes answer, "$0.00"
+      refute_match(/\$0(?:\.00)?(?![\d.])/, answer)
     end
   end
 

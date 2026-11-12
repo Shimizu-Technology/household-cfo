@@ -4,7 +4,7 @@ import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyAct
 import { DailyCardSyncUnavailable, syncDailyCard, dismissDailyCard, readDailyCard, useDailyCard, writeDailyCard, type DailyCardRow, type DailyCardState } from '../lib/dailyCheckIn'
 import { clearDailyRecovery, readDailyRecovery } from '../lib/dailyRecovery'
 import type { BaselineScope } from '../lib/financialBaseline'
-import { savingsDollars, savingsInputCents, savingsInputDollars, type DailyReportIntake, type SavingsIntake } from '../lib/savingsChallenge'
+import { savingsPlainDollars, savingsInputCents, savingsInputDollars, type DailyReportIntake, type SavingsIntake } from '../lib/savingsChallenge'
 import { useDailyMutation } from '../lib/useDailyMutation'
 import './MiaDailyCheckIn.css'
 
@@ -401,7 +401,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
             const fieldsLocked = busy || locked(row)
             return (
               <li key={row.id} className={`mia-daily-row${row.status === 'saved' ? ' is-saved' : ''}${note && row.status !== 'unknown' ? ' has-problem' : ''}`}>
-                {row.status === 'saved' ? <p className="mia-daily-saved-row"><CheckIcon /><span><strong>{savingsDollars(savingsInputCents(row.amount))}</strong> · {row.merchant} · {plainDay(row.purchased_on, today)}</span></p> : <>
+                {row.status === 'saved' ? <p className="mia-daily-saved-row"><CheckIcon /><span><strong>{savingsPlainDollars(savingsInputCents(row.amount))}</strong> · {row.merchant} · {plainDay(row.purchased_on, today)}</span></p> : <>
                   <label className="mia-daily-amount"><span aria-hidden="true">$</span><input data-row-amount={row.id} aria-label={`Amount for ${name}`} aria-describedby={note ? noteId : undefined} inputMode="decimal" autoComplete="off" value={row.amount} disabled={fieldsLocked} aria-invalid={Boolean(invalid[row.id]) || undefined} onChange={(event) => edit(row.id, { amount: event.target.value })} /></label>
                   <label className="mia-daily-place"><input aria-label={`Place for ${name}`} aria-describedby={note ? noteId : undefined} maxLength={120} autoComplete="off" placeholder="Where?" value={row.merchant} disabled={fieldsLocked} aria-invalid={Boolean(invalid[row.id]) || undefined} onChange={(event) => edit(row.id, { merchant: event.target.value })} /></label>
                   <span className="mia-daily-day">{plainDay(row.purchased_on, today)}</span>

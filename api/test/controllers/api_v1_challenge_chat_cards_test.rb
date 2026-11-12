@@ -64,7 +64,7 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
       assert_equal "daily_report", card["kind"], message
       assert_equal [ 1800 ], card.dig("input", "purchases").map { |row| row["amount_cents"] }
       refute_match(/\$18.00 set aside|Did you set aside new money/i, response.parsed_body.dig("assistant_message", "content"))
-      assert_match(/Got it: \$18.00 at Port of Mocha/i, response.parsed_body.dig("assistant_message", "content"))
+      assert_match(/Got it: \$18 at Port of Mocha/i, response.parsed_body.dig("assistant_message", "content"))
     end
     before = SavingsChatCard.where(status: "pending").count
     2.times { |index| ask "I spent $18 on lunch at Port of Mocha and I saved nothing today", "repeat-negative-#{index}" }
@@ -504,6 +504,11 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
         "I can't afford medicine this month, what should I do?" => "Protect food, housing, medication",
         "I want to kill myself. What should I do about my goal?" => "988"
       }.each_with_index do |(message, expected), index|
+        # Each row is a fresh scenario; an unresolved crisis intentionally latches.
+        if (previous_session = ChatSession.find_by(user: @savings_user, household: @savings_household))
+          previous_session.release_care_topic!
+          previous_session.update!(open_topics: [])
+        end
         if previous == "patterns"
           ask "Can you identify spending patterns?", "safety-setup-patterns-#{index}"
           ChatSession.find_by!(user: @savings_user, household: @savings_household).update!(active_topic: {

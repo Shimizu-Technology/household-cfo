@@ -66,7 +66,7 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
 
     messages.each do |message|
       request = -> { post "/api/v1/mia/messages", params: { message: message, year: 2026, month: 7 }, headers: auth_headers(user), as: :json }
-      if eval_case["id"].in?(%w[mel_weekly_grocery_win mel_stuck_to_budget])
+      if eval_case["id"].in?(%w[mel_weekly_grocery_win mel_stuck_to_budget win_extra_card_payment])
         with_participant_reader_response({ care: "none", facts: [], question: false, reply_intent: "win", setup_answer: { field: "none", value: "" }, correction: false, spending_preferences: [] }, &request)
       else
         request.call

@@ -26,6 +26,7 @@ module HouseholdFinance
     def after_apply_message
       return complete_message if setup_status.missing_field_keys.empty?
       field = setup_status.open_field_keys.first
+      return missing_minimum_question if field == MiaSetupCard::DEBT_FIELD && missing_minimum_names.any?
       return MiaSetupCardReply.question(field, card: MiaSetupCard.new(household), previous: nil) if field
 
       "That's everything for now. Still to add when you're ready: #{setup_status.as_json[:missing_fields].map { |item| item[:label].downcase }.to_sentence}."
@@ -51,6 +52,16 @@ module HouseholdFinance
 
     def setup_status
       @setup_status ||= SetupStatus.new(household)
+    end
+
+    # Debts she already named whose minimum is not known: ask about those, not about debts all over again.
+    def missing_minimum_names
+      household.debts.active.where(minimum_payment_known: false).order(:id).pluck(:label)
+    end
+
+    def missing_minimum_question
+      names = missing_minimum_names.map(&:downcase)
+      "What's the monthly minimum on #{names.one? ? "your #{names.first}" : "your #{names.to_sentence}"}?"
     end
 
     def complete_message

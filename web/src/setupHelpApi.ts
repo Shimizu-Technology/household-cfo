@@ -22,7 +22,7 @@ export function fetchSetupSupportRequests(cohortId?: number | null, cursor?: num
   if (cursor != null) query.set('cursor', String(cursor))
   return fetchPrivateJson<{ records: SetupSupportRequest[]; next_cursor: number | null }>(`/api/v1/setup_support_requests?${query}`, { signal, cache: 'no-store' })
 }
-export function updateSetupSupportRequest(id: number, action: 'triage' | 'prepare' | 'decline', lockVersion: number) {
+export function updateSetupSupportRequest(id: number, action: 'triage' | 'prepare' | 'decline' | 'acknowledge', lockVersion: number) {
   return fetchPrivateJson<{ request: SetupSupportRequest }>(`/api/v1/setup_support_requests/${id}/${action}`, {
     method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expected_lock_version: lockVersion }),
   })

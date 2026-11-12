@@ -93,3 +93,16 @@ describe('Support', () => {
     expect(screen.getByRole('button', { name: /Needs a look/ }).textContent).toContain('1')
   })
 })
+
+it('keeps acknowledged challenge requests under Done with their actual purpose', async () => {
+  setup.fetchSetupSupportRequests.mockResolvedValue({ records: [{ ...request(12, 'Leave participant', 'acknowledged', '2026-11-10T10:00:00Z'), reason: 'leave_challenge' }], next_cursor: null })
+  api.fetchAdminPilotFeedback.mockResolvedValue({ feedback_reports: [], counts: {} })
+  render(<SupportSection currentUser={adminUser()} />)
+  await screen.findByText('Nothing needs a look right now.')
+  expect(screen.queryByText('Leave participant')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /Done/ }))
+  const row = screen.getByRole('button', { name: /Leave participant/ })
+  expect(row.textContent).toContain('Challenge help: asked to pause or leave the challenge')
+  expect(row.textContent).toContain('Acknowledged')
+  expect(row.textContent).not.toContain('Setup help:')
+})

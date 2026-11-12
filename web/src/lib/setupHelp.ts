@@ -1,7 +1,8 @@
-export type SetupSupportReason = 'practice_numbers' | 'wrong_setup' | 'upload_problem' | 'other'
-export type SetupSupportStatus = 'requested' | 'in_review' | 'ready' | 'applied' | 'canceled' | 'declined'
+// leave_challenge is only ever raised by Mia, when a participant asks to pause or leave; it is not one of the picker choices below.
+export type SetupSupportReason = 'practice_numbers' | 'wrong_setup' | 'upload_problem' | 'other' | 'leave_challenge'
+export type SetupSupportStatus = 'requested' | 'in_review' | 'ready' | 'applied' | 'canceled' | 'declined' | 'acknowledged'
 export type SetupSupportRequest = {
-  permissions?: { triage: boolean; prepare: boolean; decline: boolean }
+  permissions?: { triage: boolean; prepare: boolean; decline: boolean; acknowledge?: boolean }
   id: number
   status: SetupSupportStatus
   reason: SetupSupportReason
@@ -36,7 +37,7 @@ export const setupSupportReasons: Array<{ value: SetupSupportReason; label: stri
   { value: 'other', label: 'I need help reviewing a restart' },
 ]
 export function setupSupportStatusLabel(status: SetupSupportStatus) {
-  return { requested: 'Waiting for support', in_review: 'Support is reviewing', ready: 'Your review is ready', applied: 'Restart finished', canceled: 'Request canceled', declined: 'Corrections recommended' }[status]
+  return { requested: 'Waiting for support', in_review: 'Support is reviewing', ready: 'Your review is ready', applied: 'Restart finished', canceled: 'Request canceled', declined: 'Corrections recommended', acknowledged: 'Acknowledged' }[status]
 }
 export function activeSetupRequest(request: SetupSupportRequest | null) {
   return Boolean(request && ['requested', 'in_review', 'ready'].includes(request.status))

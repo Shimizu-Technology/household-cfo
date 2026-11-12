@@ -81,7 +81,11 @@ module SetupHelp
     def participant = Participant.new(@household, user: @user, cohort_membership: @membership)
     def core = HouseholdFinance::FinancialRestart::Core.new(@household, user: @user)
     def authorize_owner! = Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
-    def support_request = participant.own_request!(@request_id)
+    def support_request
+      record = participant.own_request!(@request_id)
+      raise Error, "A leave request cannot restart your setup. Nothing changed." if record.reason == "leave_challenge"
+      record
+    end
     def reviews
       scope = @household.financial_restart_reviews.where(requested_by_user: @user, cohort_id: @membership&.cohort_id)
       @request_id ? scope.where(purpose: "supported_setup", setup_support_request_id: support_request.id) : scope.where(purpose: "self_setup")

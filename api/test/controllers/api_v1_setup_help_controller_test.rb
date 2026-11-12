@@ -8,6 +8,16 @@ class ApiV1SetupHelpControllerTest < ActionDispatch::IntegrationTest
     @admin = User.create!(clerk_id: "setup-admin-#{suffix}", email: "setup-admin-#{suffix}@example.com", role: "admin", invitation_status: "accepted")
   end
 
+  test "coach can close a leave ticket as acknowledged without any restart" do
+    request = SetupHelp::Participant.new(@household, user: @user).request_leave(idempotency_key: "leave")
+    post "/api/v1/setup_support_requests/#{request[:id]}/acknowledge", params: { expected_lock_version: request[:lock_version] }, headers: auth(@admin), as: :json
+    assert_response :success
+    assert_equal "acknowledged", response.parsed_body.dig("request", "status")
+    assert_nil response.parsed_body.dig("request", "review_id")
+    assert_equal "acknowledged", SetupSupportRequest.find(request[:id]).status
+    assert_equal 0, @household.reload.financial_generation
+  end
+
   test "own eligibility and self restart preserve exact receipt across a stale tab" do
     get "/api/v1/setup_help", headers: auth
     assert_response :success

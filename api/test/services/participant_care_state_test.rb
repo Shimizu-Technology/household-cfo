@@ -16,6 +16,47 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
     result
   end
 
+  %w[hardship food].each do |kind|
+    test "crisis inside an older #{kind} episode renews care without changing its start" do
+      now = Time.current.change(usec: 0)
+      travel_to(now) { @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(kind)) }
+      started = @session.active_topic.fetch("started_at")
+      travel_to(now + 47.hours + 50.minutes) do
+        topic = @state.record_crisis("I want to die tonight.")
+        assert_equal started, topic["started_at"]
+        assert_equal (Time.current + 48.hours).iso8601, topic["expires_at"]
+      end
+      travel_to(now + 48.hours + 10.minutes) { assert @state.checkin_hold? }
+    end
+  end
+
+  test "sixty two messages bound storage while keeping first safety disclosures and recent turns" do
+    @session.release_care_topic!
+    first = "I want to kill myself. I have a gun in my room."
+    @state.record_crisis(first)
+    @state.record_crisis("I plan to act at 9 tonight.")
+    60.times { |i| @state.transition("Still here #{i}. " * 150, reading("Still here", status: "ongoing"), history: []) }
+    topic = @session.reload.active_topic
+    assert_operator topic["disclosures"].size, :<=, HouseholdFinance::CareDisclosures::LIMIT
+    assert_operator topic.to_json.bytesize, :<, 10_000
+    assert_includes topic.to_json, first
+    assert_includes topic.to_json, "9 tonight"
+    assert_includes topic.to_json, "Still here 59"
+  end
+
+  test "only a safety reply belonging to an expired episode can release the check-in prompt" do
+    started = 3.days.ago
+    topic = HouseholdFinance::ParticipantCare.topic(:crisis).merge("started_at" => started.iso8601, "expires_at" => 1.day.ago.iso8601)
+    @session.update!(active_topic: topic)
+    assert_not @state.checkin_hold?(safety_reply_at: started + 1.minute)
+    assert @state.checkin_hold?(safety_reply_at: Time.current), "a new wellbeing check has its own hold"
+    @session.update!(active_topic: {}, open_topics: [ topic.merge("last_care_at" => (started + 1.hour).iso8601) ])
+    assert_not @state.checkin_hold?(safety_reply_at: started + 1.minute)
+    assert @state.checkin_hold?(safety_reply_at: Time.current)
+    @session.update!(active_topic: HouseholdFinance::ParticipantCare.topic(:crisis), open_topics: [])
+    assert @state.checkin_hold?(safety_reply_at: Time.current)
+  end
+
   test "a practical challenge question releases care even if the reader calls it ongoing" do
     text = "can i stop the challenge for a bit"
     assert_nil @state.transition(text, reading(text, status: "ongoing", question: true), history: [])
@@ -29,7 +70,8 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
   end
 
   test "a crisis release is never treated as recently released care" do
-    @session.update!(open_topics: [ HouseholdFinance::ParticipantCare.topic(:crisis) ], active_topic: {})
+    @session.update!(open_topics: [ HouseholdFinance::ParticipantCare.topic(:crisis) ])
+    @session.release_care_topic!
     refute @state.recently_released?
   end
 
@@ -96,6 +138,30 @@ class ParticipantCareStateTest < ActiveSupport::TestCase
         assert_nil @state.active
         assert_nil @state.transition("ok", reading("ok"), history: [])
       end
+    end
+  end
+  test "recovery with a stated plan keeps crisis care" do
+    @state.record_crisis("I want to die. I have a gun.")
+    message = "I'm safe now. I have a plan."
+    assert_equal "crisis", @state.transition(message, reading(message), history: []).fetch("care_kind")
+  end
+  test "expiry recognizes a safety reply whose narration finished after care activity time" do
+    start = Time.current
+    @state.record_crisis("I want to die. I have a gun.")
+    replied_at = start + 30.seconds
+    travel_to(start + 49.hours) do
+      assert_nil @state.active
+      assert_not @state.checkin_hold?(safety_reply_at: replied_at)
+      assert @state.checkin_hold?(safety_reply_at: Time.current)
+    end
+  end
+  test "stale expiry reads cannot clear a newer crisis episode" do
+    stale = ChatSession.find(@session.id)
+    travel 49.hours do
+      topic = @state.record_crisis("I want to die. I have a gun.")
+      state = HouseholdFinance::ParticipantCareState.new(stale)
+      assert_equal "crisis", state.active.fetch("care_kind")
+      assert_equal topic, @session.reload.active_topic
     end
   end
 end

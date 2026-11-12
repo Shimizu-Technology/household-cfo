@@ -94,7 +94,9 @@ describe('Mia’s statement cards in the chat', () => {
   it('moves focus to the next question after one is answered, so a keyboard user does not start over', async () => {
     serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
     mount([statement(1)])
-    fireEvent.click(await screen.findByRole('button', { name: 'Yes: Own savings' }))
+    const answer = await screen.findByRole('button', { name: 'Yes: Own savings' }) as HTMLButtonElement
+    await waitFor(() => expect(answer.disabled).toBe(false))
+    fireEvent.click(answer)
     serve(review(planWith([question(4003, 'Rent transfer', 'transfer')])))
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Yes: Rent transfer' })))
   })
@@ -154,6 +156,23 @@ describe('Mia’s statement cards in the chat', () => {
     expect(within(card).getByText(/16 purchases, \$2,092\.17, now count in your spending\./)).toBeTruthy()
     expect(within(card).queryAllByRole('button')).toHaveLength(0)
     expect(props.onSaved).not.toHaveBeenCalled()
+  })
+
+  it('says when patterns will be offered after she answers "Something’s missing"', async () => {
+    const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [] })
+    serve(review(done))
+    const missing = { ...progress(27), coverage: { question: 'Is every line from this statement here?', answer: 'something_missing' as const } }
+    const props = mount([statement(1, { statement_review: missing })])
+    expect(await screen.findByText('I’ll offer to look for patterns once the missing lines are in.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /See what Mia notices|Yes, look for patterns/ })).toBeNull()
+    expect(props.onAskPatterns).not.toHaveBeenCalled()
+  })
+
+  it('does not promise patterns while lines still need her, or when patterns cannot be asked for', async () => {
+    serve(review(planWith([question(4010, 'Shop 4010', 'no_category')])))
+    mount([statement(1)])
+    await screen.findByRole('region', { name: /Statement: / })
+    expect(screen.queryByText(/once the missing lines are in/)).toBeNull()
   })
 
   it('says so when the statement has no lines to approve', async () => {

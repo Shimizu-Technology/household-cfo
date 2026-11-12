@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { updateChallengeChatCard } from '../api'
 import type { ChallengeChatCard } from '../lib/challengeChatCards'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
-import { savingsDollars, type SavingsIntake } from '../lib/savingsChallenge'
+import { savingsPlainDollars, type SavingsIntake } from '../lib/savingsChallenge'
 import './MiaDailyCheckIn.css'
 
 // "Today", "Yesterday", or "Mon, Oct 20".
@@ -34,10 +34,10 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   const [saved, setSaved] = useState(false)
   const [newMoney, setNewMoney] = useState(false)
   const [error, setError] = useState('')
-  const amount = savingsDollars(intake.amount_cents)
+  const amount = savingsPlainDollars(intake.amount_cents)
   const original = intake.correction?.current_approved_version
   const withdrawal = intake.kind === 'withdrawal'
-  const title = original ? `Replace ${savingsDollars(original.signed_cents)} with ${amount}` : intake.kind === 'purchase' ? `${amount} at ${intake.merchant}` : withdrawal ? `${amount} taken out` : `${amount} set aside`
+  const title = original ? `Replace ${savingsPlainDollars(original.signed_cents)} with ${amount}` : intake.kind === 'purchase' ? `${amount} at ${intake.merchant}` : withdrawal ? `${amount} taken out` : `${amount} set aside`
   const inPlace = Boolean(card) && intake.kind !== 'purchase' && Boolean(intake.effective_on) && !intake.date_required
   const needsNewMoney = inPlace && !withdrawal && !intake.correction
   // A card Mia just made shows its question and its answer without scrolling.

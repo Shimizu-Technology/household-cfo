@@ -82,6 +82,7 @@ Rails.application.routes.draw do
           post :triage
           post :prepare
           post :decline
+          post :acknowledge
         end
       end
       get "financial_restart/status", to: "financial_restarts#status"

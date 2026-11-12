@@ -4,7 +4,7 @@ module HouseholdFinance
 
     def topic(care, persona_context_id: nil)
       { "type" => "care", "title" => "Personal support", "care_kind" => (care.to_sym == :essentials ? "hardship" : care.to_s),
-        "started_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
+        "started_at" => Time.current.iso8601(6), "last_care_at" => Time.current.iso8601, "expires_at" => (Time.current + ParticipantCareState::TTL).iso8601,
         "persona_context_id" => persona_context_id }
     end
 
@@ -16,6 +16,12 @@ module HouseholdFinance
 
     def explicit_recovery?(message)
       message.to_s.match?(/\b(?:all good now|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now|(?:i|we) figured it out|(?:i|we)(?: am| are|['’]m|['’]re|m|re) (?:okay|ok|safe) now|(?:i|we) (?:am|are) safe)\b/i)
+    end
+
+    # Only a whole-message declaration releases crisis care. Reader labels and
+    # unlisted hedges cannot broaden this deliberately small recovery language.
+    def crisis_recovery?(message)
+      message.to_s.strip.match?(/\A(?:i(?:['’]m| am)|we(?:['’]re| are)) (?:safe|ok|okay)(?: now)?[.!]?(?:,?\s+(?:thanks|thank you))?[.!]?\z/i)
     end
 
     # Carrying on with setup, in her words. "i cant keep going" must never match.
@@ -181,12 +187,20 @@ module HouseholdFinance
       return reference if ParticipantCareState.report?(message, ParticipantMessageReader::Current.reading) if ParticipantMessageReader::Current.reading
       care = ParticipantMessageReader::Current.recent_care
       return reference unless care.present?
-      return reference unless reference.to_s.match?(/That took effort, and it matters|not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
+      return reference unless reference.to_s.match?(/That’s a CFO move|not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
 
       answer(message, care: care)
     end
 
     def required?(message) = kind(message).present?
+
+    def crisis_followup(topic)
+      facts = [ topic["disclosure"], *Array(topic["disclosures"]).map { |row| row["content"] } ].join(" ")
+      means = facts.match?(/\b(?:gun|firearm|pistol|rifle)\b/i) ? "the gun" : "anything you could use to hurt yourself"
+      "Please call or text 988 now, call 911 if you might act or feel unsafe, or get next to a trusted person immediately. " \
+        "Put distance between you and #{means}; ask someone you trust to help you stay away from it. " \
+        "Money and setup can wait. Is someone you trust with you right now?"
+    end
 
     def answer(message, care: nil)
       selected = care&.to_sym || kind(message)

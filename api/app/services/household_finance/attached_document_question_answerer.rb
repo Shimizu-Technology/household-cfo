@@ -654,8 +654,6 @@ module HouseholdFinance
       date&.strftime("%b %-d, %Y") || "date unavailable"
     end
 
-    def money(cents)
-      ActionController::Base.helpers.number_to_currency(cents.to_i / 100.0)
-    end
+    def money(cents) = Money.plain(cents)
   end
 end

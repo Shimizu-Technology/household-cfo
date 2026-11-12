@@ -19,9 +19,9 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       response = answer("List all my saved income sources, amounts, cadence and upcoming changes. Do not change anything.")
       assert_equal "income", response.metadata[:topic]
       assert_equal expected / 100.0, response.metadata[:selected_month_amount]
-      assert_includes response.answer, "base $4,000.00 per month; effective $2,000.00 every two weeks"
-      assert_includes response.answer, "2026-10-01: one-time — Bonus, $250.00"
-      assert_includes response.answer, "2026-12-01: recurring change, $2,500.00"
+      assert_includes response.answer, "base $4,000 per month; effective $2,000 every two weeks"
+      assert_includes response.answer, "2026-10-01: one-time — Bonus, $250"
+      assert_includes response.answer, "2026-12-01: recurring change, $2,500"
       assert_includes response.answer, "Status: future"
       assert_includes response.answer, "Ends before 2026-10-01"
       assert_includes response.answer, "Status: ended"
@@ -35,7 +35,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_nil response.metadata[:selected_month_amount]
     income("Paused source", 0)
     response = answer("What is my income?")
-    assert_includes response.answer, "$0.00"
+    assert_includes response.answer, "$0"
     assert_equal 0.0, response.metadata[:selected_month_amount]
   end
 
@@ -147,7 +147,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_no_difference "HouseholdProfile.count" do
       response = answer("List my household debt balances")
       assert_includes response.answer, "Unknown Visa (Credit card): balance unknown, monthly minimum unknown, APR unknown"
-      assert_includes response.answer, "Paid card (Credit card): balance $0.00, monthly minimum $0.00, APR 0.0%"
+      assert_includes response.answer, "Paid card (Credit card): balance $0, monthly minimum $0, APR 0.0%"
       assert_includes response.answer, "separate from the challenge's optional card-term review"
     end
   end
@@ -158,8 +158,8 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       response = answer(question)
       assert response, question
       assert_equal "debts", response.metadata[:topic]
-      assert_includes response.answer, "$3,200.00"
-      assert_includes response.answer, "$95.00"
+      assert_includes response.answer, "$3,200"
+      assert_includes response.answer, "$95"
       assert_includes response.answer, "not a per-card figure"
     end
   end
@@ -183,7 +183,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     response = answer("how much do we owe on the credit card")
 
     assert_equal "debts", response.metadata[:topic]
-    assert_includes response.answer, "Visa (Credit card): balance $1,250.00"
+    assert_includes response.answer, "Visa (Credit card): balance $1,250"
     refute_includes response.answer, "not a per-card figure"
   end
 
@@ -196,7 +196,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 450_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false)
     @household.debts.create!(label: "Preserved Visa", debt_type: "credit_card", balance_cents: 999_999, minimum_payment_cents: 20_000)
     response = answer("What is my household debt?")
-    assert_includes response.answer, "balance $4,500.00, monthly minimum unknown"
+    assert_includes response.answer, "balance $4,500, monthly minimum unknown"
     assert_not_includes response.answer, "Preserved Visa"
     assert_not_includes response.answer, "$9,999.99"
   end
@@ -205,7 +205,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: -1000, balance_as_of_on: "2026-10-03")
     @household.accounts.create!(label: "Unknown savings", account_type: "savings", balance_cents: 0, balance_known: false)
     response = answer("List my accounts")
-    assert_includes response.answer, "Checking (Checking): balance -$10.00 as of 2026-10-03"
+    assert_includes response.answer, "Checking (Checking): balance -$10 as of 2026-10-03"
     assert_includes response.answer, "Unknown savings (Savings): balance unknown"
     assert_includes response.answer, "not verified live bank balances"
   end
@@ -214,7 +214,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     @household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6)
     @household.goals.create!(label: "Travel", goal_type: "travel", target_amount_cents: 0, target_amount_known: false, current_amount_cents: 0, current_amount_known: true)
     response = answer("List my tracked household goals")
-    assert_includes response.answer, "Travel (Travel): target unknown, recorded progress $0.00"
+    assert_includes response.answer, "Travel (Travel): target unknown, recorded progress $0"
     assert_not_includes response.answer, "Runway"
     assert_includes response.answer, "do not move money"
   end
@@ -259,9 +259,9 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_read_financial_records_unchanged do
       response = answer("Show my household spending categories and planned amounts")
       assert_equal "spending", response.metadata[:topic]
-      assert_includes response.answer, "Dining Out — flexible spending: saved monthly plan $300.00; spent so far $25.00; $10.00 waiting for review, separate from spent so far"
+      assert_includes response.answer, "Dining Out — flexible spending: saved monthly plan $300; spent so far $25; $10 waiting for review, separate from spent so far"
       assert_includes response.answer, "2 pending household transaction reviews"
-      assert_includes response.answer, "totaling $15.00"
+      assert_includes response.answer, "totaling $15"
       assert_includes response.answer, "does not verify no spending or complete coverage"
       assert_includes response.answer, "separate from the challenge's approved spending baseline"
     end
@@ -296,10 +296,10 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       response = answer("Show my household spending categories and planned amounts")
       refute response.metadata[:plan_available]
       assert_includes response.answer, "No saved monthly budget plan"
-      assert_includes response.answer, "Rent — must-pay bills: no saved monthly allocation; setup starting estimate $800.00 (not approved for this month)"
+      assert_includes response.answer, "Rent — must-pay bills: no saved monthly allocation; setup starting estimate $800 (not approved for this month)"
       assert_includes response.answer, "Unplanned category — flexible spending: no saved monthly allocation; planned amount unknown"
       assert_includes response.answer, "spent so far is not known in this plan preview"
-      assert_not_includes response.answer, "spent so far $0.00"
+      assert_not_includes response.answer, "spent so far $0"
       assert response.metadata[:records].all? { |row| row[:planned_amount].nil? && row[:confirmed_actual_amount].nil? }
     end
   end
@@ -314,8 +314,8 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       assert response.metadata[:plan_available]
       assert_nil response.metadata[:records].sole[:planned_amount]
       assert_equal 300.0, response.metadata[:records].sole[:starting_estimate]
-      assert_includes response.answer, "no saved monthly allocation; setup starting estimate $300.00"
-      assert_not_includes response.answer, "saved monthly plan $0.00"
+      assert_includes response.answer, "no saved monthly allocation; setup starting estimate $300"
+      assert_not_includes response.answer, "saved monthly plan $0"
     end
   end
 
@@ -327,7 +327,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
       assert_equal 22, response.metadata[:total_count]
       assert_equal 20, response.metadata[:shown_count]
       assert_includes response.answer, "Showing 20 of 22"
-      assert_includes response.answer, "across all 22 categories: $22.00"
+      assert_includes response.answer, "across all 22 categories: $22"
       targeted = answer("What is my household Category 21 budget?")
       assert_equal "Category 21", targeted.metadata[:records].sole[:name]
       assert_equal 1.0, targeted.metadata[:records].sole[:planned_amount]
@@ -347,7 +347,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     assert_read_financial_records_unchanged do
       response = answer("What is my household Old Dining budget for 2026-10?")
       assert_includes response.answer, "archived category retained for history"
-      assert_includes response.answer, "saved monthly plan $0.00; spent so far is not known yet"
+      assert_includes response.answer, "saved monthly plan $0; spent so far is not known yet"
       assert_nil response.metadata[:records].sole[:confirmed_actual_amount]
       assert_includes response.answer, "A recorded $0 does not verify no spending"
     end

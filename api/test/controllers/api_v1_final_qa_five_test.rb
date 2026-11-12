@@ -90,7 +90,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     body = say(message, read(care_status: "ongoing", setup: changes(primary_income: money(total_amount: "2400", total_cadence: "monthly", total_source: "its only my check now, 2400 a month"))))
     assert_not care_topic
     assert_equal 240_000, row(body, "primary_income")["total_cents"]
-    assert_match(/Income: \$2,400 a month/, text(body))
+    assert_match(/Your income is \$2,400 a month/, text(body))
     refute_match(/landlord/i, text(body))
 
     bills = "rent is 1100, power 150, phone 60. i dont have cable"
@@ -198,11 +198,16 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/glad you have support|You're welcome/, text(body))
   end
 
-  test "a goal with recovery is handled, not closed" do
+  test "a goal beside a recovery declaration waits for whole-message crisis recovery" do
     say("Help me set up my household", read)
     say("i dont want to be here", read(care: "crisis"))
     body = say("im ok now. goal is just to get caught up", read(care_status: "resolved", setup: changes(primary_goal: "just to get caught up")))
     refute_match(/You're welcome|glad you have support/, text(body))
+    assert_includes text(body), "988"
+    assert care_topic
+    assert_nil card_of(body)
+    say("I'm safe now, thanks", read(care_status: "resolved"))
+    body = say("my goal is just to get caught up", read(setup: changes(primary_goal: "just to get caught up")))
     assert_equal "just to get caught up", row(body, "primary_goal")["value_text"]
   end
 
@@ -476,8 +481,9 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     @user, @household = @savings_user, @savings_household
     say("my dad passed friday n the rosary n food is gonna be like 900, im not sure im up for this challenge rn", legacy(care: "grief"))
     body = say("how do i pause the challenge tho", legacy(care_status: "ongoing", question: true))
-    assert_match(/isn't a pause|can't pause/i, text(body))
-    assert_match(/program team/i, text(body))
+    assert_match(/can't leave or pause the challenge yourself/i, text(body))
+    assert body["challenge_chat_cards"].any? { |card| card["kind"] == "leave" }
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge")
     refute_match(/Start with one purchase/, text(body))
     assert_not care_topic
   end
@@ -487,11 +493,13 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     with_savings_runtime { savings_enroll }
     @user, @household = @savings_user, @savings_household
     body = say("how do i quit this challenge", legacy(question: true))
-    assert_match(/program team/i, text(body))
+    assert_match(/can't leave or pause the challenge yourself/i, text(body))
+    assert body["challenge_chat_cards"].any? { |card| card["kind"] == "leave" }
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge")
     other = say("how much did i save so far", legacy(question: true))
-    refute_match(/program team/i, text(other))
-    assert_nil SavingsChallenge::ParticipantHelp.answer("how do i stop overspending during the challenge")
-    assert SavingsChallenge::ParticipantHelp.answer("how do i take a pause from the challenge tho")
+    refute_match(/let your coach know/i, text(other))
+    assert_not SavingsChallenge::ParticipantHelp.exit?("how do i stop overspending during the challenge")
+    assert SavingsChallenge::ParticipantHelp.exit?("how do i take a pause from the challenge tho")
   end
 
   # Minors
@@ -613,8 +621,12 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     with_savings_runtime { savings_enroll }
     @user, @household = @savings_user, @savings_household
     body = say("I put $50 aside today, how do i quit the challenge?", legacy(question: true, facts: [ { kind: "set_aside", amount: "50", merchant: "", item: "", day: "", source_text: "I put $50 aside today" } ]))
-    refute_equal SavingsChallenge::ParticipantHelp::ANSWER, text(body)
     assert_equal 5000, body.dig("savings_intake", "amount_cents")
+    assert body["challenge_chat_card"].present?, "the saving still gets its card"
+    assert_match(/\$50 /, text(body), "the saving is named without .00")
+    refute_match(/\$50\.00/, text(body))
+    assert_includes text(body), SavingsChallenge::ParticipantHelp::EXPLANATION, "the quit question is answered too"
+    assert_not SetupSupportRequest.exists?(household: @household, reason: "leave_challenge"), "a procedural question is not consent to notify"
   end
 
   test "one reply never carries two questions" do
@@ -892,12 +904,7 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/You're welcome/, text(body))
   end
 
-  test "the pause answer says only what is true" do
-    answer = SavingsChallenge::ParticipantHelp::ANSWER
-    assert_match(/can't pause the challenge yourself/, answer)
-    assert_match(/program team would be the place to ask/, answer)
-    refute_match(/coach|Only your/i, answer)
-  end
+
 
   [ "should i finance a new iphone, 45 dollars a month", "should i finance a new iphone, 45 bucks a month" ].each do |message|
     test "#{message} is not a price" do

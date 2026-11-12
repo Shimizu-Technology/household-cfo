@@ -22,6 +22,18 @@ module HouseholdFinance
 
     def help(field) = HELP.fetch(field)
 
+    # "Your income", "Fixed essentials", "What you owe": the field as the subject of a sentence, with its verb.
+    def subject(field)
+      name = FIELD_NAMES.fetch(field)
+      name = "your #{name}" unless name.match?(/\A(?:your|what)\b/)
+      name.sub(/\A./, &:upcase)
+    end
+
+    def verb(field)
+      name = FIELD_NAMES.fetch(field)
+      name.match?(/(?<!s)s\z/) ? "are" : "is"
+    end
+
     def question(field, card:, previous:)
       offer = card.offer_question_for(field)
       return offer if offer
@@ -101,7 +113,7 @@ module HouseholdFinance
           [ row[:total_cents] && "#{name} are #{money(row[:total_cents])} a month" ].compact
       else
         changes = row[:parts].filter_map { |part| part[:removed] ? "#{part[:label].downcase} is off" : (part[:cents] && "#{part[:label].downcase} is #{money(part[:cents])}") }
-        total = row[:total_cents] && "#{name} #{field.in?(REGISTRY::INCOME_KEYS) ? 'is' : 'are'} #{money(row[:total_cents])} a month"
+        total = row[:total_cents] && "#{name} #{verb(field)} #{money(row[:total_cents])} a month"
         changes.length > 3 ? [ total ].compact : (changes + [ total ]).compact
       end
     end
@@ -115,20 +127,33 @@ module HouseholdFinance
       if kind == :text
         return group.flat_map { |update| update.action == :too_long ? single_lines(field, update, card_open) : [ field == "household_name" ? "I put #{update.label} as your household name." : "Your goal is on the card." ] }
       end
-      return group.flat_map { |update| update.action == :set ? [ "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{update.label} #{update.label == '1' ? 'month' : 'months'}." ] : [] } if kind == :months
-      return group.flat_map { |update| update.action == :total ? [ "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{money(update.cents)}." ] : [] } if kind == :balance
+      return group.flat_map { |update| update.action == :set ? [ "#{subject(field)} #{verb(field)} #{update.label} #{update.label == '1' ? 'month' : 'months'}." ] : [] } if kind == :months
+      return group.flat_map { |update| update.action == :total ? [ "#{subject(field)} #{verb(field)} #{money(update.cents)}." ] : [] } if kind == :balance
       lines = []
       added = group.select { |update| update.action == :added && update.cents }
-      lines << "Added #{added.map { |update| phrase(update) }.to_sentence}." if added.any?
-      group.reject { |update| update.action.in?(%i[card_full kept_edit]) }.each { |update| lines.concat(single_lines(field, update, card_open)) }
+      # One sentence for everything she named. A row still missing its amount is named in it and explained once after.
+      pending = group.select { |update| update.action == :added && update.cents.nil? }
+      named = added.map { |update| phrase(update) } + pending.map { |update| update.label.downcase }
+      lines << "Added #{named.to_sentence}." if named.any?
+      lines.concat(pending_lines(pending, alone: added.empty?))
+      group.reject { |update| update.action.in?(%i[card_full kept_edit added]) }.each { |update| lines.concat(single_lines(field, update, card_open)) }
       full = group.select { |update| update.action == :card_full }.map { |update| update.label.downcase }
       lines << "Your card holds #{MiaSetupCard::MAX_PARTS} rows here, so I left #{full.to_sentence} off. You can combine a few, or give me one total." if full.any?
       if added.many? || group.any? { |update| update.action.in?(%i[changed removed]) }
         total = field == MiaSetupCard::DEBT_FIELD ? debt_total(card) : card.money_total(field)
-        verb = field.in?(REGISTRY::INCOME_KEYS) ? "is" : "are"
-        lines << (complete ? "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} would be #{money(total)} a month." : "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} #{verb} #{money(total)} so far.") if total
+        lines << (complete ? "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} would be #{money(total)} a month." : "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)} #{verb(field)} #{money(total)} so far.") if total
       end
       lines.compact
+    end
+
+    # "It needs a minimum." when that is the only row she named, else which rows still need an amount.
+    private_class_method def self.pending_lines(pending, alone:)
+      pending.group_by { |update| update.note.to_s.sub(/\Aneeds?\s+/, "") }.map do |need, rows|
+        next if need.blank?
+        next "It needs #{need}." if alone && rows.one?
+        names = rows.map { |update| "the #{update.label.downcase}" }
+        names.one? ? "#{names.first.sub(/\Athe/, 'The')} needs #{need}." : "#{names.to_sentence.sub(/\Athe/, 'The')} each need #{need}."
+      end.compact
     end
 
     private_class_method def self.single_lines(field, update, card_open)
@@ -158,7 +183,7 @@ module HouseholdFinance
 
     private_class_method def self.total_line(field, update)
       amount = update.note ? "#{update.note}, so #{money(update.cents)} a month" : "#{money(update.cents)} a month"
-      "#{FIELD_NAMES.fetch(field).sub(/\A./, &:upcase)}: #{amount}."
+      "#{subject(field)} #{verb(field)} #{amount}."
     end
 
     private_class_method def self.phrase(update) = "#{update.label.downcase} #{money(update.cents)}"

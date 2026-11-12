@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -372,6 +372,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.jsonb "care_hold", default: {}, null: false
     t.index ["cohort_id"], name: "index_chat_sessions_on_cohort_id"
     t.index ["household_id", "user_id", "cohort_id"], name: "index_chat_sessions_on_household_user_cohort", unique: true, where: "(cohort_id IS NOT NULL)"
     t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true, where: "(cohort_id IS NULL)"
@@ -2805,7 +2806,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
     t.index ["chat_message_id"], name: "index_savings_chat_cards_on_chat_message_id"
     t.index ["savings_enrollment_id", "status", "id"], name: "savings_chat_cards_pending"
     t.index ["savings_enrollment_id"], name: "index_savings_chat_cards_on_savings_enrollment_id"
-    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying, 'savings'::character varying]::text[])", name: "savings_chat_card_kind"
+    t.check_constraint "kind::text = ANY (ARRAY['daily_report'::character varying, 'goal'::character varying, 'savings'::character varying, 'leave'::character varying]::text[])", name: "savings_chat_card_kind"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'closed'::character varying::text])", name: "savings_chat_card_status"
   end
 
@@ -3325,16 +3326,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_090000) do
     t.bigint "requested_by_user_id", null: false
     t.string "status", default: "requested", null: false
     t.datetime "updated_at", null: false
+    t.string "leave_intent"
     t.index ["cohort_id"], name: "index_setup_support_requests_on_cohort_id"
     t.index ["financial_restart_review_id"], name: "index_setup_support_requests_on_financial_restart_review_id"
-    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
-    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY (ARRAY[('requested'::character varying)::text, ('in_review'::character varying)::text, ('ready'::character varying)::text])))"
+    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_active_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])) AND ((reason)::text <> 'leave_challenge'::text))"
+    t.index ["household_id", "requested_by_user_id", "cohort_id"], name: "setup_support_leave_program", unique: true, where: "((cohort_id IS NOT NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])) AND ((reason)::text = 'leave_challenge'::text))"
+    t.index ["household_id", "requested_by_user_id"], name: "setup_support_active_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])) AND ((reason)::text <> 'leave_challenge'::text))"
+    t.index ["household_id", "requested_by_user_id"], name: "setup_support_leave_personal", unique: true, where: "((cohort_id IS NULL) AND ((status)::text = ANY ((ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying])::text[])) AND ((reason)::text = 'leave_challenge'::text))"
     t.index ["household_id"], name: "index_setup_support_requests_on_household_id"
     t.index ["prepared_by_user_id"], name: "index_setup_support_requests_on_prepared_by_user_id"
     t.index ["requested_by_user_id"], name: "index_setup_support_requests_on_requested_by_user_id"
     t.check_constraint "cohort_id IS NULL AND participant_membership_id IS NULL AND participant_membership_started_at IS NULL OR cohort_id IS NOT NULL AND participant_membership_id IS NOT NULL AND participant_membership_started_at IS NOT NULL", name: "setup_support_program_identity"
-    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying::text, 'wrong_setup'::character varying::text, 'upload_problem'::character varying::text, 'other'::character varying::text])", name: "setup_support_reason"
-    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying::text, 'in_review'::character varying::text, 'ready'::character varying::text, 'applied'::character varying::text, 'canceled'::character varying::text, 'declined'::character varying::text])", name: "setup_support_status"
+    t.check_constraint "leave_intent IS NULL OR reason::text = 'leave_challenge'::text AND (leave_intent::text = ANY (ARRAY['leave'::character varying, 'pause'::character varying]::text[]))", name: "setup_support_leave_intent"
+    t.check_constraint "reason::text <> 'leave_challenge'::text OR financial_restart_review_id IS NULL AND prepared_by_user_id IS NULL AND (status::text <> ALL (ARRAY['ready'::character varying, 'applied'::character varying]::text[]))", name: "setup_support_leave_no_restart"
+    t.check_constraint "reason::text = ANY (ARRAY['practice_numbers'::character varying, 'wrong_setup'::character varying, 'upload_problem'::character varying, 'other'::character varying, 'leave_challenge'::character varying]::text[])", name: "setup_support_reason"
+    t.check_constraint "status::text = ANY (ARRAY['requested'::character varying, 'in_review'::character varying, 'ready'::character varying, 'applied'::character varying, 'canceled'::character varying, 'declined'::character varying, 'acknowledged'::character varying]::text[])", name: "setup_support_status"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|

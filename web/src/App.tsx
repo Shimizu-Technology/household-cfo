@@ -38,8 +38,9 @@ import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
 import { HomeMoneyValues, HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
-import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
+import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyHoldsCheckIn, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
 import { useChallengeChatCards } from './lib/useChallengeChatCards'
+import { MiaChallengeLeave } from './components/MiaChallengeLeave'
 import { MiaChallengeGoal } from './components/MiaChallengeGoal'
 import { MiaDailyPrompt, MiaDailyReportCard } from './components/MiaDailyCheckIn'
 import { MiaSavingsReview } from './components/MiaSavingsReview'
@@ -896,7 +897,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const closeJoinCard = useCallback(() => setJoinCardOpen(false), [])
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
-  const safetyHold = latestReplyIsSafety(currentMessages)
+  const [pageCareHold, setPageCareHold] = useState<{ scope: string; held: boolean; active?: boolean } | null>(null)
+  const checkInHeld = (pageCareHold?.scope === chatStorageKey && pageCareHold.held) || latestReplyHoldsCheckIn(currentMessages)
+  const latestCareReply = [...currentMessages].reverse().find(message => message.role === 'assistant')
+  const activeCareHeld = pageCareHold?.scope === chatStorageKey ? pageCareHold.active : latestCareReply?.care_active
+  const safetyHold = latestReplyIsSafety(currentMessages) || (activeCareHeld ?? checkInHeld)
+  const miaHistoryGenerationRef = useRef(0)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
   const assistantName = shortAssistantName(data?.profile.coach.name) || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
@@ -1138,6 +1144,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const retainLocalReplies = challengeNotOpen && messagesStorageKey === chatStorageKey
     setMessagesStorageKey(chatStorageKey)
     setMessages(current => keepLocalOnly(current, mia.messages, retainLocalReplies))
+    setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true, active: mia.care_active })
     setHistoricalMessageCount(mia.historical_message_count ?? 0)
     setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
     setOldestServerMessageId(mia.oldest_message_id)
@@ -1149,7 +1156,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace || miaLoading) return
 
     try {
+      const generation = miaHistoryGenerationRef.current
       const mia = await fetchMiaMessages(true)
+      if (generation !== miaHistoryGenerationRef.current) return
+      setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true, active: mia.care_active })
       setHistoricalMessageCount(mia.historical_message_count ?? 0)
       setMessagesStorageKey(chatStorageKey)
       setMessages((current) => keepLocalOnly(current, historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages, challengeNotOpen))
@@ -1303,6 +1313,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         setupRevisionRef.current = payload.workspace?.setup_revision ?? null
         setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
+        setPageCareHold({ scope: payloadStorageKey, held: payload.mia.care_hold === true, active: payload.mia.care_active })
         setHistoricalMessageCount(realWorkspace ? payload.mia.historical_message_count ?? 0 : 0)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -1751,7 +1762,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   } = {}) => {
     const unavailableCapability = data?.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[section] && !module.enabled)
     if (unavailableCapability) {
-      const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+      const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this group right now.`
       setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
       setRouteAnnouncement(message)
     } else if (options.source !== 'history') {
@@ -1861,7 +1872,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       lastHandledLocationRef.current = locationKey
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
       if (unavailableCapability) {
-        const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+        const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this group right now.`
         setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
         setRouteAnnouncement(message)
       }
@@ -2202,6 +2213,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return
     }
 
+    miaHistoryGenerationRef.current += 1
     const transportGuard = captureApiOperation()
     const assertOriginalWorkspace = () => {
       transportGuard()
@@ -2329,6 +2341,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         }
       }
       void refreshDocumentImports({ quiet: true })
+      setPageCareHold({ scope: chatStorageKey, held: response.assistant_message.care_hold === true, active: response.assistant_message.care_active })
       setFreshMiaReplyId(response.assistant_message.id ?? null)
       const statementImportIds = readyAttachments.filter((attachment) => attachment.document_kind === 'statement' && attachment.document_import_id).map((attachment) => attachment.document_import_id!)
       if (statementImportIds.length > 0) setStatementReply({ nonce: response.assistant_message.id ?? Date.now(), importIds: statementImportIds })
@@ -2425,7 +2438,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const historyWasExpanded = historyExpandedRef.current
     historyExpandedRef.current = true
     try {
+      const generation = miaHistoryGenerationRef.current
       const page = await fetchMiaMessages(true, beforeId)
+      if (generation !== miaHistoryGenerationRef.current) return
       // A discarded page leaves history as it was, so later refreshes keep paging normally.
       if (!queueHistoryPosition()) { historyExpandedRef.current = historyWasExpanded; return }
       setMessages((current) => {
@@ -2447,6 +2462,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   async function handleClearMessages() {
     if (miaClearing) return
 
+    miaHistoryGenerationRef.current += 1
     setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
@@ -2455,6 +2471,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       // A closed challenge refuses the server clear; unsaved replies exist only here.
       if (isRealWorkspace && !(challengeNotOpen && onlyLocalMessages(currentMessages))) await clearMiaMessages(true)
       setMessages([])
+      // Clearing text does not resolve care. Keep its current gate until the
+      // fresh server page confirms recovery or expiry.
       challengeCards.clear()
       setMiaDailyReports([])
       setMiaSavingsNote(null)
@@ -3876,19 +3894,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const staffPreviewing = Boolean(auth.currentUser?.is_staff && data.workspace.cohort)
   const hasAdminSide = adminSectionsOf(auth.currentUser).length > 0
 
+  const dailyCheckInPrompt = isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !checkInHeld && challengeCards.leaves.length === 0 && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />
+
   const challengeReviewContent = !safetyHold ? <>
                     {challengeCards.readFailed && <p role="alert">We couldn’t load your saved Mia cards. <button type="button" onClick={challengeCards.retry}>Try loading cards again</button></p>}
                     {isSavingsExperience && !challengeNotOpen && joinCardOpen && !safetyHold && auth.currentUser && <MiaJoinCard onJoined={onJoinCardJoined} onDone={closeJoinCard} />}
                     {isSavingsExperience && !challengeNotOpen && savingsJoined && !safetyHold && auth.currentUser && challengeParticipantScope && data.workspace.cohort?.id && <MiaCheckpointCard actor={challengeParticipantScope} cohortId={data.workspace.cohort.id} refreshKey={dailyRefreshKey} onDone={() => setDailyRefreshKey(value => value + 1)} onOpenCheckpoints={() => { setChallengeDay(undefined); setChallengeDailySection('checkpoints'); setDailyOpen(true) }} />}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && challengeParticipantScope && !safetyHold && visibleDailyReports.filter((card) => card.scope===challengeIntakeScope).map((card) => <MiaDailyReportCard key={card.nonce} nonce={card.nonce} report={card.report} scope={challengeParticipantScope} cohortId={data.workspace.cohort?.id} onSaved={() => setDailyRefreshKey((value) => value + 1)} onDismiss={() => { if (card.nonce.startsWith('server-card-')) challengeCards.remove(Number(card.nonce.replace('server-card-', ''))); forgetDailyCard(card.nonce); setMiaDailyReports((current) => current.filter((item) => item.nonce !== card.nonce)); requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true })) }} onEditInToday={(purchase, rowId) => { setIsChatExpanded(false); setDailyIntake({scope:challengeIntakeScope,intake:purchase,handoff:{nonce:card.nonce,rowId}}); setDailyOpen(true) }} />)}
-                    {isSavingsExperience && !challengeNotOpen && savingsJoined && auth.currentUser && !miaLoading && !safetyHold && (checkInPromptScope === `${challengeIntakeScope}:${todayCheckIn.context?.calendar.local_today ?? ''}` || (!visibleDailyReports.some((card) => card.scope===challengeIntakeScope) && challengeCards.savings.length === 0 && challengeCards.goals.length === 0 && !messages.filter(message => message.role === 'assistant').at(-1)?.content.includes('?'))) && todayCheckIn.checkedIn === false && <MiaDailyPrompt assistantName={assistantName} assistantInitial={assistantInitial(assistantName)} disabled={miaLoading || budgetYearLoading} onNoSpend={() => { setComposerHint(null); void handleAskMia('No spending today') }} onSpent={() => { setComposerHint('For example: $8 at Shell and 20 at Payless'); prepareMiaUpdate('') }} />}
+                    {dailyCheckInPrompt}
                     {isSavingsExperience && !safetyHold && challengeCards.savings.map(card => {
                       const intake = checkedSavingsIntake(card.input as SavingsIntake)
                       return intake ? <MiaSavingsReview key={card.id} intake={intake} card={card} onApproved={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onDismissed={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} today={todayCheckIn.context?.calendar.local_today} onReview={() => { setIsChatExpanded(false); setSavingsIntake({scope:challengeIntakeScope,intake:{...intake,chat_card_id:card.id},nonce:crypto.randomUUID()}); switchSection('Home') }} /> : null
                     })}
+                    {isSavingsExperience && !safetyHold && challengeCards.leaves.map(card => <MiaChallengeLeave key={card.id} card={card} onDone={() => challengeCards.remove(card.id)} onConfirmed={message => setMessages(current => current.some(row => row.id === message.id) ? current : [...current, message])} />)}
                     {isSavingsExperience && !safetyHold && challengeCards.goals.map(card => <MiaChallengeGoal key={card.id} card={card} onDone={() => { challengeCards.remove(card.id); setDailyRefreshKey(value => value + 1) }} onChangeAmount={amount => void handleAskMia(`Let's do $${amount} instead`)} />)}
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
-  </> : null
+  </> : dailyCheckInPrompt
 
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
   const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
@@ -4144,7 +4165,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                       />
                     )}
-                  </> : null}
+                  </> : challengeReviewContent}
                 />
 
               {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}

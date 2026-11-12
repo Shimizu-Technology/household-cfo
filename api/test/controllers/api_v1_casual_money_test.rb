@@ -95,13 +95,13 @@ class ApiV1CasualMoneyTest < ActionDispatch::IntegrationTest
     body = send_message("saved 10 today and 30 tomorrow", reading(facts: [ fact("set_aside", "10", "today"), fact("set_aside", "30", "tomorrow") ]))
     assert_equal 1000, body.dig("savings_intake", "amount_cents")
     assert_includes body.dig("assistant_message", "content"), "hasn't happened"
-    assert_includes body.dig("assistant_message", "content"), "$10.00"
+    assert_includes body.dig("assistant_message", "content"), "$10"
   end
 
   test "mixed missing and future dates are both explained" do
     body = send_message("saved 17 and spent 18 tomorrow", reading(facts: [ fact("set_aside", "17", ""), fact("purchase", "18", "tomorrow") ]))
     reply = body.dig("assistant_message", "content")
-    assert_includes reply, "$17.00"
+    assert_includes reply, "$17"
     assert_includes reply, "hasn't happened"
   end
 
@@ -131,7 +131,7 @@ class ApiV1CasualMoneyTest < ActionDispatch::IntegrationTest
     body = send_message("saved 40 yesterday", reading(facts: [ fact("set_aside", "40", "yesterday") ]))
     assert_includes body.dig("assistant_message", "content"), "yesterday's savings"
     body = send_message("saved 17 and put away 23", reading(facts: [ fact("set_aside", "17", ""), fact("set_aside", "23", "") ]))
-    assert_includes body.dig("assistant_message", "content"), "$17.00"
-    assert_includes body.dig("assistant_message", "content"), "$23.00"
+    assert_includes body.dig("assistant_message", "content"), "$17"
+    assert_includes body.dig("assistant_message", "content"), "$23"
   end
 end

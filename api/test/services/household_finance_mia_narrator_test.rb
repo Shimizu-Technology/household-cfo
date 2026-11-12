@@ -12,6 +12,19 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     refute_includes narrator.send(:narration_request), "5200"
   end
 
+  test "crisis writer retains first safety facts within normal packet and history budgets" do
+    first = "I have a gun and 30 pills. I plan to act at 9 tonight."
+    history = [ { role: "user", content: first } ] + Array.new(61) { |i| { role: "user", content: "Still here #{i}. " * 60 } }
+    disclosures = history.map { |row| { content: row[:content] } }
+    narrator = HouseholdFinance::MiaNarrator.new(user_message: "I haven't moved it yet.", history: history, api_key: "",
+      answer_packet: { kind: "coaching", care_context: { care_kind: "crisis", disclosures: disclosures }, fallback_response: "Stay with someone you trust." })
+    assert_operator narrator.send(:packet_json).bytesize, :<=, HouseholdFinance::MiaNarrator::MAX_PACKET_BYTES
+    assert_includes narrator.send(:narration_request), first
+    assert_includes narrator.send(:conversation_history), history.first
+    assert_operator narrator.send(:conversation_history).to_json.length, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_CHARACTERS
+    assert_operator narrator.send(:conversation_history).size, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_MESSAGES
+  end
+
   test "phrase suppression never rereads a historical soft crisis message" do
     current = HouseholdFinance::ParticipantMessageReader::Current
     result = HouseholdFinance::ParticipantMessageReader.call(message: "how are we doing", api_key: "")
@@ -1706,8 +1719,8 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "a recent crisis can repeat the 988 line without failing the amount check" do
     narrator = HouseholdFinance::MiaNarrator.new(user_message: "can i spend 40 on takeout tonight", api_key: "test",
       answer_packet: { kind: "coaching", write_state: "no_write", fallback_response: "I'm glad you're here.", care_context: { care_kind: "crisis", disclosure: "hard" } }, history: [])
-    reply = "I can't say yes or no to the takeout yet. If those feelings are still with you, call or text 988, or call 911. Is someone with you tonight?"
+    reply = "I can't say yes or no to the takeout yet. If those feelings are still with you, call or text 988, or call 911. Put distance between you and anything you could use to hurt yourself. Is someone with you tonight?"
     assert_nil narrator.send(:narration_rejection_reason, reply)
-    assert_equal :unverified_amount, narrator.send(:narration_rejection_reason, "That takeout is $40. Is someone with you tonight?")
+    assert_equal :unverified_amount, narrator.send(:narration_rejection_reason, "That takeout is $40. #{reply}")
   end
 end

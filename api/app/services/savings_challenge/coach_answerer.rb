@@ -31,6 +31,7 @@ module SavingsChallenge
 
     # True when the answer is final and should not be rewritten by the model.
     def deterministic? = @deterministic == true
+    def targeted? = @targeted == true
 
     def call
       return HouseholdFinance::MiaCoachAnswerer.prompt_injection_boundary if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
@@ -41,40 +42,45 @@ module SavingsChallenge
         return deterministic(hopeless_answer)
       end
       return deterministic(HouseholdFinance::ParticipantCare.answer(@message) || protected_baseline_answer) if HouseholdFinance::ParticipantCare.required?(@message) && !HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
-      return privacy_answer if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
+      return targeted(privacy_answer) if @message.match?(/\b(?:employer|sponsor|bank of guam|bog)\b.{0,100}\b(?:see|share|send|give|feelings?|balances?|statements?|transactions?)\b|\bwho\b.{0,40}\b(?:sees?|access|read)\b/i)
       return deterministic(food_insecurity_answer) if HouseholdFinance::MoneyMovementText.food_insecurity?(@message)
-      return guarantee_answer if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
+      return targeted(guarantee_answer) if @message.match?(/\b(?:guarantee|guaranteed|eligibility|eligible for|approve (?:my|a) loan|bank endorsement)\b/i)
       return deterministic(loan_answer) if loan_decision_question?
       return deterministic(protected_baseline_answer) if @message.match?(PROTECTED_BASELINE)
       return deterministic(::Mia::SensitiveMoment.response(@message)) if ::Mia::SensitiveMoment.matches?(@message) && (!@daily_report || ::Mia::SensitiveMoment.grief?(@message))
       return "The recommended goal is $500 in new money you actually set aside over 90 days. You can use a smaller comfortable goal or postpone a target. You can start without a credit card, statements, a bank connection, or a full budget. Open Home to review the challenge and choose your next step." unless @enrollment
       private_context do
-        return attachment_answer if @attachments.any?
+        return targeted(attachment_answer) if @attachments.any?
         return deterministic(daily_report_answer) if @daily_report
         return deterministic(daily_rejection_answer) if @daily_rejection
         return deterministic(savings_intake_answer) if @savings_intake
         return deterministic(savings_total_answer) if saved_total_question?
+        if challenge_calendar_question?
+          answer = calendar_answer
+          answer += " I don't have your rent due date in this challenge. Check your lease or ask your landlord to confirm it." if @message.match?(/\brent\b/i)
+          return deterministic(answer)
+        end
         return deterministic(target_change_answer) if target_change?
         return deterministic(card_balance_answer) if @message.match?(CARD_BALANCE_QUESTION) && !@message.match?(PAYMENT_REPORT)
-        return savings_answer if @message.match?(BORROWING_FROM_SAVINGS)
+        return targeted(savings_answer) if @message.match?(BORROWING_FROM_SAVINGS)
         if (@message.match?(CARD_RANKING_QUESTION) || (@message.match?(EXTRA_PAYMENT_QUESTION) && @message.match?(CARD_OR_DEBT_WORD))) && !@message.match?(PAYMENT_REPORT)
           ranking = card_ranking_answer
           return deterministic(ranking) if ranking
-          return debt_comparison_answer
+          return targeted(debt_comparison_answer)
         end
-        return purchase_answer if purchase_question?
+        return targeted(purchase_answer) if purchase_question?
         if @message.match?(/\b(?:credit cards?|debts?|interest|apr|payoff|minimum payment|(?:loan|car|truck|student) payments?)\b/i)
-          return debt_comparison_answer if @message.match?(/\b(?:minimum|apr|terms|what should i know|review|compare|comparison)\b/i)
+          return targeted(debt_comparison_answer) if @message.match?(/\b(?:minimum|apr|terms|what should i know|review|compare|comparison)\b/i)
           return deterministic(debt_answer)
         end
         return deterministic(feeling_answer) if @message.match?(/\b(?:feel|feeling|ashamed|embarrassed|guilty|overwhelmed|anxious)\b/i)
         if SavingsReportText.nothing_set_aside?(@message)
           return "You don't have to force a savings amount today. Food, housing, utilities, medicine and required payments come first; a smaller goal or a pause is okay. We can talk through what is making saving difficult without changing any records. What would help most right now?"
         end
-        return investment_answer if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
-        return savings_answer if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
-        return daily_answer if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
-        return savings_answer if @message.match?(/\b(?:saved|savings|set aside|reserved|withdrew|withdrawal|progress|goal|target)\b/i)
+        return targeted(investment_answer) if HouseholdFinance::MoneyMovementText.investment_purchase_report?(@message)
+        return targeted(savings_answer) if HouseholdFinance::MoneyMovementText.savings_deposit_report?(@message)
+        return targeted(daily_answer) if @message.match?(/\b(?:spent|bought|purchase|receipt|cash|no.sp[eai]nd|check.in|yesterday)\b/i)
+        return targeted(savings_answer) if @message.match?(/\b(?:saved|savings|set aside|reserved|withdrew|withdrawal|progress|goal|target)\b/i)
         if @message.match?(/\b(?:forget|forgetting|forgot|frustrat\w*|tired|ugh|keep trying)\b/i)
           return "Remembering to save can be hard when life is busy. You can choose a small reminder that fits your day, and essentials still come first. What usually gets in the way?"
         end
@@ -84,6 +90,11 @@ module SavingsChallenge
 
     private
 
+    def challenge_calendar_question?
+      @message.match?(/\bwhen (?:does|will) (?:my |the |this )?challenge (?:end|finish|start)\b/i) ||
+        @message.match?(/\bhow (?:many|much) (?:days?|time) (?:are |is |do i have )?(?:left|remaining|remain)(?: (?:in|for|of) (?:the |my |this )?(?:savings )?challenge)?[?.! ]*\z/i)
+    end
+
     def purchase_question?
       text = HouseholdFinance::PurchaseQuestionText.read_only_question_text(HouseholdFinance::PurchaseQuestionText.purchase_clause(@message))
       HouseholdFinance::MessageReplyIntent.purchase_question?(@message) && !HouseholdFinance::MiaCoachAnswerer.explicit_write_request?(text)
@@ -92,7 +103,7 @@ module SavingsChallenge
     def purchase_answer
       @purchase_prefix = "There is no household plan in this challenge to compare a purchase against, and I cannot verify the cash or card payments you would need."
       item = HouseholdFinance::PurchaseQuestionText.item_label(@message).presence || "purchase"
-      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "I would hold off on the #{item} rather than add a payment you cannot cover." : "Check what would pay for the #{item} before deciding."
+      stance = HouseholdFinance::PurchaseQuestionText.unfunded?(@message) ? "The open question on the #{item} is how you would cover it without adding a payment you cannot keep up with." : "Check what would pay for the #{item} before deciding."
       "#{@purchase_prefix} #{stance} What would cover it after food, bills, and required payments?"
     end
 
@@ -122,9 +133,14 @@ module SavingsChallenge
         !@message.match?(LOAN_PAYMENT_OR_BORROWING) && !@message.match?(CARD_BALANCE_QUESTION)
     end
 
+    def targeted(text)
+      @targeted = true
+      text
+    end
+
     def deterministic(text)
       @deterministic = true
-      text
+      targeted(text)
     end
 
     def private_context
@@ -136,9 +152,7 @@ module SavingsChallenge
       end
     end
 
-    def money(cents)
-      ActionController::Base.helpers.number_to_currency(cents.to_i / 100.0)
-    end
+    def money(cents) = HouseholdFinance::Money.plain(cents)
 
     def privacy_answer
       "Participation does not give an employer or sponsor access to your balances, statements, purchases, chat or feelings. Your records are private by default; coach monetary summaries and selected details require separate choices in Privacy & reminders. Sponsor reporting uses fixed, coarse cohort summaries with suppression, not individual financial records. You choose what to share, and can revoke a grant. What access would you like to review?"
@@ -322,6 +336,12 @@ module SavingsChallenge
       waiting = SavingsEntryDraft.joins(:savings_entry).where(savings_entries: { savings_enrollment_id: @enrollment.id }, status: "pending").count
       target += " #{waiting} savings #{waiting == 1 ? 'record is' : 'records are'} waiting for you to save in Savings; #{waiting == 1 ? 'it doesn’t' : 'they don’t'} count until you do." if waiting.positive?
       "#{progress}#{target} Only new money you actually set aside counts, minus anything you take out. Spending less, refunds, debt payments and moving money you already had don't count on their own. To add money you set aside, open Savings and save it there; nothing counts until you do. Did you set aside new money, or are you thinking about a spending change?"
+    end
+
+    def calendar_answer
+      today = @enrollment.local_today
+      remaining = [ (@enrollment.ends_on - today).to_i, 0 ].max
+      "Your challenge runs from #{@enrollment.starts_on.strftime('%b %-d')} to #{@enrollment.ends_on.strftime('%b %-d')}. There #{remaining == 1 ? 'is' : 'are'} #{remaining} #{remaining == 1 ? 'day' : 'days'} left after today."
     end
 
     def savings_total_answer

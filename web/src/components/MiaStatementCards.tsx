@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
-import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries } from '../lib/statementCards'
+import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries, waitsOnMissingLines } from '../lib/statementCards'
 import {
   APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetFromAttention, statementPeriodText,
   type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementPlan,
@@ -46,6 +46,8 @@ export function MiaStatementCards({ imports, assistantName, challenge, onReview,
   const askedKey = `statement-patterns-asked:${shown.map((entry) => entry.documentImport.id).join(',')}`
   const asked = askedNow || readFlag(askedKey)
   const allApproved = shown.every((entry) => entry.stage === 'approved')
+  // Every line is approved but she said something is missing: the offer waits, and she is told when it will come.
+  const waitingOnMissing = !allApproved && shown.some(waitsOnMissingLines) && shown.every((entry) => entry.stage === 'approved' || waitsOnMissingLines(entry))
   const months = monthsCovered(shown.map((entry) => entry.documentImport))
   const scope = months >= 2 ? `your last ${months} months` : shown.length > 1 ? `these ${shown.length} statements` : 'this statement'
   return <div className="mia-statement-cards">
@@ -53,6 +55,7 @@ export function MiaStatementCards({ imports, assistantName, challenge, onReview,
     {shown.map(({ documentImport, stage }) => stage === 'reading' || stage === 'failed'
       ? <StatementProgressCard key={documentImport.id} documentImport={documentImport} failed={stage === 'failed'} onRetry={onRetry} onReview={onReview} />
       : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} waiting={disabled} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
+    {waitingOnMissing && !asked && onAskPatterns && <p className="mia-statement-muted" role="status">I’ll offer to look for patterns once the missing lines are in.</p>}
     {allApproved && !asked && onAskPatterns && <section className="mia-statement-next" aria-label={`Next step with ${assistantName}`}>
       <p>{shown.length > 1 ? `All ${shown.length} statements are approved. ` : ''}Want me to look for patterns in {scope}?</p>
       <Button onClick={() => { writeFlag(askedKey); setAskedNow(true); onAskPatterns() }}>{challenge ? 'Yes, look for patterns' : `See what ${assistantName} notices`}</Button>

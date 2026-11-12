@@ -1,6 +1,9 @@
 import { savingsFixture } from '../test/savingsFixtures'
 import { describe, expect, it } from 'vitest'
-import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake, savingsDefaultDate, savingsDollars, savingsInputCents, savingsInputDollars } from './savingsChallenge'
+import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake, savingsDefaultDate, savingsDollars, savingsInputCents, savingsPlainDollars, savingsInputDollars } from './savingsChallenge'
+describe('plain dollars in sentences and cards', () => {
+  it.each([[5000, '$50'], [1250, '$12.50'], [123456, '$1,234.56'], [150000, '$1,500'], [0, '$0'], [-5000, '-$50'], [-1250, '-$12.50']])('writes %s cents as %s', (cents, text) => expect(savingsPlainDollars(cents)).toBe(text))
+})
 describe('exact savings input', () => {
   it.each([['25.50', 2550], ['1', 100], ['0.01', 1], ['12.3', 1230], [' 500.00 ', 50000]])('converts %s to exact integer cents', (text, cents) => expect(savingsInputCents(text)).toBe(cents))
   it.each(['1.005', '1e3', '1,000', '-1', '.5', 'NaN', '', '0', '9007199254740993'])('rejects ambiguous, fractional-cent, nonpositive or unsafe %s', (value) => expect(() => savingsInputCents(value)).toThrow())

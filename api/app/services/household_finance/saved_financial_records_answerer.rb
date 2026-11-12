@@ -334,6 +334,6 @@ module HouseholdFinance
     def month_label = @reference_date.strftime("%B %Y")
     def cadence(value) = { "weekly" => "per week", "biweekly" => "every two weeks", "semi_monthly" => "twice a month", "monthly" => "per month", "annual" => "per year", "one_time" => "one time" }.fetch(value, value.to_s)
     def known_money(known, cents) = known ? money(Money.dollars(cents)) : "unknown"
-    def money(dollars) = ActiveSupport::NumberHelper.number_to_currency(dollars, precision: 2)
+    def money(dollars) = Money.plain((dollars.to_f * 100).round)
   end
 end

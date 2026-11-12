@@ -11,7 +11,7 @@ module SetupHelp
         Access.participant!(@household, user: @user, cohort_membership: @membership)
         owner = @household.household_memberships.exists?(user_id: @user.id, role: "owner")
         eligibility = Eligibility.new(@household)
-        latest = requests.order(id: :desc).first
+        latest = requests.where.not(reason: "leave_challenge").order(id: :desc).first
         { household_id: @household.id, cohort_id: @membership&.cohort_id, financial_generation: @household.financial_generation,
           available: owner, owner_required: !owner, setup_complete: HouseholdFinance::SetupStatus.new(@household).complete?,
           self_restart_available: owner && eligibility.available?, blockers: eligibility.blockers,
@@ -19,34 +19,50 @@ module SetupHelp
       end
     end
 
-    def create_request(reason:, share_metadata:, idempotency_key:)
+    def create_request(reason:, share_metadata:, idempotency_key:, leave_intent: nil)
       raise Error, "Setup help isn't available while you preview a group. Nothing changed." if @membership&.preview?
       raise Error, "Choose a setup help reason." unless SetupSupportRequest::REASONS.key?(reason)
       raise Error, "Confirm sharing this request's purpose and status with support." unless share_metadata == true
+      if reason == "leave_challenge" && !leave_intent.in?(%w[leave pause])
+        raise Error, "Choose whether to leave or pause. Nothing changed."
+      end
+      owner_required = reason != "leave_challenge"
       key = idempotency_key.to_s.strip
       raise Error, "Idempotency-Key is required and must be at most 200 characters." unless key.present? && key.length <= 200
-      digest = Digest::SHA256.hexdigest(JSON.generate(reason: reason, share_metadata: true, cohort_id: @membership&.cohort_id))
+      fingerprint = { reason: reason, share_metadata: true, cohort_id: @membership&.cohort_id }
+      fingerprint[:leave_intent] = leave_intent if reason == "leave_challenge"
+      digest = Digest::SHA256.hexdigest(JSON.generate(fingerprint))
       @household.with_lock do
         HouseholdFinance::FinancialGenerationGuard.request!(@household)
-        Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
+        Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required)
         retire_outdated_requests!
         existing = SetupHelpRequestKey.find_by(household: @household, user: @user, idempotency_key: key)
+        created = false
         if existing
           raise Conflict, "This request identity was already used for different setup help. Nothing changed." unless existing.request_fingerprint == digest
           record = requests.find(existing.setup_support_request_id)
-          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required, request: record)
         else
-          record = requests.where(status: SetupSupportRequest::ACTIVE).order(:id).first
+          slot = reason == "leave_challenge" ? requests.where(reason: reason) : requests.where.not(reason: "leave_challenge")
+          record = slot.where(status: SetupSupportRequest::ACTIVE).order(:id).first
           unless record
             record = @household.setup_support_requests.create!(requested_by_user: @user, cohort_id: @membership&.cohort_id,
-              participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason)
+              participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason, leave_intent: leave_intent)
+            created = true
             audit!(record, "requested")
           end
-          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+          Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required, request: record)
           SetupHelpRequestKey.create!(household: @household, user: @user, setup_support_request: record, idempotency_key: key, request_fingerprint: digest)
         end
-        { request: Serializer.request(record), setup_help: status }
+        payload = Serializer.request(record)
+        payload[:already_requested] = !created if reason == "leave_challenge"
+        { request: payload, setup_help: status }
       end
+    end
+
+    # Leave requests have their own support lifecycle and never consume setup work.
+    def request_leave(idempotency_key:, intent: "leave")
+      create_request(reason: "leave_challenge", share_metadata: true, idempotency_key: idempotency_key, leave_intent: intent).fetch(:request)
     end
 
     def cancel_request(id:, expected_lock_version:)
@@ -77,9 +93,9 @@ module SetupHelp
     end
 
     def own_request!(id)
-      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
+      Access.participant!(@household, user: @user, cohort_membership: @membership)
       record = requests.find(id)
-      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: record.reason != "leave_challenge", request: record)
       record
     end
 
@@ -104,11 +120,12 @@ module SetupHelp
       raise Stale, "This setup help request changed. Refresh it before continuing. Nothing changed." unless value.is_a?(Integer) && value >= 0 && record.lock_version == value
     end
 
-    def audit!(record, action, retirement_reason: nil)
+    def audit!(record, action, retirement_reason: nil, previous_reason: nil)
       @household.household_audit_events.create!(user: @user, actor_type: "user", event_type: "setup_support.#{action}",
         auditable_type: "SetupSupportRequest", auditable_id: record.id, occurred_at: Time.current,
         metadata: { requested_by_user_id: record.requested_by_user_id, cohort_id: record.cohort_id, reason: record.reason, status: record.status,
-          review_id: record.financial_restart_review_id, lock_version: record.lock_version, retirement_reason: retirement_reason }.compact)
+          review_id: record.financial_restart_review_id, lock_version: record.lock_version, retirement_reason: retirement_reason,
+          previous_reason: previous_reason }.compact)
     end
   end
 end

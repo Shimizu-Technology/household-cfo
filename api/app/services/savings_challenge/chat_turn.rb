@@ -5,6 +5,7 @@ module SavingsChallenge
     PATTERNS = /\b(?:patterns?|waterfall|subscriptions?)\b/i.freeze
     GOAL = /\b(?:goal|target)\b/i.freeze
     GOAL_CHANGE = /\b(?:change|set|make|update|lower|raise|switch|drop|bump|aim|let['’]?s do|go with)\b.{0,50}\b(?:goal|target)\b/i.freeze
+    GOAL_ADVICE = /\b(?:comfortable|suggest|choose|pick|help|recommend|what should (?:my|the|our) (?:(?:challenge|savings) )?(?:goal|target) be)\b/i.freeze
     GOAL_DESIRE = /\b(?:(?:my|the)\s+(?:(?:challenge|savings)\s+)?(?:goal|target)\s+to be|i\s+(?:want|would like)\s+to save|i['’]d like to save)\b/i.freeze
     GOAL_STATEMENT = /\b(?:my|the)\s+(?:(?:challenge|savings)\s+)?(?:goal|target)\s+is\b/i.freeze
     WEEKLY_OFFER = /\b(?:i can(?: only)? (?:do|save|set aside)|i (?:want|would like) to save)\b/i.freeze
@@ -31,9 +32,9 @@ module SavingsChallenge
     def self.special?(message, session:)
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message)
       return false if protected_message?(message) || HouseholdFinance::MiaCoachAnswerer.prompt_injection?(message) || message.match?(/\bhousehold\b/i) || money_report?(message)
-      patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
+      ParticipantHelp.exit?(message) || patterns_question?(message) || message.match?(GOAL_CHANGE) || message.match?(GOAL_DESIRE) || message.match?(GOAL_STATEMENT) || weekly_offer?(message) || (message.match?(PROGRESS) || HouseholdFinance::MessageReplyIntent.matches?(message, "progress")) ||
         amount_reply?(message, session: session) ||
-        (message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)) ||
+        (message.match?(GOAL) && message.match?(GOAL_ADVICE)) ||
         (session.active_topic["type"] == "challenge_patterns" && pattern_continuation?(message, choices: session.active_topic["choices"]))
     end
 
@@ -93,25 +94,89 @@ module SavingsChallenge
         "challenge_chat_cards" => Array(payload["challenge_chat_cards"]).filter_map { |card| cards[card["id"]]&.as_api_json })
     end
 
-    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil, reading: nil)
+    def initialize(household:, user:, enrollment:, session:, message:, attachments: [], persona:, history:, approved_content: [], available_product_modules: nil, reading: nil, cohort_membership: nil)
       @household, @user, @enrollment, @session, @message, @attachments = household, user, enrollment, session, message.to_s, attachments
+      @cohort_membership = cohort_membership
       @persona, @history, @approved_content = persona, history, approved_content
       @available_product_modules = available_product_modules
       @topic = {}
       @reading = reading || HouseholdFinance::ParticipantMessageReader.call(message: @message)
     end
 
-    attr_reader :answer, :intake, :intakes, :cards, :supplied_content_context, :patterns
+    attr_reader :answer, :intake, :intakes, :cards, :supplied_content_context, :patterns, :goal_cents, :weekly_cents, :topic
 
     def call
+      compose
+      add_question_half
+      add_exit_answer
+      self
+    end
+
+    # The question at the end of a message: "…, how am I doing?" It is answered on its own, so a saving
+    # told in the same breath is never swallowed by the answer to the question, nor the question by the saving.
+    QUESTION_CLAUSE = /(?:[,;.]\s*|\s+and\s+|\s+but\s+)((?:how|what|which|when|where|why|can|could|should|would|will|is|are|do|does|did)\b[^?]*\?)\s*\z/i
+    WRITE_KINDS = %w[set_aside withdrawal purchase nothing_saved].freeze
+
+    def question_clause = @message[QUESTION_CLAUSE, 1]
+
+    def targeted? = @targeted == true
+
+    def write_with_question?
+      return @write_with_question if defined?(@write_with_question)
+
+      clause = question_clause
+      statement = clause ? @message.delete_suffix(clause).sub(/[,;.]?\s*(?:and|but)?\s*\z/i, "") : ""
+      @write_with_question = clause.present? && !@reading.care? &&
+        (@reading.facts.any? { |fact| WRITE_KINDS.include?(fact["kind"]) } ||
+          (statement.match?(/\d/) && (self.class.money_report?(statement) || statement.match?(/\b(?:put|set|moved)\b.{0,20}\baside\b/i))))
+    end
+
+    # A write beside a question answers both: the card is made, then the question is answered the way it would be alone.
+    def add_question_half
+      return unless @enrollment && @attachments.empty? && @answer.present? && write_with_question? && (@intakes.present? || @continued_card_input.present?)
+      return if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) || self.class.protected_message?(@message)
+
+      # Exit consent belongs to the whole message, including any uncertainty.
+      return if ParticipantHelp.exit?(question_clause)
+
+      alone = self.class.new(household: @household, user: @user, enrollment: @enrollment, session: @session, message: question_clause, persona: @persona, history: @history,
+        approved_content: @approved_content, available_product_modules: @available_product_modules, cohort_membership: @cohort_membership,
+        reading: @reading.with(facts: [], question: true, setup_changes: {}, goal_change: {}, savings_correction: {}))
+      alone.call
+      # Only an answer made for this question is added; the general fallback would only muddy the card.
+      return unless alone.targeted? && alone.answer.present? && alone.intakes.blank?
+
+      @answer = "#{@answer} #{alone.answer}"
+      @goal_cents, @weekly_cents = alone.goal_cents, alone.weekly_cents if alone.goal_cents
+      @topic = alone.topic if alone.topic.present?
+      @patterns = alone.patterns if alone.patterns
+      @supplied_content_context = Array(@supplied_content_context) + Array(alone.supplied_content_context)
+      @answered_question_half = true
+    end
+    private :add_question_half
+
+    # The one question every challenge participant can ask is how to leave or pause.
+    def add_exit_answer
+      return unless @enrollment && @attachments.empty? && @answer.present? && ParticipantHelp.exit?(@message) && !@answered_question_half
+      return if @reading.care? || self.class.protected_message?(@message) || ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
+      return if HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+
+      exit_answer = ParticipantHelp.exit_answer(@message, household: @household, user: @user, membership: @cohort_membership)
+      @targeted = true
+      wrote = @intakes.present? || @goal_cents.present? || @continued_card_input.present?
+      @answer = wrote ? "#{@answer} #{exit_answer}" : exit_answer
+    end
+    private :add_exit_answer
+
+    def compose
       @supplied_content_context = []
       if ::Mia::CrisisBoundary.matches?(@message) || @reading.care == "crisis"
         @answer = ::Mia::CrisisBoundary.response
         @intakes = []
         return self
       end
-      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
-        return self if review_continuation || pattern_turn || goal_turn || progress_turn
+      if @enrollment && @attachments.empty? && !self.class.money_report?(@message) && !write_with_question? && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !self.class.protected_message?(@message) && !@reading.care?
+        return self if (@targeted = review_continuation || pattern_turn || goal_turn || progress_turn)
       end
       return self if purchase_date_continuation
       correction = SavingsCorrection.new(@enrollment, message: @message, reading: @reading).call if @attachments.empty? && @enrollment && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message) && !@reading.care?
@@ -192,6 +257,7 @@ module SavingsChallenge
       coach = CoachAnswerer.new(household: @household, user: @user, enrollment: @enrollment,
         message: @message, attachments: @attachments, daily_report: @intake, daily_rejection: parser&.rejection, savings_intake: @intake)
       reference = coach.call
+      @targeted = true if coach.targeted?
       if coach.deterministic?
         @answer = reference
       else
@@ -206,6 +272,8 @@ module SavingsChallenge
       end
       self
     end
+
+    private :compose
 
     # Caller holds the household lock and has rechecked current challenge access.
     # The proposal is not a financial draft until the participant chooses Yes.
@@ -231,9 +299,22 @@ module SavingsChallenge
         pending_intake_card(kind, input) || SavingsChatCard.create!(savings_enrollment: @enrollment,
           chat_message: assistant_message, kind: kind, input: input)
       end
+      intents = ParticipantHelp.card_intents(@message)
+      retired_leave_cards = []
+      if ParticipantHelp.leave_mention?(ParticipantHelp.exit_text(@message)) && @enrollment
+        pending = SavingsChatCard.where(savings_enrollment: @enrollment, kind: "leave", status: "pending").for_picture(@household.financial_generation)
+        retired_leave_cards = pending.to_a
+        pending.update_all(status: "closed")
+      end
+      if intents.any? && @enrollment && @attachments.empty? && !@reading.care? && !self.class.protected_message?(@message) && !HouseholdFinance::MiaCoachAnswerer.prompt_injection?(@message)
+        @cards << SavingsChatCard.create!(savings_enrollment: @enrollment, chat_message: assistant_message, kind: "leave", input: { intents: intents })
+      end
       @cards.unshift(@card) if @card
       @cards << @continued_card.reload if @cards.empty? && @continued_card
       @session.update!(active_topic: @topic)
+      # Closed offers are authoritative too: a veto must remove a card already
+      # visible in this browser, without waiting for a page reload.
+      @cards.concat(retired_leave_cards.map(&:reload))
       (@cards.first || @continued_card&.reload)&.as_api_json
     end
 
@@ -286,11 +367,17 @@ module SavingsChallenge
     end
 
     def review_continuation
-      return false unless @message.match?(/\A\s*(?:yes|yeah|yep|ok(?:ay)?)(?:[, ]+(?:please|save it|save|do it))?[.!]?\s*\z/i)
+      return false unless @message.match?(/\A\s*(?:yes|yeah|yep|ok(?:ay)?|sure)(?:[, ]+(?:please|save it|save|do it))?[.!]?\s*\z/i)
       @continued_card = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: @session.id }, status: "pending")
         .for_picture(@household.financial_generation).order(:id).last
       return false unless @continued_card
       @topic = @session.active_topic
+      if @continued_card.kind == "leave"
+        intents = Array(@continued_card.input["intents"])
+        button = intents.one? ? "'Tell my coach I'd like to #{intents.first}'" : "the leave or pause button"
+        @answer = "Tap #{button} on the card and I'll pass it on."
+        return true
+      end
       step = { "savings" => "Review savings", "goal" => "Yes on the goal card", "daily_report" => "Save on the check-in card" }.fetch(@continued_card.kind)
       @answer = "Your card is still below. Choose #{step} to check and confirm it; nothing has been saved from this reply."
       true
@@ -378,7 +465,7 @@ module SavingsChallenge
       message = GoalAmount.normalize(@message)
       goal_amount = @reading.goal_change["amount"].presence
       message = message.sub(/\A\s*actually[, ]*/i, "").sub(/\blet['’]?s just\b/i, "lets")
-      suggestion = message.match?(GOAL) && message.match?(/\b(?:comfortable|suggest|choose|pick|help|recommend)\b/i)
+      suggestion = message.match?(GOAL) && message.match?(GOAL_ADVICE)
       return false if message.match?(/\b(?:household|paid|spent|saved|withdrew|card balance)\b/i) || (message.match?(/\bset aside\b/i) && !self.class.weekly_offer?(message))
       return false if message.match?(/\bdebt\b/i) && !message.match?(/\b(?:challenge|savings|90.day)\s+(?:goal|target)\b/i)
       standalone = self.class.amount_reply?(message, session: @session)

@@ -716,7 +716,7 @@ module Demo
         return "I can’t give a full answer right now. Check the funding before deciding. Keep food and required bills covered. Which account would cover it?"
       end
       if !hopeless && !HouseholdFinance::ParticipantCare.required?(message) && HouseholdFinance::MessageReplyIntent.matches?(message, "win")
-        return "That took effort, and it matters. What helped you keep going, and what would you like to carry into next week?"
+        return HouseholdFinance::MiaCoachAnswerer::WIN_ANSWER
       end
       if !hopeless && message.match?(::Mia::LanguagePolicy::REPEATED_PATTERN) && message.match?(SPENDING_WORD)
         return "You're noticing a spending pattern. Pause before the next purchase. What usually happens just before you buy?"

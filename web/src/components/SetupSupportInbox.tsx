@@ -17,8 +17,8 @@ type Props = {
   onPendingChange?: (pending: boolean) => void
   mutationLifecycle?: CoachWorkspaceMutationLifecycle
 }
-type SupportAction = 'triage' | 'prepare' | 'decline'
-const statusLabels = { requested: 'Requested', in_review: 'In review', ready: 'Participant review ready', applied: 'Restart finished', canceled: 'Canceled', declined: 'Corrections recommended' }
+type SupportAction = 'triage' | 'prepare' | 'decline' | 'acknowledge'
+const statusLabels = { requested: 'Requested', in_review: 'In review', ready: 'Participant review ready', applied: 'Restart finished', canceled: 'Canceled', declined: 'Corrections recommended', acknowledged: 'Acknowledged' }
 
 // Remounting resets both the displayed metadata and any outstanding confirmation.
 export function SetupSupportInbox(props: Props) {
@@ -168,19 +168,19 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, part
 
   const blocked = disabled || saving || loading || uncertainId !== null
   return (
-    <article ref={root} className="panel setup-support-inbox" aria-label="Setup help requests" aria-busy={loading || saving}>
+    <article ref={root} className="panel setup-support-inbox" aria-label="Support requests" aria-busy={loading || saving}>
       <header className="setup-support-heading">
-        <h3>Setup help</h3>
+        <h3>Support requests</h3>
         <Button variant="secondary" disabled={disabled || saving || loading || !canLoadScope} onClick={() => { setNotice(null); void load(null, uncertainId) }}>Refresh requests</Button>
       </header>
-      <p className="setup-support-privacy">Only the reason and request status are shared here. Financial details, documents and private conversations stay private. The participant must review and confirm every restart.</p>
-      {!readOnly && initialParticipantId === undefined && participantId !== undefined && <div className="setup-support-actions"><p>Showing this person’s setup requests.</p><Button variant="secondary" disabled={saving || loading} onClick={() => setParticipantId(undefined)}>All setup requests</Button></div>}
-      {!canLoadScope ? <p>Choose a program to view its setup requests.</p> : <>
+      <p className="setup-support-privacy">Only the reason and request status are shared here. Financial details, documents and private conversations stay private.</p>
+      {!readOnly && initialParticipantId === undefined && participantId !== undefined && <div className="setup-support-actions"><p>Showing this person’s support requests.</p><Button variant="secondary" disabled={saving || loading} onClick={() => setParticipantId(undefined)}>All support requests</Button></div>}
+      {!canLoadScope ? <p>Choose a program to view its support requests.</p> : <>
         {workspaceId === null && <p>Platform support requests; select a program workspace for its requests.</p>}
         {error && <div className="setup-support-alert" role="alert"><p>{error}</p><Button variant="secondary" disabled={disabled || saving || loading} onClick={() => void load(cursor, uncertainId)}>Retry loading requests</Button></div>}
         {notice && <p role="status" className="setup-support-notice">{notice}</p>}
-        {loading && <p role="status">Loading setup requests…</p>}
-        {!loading && !error && records.length === 0 && <p>No setup help requests here.</p>}
+        {loading && <p role="status">Loading support requests…</p>}
+        {!loading && !error && records.length === 0 && <p>No support requests here.</p>}
         <div className="setup-support-records">
           {records.map((record) => {
             const open = ['requested', 'in_review', 'ready'].includes(record.status)
@@ -197,7 +197,8 @@ function ScopedSetupSupportInbox({ actorId, workspaceId, cohortId, isAdmin, part
               {open && !record.permissions?.triage && !record.permissions?.decline && !(isAdmin && record.permissions?.prepare) && <p>Your current access is read-only for this request.</p>}
               {open && !readOnly && <div className="setup-support-actions">
                 {record.status === 'requested' && record.permissions?.triage && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'triage')}>Mark in review</Button>}
-                {record.permissions?.decline && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'decline')}>Recommend corrections</Button>}
+                {record.permissions?.acknowledge && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'acknowledge')}>Talked with them</Button>}
+                {record.permissions?.decline && <Button variant="secondary" disabled={blocked} onClick={() => void act(record, 'decline')}>{record.reason === 'leave_challenge' ? 'Close request' : 'Recommend corrections'}</Button>}
                 {canPrepare && <Button disabled={blocked} onClick={() => setConfirmation({ id: record.id, version: record.lock_version })}>Prepare participant review</Button>}
               </div>}
               {confirmation?.id === record.id && <div className="setup-support-confirmation" role="group" aria-label={`Confirm review preparation for request #${record.id}`}>

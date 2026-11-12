@@ -2120,13 +2120,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     create_mia_attachment_draft(within_import, household, category: groceries, amount_cents: 4_000, occurred_on: Date.new(2026, 8, 2))
     post "/api/v1/mia/messages", params: { message: "Does this grocery receipt fit my plan?", document_import_ids: [ within_import.id ] }, headers: auth_headers(user), as: :json
     assert_response :created
-    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $60.00 left"
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $60 left"
 
     over_import = create_mia_attachment_import(household, user, "over-plan")
     create_mia_attachment_draft(over_import, household, category: dining, amount_cents: 7_000, occurred_on: Date.new(2026, 9, 2))
     post "/api/v1/mia/messages", params: { message: "Does this dining receipt fit my plan?", document_import_ids: [ over_import.id ] }, headers: auth_headers(user), as: :json
     assert_response :created
-    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Dining would be $20.00 over plan"
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Dining would be $20 over plan"
 
     split_import = create_mia_attachment_import(household, user, "split-plan")
     split_draft = create_mia_attachment_draft(split_import, household, category: nil, amount_cents: 5_000, occurred_on: Date.new(2026, 10, 2))
@@ -2135,8 +2135,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     post "/api/v1/mia/messages", params: { message: "Does this receipt fit my plan?", document_import_ids: [ split_import.id ] }, headers: auth_headers(user), as: :json
     assert_response :created
     split_content = JSON.parse(response.body).dig("assistant_message", "content")
-    assert_includes split_content, "Groceries would remain within plan with $70.00 left"
-    assert_includes split_content, "Dining would remain within plan with $60.00 left"
+    assert_includes split_content, "Groceries would remain within plan with $70 left"
+    assert_includes split_content, "Dining would remain within plan with $60 left"
 
     uncategorized_import = create_mia_attachment_import(household, user, "uncategorized-plan")
     create_mia_attachment_draft(uncategorized_import, household, category: nil, amount_cents: 2_500, occurred_on: Date.new(2026, 11, 2))
@@ -2150,7 +2150,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     create_mia_attachment_draft(multi_import_two, household, category: groceries, amount_cents: 2_000, occurred_on: Date.new(2026, 12, 3))
     post "/api/v1/mia/messages", params: { message: "Do these receipts fit my plan?", document_import_ids: [ multi_import_one.id, multi_import_two.id ] }, headers: auth_headers(user), as: :json
     assert_response :created
-    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $70.00 left"
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $70 left"
   end
 
   test "mia persistence bounds an oversized assistant response without failing the turn" do
@@ -2275,7 +2275,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_includes content, "not reporting partial findings as complete"
-    assert_not_includes content, "$500.00"
+    assert_not_includes content, "$500"
     assert_not_includes content, "Private partial merchant"
   end
 
@@ -2297,7 +2297,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_includes content, "failed extraction and produced no verified rows"
-    assert_not_includes content, "$700.00"
+    assert_not_includes content, "$700"
     assert_not_includes content, "unsafe provider details"
   end
 

@@ -1,7 +1,7 @@
 class SavingsChatCard < ApplicationRecord
   belongs_to :savings_enrollment
   belongs_to :chat_message
-  validates :kind, inclusion: { in: %w[daily_report goal savings] }
+  validates :kind, inclusion: { in: %w[daily_report goal savings leave] }
   validates :status, inclusion: { in: %w[pending closed] }
   validate :private_envelope
   validate :bounded_state

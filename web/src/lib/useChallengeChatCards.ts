@@ -11,16 +11,18 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
   const revision = useRef(0)
   const changed = useRef(new Map<number, number>())
   const cleared = useRef(0)
+  const replacedKind = useRef(new Map<string, number>())
   const accept = useCallback((card: ChallengeChatCard) => {
     if (!actor || !cohortId) return false
     changed.current.set(card.id, ++revision.current)
+    if (card.status === 'pending' && ['goal', 'leave'].includes(card.kind)) replacedKind.current.set(`${scope}:${card.kind}`, revision.current)
     if (card.status === 'closed') {
       forgetDailyCard(`server-card-${card.id}`)
       setLoaded(current => current?.scope === scope ? { ...current, cards: current.cards.filter(row => row.id !== card.id), reports: current.reports.filter(row => row.nonce !== `server-card-${card.id}`) } : current)
       return true
     }
     const report = registerServerDailyCard(card, scope)
-    setLoaded(current => ({ scope, cards: [...(current?.scope === scope ? current.cards.filter(row => row.id !== card.id && !(card.kind === 'goal' && row.kind === 'goal')) : []), card], reports: [...(current?.scope === scope ? current.reports.filter(row => row.nonce !== report?.nonce) : []), ...(report ? [report] : [])] }))
+    setLoaded(current => ({ scope, cards: [...(current?.scope === scope ? current.cards.filter(row => row.id !== card.id && !(['goal', 'leave'].includes(card.kind) && row.kind === card.kind)) : []), card], reports: [...(current?.scope === scope ? current.reports.filter(row => row.nonce !== report?.nonce) : []), ...(report ? [report] : [])] }))
     return true
   }, [scope, actor, cohortId])
   useEffect(() => {
@@ -34,7 +36,7 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
       const reports = result.records.flatMap(card => { const report = registerServerDailyCard(card, scope); return report ? [report] : [] })
       setLoaded(current => {
         const newer = current?.scope === scope ? current.cards.filter(card => (changed.current.get(card.id) ?? 0) > startRevision) : []
-        const cards = [...result.records.filter(card => (changed.current.get(card.id) ?? 0) <= startRevision), ...newer]
+        const cards = [...result.records.filter(card => (changed.current.get(card.id) ?? 0) <= startRevision && (replacedKind.current.get(`${scope}:${card.kind}`) ?? 0) <= startRevision), ...newer]
         const activeNonces = new Set(cards.filter(card => card.kind === 'daily_report').map(card => `server-card-${card.id}`))
         reconcileServerDailyCards(scope, activeNonces)
         return { scope, cards, reports: [...reports.filter(report => activeNonces.has(report.nonce) && !newer.some(card => report.nonce === `server-card-${card.id}`)), ...(current?.scope === scope ? current.reports.filter(report => newer.some(card => report.nonce === `server-card-${card.id}`)) : [])] }
@@ -53,5 +55,5 @@ export function useChallengeChatCards(enabled: boolean, scope: string, actor: Ba
     clearDailyCards(scope)
     setLoaded({ scope, cards: [], reports: [] })
   }, [scope])
-  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], savings: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'savings' && card.status === 'pending') : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
+  return { accept, remove, clear, readFailed: enabled && readError === scope, retry: () => setAttempt(value => value + 1), reports: loaded?.scope === scope ? loaded.reports : [], savings: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'savings' && card.status === 'pending') : [], leaves: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'leave' && card.status === 'pending') : [], goals: loaded?.scope === scope ? loaded.cards.filter(card => card.kind === 'goal' && card.status === 'pending') : [] }
 }

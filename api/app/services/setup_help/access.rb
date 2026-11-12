@@ -42,7 +42,14 @@ module SetupHelp
       elsif !actor.admin? || ChallengePrivacy::PrivateFinanceAccess.pilot_household?(request.household)
         raise Denied, "This setup support request is unavailable."
       end
-      requester!(request)
+      if request.reason == "leave_challenge"
+        # Historical tickets are pinned to an actor and membership incarnation.
+        # Withdrawal ends participation, not staff's ability to close the ticket.
+        member = request.cohort&.cohort_memberships&.find_by(id: request.participant_membership_id, user_id: request.requested_by_user_id)
+        raise Denied, "This support request is unavailable." if request.cohort && (!member || member.created_at != request.participant_membership_started_at)
+      else
+        requester!(request)
+      end
       mutation = prepare ? "prepare" : action
       if mutation && !permissions_for(request, actor).fetch(mutation.to_sym, false)
         raise Denied, "This account does not have permission for that support action."
@@ -57,11 +64,11 @@ module SetupHelp
     end
 
     def self.permissions_for(request, actor)
-      independent = actor.id != request.requested_by_user_id
-      return { triage: true, prepare: independent, decline: true } unless request.cohort
+      independent = actor.id != request.requested_by_user_id && request.reason != "leave_challenge"
+      return { triage: true, prepare: independent, decline: true, acknowledge: request.reason == "leave_challenge" } unless request.cohort
       role = CoachWorkspaceMembership.lock.find_by(coach_workspace_id: request.cohort.coach_workspace_id, user_id: actor.id)&.role
       mutation = role.in?(%w[owner editor reviewer])
-      { triage: mutation, prepare: independent && actor.admin? && role.in?(%w[owner reviewer]), decline: mutation }
+      { triage: mutation, prepare: independent && actor.admin? && role.in?(%w[owner reviewer]), decline: mutation, acknowledge: mutation && request.reason == "leave_challenge" }
     end
     private_class_method :permissions_for
   end

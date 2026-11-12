@@ -33,6 +33,6 @@ module SavingsChallenge
 
     private
 
-    def money(cents) = "$#{format('%.2f', cents / 100.0)}"
+    def money(cents) = HouseholdFinance::Money.plain(cents)
   end
 end

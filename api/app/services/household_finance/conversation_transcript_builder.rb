@@ -56,7 +56,7 @@ module HouseholdFinance
         role: message.role,
         content: content,
         coach_persona_version_id: message.coach_persona_version_id,
-        created_at: message.created_at&.iso8601
+        created_at: message.created_at&.iso8601(6)
       }
     end
 

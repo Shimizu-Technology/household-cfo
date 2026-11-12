@@ -40,6 +40,8 @@ module SetupHelp
           core.cancel_review!(record.financial_restart_review) if record.financial_restart_review
           review = core.create_review!(cohort_id: record.cohort_id, purpose: "supported_setup", support_request: record)
           record.update!(status: "ready", prepared_by_user: actor, financial_restart_review: review)
+        when "acknowledge"
+          record.update!(status: "acknowledged")
         when "decline"
           HouseholdFinance::FinancialRestart::Core.new(record.household, user: record.requested_by_user).cancel_review!(record.financial_restart_review) if record.financial_restart_review
           record.update!(status: "declined")

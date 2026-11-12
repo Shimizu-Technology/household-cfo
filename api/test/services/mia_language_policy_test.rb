@@ -33,10 +33,13 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
     message = "packed my lunch all week yay"
     reader_win(message)
-    policy = Mia::LanguagePolicy.new(user_message: message, persona: persona, history: [ { role: "assistant", content: phrase["text"] } ])
-    assert_equal phrase["text"], policy.server_phrase
+    # As needed stays out of the last three replies; sparing waits for four.
+    just_used = [ { role: "assistant", content: phrase["text"] }, { role: "assistant", content: "Sure." } ]
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona, history: just_used).server_phrase
+    three_ago = [ { role: "assistant", content: phrase["text"] }, *Array.new(3) { { role: "assistant", content: "Sure." } } ]
+    assert_equal phrase["text"], Mia::LanguagePolicy.new(user_message: message, persona: persona, history: three_ago).server_phrase
     phrase["frequency"] = "sparing"
-    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona, history: [ { role: "assistant", content: phrase["text"] } ]).server_phrase
+    assert_nil Mia::LanguagePolicy.new(user_message: message, persona: persona, history: three_ago).server_phrase
   end
 
   test "win phrases require a reader win even when milestone words or the phrase occur" do
@@ -211,8 +214,10 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
     reader_win("I paid off my card!")
     phrase = { "text" => "Small wins count, chelu.", "meaning" => "Celebrate a win", "allowed_contexts" => [ "milestone" ], "frequency" => "as_needed" }
     persona = Struct.new(:cultural_phrases, :all_cultural_phrases).new([ phrase ], [ phrase ])
-    history = [ { role: "assistant", content: phrase["text"] } ]
+    history = [ { role: "assistant", content: phrase["text"] }, *Array.new(3) { { role: "assistant", content: "Sure." } } ]
     assert_equal phrase["text"], Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
+    back_to_back = [ { role: "assistant", content: phrase["text"] } ]
+    assert_nil Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: back_to_back, persona: persona).server_phrase
     phrase["frequency"] = "sparing"
     assert_nil Mia::LanguagePolicy.new(user_message: "I paid off my card!", history: history, persona: persona).server_phrase
   end

@@ -1,7 +1,7 @@
 module SetupHelp
   class Serializer
     def self.request(record, permissions: nil)
-      payload = { id: record.id, status: record.status, reason: record.reason, reason_label: SetupSupportRequest::REASONS.fetch(record.reason),
+      payload = { id: record.id, status: record.status, reason: record.reason, reason_label: record.leave_intent.present? ? "I asked to #{record.leave_intent} the challenge" : SetupSupportRequest::REASONS.fetch(record.reason), leave_intent: record.leave_intent,
         participant_name: record.requested_by_user.full_name, user_id: record.requested_by_user_id,
         household_id: record.household_id, cohort_id: record.cohort_id, program_name: record.cohort&.name,
         lock_version: record.lock_version, review_state: review_state(record), review_id: record.financial_restart_review_id,

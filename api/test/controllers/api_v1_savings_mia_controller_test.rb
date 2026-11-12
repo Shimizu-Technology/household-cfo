@@ -26,7 +26,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
     end
     answer = response.parsed_body.dig("assistant_message", "content")
     assert_includes answer, "$200.01"
-    assert_includes answer, "$500.00"
+    assert_includes answer, "$500"
     assert_includes answer, "90-day"
     assert_includes answer, "So far you've saved"
     assert_nil response.parsed_body.fetch("budget")
@@ -60,7 +60,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
         assert_response :created
         response.parsed_body.dig("assistant_message", "content")
       end
-      assert_includes answers[0], "Visa, $300.00"
+      assert_includes answers[0], "Visa, $300"
       assert_includes answers[0], "not a live balance"
       assert_includes answers[1], "cannot rank your cards or suggest an extra amount"
       assert_includes answers[2], "does not affect, and does not promise anything about, a loan decision"
@@ -83,21 +83,25 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
   test "a closed or paused challenge still checks on hopeless language and keeps the crisis reply" do
     [ false, true ].each_with_index do |paused, index|
+      ChatSession.update_all(active_topic: {}, care_hold: {})
       @savings_cohort.update_columns(savings_challenge_release_hold: paused, status: paused ? "active" : "draft")
       post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
       assert_equal ::Mia::CrisisBoundary.response, content
       assert_equal 1, content.scan("988").length, content
+      # The hold is kept while closed, so the next disclosure is a follow-up.
       post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
-      assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+      topic = ChatSession.order(:id).last.active_topic
+      assert_equal "crisis", topic["care_kind"]
+      assert_equal HouseholdFinance::ParticipantCare.crisis_followup(topic), response.parsed_body.dig("assistant_message", "content")
     end
   end
 
   test "a bare plan statement after distress gets the crisis reply but a budget plan does not" do
     post "/api/v1/mia/messages", params: { message: "i cant do this anymore", request_id: "plan-1" }, headers: auth, as: :json
     post "/api/v1/mia/messages", params: { message: "i have a plan", request_id: "plan-2" }, headers: auth, as: :json
-    assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+    assert_equal HouseholdFinance::ParticipantCare.crisis_followup(@savings_household.chat_sessions.order(:id).last.active_topic), response.parsed_body.dig("assistant_message", "content")
   end
 
   test "a bare plan statement without prior distress is not a crisis" do
@@ -131,7 +135,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_equal 1, content.scan("988").length, content
       post "/api/v1/mia/messages", params: { message: "i give up, i cannot afford rent", request_id: "rent-hopeless" }, headers: auth, as: :json
       content = response.parsed_body.dig("assistant_message", "content")
-      assert_equal ::Mia::CrisisBoundary.response, content
+      assert_equal HouseholdFinance::ParticipantCare.crisis_followup(@savings_household.chat_sessions.order(:id).last.active_topic), content
       assert_equal 1, content.scan("988").length, content
       assert_equal 0, $model_calls_in_test2
     ensure
@@ -187,7 +191,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
         "purchases" => [ { "amount_cents" => 800, "merchant" => "Shell", "purchased_on" => "2026-11-15" }, { "amount_cents" => 2000, "merchant" => "Payless", "purchased_on" => "2026-11-15" } ],
         "feelings" => { "when_spent" => "rushed", "now" => nil } }, intake)
       reply = response.parsed_body.dig("assistant_message", "content")
-      assert_includes reply, "$8.00 at Shell and $20.00 at Payless"
+      assert_includes reply, "$8 at Shell and $20 at Payless"
       assert_includes reply, "tap Save. Nothing is saved until you do."
       refute_match(/\b(?:I|I've|we)\s+(?:saved|recorded|added)\b/i, reply.sub("Nothing is saved until you do.", ""))
       assert_nil response.parsed_body.fetch("transaction_draft")
@@ -218,12 +222,12 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       post "/api/v1/mia/messages", params: { message: "I feel stressed, spent $60 at Ross", request_id: "daily-feeling-first" }, headers: auth, as: :json
       assert_equal [ 6000 ], response.parsed_body.dig("savings_intake", "purchases").map { |row| row["amount_cents"] }
       assert_includes response.parsed_body.dig("assistant_message", "content"), "Noticing how you felt is useful"
-      assert_includes response.parsed_body.dig("assistant_message", "content"), "Got it: $60.00 at Ross."
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "Got it: $60 at Ross."
 
       # Only stated feelings get a response, and guilt is never assumed.
       post "/api/v1/mia/messages", params: { message: "Today I spent $12 at Busy Bee Cafe", request_id: "daily-busy-merchant" }, headers: auth, as: :json
       reply = response.parsed_body.dig("assistant_message", "content")
-      assert reply.start_with?("Got it: $12.00 at Busy Bee Cafe."), reply
+      assert reply.start_with?("Got it: $12 at Busy Bee Cafe."), reply
       post "/api/v1/mia/messages", params: { message: "I felt rushed, spent $7 at Kmart", request_id: "daily-rushed-no-guilt" }, headers: auth, as: :json
       reply = response.parsed_body.dig("assistant_message", "content")
       assert_includes reply, "Being rushed can make the quick choice feel like the only one."
@@ -297,11 +301,15 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       assert_nil response.parsed_body["savings_intake"], kind
     end
     post "/api/v1/mia/messages", params: { message: "No spending today", request_id: "safety-after" }, headers: auth, as: :json
-    assert_equal false, response.parsed_body.dig("assistant_message", "safety_reply")
+    assert_equal true, response.parsed_body.dig("assistant_message", "safety_reply"), "a money report cannot end unresolved crisis care"
+    assert_equal true, response.parsed_body.dig("assistant_message", "care_hold")
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "988"
+    assert_nil response.parsed_body["savings_intake"]
+    assert_nil response.parsed_body["challenge_chat_card"]
     get "/api/v1/mia/messages", headers: auth
     assert_response :success
     flags = response.parsed_body.fetch("messages").select { |row| row["role"] == "assistant" }.map { |row| row["safety_reply"] }
-    assert_equal [ true, true, false ], flags.last(3)
+    assert_equal [ true, true, true ], flags.last(3)
   end
 
   test "goal changes prepare a review card without writing a plan, and saved money gets a plain reply" do
@@ -318,7 +326,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       end
       post "/api/v1/mia/messages", params: { message: "Picked up an extra shift and saved $50 today", request_id: "plain-contribution" }, headers: auth, as: :json
       assert_equal "contribution", response.parsed_body.dig("savings_intake", "kind")
-      assert_equal "Got it: $50.00 set aside today. It's below for you to check. Nothing counts toward your challenge until you save it.",
+      assert_equal "Got it: $50 set aside today. It's below for you to check. Nothing counts toward your challenge until you save it.",
         response.parsed_body.dig("assistant_message", "content")
     end
   end
@@ -424,7 +432,7 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
       answer = response.parsed_body.dig("assistant_message", "content")
       assert_includes answer, "Primary salary"
       assert_includes answer, "Tutoring"
-      assert_includes answer, "$4,300.00"
+      assert_includes answer, "$4,300"
       assert_nil response.parsed_body.fetch("budget")
       assert_nil response.parsed_body.fetch("mia_action_draft")
     end

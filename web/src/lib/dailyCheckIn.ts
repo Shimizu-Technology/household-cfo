@@ -215,6 +215,14 @@ export function latestReplyIsSafety(messages: { role: string; safety_reply?: boo
   for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index].role === 'assistant') return messages[index].safety_reply === true
   return false
 }
+// The newest Mia reply is part of personal support (flagged by the server from
+// her care state, never from the words): the daily check-in prompt waits.
+// An explicit false on reload releases an expired episode, even if that reply
+// still carries its historical safety flag. Older servers keep the safety hold.
+export function latestReplyHoldsCheckIn(messages: { role: string; safety_reply?: boolean; care_hold?: boolean }[]): boolean {
+  for (let index = messages.length - 1; index >= 0; index -= 1) if (messages[index].role === 'assistant') return messages[index].care_hold ?? messages[index].safety_reply === true
+  return false
+}
 // True while a card holds progress that a new message must not wipe: some rows
 // saved, staged or unconfirmed while others still need saving.
 export function dailyCardNeedsAttention(nonce: string): boolean {
