@@ -13943,3 +13943,22 @@ test('BOG UI a history poll started before crisis cannot replace the new care ho
   await expect(page.getByText(crisis.content, { exact: true })).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
 })
+
+
+test('BOG UI recovered care keeps the daily prompt quiet and makes explicit review available', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const reply = { id: 8830, role: 'assistant', author: 'Mia', content: 'Your coach already has your request. You can review this choice.', care_hold: true, care_active: false, safety_reply: false }
+  await page.route('http://api.test/api/v1/workspace', route => {
+    const workspace = realWorkspaceData(false)
+    return route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, experience_mode: 'savings_challenge' }, mia: { ...workspace.mia, care_hold: true, care_active: false, messages: [reply] } } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+    ? route.fulfill({ json: { messages: [reply], care_hold: true, care_active: false, oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+  const card = { id: 8831, kind: 'leave', input: { intents: ['leave'] }, state: {}, status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 8830 }
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: [card], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.reload()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.getByText(reply.content, { exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Talk with your coach', exact: true })).toBeVisible()
+})

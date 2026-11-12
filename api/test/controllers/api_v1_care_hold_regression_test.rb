@@ -200,4 +200,34 @@ class ApiV1CareHoldRegressionTest < ApiV1CrisisPathSafetyTest
     end
     assert_equal "crisis", session.reload.care_hold["care_kind"]
   end
+  test "clear recovery releases financial review cards while the daily check-in still waits" do
+    enroll_in_challenge
+    say(GUN, legacy(care: "crisis"))
+    body = raw("I'm safe now, thanks")
+    assert_equal false, body.dig("assistant_message", "care_active")
+    assert_equal true, body.dig("assistant_message", "care_hold")
+    body = raw("I set aside $25 today")
+    assert_equal "savings", body.dig("challenge_chat_card", "kind")
+    assert_equal false, body.dig("assistant_message", "care_active")
+    assert_equal true, body.dig("assistant_message", "care_hold")
+    get "/api/v1/mia/messages", headers: auth
+    assert_response :success
+    assert_equal false, response.parsed_body["care_active"]
+    assert_equal true, response.parsed_body["care_hold"]
+  end
+  %i[household challenge].each do |mode|
+    test "#{mode} cached non-care reply cannot bypass a newer crisis" do
+      enroll_in_challenge if mode == :challenge
+      message = "Help me set up my household"
+      post "/api/v1/mia/messages", params: { message: message, request_id: "before-care" }, headers: auth, as: :json
+      assert_response :created
+      say(GUN, legacy(care: "crisis"))
+      assert_no_difference [ "ChatMessage.count", "SavingsChatCard.count", "MiaActionDraft.count" ] do
+        post "/api/v1/mia/messages", params: { message: message, request_id: "before-care" }, headers: auth, as: :json
+        assert_response :created
+        assert_crisis(response.parsed_body)
+        assert_equal false, response.parsed_body["conversation_persisted"]
+      end
+    end
+  end
 end

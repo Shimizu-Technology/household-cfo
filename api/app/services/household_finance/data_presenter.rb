@@ -278,6 +278,7 @@ module HouseholdFinance
       {
         messages: page.fetch(:messages),
         care_hold: !!page[:care_hold],
+        care_active: !!page[:care_active],
         oldest_message_id: page[:oldest_message_id],
         older_message_count: page.fetch(:older_message_count),
         has_older_messages: page.fetch(:older_message_count).positive?,
@@ -1138,14 +1139,20 @@ module HouseholdFinance
       latest_assistant_id = latest_assistant&.id
       newest_assistant = before_id.to_i.positive? ? scoped_messages.where(role: "assistant").order(id: :desc).first : latest_assistant
       safety_reply_at = newest_assistant.created_at if newest_assistant&.as_api_json&.dig(:safety_reply)
-      care_hold = !history && ParticipantCareState.new(chat_session).checkin_hold?(safety_reply_at: safety_reply_at)
+      care = ParticipantCareState.new(chat_session)
+      care_hold = !history && care.checkin_hold?(safety_reply_at: safety_reply_at)
+      care_active = !history && care.care_active?
       {
         messages: messages.map do |message|
           payload = serialize_chat_message(message, imports_by_id: imports_by_id)
-          payload[:care_hold] = !!care_hold if message.id == latest_assistant_id && !history
+          if message.id == latest_assistant_id && !history
+            payload[:care_hold] = !!care_hold
+            payload[:care_active] = !!care_active
+          end
           history ? payload.merge(financial_restart: nil, setup_help: nil, presentation: {}, read_only: true) : payload
         end,
         care_hold: !!care_hold,
+        care_active: !!care_active,
         oldest_message_id: oldest_message_id,
         older_message_count: older_message_count
       }

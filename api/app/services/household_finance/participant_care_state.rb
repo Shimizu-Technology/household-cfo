@@ -110,6 +110,16 @@ module HouseholdFinance
       end
     end
 
+    # Read-only: financial review cards wait for active care, while the daily
+    # check-in can keep waiting for the rest of the day after recovery.
+    def care_active?
+      topic = stored_topic
+      return false unless topic["type"] == "care" && topic["care_kind"].present?
+      expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
+      expiry ||= (@session.chat_messages.maximum(:created_at) || @session.updated_at) + TTL
+      expiry > Time.current
+    end
+
     # The daily check-in prompt waits while care is open, and for the rest of the
     # day (Guam time) after the last care reply, even if care has since closed.
     # Read-only: a plain page load must not change the conversation.

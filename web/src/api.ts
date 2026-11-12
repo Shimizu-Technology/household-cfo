@@ -950,6 +950,7 @@ export type MiaMessage = {
   safety_reply?: boolean
   // Set on the newest Mia reply while she is in personal support, and for the rest of that day after.
   care_hold?: boolean
+  care_active?: boolean
   setup_help?: { available: boolean; money_inputs?: Array<'profile' | 'budget' | 'debt' | 'accounts'> } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
@@ -974,6 +975,7 @@ export type MiaMessage = {
 
 export type MiaMessagesData = {
   care_hold?: boolean
+  care_active?: boolean
   historical_message_count?: number
   messages: MiaMessage[]
   oldest_message_id: number | null

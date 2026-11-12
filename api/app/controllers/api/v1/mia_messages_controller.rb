@@ -968,7 +968,7 @@ module Api
         end
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
-          assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, safety_reply: ::Mia::CrisisBoundary.safety_reply?(reply), care_hold: true, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, safety_reply: ::Mia::CrisisBoundary.safety_reply?(reply), care_hold: true, care_active: true, attachments: [], presentation: {}, citations: [] },
           mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
           conversation_persisted: false
         }, status: :created
@@ -1678,7 +1678,22 @@ module Api
 
         message_request.expire_if_stale!
         if message_request.completed?
-          payload = SavingsChallenge::ChatTurn.replay_payload(message_request.response_payload, session: message_request.chat_session)
+          session = message_request.chat_session
+          payload = SavingsChallenge::ChatTurn.replay_payload(message_request.response_payload, session: session)
+          care = HouseholdFinance::ParticipantCareState.new(session)
+          topic = care.active
+          cached = payload["assistant_message"].to_h
+          latest_id = session.chat_messages.where(role: "assistant").maximum(:id)
+          if topic && (cached["care_active"] != true || cached["id"] != latest_id ||
+              (topic["care_kind"] == "crisis" && cached["safety_reply"] != true))
+            return render_stateless_crisis_response(payload.dig("user_message", "content").to_s, topic: topic)
+          end
+          if cached.key?("care_active")
+            assistant = session.chat_messages.find_by(id: cached["id"])
+            cached["care_active"] = care.care_active?
+            cached["care_hold"] = care.checkin_hold?(safety_reply_at: cached["safety_reply"] ? assistant&.created_at : nil)
+            payload = payload.merge("assistant_message" => cached)
+          end
           render json: payload, status: message_request.response_status || :created
           return true
         end
@@ -1851,7 +1866,11 @@ module Api
       def serialize_chat_message(message, author: nil)
         payload = message.as_api_json(author: author)
         # The latest reply tells the app whether the daily check-in prompt should wait (care now, or earlier today).
-        payload[:care_hold] = HouseholdFinance::ParticipantCareState.new(message.chat_session).checkin_hold?(safety_reply_at: payload[:safety_reply] ? message.created_at : nil) if message.role == "assistant"
+        if message.role == "assistant"
+          care = HouseholdFinance::ParticipantCareState.new(message.chat_session)
+          payload[:care_hold] = care.checkin_hold?(safety_reply_at: payload[:safety_reply] ? message.created_at : nil)
+          payload[:care_active] = care.care_active?
+        end
         imports_by_id = attachment_imports_by_id(payload[:attachments])
         payload[:attachments] = Array(payload[:attachments]).map { |attachment| serialize_chat_attachment(attachment, imports_by_id: imports_by_id) }
         payload

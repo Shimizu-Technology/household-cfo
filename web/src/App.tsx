@@ -897,9 +897,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const closeJoinCard = useCallback(() => setJoinCardOpen(false), [])
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
-  const [pageCareHold, setPageCareHold] = useState<{ scope: string; held: boolean } | null>(null)
+  const [pageCareHold, setPageCareHold] = useState<{ scope: string; held: boolean; active?: boolean } | null>(null)
   const checkInHeld = (pageCareHold?.scope === chatStorageKey && pageCareHold.held) || latestReplyHoldsCheckIn(currentMessages)
-  const safetyHold = latestReplyIsSafety(currentMessages) || checkInHeld
+  const latestCareReply = [...currentMessages].reverse().find(message => message.role === 'assistant')
+  const activeCareHeld = pageCareHold?.scope === chatStorageKey ? pageCareHold.active : latestCareReply?.care_active
+  const safetyHold = latestReplyIsSafety(currentMessages) || (activeCareHeld ?? checkInHeld)
   const miaHistoryGenerationRef = useRef(0)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
   const assistantName = shortAssistantName(data?.profile.coach.name) || 'your assistant'
@@ -1142,7 +1144,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const retainLocalReplies = challengeNotOpen && messagesStorageKey === chatStorageKey
     setMessagesStorageKey(chatStorageKey)
     setMessages(current => keepLocalOnly(current, mia.messages, retainLocalReplies))
-    setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true })
+    setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true, active: mia.care_active })
     setHistoricalMessageCount(mia.historical_message_count ?? 0)
     setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
     setOldestServerMessageId(mia.oldest_message_id)
@@ -1157,7 +1159,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const generation = miaHistoryGenerationRef.current
       const mia = await fetchMiaMessages(true)
       if (generation !== miaHistoryGenerationRef.current) return
-      setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true })
+      setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true, active: mia.care_active })
       setHistoricalMessageCount(mia.historical_message_count ?? 0)
       setMessagesStorageKey(chatStorageKey)
       setMessages((current) => keepLocalOnly(current, historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages, challengeNotOpen))
@@ -1311,7 +1313,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         setupRevisionRef.current = payload.workspace?.setup_revision ?? null
         setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
-        setPageCareHold({ scope: payloadStorageKey, held: payload.mia.care_hold === true })
+        setPageCareHold({ scope: payloadStorageKey, held: payload.mia.care_hold === true, active: payload.mia.care_active })
         setHistoricalMessageCount(realWorkspace ? payload.mia.historical_message_count ?? 0 : 0)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -2339,7 +2341,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         }
       }
       void refreshDocumentImports({ quiet: true })
-      setPageCareHold({ scope: chatStorageKey, held: response.assistant_message.care_hold === true })
+      setPageCareHold({ scope: chatStorageKey, held: response.assistant_message.care_hold === true, active: response.assistant_message.care_active })
       setFreshMiaReplyId(response.assistant_message.id ?? null)
       const statementImportIds = readyAttachments.filter((attachment) => attachment.document_kind === 'statement' && attachment.document_import_id).map((attachment) => attachment.document_import_id!)
       if (statementImportIds.length > 0) setStatementReply({ nonce: response.assistant_message.id ?? Date.now(), importIds: statementImportIds })
