@@ -301,7 +301,7 @@ module SavingsChallenge
       end
       intents = ParticipantHelp.card_intents(@message)
       retired_leave_cards = []
-      if ParticipantHelp.exit?(@message) && @enrollment
+      if ParticipantHelp.leave_mention?(ParticipantHelp.exit_text(@message)) && @enrollment
         pending = SavingsChatCard.where(savings_enrollment: @enrollment, kind: "leave", status: "pending").for_picture(@household.financial_generation)
         retired_leave_cards = pending.to_a
         pending.update_all(status: "closed")
@@ -367,11 +367,17 @@ module SavingsChallenge
     end
 
     def review_continuation
-      return false unless @message.match?(/\A\s*(?:yes|yeah|yep|ok(?:ay)?)(?:[, ]+(?:please|save it|save|do it))?[.!]?\s*\z/i)
+      return false unless @message.match?(/\A\s*(?:yes|yeah|yep|ok(?:ay)?|sure)(?:[, ]+(?:please|save it|save|do it))?[.!]?\s*\z/i)
       @continued_card = SavingsChatCard.joins(:chat_message).where(chat_messages: { chat_session_id: @session.id }, status: "pending")
         .for_picture(@household.financial_generation).order(:id).last
       return false unless @continued_card
       @topic = @session.active_topic
+      if @continued_card.kind == "leave"
+        intents = Array(@continued_card.input["intents"])
+        button = intents.one? ? "'Tell my coach I'd like to #{intents.first}'" : "the leave or pause button"
+        @answer = "Tap #{button} on the card and I'll pass it on."
+        return true
+      end
       step = { "savings" => "Review savings", "goal" => "Yes on the goal card", "daily_report" => "Save on the check-in card" }.fetch(@continued_card.kind)
       @answer = "Your card is still below. Choose #{step} to check and confirm it; nothing has been saved from this reply."
       true

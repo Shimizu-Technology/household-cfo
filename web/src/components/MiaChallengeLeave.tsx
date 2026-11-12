@@ -31,7 +31,7 @@ export function MiaChallengeLeave({ card, onDone, onConfirmed }: { card: Challen
     <p>Your coach can talk with you about stepping away. Your challenge and saved record stay as they are until then.</p>
     {error && <p role="alert">{error}</p>}
     <div className="mia-daily-actions">
-      {intents.map(intent => <button key={intent} type="button" className="mia-daily-save" disabled={busy} onClick={() => void act(intent)}>Let my coach know I’d like to {intent}</button>)}
+      {intents.map(intent => <button key={intent} type="button" className="mia-daily-save" disabled={busy} onClick={() => void act(intent)}>Tell my coach I’d like to {intent}</button>)}
       <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void act()}>Not now</button>
     </div>
     <p className="mia-daily-footnote">Only your choice is shared. Your private chat stays private.</p>

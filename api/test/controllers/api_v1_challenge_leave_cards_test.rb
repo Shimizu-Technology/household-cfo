@@ -148,3 +148,63 @@ class ApiV1ChallengeLeaveCardsTest < ApiV1PilotLeftoversTest
     assert_includes text(body), "I don't have your rent due date"
   end
 end
+
+class ApiV1ChallengeLeaveCardsTest
+  %w[yes ok sure].each do |message|
+    test "#{message} with a pending leave card asks for a tap without creating a ticket" do
+      card = offer("I want to leave the challenge")
+      assert_no_difference "SetupSupportRequest.count" do
+        body = say(message, legacy)
+        assert_includes text(body), "Tap 'Tell my coach"
+        assert_equal card["id"], body.dig("challenge_chat_card", "id")
+      end
+      assert_equal "pending", SavingsChatCard.find(card["id"]).status
+    end
+  end
+
+  test "reminder-only question preserves the pending leave offer" do
+    card = offer("I want to leave the challenge")
+    body = say("How do I turn off my reminders?", legacy(question: true))
+    assert_includes text(body), "turn off the reminders"
+    assert_equal "pending", SavingsChatCard.find(card["id"]).status
+    assert_empty body["challenge_chat_cards"].to_a
+  end
+
+  test "quitting smoking does not replace a challenge calendar answer or offer leave" do
+    body = say("I want to quit smoking. When does my challenge end?", legacy(question: true))
+    assert_includes text(body), @savings_enrollment.ends_on.strftime("%b")
+    assert_empty body["challenge_chat_cards"].to_a
+    refute_includes text(body), "leave or pause"
+  end
+
+  test "a second choice cannot mutate the first confirmed leave ticket or replay" do
+    a = offer("I want to leave the challenge")
+    act(a, action: "request_leave", intent: "leave", accepted: true)
+    assert_response :success
+    first = response.parsed_body
+    ticket = SetupSupportRequest.last.attributes
+    b = offer("I want to pause the challenge")
+    assert_no_difference "SetupSupportRequest.count" do
+      act(b, action: "request_leave", intent: "pause", accepted: true)
+      assert_response :success
+      assert_includes response.parsed_body.dig("assistant_message", "content"), "already has your request to leave"
+    end
+    assert_equal ticket, SetupSupportRequest.last.attributes
+    act(a, action: "request_leave", intent: "leave", accepted: true)
+    assert_response :success
+    assert_equal first, response.parsed_body
+  end
+
+  test "a partner cancels their own leave ticket" do
+    @household.household_memberships.find_by!(user: @user).update!(role: "partner")
+    card = offer("I want to pause the challenge")
+    act(card, action: "request_leave", intent: "pause", accepted: true)
+    assert_response :success
+    ticket = SetupSupportRequest.last
+    post "/api/v1/setup_help/requests/#{ticket.id}/cancel", params: { expected_lock_version: ticket.lock_version }, headers: auth, as: :json
+    assert_response :success
+    assert_equal "canceled", ticket.reload.status
+    post "/api/v1/setup_help/requests", params: { reason: "other", share_metadata: true }, headers: auth.merge("Idempotency-Key" => "partner-setup"), as: :json
+    assert_response :forbidden
+  end
+end

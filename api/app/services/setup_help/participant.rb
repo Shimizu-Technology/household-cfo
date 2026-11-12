@@ -37,6 +37,7 @@ module SetupHelp
         Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required)
         retire_outdated_requests!
         existing = SetupHelpRequestKey.find_by(household: @household, user: @user, idempotency_key: key)
+        created = false
         if existing
           raise Conflict, "This request identity was already used for different setup help. Nothing changed." unless existing.request_fingerprint == digest
           record = requests.find(existing.setup_support_request_id)
@@ -47,13 +48,15 @@ module SetupHelp
           unless record
             record = @household.setup_support_requests.create!(requested_by_user: @user, cohort_id: @membership&.cohort_id,
               participant_membership_id: @membership&.id, participant_membership_started_at: @membership&.created_at, reason: reason, leave_intent: leave_intent)
+            created = true
             audit!(record, "requested")
           end
           Access.participant!(@household, user: @user, cohort_membership: @membership, owner: owner_required, request: record)
-          record.update!(leave_intent: leave_intent) if reason == "leave_challenge" && record.leave_intent != leave_intent
           SetupHelpRequestKey.create!(household: @household, user: @user, setup_support_request: record, idempotency_key: key, request_fingerprint: digest)
         end
-        { request: Serializer.request(record), setup_help: status }
+        payload = Serializer.request(record)
+        payload[:already_requested] = !created if reason == "leave_challenge"
+        { request: payload, setup_help: status }
       end
     end
 
@@ -90,9 +93,9 @@ module SetupHelp
     end
 
     def own_request!(id)
-      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true)
+      Access.participant!(@household, user: @user, cohort_membership: @membership)
       record = requests.find(id)
-      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: true, request: record)
+      Access.participant!(@household, user: @user, cohort_membership: @membership, owner: record.reason != "leave_challenge", request: record)
       record
     end
 

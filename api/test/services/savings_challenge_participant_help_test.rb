@@ -20,4 +20,13 @@ class SavingsChallengeParticipantHelpTest < ActiveSupport::TestCase
     assert_includes help.exit_answer("I want to quit the challenge and turn off reminders"), "turn off"
     assert_includes help.exit_answer("Can you turn on reminders for me?"), "turn on"
   end
+  test "unrelated quitting does not become challenge leave intent" do
+    help = SavingsChallenge::ParticipantHelp
+    [ "I want to quit smoking. When does my challenge end?", "I want to leave work and see my challenge dates" ].each do |message|
+      refute help.exit?(message)
+      assert_empty help.card_intents(message)
+    end
+    message = "I want to quit the challenge and turn off reminders"
+    assert_equal 1, help.exit_answer(message).scan(/Nothing (?:has|about)/).size
+  end
 end

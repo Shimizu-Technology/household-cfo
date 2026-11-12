@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_12_100000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -372,6 +372,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_100000) do
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.jsonb "care_hold", default: {}, null: false
     t.index ["cohort_id"], name: "index_chat_sessions_on_cohort_id"
     t.index ["household_id", "user_id", "cohort_id"], name: "index_chat_sessions_on_household_user_cohort", unique: true, where: "(cohort_id IS NOT NULL)"
     t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true, where: "(cohort_id IS NULL)"

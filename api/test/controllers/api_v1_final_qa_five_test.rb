@@ -198,11 +198,16 @@ class ApiV1FinalQaFiveTest < ActionDispatch::IntegrationTest
     refute_match(/glad you have support|You're welcome/, text(body))
   end
 
-  test "a goal with recovery is handled, not closed" do
+  test "a goal beside a recovery declaration waits for whole-message crisis recovery" do
     say("Help me set up my household", read)
     say("i dont want to be here", read(care: "crisis"))
     body = say("im ok now. goal is just to get caught up", read(care_status: "resolved", setup: changes(primary_goal: "just to get caught up")))
     refute_match(/You're welcome|glad you have support/, text(body))
+    assert_includes text(body), "988"
+    assert care_topic
+    assert_nil card_of(body)
+    say("I'm safe now, thanks", read(care_status: "resolved"))
+    body = say("my goal is just to get caught up", read(setup: changes(primary_goal: "just to get caught up")))
     assert_equal "just to get caught up", row(body, "primary_goal")["value_text"]
   end
 

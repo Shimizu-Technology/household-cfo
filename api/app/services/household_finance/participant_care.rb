@@ -18,12 +18,10 @@ module HouseholdFinance
       message.to_s.match?(/\b(?:all good now|(?:i|we)(?:['’]m|['’]re| am| are|m|re)? (?:doing|feeling) better now|(?:i|we) figured it out|(?:i|we)(?: am| are|['’]m|['’]re|m|re) (?:okay|ok|safe) now|(?:i|we) (?:am|are) safe)\b/i)
     end
 
-    # A declaration of safety cannot cancel means, intent, a plan or uncertainty
-    # in the same turn, regardless of whether the semantic reader is available.
+    # Only a whole-message declaration releases crisis care. Reader labels and
+    # unlisted hedges cannot broaden this deliberately small recovery language.
     def crisis_recovery?(message)
-      text = message.to_s
-      explicit_recovery?(text) && !text.match?(/\b(?:but|still|for now|i guess|kind of|maybe)\b/i) &&
-        !CareDisclosures.safety_fact?(text)
+      message.to_s.strip.match?(/\A(?:i(?:['’]m| am)|we(?:['’]re| are)) (?:safe|ok|okay)(?: now)?[.!]?(?:,?\s+(?:thanks|thank you))?[.!]?\z/i)
     end
 
     # Carrying on with setup, in her words. "i cant keep going" must never match.

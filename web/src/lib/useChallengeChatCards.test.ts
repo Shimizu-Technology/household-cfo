@@ -102,3 +102,15 @@ it('restores leave cards and replaces an older choice when a new offer arrives',
   act(() => { hook.result.current.accept({ ...pause, status: 'closed' }) })
   expect(hook.result.current.leaves).toEqual([])
 })
+
+it('does not restore superseded leave A after accepting B during a deferred fetch', async () => {
+  let finish!: (result: ChallengeChatCards) => void
+  vi.mocked(fetchChallengeChatCards).mockReturnValue(new Promise(resolve => { finish = resolve }))
+  const hook = renderHook(() => useChallengeChatCards(true, scope, actor, 3))
+  const leave: ChallengeChatCard = { ...card, kind: 'leave', input: { intents: ['leave'] } }
+  const pause: ChallengeChatCard = { ...leave, id: 32, input: { intents: ['pause'] } }
+  act(() => hook.result.current.accept(leave))
+  act(() => hook.result.current.accept(pause))
+  await act(async () => finish(response([leave])))
+  expect(hook.result.current.leaves).toEqual([pause])
+})

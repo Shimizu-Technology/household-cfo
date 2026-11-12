@@ -23,6 +23,16 @@ module Mia
       find
     end
 
+    # Safety-only read: program availability must not end an existing episode.
+    # The selected actor, household and cohort still define the exact scope.
+    # Never create a session or write challenge data through this route.
+    def care_while_closed
+      return unless @membership && @membership.user_id == @user.id
+      return unless @membership.role.in?(%w[participant preview])
+      session = relation.first
+      HouseholdFinance::ParticipantCareState.new(session).active if session
+    end
+
     def find_or_create!
       @household.with_lock do
         authorize!

@@ -14,7 +14,9 @@ module SavingsChallenge
     end
 
     def self.leave_mention?(text)
-      text.match?(EXIT) && (text.match?(/\b(?:challenge|program)\b/i) || text.match?(/\b(?:quit|leave|pause|cancel|withdraw|drop out|opt out|take me out)\s*[.!?,; ]*\z/i))
+      text.split(/[.!?;]|\b(?:and|but)\b/i).any? do |clause|
+        clause.match?(EXIT) && (clause.match?(/\b(?:challenge|program)\b/i) || clause.match?(/\b(?:quit|leave|pause|cancel|withdraw|drop out|opt out|take me out)\s*[, ]*\z/i))
+      end
     end
 
     def self.exit?(message) = leave_mention?(exit_text(message)) || message.to_s.match?(REMINDERS)
@@ -57,7 +59,11 @@ module SavingsChallenge
       if leave_mention?(exit_text(message))
         parts << (card_intents(message).empty? ? EXPLANATION.sub("Use the card below if you'd like your coach to know.", "I haven't told your coach.") : EXPLANATION)
       end
-      parts << reminder_answer(message) if message.to_s.match?(REMINDERS)
+      if message.to_s.match?(REMINDERS)
+        reminder = reminder_answer(message)
+        reminder = reminder.sub(" Nothing about your challenge has changed.", "") if parts.any?
+        parts << reminder
+      end
       parts.join(" ")
     end
   end

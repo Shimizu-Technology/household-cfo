@@ -23,9 +23,9 @@ class ChatSession < ApplicationRecord
 
   # Only the care state machine may release care after recovery or expiry.
   # Other writers (including stale document/setup turns) retain the episode.
-  def release_care_topic!(replacement: {})
+  def release_care_topic!(replacement: {}, care_hold: {})
     @releasing_care_topic = true
-    update!(active_topic: replacement)
+    update!(active_topic: replacement, care_hold: care_hold)
   ensure
     @releasing_care_topic = false
   end
@@ -37,7 +37,7 @@ class ChatSession < ApplicationRecord
 
     persisted = self.class.lock.find(id)
     topic = persisted.active_topic.to_h
-    return unless topic["type"] == "care"
+    return unless topic["type"] == "care" && topic["care_kind"].present?
 
     expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
     expiry ||= (persisted.chat_messages.maximum(:created_at) || persisted.updated_at) + HouseholdFinance::ParticipantCareState::TTL

@@ -57,6 +57,8 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
           original = session.reload.active_topic
           cards = SavingsChatCard.order(:id).map(&:attributes)
           drafts = MiaActionDraft.order(:id).map(&:attributes)
+          financial = [ SavingsEnrollment, SavingsEntryDraft, SavingsEntryVersion, SavingsCheckpoint, SavingsCheckpointVersion, HouseholdTransaction ]
+          financial_before = financial.map { |model| model.order(:id).map(&:attributes) }
           body = nil
           assert_no_difference [ "SavingsEnrollment.count", "SavingsEntryDraft.count", "SavingsEntryVersion.count",
             "SavingsCheckpoint.count", "SavingsCheckpointVersion.count", "HouseholdTransaction.count" ] do
@@ -64,12 +66,16 @@ class ApiV1CrisisPathSafetyTest < ApiV1PilotLeftoversTest
           end
           assert_crisis(body)
           assert_equal original.slice("care_kind", "started_at", "expires_at"), session.reload.active_topic.slice("care_kind", "started_at", "expires_at")
+          assert_includes session.reload.active_topic.to_json, GUN
           assert_equal cards, SavingsChatCard.order(:id).map(&:attributes)
           assert_equal drafts, MiaActionDraft.order(:id).map(&:attributes)
+          assert_equal financial_before, financial.map { |model| model.order(:id).map(&:attributes) }
           get "/api/v1/mia/messages", headers: auth
           assert_response :success
           assert_equal true, response.parsed_body["messages"].last["care_hold"]
           assert_crisis(raw("I haven't moved it yet."))
+          assert_includes session.reload.active_topic.to_json, GUN
+          assert_equal financial_before, financial.map { |model| model.order(:id).map(&:attributes) }
         end
       end
     end
@@ -198,10 +204,11 @@ class ApiV1CrisisPathSafetyTest
       test "#{mode} #{picture} deletion erases all care text but holds check-ins" do
         enroll_in_challenge if mode == :challenge
         say(GUN, legacy(care: "crisis"))
-        expiry = session.active_topic["expires_at"]
+        hold = session.active_topic.slice("type", "care_kind", "started_at", "expires_at")
         delete "/api/v1/mia/messages", params: { picture: picture }, headers: auth
         assert_response :no_content
-        assert_equal({ "type" => "care", "expires_at" => expiry }, session.reload.active_topic)
+        assert_empty session.reload.active_topic
+        assert_equal hold, session.care_hold
         assert_empty session.open_topics
         assert_nil session.rolling_summary
         assert_empty session.chat_messages

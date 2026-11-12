@@ -91,7 +91,11 @@ module Api
           end
           record = SetupHelp::Participant.new(current_household, user: current_user, cohort_membership: current_cohort_membership)
             .request_leave(idempotency_key: "chat-leave-#{card.id}", intent: input[:intent])
-          reply = "I've let your coach know you'd like to #{input[:intent]} the challenge. Nothing about your challenge has changed. Your coach will talk with you about the next step."
+          reply = if !record[:already_requested]
+            "I've let your coach know you'd like to #{input[:intent]} the challenge. Nothing about your challenge has changed. Your coach will talk with you about the next step."
+          else
+            "Your coach already has your request to #{record[:leave_intent]} the challenge. That request is unchanged; please talk with your coach about changing it. Nothing about your challenge has changed."
+          end
           assistant = session.chat_messages.create!(card.chat_message.attributes.slice("coach_persona_version_id", "assistant_author", "cohort_id", "cohort_release_id").merge(role: "assistant", content: reply))
           card.update!(status: "closed", state: { leave_intent: input[:intent], support_request_id: record[:id], assistant_message_id: assistant.id })
         when "approve_savings"

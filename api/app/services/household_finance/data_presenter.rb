@@ -1136,7 +1136,8 @@ module HouseholdFinance
       older_message_count = oldest_message_id ? scoped_messages.where("id < ?", oldest_message_id).count : 0
       latest_assistant = messages.reverse.find { |message| message.role == "assistant" }
       latest_assistant_id = latest_assistant&.id
-      safety_reply_at = latest_assistant.created_at if latest_assistant&.as_api_json&.dig(:safety_reply)
+      newest_assistant = before_id.to_i.positive? ? scoped_messages.where(role: "assistant").order(id: :desc).first : latest_assistant
+      safety_reply_at = newest_assistant.created_at if newest_assistant&.as_api_json&.dig(:safety_reply)
       care_hold = !history && ParticipantCareState.new(chat_session).checkin_hold?(safety_reply_at: safety_reply_at)
       {
         messages: messages.map do |message|

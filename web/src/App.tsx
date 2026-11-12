@@ -897,9 +897,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const closeJoinCard = useCallback(() => setJoinCardOpen(false), [])
   // Mia's daily "How was today?" prompt and the Today shortcut read today's check-in state.
   // No money prompt or card under a crisis or wellbeing-check reply (server flag).
-  const safetyHold = latestReplyIsSafety(currentMessages)
   const [pageCareHold, setPageCareHold] = useState<{ scope: string; held: boolean } | null>(null)
   const checkInHeld = (pageCareHold?.scope === chatStorageKey && pageCareHold.held) || latestReplyHoldsCheckIn(currentMessages)
+  const safetyHold = latestReplyIsSafety(currentMessages) || checkInHeld
+  const miaHistoryGenerationRef = useRef(0)
   const todayCheckIn = useTodayCheckIn(challengeParticipantScope, savingsCohortId, Boolean(savingsJoined && !auth.activeCoachWorkspaceId), dailyRefreshKey)
   const assistantName = shortAssistantName(data?.profile.coach.name) || 'your assistant'
   const isFirstSessionSetup = Boolean(isRealWorkspace && data?.workspace.experience_mode !== 'savings_challenge' && !data?.workspace?.setup_complete)
@@ -1153,7 +1154,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace || miaLoading) return
 
     try {
+      const generation = miaHistoryGenerationRef.current
       const mia = await fetchMiaMessages(true)
+      if (generation !== miaHistoryGenerationRef.current) return
       setPageCareHold({ scope: chatStorageKey, held: mia.care_hold === true })
       setHistoricalMessageCount(mia.historical_message_count ?? 0)
       setMessagesStorageKey(chatStorageKey)
@@ -2208,6 +2211,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return
     }
 
+    miaHistoryGenerationRef.current += 1
     const transportGuard = captureApiOperation()
     const assertOriginalWorkspace = () => {
       transportGuard()
@@ -2432,7 +2436,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const historyWasExpanded = historyExpandedRef.current
     historyExpandedRef.current = true
     try {
+      const generation = miaHistoryGenerationRef.current
       const page = await fetchMiaMessages(true, beforeId)
+      if (generation !== miaHistoryGenerationRef.current) return
       // A discarded page leaves history as it was, so later refreshes keep paging normally.
       if (!queueHistoryPosition()) { historyExpandedRef.current = historyWasExpanded; return }
       setMessages((current) => {
@@ -2454,6 +2460,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   async function handleClearMessages() {
     if (miaClearing) return
 
+    miaHistoryGenerationRef.current += 1
     setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
@@ -2462,7 +2469,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       // A closed challenge refuses the server clear; unsaved replies exist only here.
       if (isRealWorkspace && !(challengeNotOpen && onlyLocalMessages(currentMessages))) await clearMiaMessages(true)
       setMessages([])
-      setPageCareHold(null)
+      // Clearing text does not resolve care. Keep its current gate until the
+      // fresh server page confirms recovery or expiry.
       challengeCards.clear()
       setMiaDailyReports([])
       setMiaSavingsNote(null)

@@ -16,7 +16,7 @@ module HouseholdFinance
     end
 
     def active_locked
-      topic = @session.active_topic.to_h.deep_stringify_keys
+      topic = stored_topic
       return unless topic["type"] == "care" && topic["care_kind"].present?
       expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
       legacy = expiry.nil?
@@ -24,7 +24,7 @@ module HouseholdFinance
       if expiry > Time.current
         if legacy
           topic = topic.merge("started_at" => (expiry - TTL).iso8601, "expires_at" => expiry.iso8601)
-          @session.update!(active_topic: topic)
+          persist_topic!(topic)
         end
         return topic
       end
@@ -62,7 +62,7 @@ module HouseholdFinance
       end
       return unless current || prior
 
-      kind = prior && reading.care == "none" ? prior.fetch("care_kind") : (current || prior.fetch("care_kind"))
+      kind = current || prior.fetch("care_kind")
       kind = :food if (current.in?([ :hardship, :essentials ]) || (prior && current.nil?)) && message.match?(/\b(?:food|hungry|eat|eaten|eating|grocer\w*)\b/i)
       kind = :housing if current == :hardship && message.match?(/\brent\b/i)
       kind = :hardship if kind.to_s == "essentials"
@@ -72,7 +72,7 @@ module HouseholdFinance
       topic = topic.merge("type" => "care", "care_kind" => kind.to_s, "last_care_at" => Time.current.iso8601,
         "disclosure" => topic.fetch("disclosure"),
         "last_question" => Array(history).reverse.find { |row| row[:role].to_s == "assistant" }&.fetch(:content, "").to_s.last(700))
-      @session.update!(active_topic: topic)
+      persist_topic!(topic)
       topic
     end
 
@@ -94,7 +94,7 @@ module HouseholdFinance
         topic = active
         next unless topic
         topic = record_disclosure(topic, message).merge("last_care_at" => Time.current.iso8601)
-        @session.update!(active_topic: topic)
+        persist_topic!(topic)
         topic
       end
     end
@@ -105,7 +105,7 @@ module HouseholdFinance
         expiry = Time.zone.parse(topic.fetch("expires_at"))
         topic = record_disclosure(topic, message).merge("care_kind" => "crisis", "last_care_at" => Time.current.iso8601,
           "expires_at" => [ expiry, Time.current + TTL ].max.iso8601)
-        @session.update!(active_topic: topic)
+        persist_topic!(topic)
         topic
       end
     end
@@ -114,7 +114,7 @@ module HouseholdFinance
     # day (Guam time) after the last care reply, even if care has since closed.
     # Read-only: a plain page load must not change the conversation.
     def checkin_hold?(safety_reply_at: nil)
-      topic = @session.active_topic.to_h.deep_stringify_keys
+      topic = stored_topic
       if topic["type"] == "care"
         expiry = Time.zone.parse(topic["expires_at"].to_s) rescue nil
         expiry ||= (@session.chat_messages.maximum(:created_at) || @session.updated_at) + TTL
@@ -150,6 +150,24 @@ module HouseholdFinance
     end
 
     private
+
+    # The non-text safety hold survives privacy deletion and topic writers.
+    # Ordinary care topics remain compatible with existing conversation readers.
+    def stored_topic
+      topic = @session.active_topic.to_h.deep_stringify_keys
+      hold = @session.care_hold.to_h.deep_stringify_keys
+      expiry = Time.zone.parse(hold["expires_at"].to_s) rescue nil
+      # A stale topic writer cannot downgrade a separately retained crisis.
+      if hold["care_kind"] == "crisis" && expiry && expiry > Time.current &&
+          !(topic["care_kind"] == "crisis" && topic["started_at"] == hold["started_at"])
+        return hold
+      end
+      topic["type"] == "care" && topic["care_kind"].present? ? topic : hold
+    end
+
+    def persist_topic!(topic)
+      @session.update!(active_topic: topic, care_hold: topic.slice("type", "care_kind", "started_at", "expires_at"))
+    end
 
     def safety_reply_in_episode?(topic, replied_at, archived: false)
       return false unless topic["type"] == "care"
