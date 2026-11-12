@@ -83,14 +83,18 @@ class ApiV1SavingsMiaControllerTest < ActionDispatch::IntegrationTest
 
   test "a closed or paused challenge still checks on hopeless language and keeps the crisis reply" do
     [ false, true ].each_with_index do |paused, index|
+      ChatSession.update_all(active_topic: {}, care_hold: {})
       @savings_cohort.update_columns(savings_challenge_release_hold: paused, status: paused ? "active" : "draft")
       post "/api/v1/mia/messages", params: { message: "i dont see the point anymore", request_id: "closed-hopeless-#{index}" }, headers: auth, as: :json
       assert_response :created
       content = response.parsed_body.dig("assistant_message", "content")
       assert_equal ::Mia::CrisisBoundary.response, content
       assert_equal 1, content.scan("988").length, content
+      # The hold is kept while closed, so the next disclosure is a follow-up.
       post "/api/v1/mia/messages", params: { message: "i am not safe", request_id: "closed-crisis-#{index}" }, headers: auth, as: :json
-      assert_equal ::Mia::CrisisBoundary.response, response.parsed_body.dig("assistant_message", "content")
+      topic = ChatSession.order(:id).last.active_topic
+      assert_equal "crisis", topic["care_kind"]
+      assert_equal HouseholdFinance::ParticipantCare.crisis_followup(topic), response.parsed_body.dig("assistant_message", "content")
     end
   end
 

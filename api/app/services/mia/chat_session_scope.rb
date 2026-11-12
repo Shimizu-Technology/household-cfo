@@ -25,13 +25,40 @@ module Mia
 
     # Safety-only read: program availability must not end an existing episode.
     # The selected actor, household and cohort still define the exact scope.
-    # Never create a session or write challenge data through this route.
+    # This read never creates a session or writes challenge data.
     def care_while_closed
-      return unless @membership && @membership.user_id == @user.id
-      return unless @membership.role.in?(%w[participant preview])
-      session = relation.first
+      session = closed_care_session
       HouseholdFinance::ParticipantCareState.new(session).active if session
     end
+
+    # The same safety-only scope keeps a crisis hold, so a later follow-up
+    # without crisis words still gets 988 while closed. Care state only: no
+    # messages or challenge records. An empty session may be created to hold it.
+    def record_crisis_while_closed(message)
+      return unless closed_care_scope?
+      session = @household.with_lock { relation.first || relation.create!(title: "Ask Mia") }
+      care_state(session).record_crisis(message)
+    end
+
+    # A clear recovery still ends care while the challenge is closed. Returns
+    # the closing reply when care was released.
+    def release_care_while_closed(message)
+      session = closed_care_session
+      care_state(session).release_on_recovery(message) if session
+    end
+
+    def closed_care_scope? = @membership.present? && @membership.user_id == @user.id && @membership.role.in?(%w[participant preview])
+    private :closed_care_scope?
+
+    def closed_care_session
+      relation.first if closed_care_scope?
+    end
+    private :closed_care_session
+
+    def care_state(session)
+      HouseholdFinance::ParticipantCareState.new(session, persona_context_id: @runtime&.continuity_id)
+    end
+    private :care_state
 
     def find_or_create!
       @household.with_lock do

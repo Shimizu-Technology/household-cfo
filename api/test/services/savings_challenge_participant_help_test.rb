@@ -32,4 +32,24 @@ class SavingsChallengeParticipantHelpTest < ActiveSupport::TestCase
     message = "I want to quit the challenge and turn off reminders"
     assert_equal 1, help.exit_answer(message).scan(/Nothing (?:has|about)/).size
   end
+
+  test "naming words between the verb and the challenge still offer a card" do
+    help = SavingsChallenge::ParticipantHelp
+    {
+      "I want to quit the 90-day challenge" => [ "leave" ],
+      "I want to leave the BOG savings challenge" => [ "leave" ],
+      "How do I leave the Bank of Guam challenge?" => [ "leave" ],
+      "I want to quit this whole challenge thing" => [ "leave" ],
+      "I need to take a break from the challenge" => [ "pause" ],
+      "Can I stop doing the challenge?" => [ "leave", "pause" ]
+    }.each { |message, intents| assert_equal intents, help.card_intents(message), message }
+    assert_empty help.card_intents("I want to quit smoking before my challenge starts")
+  end
+
+  test "reminder direction comes from the reminder clause" do
+    help = SavingsChallenge::ParticipantHelp
+    assert_includes help.reminder_answer("How do I turn off reminders when I start the challenge?"), "turn off"
+    assert_includes help.reminder_answer("Can you turn on reminders for me?"), "turn on"
+    assert_includes help.reminder_answer("Please stop the reminders"), "turn off"
+  end
 end

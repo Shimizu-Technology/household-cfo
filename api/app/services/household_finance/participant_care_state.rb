@@ -110,6 +110,20 @@ module HouseholdFinance
       end
     end
 
+    # Only the deliberately small recovery language ends care here; a crisis
+    # needs the whole-message allow-list. Returns the closing reply or nil.
+    def release_on_recovery(message)
+      @session.with_lock do
+        topic = active_locked
+        next unless topic
+        crisis = topic["care_kind"] == "crisis"
+        next unless crisis ? ParticipantCare.crisis_recovery?(message) : ParticipantCare.explicit_recovery?(message)
+        archive(topic)
+        @session.release_care_topic!
+        crisis ? "I'm glad you're safe. 988 is there any time, day or night." : (ParticipantCare.closing_reply(message) || "I'm glad things feel more settled. I'm here when you're ready.")
+      end
+    end
+
     # Read-only: financial review cards wait for active care, while the daily
     # check-in can keep waiting for the rest of the day after recovery.
     def care_active?

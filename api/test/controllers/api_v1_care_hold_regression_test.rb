@@ -230,4 +230,51 @@ class ApiV1CareHoldRegressionTest < ApiV1CrisisPathSafetyTest
       end
     end
   end
+
+  # Re-check 5: open non-crisis care must not swallow setup help.
+  [ [ "We have no food in the house and I'm hungry", "food" ], [ "my mom just died", "grief" ] ].each do |message, care|
+    test "#{care} care still answers setup help with the card" do
+      say(message, legacy(care: care))
+      2.times do
+        body = raw("Can you help me fix my setup?")
+        assert_equal true, body.dig("setup_help", "available"), text(body)
+        assert_includes text(body), "Fix my setup"
+      end
+    end
+  end
+
+  test "a first crisis while paused keeps the hold for a later plain follow-up" do
+    enroll_in_challenge
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    first = raw("I want to kill myself")
+    assert_includes text(first), "988"
+    assert_equal false, first["conversation_persisted"]
+    assert_no_difference [ "ChatMessage.count", "SavingsChatCard.count", "SavingsEntryDraft.count" ] do
+      body = raw("hello")
+      assert_includes text(body), "988"
+      assert_equal true, body.dig("assistant_message", "care_hold")
+    end
+    closing = raw("I'm safe now, thanks")
+    assert_equal "I'm glad you're safe. 988 is there any time, day or night.", text(closing)
+    assert_nil HouseholdFinance::ParticipantCareState.new(session.reload).active
+    assert_includes text(raw("hello")), "paused"
+  end
+
+  test "paused food care answers a challenge question and ends on clear recovery" do
+    enroll_in_challenge
+    say("We have no food in the house and I'm hungry", legacy(care: "food"))
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    assert_includes text(raw("ok")), "food"
+    assert_includes text(raw("When does the challenge resume?")), "paused"
+    assert_equal "food", HouseholdFinance::ParticipantCareState.new(session.reload).active.to_h["care_kind"]
+    refute_includes text(raw("I'm okay now")), "Going without food"
+    assert_nil HouseholdFinance::ParticipantCareState.new(session.reload).active
+  end
+
+  test "paused crisis stays held through hedges" do
+    enroll_in_challenge
+    say(GUN, legacy(care: "crisis"))
+    @savings_cohort.update!(savings_challenge_release_hold: true)
+    HEDGES.each { |message| assert_crisis(raw(message)) }
+  end
 end

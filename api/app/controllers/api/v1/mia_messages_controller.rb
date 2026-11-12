@@ -58,7 +58,11 @@ module Api
           begin
             session = current_chat_session
           rescue SavingsChallenge::AccessPolicy::Unavailable
-            return render_stateless_crisis_response(content, topic: chat_session_scope.care_while_closed)
+            # Keep the hold even while the challenge is paused or closed, so a
+            # later follow-up without crisis words still gets 988.
+            prior = chat_session_scope.care_while_closed
+            topic = chat_session_scope.record_crisis_while_closed(content)
+            return render_stateless_crisis_response(content, topic: prior.to_h["care_kind"] == "crisis" ? topic : nil)
           end
           return if render_preexisting_message_request(session, content, [])
           message_request, request_handled = reserve_message_request(session, content, [])
@@ -74,6 +78,12 @@ module Api
           return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
           care = chat_session_scope.care_while_closed
+          if care && (closing = chat_session_scope.release_care_while_closed(content))
+            return render_stateless_reply(content, closing)
+          end
+          if care && care["care_kind"] != "crisis" && content.match?(/\b(?:challenge|program)\b/i) && content.include?("?")
+            return render_challenge_not_open_response(content, SavingsChallenge::ProgramMode.state(current_cohort_membership.cohort))
+          end
           return render_stateless_crisis_response(content, topic: care) if care
           return render_challenge_not_open_response(content, SavingsChallenge::ProgramMode.state(current_cohort_membership.cohort))
         end
@@ -508,9 +518,10 @@ module Api
       rescue CarePreempted
         @care_topic = HouseholdFinance::ParticipantCareState.new(session.reload).active
         HouseholdFinance::ParticipantMessageReader::Current.care_topic = @care_topic
-        HouseholdFinance::ParticipantMessageReader::Current.recent_care = @care_topic.fetch("care_kind")
-        render_household_read_response(session, content, HouseholdFinance::ParticipantCare.crisis_followup(@care_topic),
-          topic: @care_topic, message_request: message_request)
+        HouseholdFinance::ParticipantMessageReader::Current.recent_care = @care_topic&.fetch("care_kind")
+        # Care can end between the preemption and this reload; still answer safely.
+        answer = @care_topic ? HouseholdFinance::ParticipantCare.crisis_followup(@care_topic) : ::Mia::CrisisBoundary.response
+        render_household_read_response(session, content, answer, topic: @care_topic || {}, message_request: message_request)
       rescue StandardError => error
         fail_active_message_request(error)
         record_mia_operation("mia.request.failed", error_code: error.class.name)
@@ -787,7 +798,11 @@ module Api
           chat_session_scope.authorize!
           session.lock!
           persisted = HouseholdFinance::ParticipantCareState.new(session).active
-          if persisted && persisted.except("last_question") != topic.except("last_question")
+          # Compare with the care this reply was built for: the reply's own topic
+          # for a care reply, otherwise the care read at the start of the request.
+          # Setup help during food care is not stale just because care is open.
+          built_for = topic["type"] == "care" ? topic : @care_topic.to_h
+          if persisted && persisted.except("last_question") != built_for.except("last_question")
             # Both care and non-care narration can race a newer disclosure.
             # Rebuild before saving any assistant reply or exposing action cards.
             answer = persisted["care_kind"] == "crisis" ? HouseholdFinance::ParticipantCare.crisis_followup(persisted) :
@@ -953,6 +968,17 @@ module Api
         render json: {
           user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
           assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, safety_reply: ::Mia::CrisisBoundary.safety_reply?(reply), attachments: [], presentation: {}, citations: [] },
+          mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
+          conversation_persisted: false
+        }, status: :created
+      end
+
+      # Care just ended while the challenge is closed. The daily check-in still
+      # waits for the rest of the day, so the hold stays on this reply.
+      def render_stateless_reply(content, reply)
+        render json: {
+          user_message: { id: nil, role: "user", author: "You", content: content, attachments: [], presentation: {}, citations: [] },
+          assistant_message: { id: nil, role: "assistant", author: "Mia", content: reply, safety_reply: ::Mia::CrisisBoundary.safety_reply?(reply), care_hold: true, care_active: false, attachments: [], presentation: {}, citations: [] },
           mia_action_draft: nil, transaction_draft: nil, budget: nil, spending_report: nil,
           conversation_persisted: false
         }, status: :created
