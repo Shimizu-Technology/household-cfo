@@ -18,7 +18,9 @@
 .challenge-days-legend { display: block; padding: 0; margin: 4px 0 8px; list-style: none; font-size: var(--text-xs); line-height: 1.6; color: inherit; }
 .challenge-days-legend li { display: inline; margin-inline-end: 8px; }
 @media (min-width: 1024px) {
-  .challenge-days { display: grid; grid-template-columns: repeat(15, minmax(44px, 1fr)); scroll-snap-type: none; }
+  /* As many 44px days per row as the card has room for, so the grid never scrolls sideways
+     beside the rail on a narrow laptop or a tablet held sideways. */
+  .challenge-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); scroll-snap-type: none; }
   .challenge-days button { width: 100%; }
   .challenge-days-swipe { display: none; }
 }
