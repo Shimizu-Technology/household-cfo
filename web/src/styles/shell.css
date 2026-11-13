@@ -59,9 +59,10 @@ body #root .participant-app .shell-account-menu > summary { padding-inline-end: 
   .app.participant-app { padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: calc(106px + env(safe-area-inset-bottom)); }
   .app > .shell-header { min-height: 52px; padding: 0 0 12px; }
   .app > .tabs-shell { position: fixed; top: auto; right: max(12px, env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); z-index: 45; margin: 0; padding: 4px 6px; border: 0; border-radius: var(--radius-pill); background: var(--surface-card); box-shadow: var(--shadow-float); }
-  /* Opaque page ground covers the lower half of the pill and its bottom gap.
+  /* Opaque page ground from 8px above the pill to the screen edge, so a card passing
+     behind never shows as slivers beside the pill's rounded ends.
      Keep it below the pill (including its shadow) and above scrolling content. */
-  .app:not(.is-chat-page) > .tabs-ground { display: block; position: fixed; inset: auto 0 0; height: calc(44px + env(safe-area-inset-bottom)); z-index: 44; background: var(--surface-ground); }
+  .app:not(.is-chat-page) > .tabs-ground { display: block; position: fixed; inset: auto 0 0; height: calc(82px + env(safe-area-inset-bottom)); z-index: 44; background: var(--surface-ground); }
   .app .tabs-shell .tabs { display: grid; min-height: 52px; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; grid-template-columns: none; gap: 0; margin: 0; padding: 0; }
   .app .tabs-shell .tabs :where(button, a) { flex-direction: column; gap: 3px; min-width: 0; min-height: 52px; padding: 4px 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: 11px; line-height: 1.15; }
   .app .tabs-shell .tabs :where(button, a).active { color: var(--brand); background: transparent; }

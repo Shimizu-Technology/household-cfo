@@ -69,12 +69,12 @@ export async function expectPhoneGroundCoverage(page: Page) {
         if (front !== ground) exposed.push({ text: 'bottom gap', x, y, front: front?.className ?? null })
       }
     }
-    return { visible: ground.checkVisibility(), band: band.toJSON(), centre: pill.top + pill.height / 2,
+    return { visible: ground.checkVisibility(), band: band.toJSON(), edge: pill.top - 8,
       width: innerWidth, height: innerHeight, background: css.backgroundColor, pageGround,
       opacity: css.opacity, coveredLines, exposed }
   })
   expect(coverage.visible).toBe(true)
-  expect(coverage.band.top).toBeCloseTo(coverage.centre, 0)
+  expect(coverage.band.top).toBeCloseTo(coverage.edge, 0)
   expect(coverage.band.left).toBe(0)
   expect(coverage.band.right).toBe(coverage.width)
   expect(coverage.band.bottom).toBe(coverage.height)
