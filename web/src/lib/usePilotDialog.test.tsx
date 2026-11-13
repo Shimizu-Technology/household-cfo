@@ -10,9 +10,9 @@ beforeEach(() => {
   vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.set(++nextFrame, callback); return nextFrame })
   vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { frames.delete(id) })
 })
-afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.restoreAllMocks() })
+afterEach(() => { cleanup(); document.body.innerHTML = ''; vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 function Probe() {
-  const ref = usePilotDialog(() => {})
+  const { dialogRef: ref } = usePilotDialog(() => {})
   return <section ref={ref} role="dialog" tabIndex={-1}><header><button>Close</button></header><div className="pilot-dialog-body"><textarea aria-label="Early feedback" /></div></section>
 }
 function box(element: HTMLElement, top: number, height: number) {
@@ -78,4 +78,25 @@ test('closing the topmost dialog keeps the page locked for the one underneath', 
   expect(document.body.style.overflow).toBe('hidden')
   underneath.unmount()
   expect(document.body.style.overflow).toBe('')
+})
+
+
+test('dismissal releases private resources immediately, before the close transition', () => {
+  vi.useFakeTimers()
+  vi.stubGlobal('CSS', { supports: () => true })
+  const release = vi.fn(), close = vi.fn()
+  function PrivateProbe() {
+    const { dialogRef, requestClose } = usePilotDialog(close, release)
+    return <section ref={dialogRef} role="dialog"><button onClick={requestClose}>Dismiss</button></section>
+  }
+  const view = render(<PrivateProbe />)
+  const panel = view.getByRole('dialog')
+  panel.getAnimations = () => [{ finished: new Promise(() => {}) } as unknown as Animation]
+  panel.parentElement!.getAnimations = () => []
+  fireEvent.click(view.getByRole('button', { name: 'Dismiss' }))
+  expect(release).toHaveBeenCalledOnce()
+  expect(close).not.toHaveBeenCalled()
+  view.unmount()
+  vi.runAllTimers()
+  expect(close).not.toHaveBeenCalled()
 })

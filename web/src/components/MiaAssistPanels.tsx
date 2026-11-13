@@ -93,10 +93,10 @@ function PanelContent(props: Props) {
 }
 
 function ModalPanel(props: Props) {
-  const ref = usePilotDialog(props.onClose)
-  return createPortal(<div className="mia-assist-overlay">
-    <button type="button" className="mia-assist-backdrop" aria-label="Close chat help" onClick={props.onClose} tabIndex={-1} />
-    <section ref={ref} className="mia-assist-panel is-modal" role="dialog" aria-modal="true" aria-labelledby="mia-assist-title" tabIndex={-1}><PanelContent {...props} /></section>
+  const { dialogRef: ref, requestClose } = usePilotDialog(props.onClose)
+  return createPortal(<div className="mia-assist-overlay" data-dialog-surface="true">
+    <button type="button" className="mia-assist-backdrop" aria-label="Close chat help" onClick={requestClose} tabIndex={-1} />
+    <section ref={ref} data-dialog-panel="true" className="mia-assist-panel is-modal" role="dialog" aria-modal="true" aria-labelledby="mia-assist-title" tabIndex={-1}><PanelContent {...props} /></section>
   </div>, document.body)
 }
 
@@ -107,5 +107,5 @@ function CompanionPanel(props: Props) {
     ref.current?.querySelector<HTMLButtonElement>('header button')?.focus({ preventScroll: true })
     return () => { if (previous?.isConnected) previous.focus({ preventScroll: true }) }
   }, [])
-  return <aside ref={ref} className="mia-assist-panel is-companion" aria-labelledby="mia-assist-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); props.onClose() } }}><PanelContent {...props} /></aside>
+  return <aside ref={ref} data-dialog-panel="true" className="mia-assist-panel is-companion" aria-labelledby="mia-assist-title" onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); props.onClose() } }}><PanelContent {...props} /></aside>
 }

@@ -1,11 +1,11 @@
 import { usePilotDialog } from '../lib/usePilotDialog'
 
 export function AdminGuideDialog({ onClose }: { onClose: () => void }) {
-  const dialogRef = usePilotDialog(onClose)
-  return <div className="pilot-dialog-overlay" role="presentation">
-    <button type="button" className="pilot-dialog-backdrop" aria-label="Close guide" onClick={onClose} />
-    <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-guide-title" tabIndex={-1}>
-      <header><div><h2 id="admin-guide-title">Your coaching workspace.</h2></div><button type="button" className="secondary-button" onClick={onClose}>Close</button></header>
+  const { dialogRef, requestClose } = usePilotDialog(onClose)
+  return <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation">
+    <button type="button" className="pilot-dialog-backdrop" aria-label="Close guide" onClick={requestClose} />
+    <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-guide-title" tabIndex={-1}>
+      <header><div><h2 id="admin-guide-title">Your coaching workspace.</h2></div><button type="button" className="secondary-button" onClick={requestClose}>Close</button></header>
       <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">
           <li><span>1</span><div><strong>Start with Today.</strong><p>Choose a group and see who needs help. Open a person only for what they have chosen to share.</p></div></li>

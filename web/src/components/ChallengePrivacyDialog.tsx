@@ -1,3 +1,4 @@
+import { dialogExit } from '../lib/dialogExit'
 import { requestStorageError } from '../lib/durableRequestIdentity'
 import { useEffect, useRef, useState } from 'react'
 import type { PrivateAction, PrivacyApi, PrivacyCandidate, PrivacyScope, PrivacyState, PrivateProgram, RequestIdentity, SelectedRecord, RecordType, SharingKind, SourceLease, RemindersState } from '../lib/challengePrivacy'
@@ -25,6 +26,8 @@ export function ChallengePrivacyDialog(props: Props) {
 
 function PrivacySession({ actorScope, participant, initialEnrollmentId, documentImportId, onClose, api }: Props & { api: PrivacyApi }) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const cancelExit = useRef<(() => void) | null>(null)
+  const close = () => { cancelExit.current = dialogExit(dialog.current, onClose) }
   const controller = useRef(new AbortController())
   const live = useRef(true)
   const metadataRequest = useRef<AbortController | null>(null)
@@ -49,7 +52,7 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
     const previous = document.activeElement as HTMLElement | null
     const node = dialog.current
     node?.showModal()
-    return () => { live.current = false; request.abort(); node?.close(); previous?.focus() }
+    return () => { cancelExit.current?.(); live.current = false; request.abort(); node?.close(); previous?.focus() }
   }, [])
   useEffect(() => {
     if (!actorScope || !participant) return
@@ -138,8 +141,8 @@ function PrivacySession({ actorScope, participant, initialEnrollmentId, document
   }
   const blocked = Boolean(pending && !(pending.state === 'unknown' && !pending.input && pending.identity.enrollmentId === enrollmentId))
   const allowedAction = pending ? pending.state === 'unknown' && !pending.input ? pending.identity.action : null : undefined
-  return <dialog ref={dialog} className="challenge-privacy-dialog" aria-labelledby="privacy-title" onKeyDown={containFocus} onCancel={(event) => { event.preventDefault(); onClose() }}>
-    <header><div><h2 id="privacy-title">Privacy &amp; reminders</h2></div><button type="button" className="privacy-close" aria-label="Close privacy controls" onClick={onClose}>×</button></header>
+  return <dialog ref={dialog} className="challenge-privacy-dialog" data-dialog-panel="true" aria-labelledby="privacy-title" onKeyDown={containFocus} onCancel={(event) => { event.preventDefault(); close() }}>
+    <header><div><h2 id="privacy-title">Privacy &amp; reminders</h2></div><button type="button" className="privacy-close" aria-label="Close privacy controls" onClick={close}>×</button></header>
     <div className="privacy-scroll">
       <p className="privacy-intro">Your records start private. Choose what to share and stop sharing anytime. Feelings stay private. <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy details</a></p>
       {denied ? <p role="alert">These controls are available only to the participant who owns this enrollment. Sign in to your participant account.</p> : <>

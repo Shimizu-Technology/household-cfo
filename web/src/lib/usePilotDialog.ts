@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { dialogExit } from './dialogExit'
 import { revealDialogControl } from './dialogFocus'
 
 // A confirmation can open over another dialog; only the topmost one traps focus
@@ -8,13 +9,21 @@ const openDialogs: symbol[] = []
 // its own saved value would unlock the page while a confirmation is still open.
 let overflowBeforeFirstDialog = ''
 
-export function usePilotDialog(onClose: () => void) {
+export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
+  const onDismissRef = useRef(onDismiss)
+  const cancelExit = useRef<(() => void) | null>(null)
+  const requestClose = () => {
+    if (dialogRef.current?.dataset.dialogClosing) return
+    onDismissRef.current?.()
+    cancelExit.current = dialogExit(dialogRef.current, () => onCloseRef.current())
+  }
 
   useEffect(() => {
     onCloseRef.current = onClose
-  }, [onClose])
+    onDismissRef.current = onDismiss
+  }, [onClose, onDismiss])
 
   useEffect(() => {
     const token = Symbol('pilot-dialog')
@@ -23,6 +32,8 @@ export function usePilotDialog(onClose: () => void) {
     const isTopmost = () => openDialogs[openDialogs.length - 1] === token
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const dialog = dialogRef.current
+    dialog?.setAttribute('data-dialog-panel', 'true')
+    dialog?.parentElement?.setAttribute('data-dialog-surface', 'true')
     const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
       .filter((element) => {
@@ -54,10 +65,12 @@ export function usePilotDialog(onClose: () => void) {
 
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (!isTopmost()) return
+      if (dialog?.dataset.dialogClosing) { event.preventDefault(); event.stopPropagation(); return }
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        onCloseRef.current()
+        onDismissRef.current?.()
+        cancelExit.current = dialogExit(dialogRef.current, () => onCloseRef.current())
         return
       }
       if (event.key !== 'Tab') return
@@ -97,6 +110,7 @@ export function usePilotDialog(onClose: () => void) {
     document.addEventListener('focusin', handleFocusIn)
     document.body.style.overflow = 'hidden'
     return () => {
+      cancelExit.current?.()
       window.cancelAnimationFrame(focusFrame)
       const position = openDialogs.indexOf(token)
       if (position >= 0) openDialogs.splice(position, 1)
@@ -107,5 +121,5 @@ export function usePilotDialog(onClose: () => void) {
     }
   }, [])
 
-  return dialogRef
+  return { dialogRef, requestClose }
 }

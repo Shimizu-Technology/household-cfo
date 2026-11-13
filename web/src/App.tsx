@@ -4920,18 +4920,18 @@ function PendingAttachmentTray({
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
   const { assistantName } = useBrand()
   const isImage = pendingAttachmentHasImagePreview(attachment)
-  const dialogRef = usePilotDialog(onClose)
+  const { dialogRef, requestClose } = usePilotDialog(onClose)
 
   return (
-    <div className="document-preview-overlay" role="presentation">
-      <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={onClose} />
-      <section ref={dialogRef} className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)} tabIndex={-1}>
+    <div className="document-preview-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)} tabIndex={-1}>
         <div className="document-preview-header">
           <div>
             <span className="document-status blue">Attachment preview</span>
             <strong>{attachmentDisplayName(attachment)}</strong>
           </div>
-          <button type="button" className="document-preview-close-button" onClick={onClose}>Close</button>
+          <button type="button" className="document-preview-close-button" onClick={requestClose}>Close</button>
         </div>
         <div className="document-preview-body">
           {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : (
@@ -4947,7 +4947,7 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
 }
 
 export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count: number; total: number; onCancel: () => void; onConfirm: () => void }) {
-  const dialogRef = usePilotDialog(onCancel)
+  const { dialogRef, requestClose } = usePilotDialog(onCancel)
   const [typed, setTyped] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const phrase = `CONFIRM ${count}`
@@ -4963,9 +4963,9 @@ export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count
   }
 
   return (
-    <div className="clear-chat-overlay" role="presentation">
-      <button type="button" className="clear-chat-backdrop" aria-label="Cancel and go back" onClick={onCancel} />
-      <section ref={dialogRef} className="clear-chat-dialog bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title" aria-describedby="bulk-confirm-copy" tabIndex={-1}>
+    <div className="clear-chat-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="clear-chat-backdrop" aria-label="Cancel and go back" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="clear-chat-dialog bulk-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-confirm-title" aria-describedby="bulk-confirm-copy" tabIndex={-1}>
         <form onSubmit={submit} noValidate>
           <h3 id="bulk-confirm-title">Confirm {count} transaction{count === 1 ? '' : 's'}?</h3>
           <p id="bulk-confirm-copy">
@@ -4985,7 +4985,7 @@ export function BulkConfirmDialog({ count, total, onCancel, onConfirm }: { count
           </label>
           {problem && <p id="bulk-confirm-error" className="setup-error" role="alert">{problem}</p>}
           <div className="clear-chat-dialog-actions">
-            <button type="button" className="secondary" onClick={onCancel}>Go back</button>
+            <button type="button" className="secondary" onClick={requestClose}>Go back</button>
             <button type="submit" className="danger">Confirm {count}</button>
           </div>
         </form>
@@ -5004,19 +5004,19 @@ function ClearChatConfirmDialog({
   onConfirm: () => void
 }) {
   const { assistantName } = useBrand()
-  const dialogRef = usePilotDialog(onCancel)
+  const { dialogRef, requestClose } = usePilotDialog(onCancel)
 
   return (
-    <div className="clear-chat-overlay" role="presentation">
-      <button type="button" className="clear-chat-backdrop" aria-label={`Keep ${assistantName} chat`} onClick={onCancel} />
-      <section ref={dialogRef} className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
+    <div className="clear-chat-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="clear-chat-backdrop" aria-label={`Keep ${assistantName} chat`} onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
         <h3 id="clear-chat-title">Clear this chat?</h3>
         <p id="clear-chat-copy">
           This removes the messages in this conversation and {assistantName} will not be able to pick up this thread later.
           Your saved budget, profile, and transactions stay unchanged.
         </p>
         <div className="clear-chat-dialog-actions">
-          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing}>
+          <button type="button" className="secondary" onClick={requestClose} disabled={isClearing}>
             Keep chat
           </button>
           <button type="button" className="danger" onClick={onConfirm} disabled={isClearing}>
@@ -5138,17 +5138,17 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
 
 function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () => void; savingsChallenge?: boolean }) {
   const { assistantName } = useBrand()
-  const dialogRef = usePilotDialog(onClose)
+  const { dialogRef, requestClose } = usePilotDialog(onClose)
 
   return (
-    <div className="pilot-dialog-overlay" role="presentation">
-      <button type="button" className="pilot-dialog-backdrop" aria-label="Close guide" onClick={onClose} />
-      <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
+    <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close guide" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
             <h2 id="pilot-guide-title">{savingsChallenge ? 'Your 90-day challenge in three simple moves.' : 'Your household money, day to day.'}</h2>
           </div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+          <button type="button" className="secondary-button" onClick={requestClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
         <ol className="pilot-guide-steps">

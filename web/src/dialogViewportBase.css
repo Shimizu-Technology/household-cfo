@@ -5,3 +5,37 @@
   --dialog-space-bottom: max(var(--dialog-gap), env(safe-area-inset-bottom));
   --dialog-available-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top) - var(--dialog-space-bottom));
 }
+
+/* Shared by the public entry and lazy workspace. Native dialogs keep their
+   top-layer overlay through exit. React panels stay mounted via dialogExit. */
+body [data-dialog-panel] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  animation: none;
+  transition: opacity var(--duration-exit) var(--ease-out), transform var(--duration-exit) var(--ease-out), display var(--duration-exit) allow-discrete, overlay var(--duration-exit) allow-discrete;
+  transition-behavior: allow-discrete;
+}
+body [data-dialog-panel]:not([data-dialog-closing]) { transition-duration: var(--duration-enter); }
+body [data-dialog-surface] { opacity: 1; animation: none; transition: opacity var(--duration-exit) ease; }
+body [data-dialog-panel][data-dialog-closing],
+body dialog[data-dialog-panel]:not([open]) { opacity: 0; transform: translateY(12px) scale(0.98); }
+body [data-dialog-surface][data-dialog-closing] { opacity: 0; }
+body dialog[data-dialog-panel]::backdrop { background: color-mix(in srgb, var(--ink) 58%, transparent); opacity: 0; transition: opacity var(--duration-exit) ease, display var(--duration-exit) allow-discrete, overlay var(--duration-exit) allow-discrete; }
+body dialog[data-dialog-panel][open]::backdrop { opacity: 1; }
+body dialog[data-dialog-panel][data-dialog-closing]::backdrop { opacity: 0; }
+body [data-dialog-panel] :is(h2, h3):first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
+@starting-style {
+  body [data-dialog-panel], body dialog[data-dialog-panel][open] { opacity: 0; transform: translateY(12px) scale(0.98); }
+  body [data-dialog-surface], body dialog[data-dialog-panel][open]::backdrop { opacity: 0; }
+}
+@media (max-width: 620px) {
+  body [data-dialog-panel]:not(dialog) { transform: translateY(0); }
+  body [data-dialog-panel]:not(dialog)[data-dialog-closing] { transform: translateY(100%); }
+  @starting-style { body [data-dialog-panel]:not(dialog) { transform: translateY(100%); } }
+}
+@media (prefers-reduced-motion: reduce) {
+  body [data-dialog-panel], body [data-dialog-panel][data-dialog-closing] { transform: none !important; transition: opacity var(--duration-exit) ease, display var(--duration-exit) allow-discrete, overlay var(--duration-exit) allow-discrete !important; }
+  body [data-dialog-surface], body dialog[data-dialog-panel]::backdrop { transition: opacity var(--duration-exit) ease !important; }
+  @starting-style { body [data-dialog-panel], body dialog[data-dialog-panel][open] { transform: none; } }
+}
+body [data-dialog-panel][data-dialog-closing] { pointer-events: none; }

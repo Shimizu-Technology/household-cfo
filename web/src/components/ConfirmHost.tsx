@@ -5,15 +5,15 @@ import { usePilotDialog } from '../lib/usePilotDialog'
 
 function ConfirmDialog({ request, onAnswer }: { request: ConfirmRequest; onAnswer: (confirmed: boolean) => void }) {
   const id = useId()
-  const dialogRef = usePilotDialog(() => onAnswer(false))
+  const { dialogRef, requestClose } = usePilotDialog(() => onAnswer(false))
   return (
-    <div className="clear-chat-overlay confirm-overlay" role="presentation">
-      <button type="button" className="clear-chat-backdrop" tabIndex={-1} aria-hidden="true" onClick={() => onAnswer(false)} />
-      <section ref={dialogRef} className="clear-chat-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-copy`} tabIndex={-1}>
+    <div className="clear-chat-overlay confirm-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="clear-chat-backdrop" tabIndex={-1} aria-hidden="true" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="clear-chat-dialog confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-copy`} tabIndex={-1}>
         <h3 id={`${id}-title`}>{request.title ?? 'Are you sure?'}</h3>
         <p id={`${id}-copy`}>{request.message}</p>
         <div className="clear-chat-dialog-actions">
-          <button type="button" className="secondary" onClick={() => onAnswer(false)}>{request.cancelLabel ?? 'Cancel'}</button>
+          <button type="button" className="secondary" onClick={requestClose}>{request.cancelLabel ?? 'Cancel'}</button>
           <button type="button" className={request.caution ? 'danger' : 'primary'} onClick={() => onAnswer(true)}>{request.confirmLabel ?? 'Continue'}</button>
         </div>
       </section>

@@ -33,7 +33,7 @@ export function PilotFeedbackDialog({
   onSubmit: (values: PilotFeedbackInput) => Promise<PilotFeedbackReceipt>
 }) {
   const { brand, assistantName } = useBrand()
-  const dialogRef = usePilotDialog(onClose)
+  const { dialogRef, requestClose } = usePilotDialog(onClose)
   const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
   const [attempted, setAttempted] = useState('')
   const [expected, setExpected] = useState('')
@@ -143,12 +143,12 @@ export function PilotFeedbackDialog({
   }
 
   return (
-    <div className="pilot-dialog-overlay" role="presentation">
-      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
-      <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
+    <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
         <header>
           <div><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
-          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+          <button type="button" className="secondary-button" onClick={requestClose}>Close</button>
         </header>
         <div className="pilot-dialog-body">
           {receipt ? (
@@ -156,7 +156,7 @@ export function PilotFeedbackDialog({
               <strong>Report received.</strong>
               <p>Reference #{receipt.id}. Your written details and optional screenshot were not sent to analytics.</p>
               {supportAccess(receipt)}
-              <button type="button" onClick={onClose}>Return to {brand.product_name}</button>
+              <button type="button" onClick={requestClose}>Return to {brand.product_name}</button>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
