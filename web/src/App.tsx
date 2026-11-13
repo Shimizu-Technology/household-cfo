@@ -17,6 +17,7 @@ import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
+import { restoreAccountFocus } from './lib/accountFocus'
 import { AccountMenu } from './components/AccountMenu'
 import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
 import { SignOutButton } from './components/AuthControls'
@@ -3087,7 +3088,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   function restoreHelpFocus() {
     requestAnimationFrame(() => {
       const active = document.activeElement as HTMLElement | null
-      if (!active || active === document.body || active.getClientRects().length === 0) shellAccountMenuRef.current?.querySelector<HTMLElement>('summary')?.focus()
+      if (!active || active === document.body || active.getClientRects().length === 0) restoreAccountFocus(shellAccountMenuRef.current)
     })
   }
 
@@ -4053,6 +4054,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   {isFirstSessionSetup
                     ? <p className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</p>
                     : !isSavingsExperience && <p className="chat-period-context">{miaPlanLabel}</p>}
+                  {staffPreviewing && <p className="shell-chat-preview-note" role="status">Using: {data.workspace.cohort?.name} · Preview</p>}
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}

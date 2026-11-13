@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { useState } from 'react'
+import { usePilotDialog } from '../lib/usePilotDialog'
 import { ParticipantTabs } from './ParticipantTabs'
 const brandState = vi.hoisted(() => ({ assistantName: 'Mia' }))
 vi.mock('../contexts/brandContextValue', () => ({ useBrand: () => ({ assistantName: brandState.assistantName, brand: { short_name: 'Household CFO', participant_role_term: 'Participant' } }) }))
@@ -94,7 +96,7 @@ it('lists all destinations on laptops without a More dialog', () => {
   expect(screen.queryByRole('button', { name: 'More' })).toBeNull()
   expect(screen.getAllByRole('link').map(link => link.getAttribute('aria-label'))).toEqual(['Home', 'Ask Mia', 'Budget', 'Review', 'My Money', 'Statements', 'Wealth'])
   expect(screen.getByRole('link', { name: 'Wealth' }).getAttribute('aria-current')).toBe('page')
-  expect(screen.getByLabelText('2 purchases waiting')).toBeTruthy()
+  expect(document.getElementById(screen.getByRole('link', { name: 'Review' }).getAttribute('aria-describedby')!)?.textContent).toBe('2 purchases waiting')
 })
 
 it('releases the live More dialog and scroll ownership before opening Account', async () => {
@@ -120,7 +122,7 @@ it('keeps Account reachable through More when a program has no secondary destina
 it('keeps the Review badge when coach ordering places Review after the primary destinations', () => {
   vi.stubGlobal('matchMedia', () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
   render(<ParticipantTabs customModuleOrder sections={['Statements', 'Home', 'Budget', 'My Money', 'Review']} activeSection="Review" onChange={vi.fn()} reviewCount={3} />)
-  expect(within(screen.getByRole('link', { name: 'Review' })).getByLabelText('3 purchases waiting')).toBeTruthy()
+  expect(document.getElementById(screen.getByRole('link', { name: 'Review' }).getAttribute('aria-describedby')!)?.textContent).toBe('3 purchases waiting')
 })
 
 
@@ -137,4 +139,47 @@ it('replaces an open phone sheet with the sidebar and releases its scroll lock',
   await waitFor(() => expect(view.container.querySelector('.is-tools-open')).toBeNull())
   act(() => { desktop = false; listeners.forEach(listener => listener()) })
   expect(screen.getByRole('button', { name: 'More' }).getAttribute('aria-expanded')).toBe('false')
+})
+
+
+it('releases page scrolling when one Escape closes a dialog over More', () => {
+  function Dialog({ close }: { close: () => void }) {
+    const { dialogRef } = usePilotDialog(close)
+    return <section role="dialog" aria-label="Overlay" ref={dialogRef}><button>Dialog action</button></section>
+  }
+  let openDialog: () => void = () => {}
+  function Stack() {
+    const [open, setOpen] = useState(false)
+    openDialog = () => setOpen(true)
+    return <><ParticipantTabs sections={['Home', 'My Profile']} activeSection="Home" onChange={vi.fn()} />{open && <Dialog close={() => setOpen(false)} />}</>
+  }
+  render(<Stack />)
+  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  act(() => openDialog())
+  expect(screen.getAllByRole('dialog')).toHaveLength(2)
+  expect(document.body.style.overflow).toBe('hidden')
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.body.style.overflow).toBe('')
+})
+
+
+it('releases the text-field pointer hold on pointerup even without a click', async () => {
+  const width = window.innerWidth
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+  try {
+    const view = render(<div className="participant-app"><input aria-label="Text" /><input type="checkbox" aria-label="Check" /><ParticipantTabs sections={['Home', 'My Profile']} activeSection="Home" onChange={vi.fn()} /></div>)
+    const root = view.container.firstElementChild!
+    screen.getByLabelText('Check').focus()
+    fireEvent.pointerDown(document)
+    expect(root.hasAttribute('data-field-pointer')).toBe(false)
+    screen.getByLabelText('Text').focus()
+    expect(root.hasAttribute('data-text-entry-focus')).toBe(true)
+    fireEvent.pointerDown(document)
+    expect(root.hasAttribute('data-field-pointer')).toBe(true)
+    fireEvent.pointerUp(window)
+    await waitFor(() => expect(root.hasAttribute('data-field-pointer')).toBe(false))
+    screen.getByLabelText('Check').focus()
+    expect(root.hasAttribute('data-text-entry-focus')).toBe(false)
+  } finally { Object.defineProperty(window, 'innerWidth', { configurable: true, value: width }) }
 })

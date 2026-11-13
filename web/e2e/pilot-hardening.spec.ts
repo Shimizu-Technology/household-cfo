@@ -1,3 +1,4 @@
+import { TEXT_ENTRY_SELECTOR } from '../src/lib/textEntry'
 import { expectPhoneGroundCoverage } from './helpers/shellGround'
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
@@ -89,8 +90,9 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
   if (!(await page.locator('.tabs-shell, .staff-navigation').isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
-    // Dismiss field focus before using the phone navigation, preserving its draft.
-    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
+    // Explicitly dismiss a text keyboard before navigating away from its draft.
+    // Buttons, selects and checkboxes must never require this workaround.
+    await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
   }
   await expect(page.locator('.tabs-shell, .staff-navigation')).toBeVisible()
   if (!(await section.isVisible())) {
@@ -161,7 +163,7 @@ async function selectBudgetEditMonth(page: Page, index: number) {
 async function openAccountHelp(page: Page) {
   const account = page.getByLabel('Account and help', { exact: true })
   if (!(await account.isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
-    await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur() })
+    await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
     await page.getByRole('button', { name: 'More', exact: true }).click()
     await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: 'Account and help' }).click()
     await expect(page.locator('.shell-account-panel')).toBeVisible()
@@ -14241,4 +14243,163 @@ test('BOG UI shell page ground covers mid-scroll text below the phone pill', asy
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).focus()
   await expect(page.locator('.tabs-shell')).toBeHidden()
   await expect(page.locator('.tabs-ground')).toBeHidden()
+})
+
+
+for (const target of ['More', 'purchase']) {
+  test(`BOG UI shell touch backdrop consumes the closing tap over ${target}`, async ({ page }, info) => {
+    test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'touch phone dismissal')
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    const more = page.getByRole('button', { name: 'More', exact: true })
+    const purchase = page.getByRole('button', { name: /^Confirm Dinner with friends/ })
+    await expect(purchase).toBeVisible()
+    if (target === 'purchase') {
+      await purchase.evaluate(node => window.scrollBy(0, node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2 - 12))
+    }
+    await page.evaluate(() => document.fonts.ready)
+    const control = target === 'More' ? more : purchase
+    const box = await control.boundingBox()
+    await purchase.evaluate(node => { node.setAttribute('data-tap-count', '0'); node.addEventListener('click', () => node.setAttribute('data-tap-count', String(Number(node.getAttribute('data-tap-count')) + 1))) })
+    await more.tap()
+    const sheet = page.getByRole('dialog', { name: 'More', exact: true })
+    await expect(sheet).toBeVisible()
+    const x = box!.x + box!.width / 2, y = box!.y + box!.height / 2
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('tabs-tools-backdrop'), { x, y })).toBe(true)
+    await page.touchscreen.tap(x, y)
+    await expect(sheet).toHaveCount(0)
+    await expect(more).toHaveAttribute('aria-expanded', 'false')
+    await expect(purchase).toHaveAttribute('data-tap-count', '0')
+    await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden')
+  })
+}
+
+
+test('BOG UI shell phone text focus hides the bar while buttons checkboxes and selects keep it available', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone keyboard policy')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const bar = page.locator('.tabs-shell')
+  const checkbox = page.getByRole('checkbox', { name: /Select Dinner with friends/ })
+  await checkbox.check()
+  await checkbox.focus()
+  await expect(checkbox).toBeChecked()
+  await expect(bar).toBeVisible()
+  await openSection(page, 'Budget')
+  const select = page.getByRole('combobox', { name: 'Report month', exact: true })
+  await select.selectOption('1')
+  await select.focus()
+  await expect(bar).toBeVisible()
+  const budgetButton = page.locator('fieldset').getByRole('button', { name: 'Next year', exact: true })
+  await budgetButton.click()
+  await budgetButton.focus()
+  await expect(bar).toBeVisible()
+  await openSection(page, 'Review')
+  const capture = page.locator('.manual-transaction-capture')
+  await capture.getByRole('button', { name: 'Add transaction', exact: true }).click()
+  await expect(bar).toBeVisible()
+  await capture.getByLabel('Merchant', { exact: true }).fill('Bottom Edge Market')
+  await expect(bar).toBeHidden()
+  await capture.getByLabel('Amount', { exact: true }).fill('12.50')
+  const category = capture.getByRole('combobox')
+  await category.selectOption('2')
+  await category.focus()
+  await expect(bar).toBeVisible()
+  let submitted = 0
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    submitted++
+    expect(route.request().postDataJSON().transaction_draft).toMatchObject({ merchant: 'Bottom Edge Market', amount: '12.50', budget_category_id: 2 })
+    return route.fulfill({ json: { transaction_draft: { ...realWorkspaceData(true).budget.annual_plan.pending_transaction_drafts[0], merchant: 'Bottom Edge Market', amount: 12.5, amount_cents: 1250 }, workspace: realWorkspaceData(true) } })
+  })
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 568 })
+  await capture.getByLabel('Amount', { exact: true }).focus()
+  await expect(bar).toBeHidden()
+  const submit = capture.getByRole('button', { name: 'Add to review', exact: true })
+  await submit.evaluate(node => window.scrollBy(0, node.getBoundingClientRect().bottom - (innerHeight - 12)))
+  const box = await submit.boundingBox()
+  expect(box!.y + box!.height).toBeGreaterThan(page.viewportSize()!.height - 35)
+  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2)
+  await expect(capture.getByRole('status')).toContainText('Added Bottom Edge Market')
+  expect(submitted).toBe(1)
+  await expect(bar).toBeVisible()
+  await expect(page.locator('.participant-app')).not.toHaveAttribute('data-field-pointer')
+})
+
+test('BOG UI shell account actions stay in the viewport at top middle and end without scrolling', async ({ page }, info) => {
+  test.skip(info.project.name === 'tablet-1024-chrome' || info.project.name === 'desktop-chrome', 'phone and tablet account placement')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.locator('.home-screen')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  for (const ratio of [0, 0.5, 1]) {
+    await page.evaluate(ratio => window.scrollTo(0, ratio * (document.documentElement.scrollHeight - innerHeight)), ratio)
+    const before = await page.evaluate(() => scrollY)
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+    const panel = page.locator('.shell-account-panel')
+    await expect(panel).toBeVisible()
+    const box = await panel.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    expect(await page.evaluate(() => scrollY)).toBe(before)
+    await expect(panel.getByRole('button', { name: 'Privacy', exact: true })).toBeInViewport()
+    await page.keyboard.press('Escape')
+  }
+})
+
+test('BOG UI shell phone chat returns account dialogs to More and preserves staff preview identity', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone chat account focus')
+  await mockStaffWithParticipantSeat(page, 'coach')
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.cohort.name = 'Mrs. Mel — Household coaching'
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=coach#Ask%20Mia')
+  await expect(page.locator('.chat-shell-header').getByRole('status')).toHaveText('Using: Mrs. Mel — Household coaching · Preview')
+  await expect(page.locator('.chat-shell-header').getByRole('status')).toBeVisible()
+  await expect(page.locator('.chat-shell-preview-note, .shell-chat-preview-note').filter({ visible: true })).toHaveCSS('white-space', 'normal')
+  for (const action of ['Guide', 'Report a problem']) {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+    await page.locator('.shell-account-panel').getByRole('button', { name: action, exact: true }).click()
+    await expect(page.locator('.pilot-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.pilot-dialog')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden')
+  }
+})
+
+test('BOG UI shell sidebar Review keeps its exact name and announces waiting purchases as a description', async ({ page }, info) => {
+  test.skip(!['desktop-chrome', 'tablet-1024-chrome'].includes(info.project.name), 'sidebar count')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAccessibleDescription('2 purchases waiting')
+})
+
+test('BOG UI shell More exit holds the backdrop at its finished opacity', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone sheet exit')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  const surface = page.locator('.tabs-tools-surface')
+  await surface.evaluate(node => Promise.allSettled(node.getAnimations({ subtree: true }).map(a => a.finished)))
+  const samples = await surface.evaluate(async node => {
+    ;(node.querySelector('.tabs-tools-close') as HTMLElement).click()
+    const copy = document.querySelector<HTMLElement>('[data-dialog-exit-copy]')!
+    const dim = copy.querySelector<HTMLElement>('.tabs-tools-backdrop')!
+    const values = []
+    while (copy.isConnected) {
+      values.push({ dim: Number(getComputedStyle(dim).opacity), root: Number(getComputedStyle(copy).opacity) })
+      await new Promise(requestAnimationFrame)
+    }
+    return values
+  })
+  expect(samples.length).toBeGreaterThan(2)
+  for (const [index, sample] of samples.entries()) {
+    expect(sample.dim).toBe(1)
+    if (index) expect(sample.root).toBeLessThanOrEqual(samples[index - 1].root)
+  }
 })

@@ -80,12 +80,20 @@ body #root .participant-app .shell-account-menu > summary { padding-inline-end: 
   .app.is-chat-page .brand-footer nav { display: none; }
   /* Focused fields must never have floating controls over their keyboard. */
   .participant-app[data-field-pointer] > :is(.tabs-shell, .tabs-ground),
-  .participant-app:has(:is(input, textarea, select, [contenteditable=true]):focus, :is(form, fieldset, .transaction-draft-editor):focus-within) > :is(.tabs-shell, .tabs-ground) { visibility: hidden; }
+  .participant-app[data-text-entry-focus] > :is(.tabs-shell, .tabs-ground) { visibility: hidden; }
   body:has([role='dialog'][aria-modal='true']:not(.tabs-secondary), dialog[open]) .app > :is(.tabs-shell, .tabs-ground) { visibility: hidden; }
   .tabs-tools-surface .tabs-secondary { top: auto; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); width: auto; max-height: calc(100dvh - 110px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); padding: 0 14px 12px; }
   .tabs-sheet-grab { display: grid; place-items: center; height: 28px; margin: 0 -14px; touch-action: pan-x; user-select: none; }
   .tabs-sheet-grab span { width: 32px; height: 4px; border-radius: var(--radius-pill); background: var(--line); }
   @starting-style { .tabs-tools-surface .tabs-secondary { opacity: 0; transform: translateY(100%); } }
+}
+@media (max-width: 1023px) {
+  /* The header scrolls with the page; its account actions remain in reach. */
+  .participant-app > .shell-header .shell-account-panel { position: fixed; top: max(calc(64px + env(safe-area-inset-top)), var(--shell-account-top, 0px)); right: max(12px, env(safe-area-inset-right)); max-height: calc(100dvh - max(calc(64px + env(safe-area-inset-top)), var(--shell-account-top, 0px)) - 12px - env(safe-area-inset-bottom)); }
+}
+.shell-chat-preview-note { display: none; }
+@media (max-width: 620px) {
+  .app.participant-app.is-chat-page .mia-chat-shell .shell-chat-preview-note { display: block; margin: 2px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; }
 }
 /* Shared sidebar vocabulary is also available to the admin redesign. */
 @media (min-width: 1024px) {

@@ -119,3 +119,20 @@ it('native dialogs close synchronously without copying their live content', () =
   expect(done).toHaveBeenCalledOnce()
   expect(copy()).toBeNull()
 })
+
+
+it('finishes descendant entry animations without stripping their fill styles', () => {
+  const scrim = document.createElement('div')
+  scrim.className = 'scrim'
+  scrim.style.animationName = 'entry'
+  scrim.style.animationDuration = '220ms'
+  scrim.style.animationDelay = '100ms'
+  scrim.style.animationFillMode = 'both'
+  panel().before(scrim)
+  dialogExit(panel(), close)
+  const copiedScrim = copy()?.querySelector<HTMLElement>('.scrim')
+  expect(copiedScrim?.style.animationName).toBe('entry')
+  expect(copiedScrim?.style.animationFillMode).toBe('both')
+  expect(copiedScrim?.style.animationDuration).toBe('0s')
+  expect(copiedScrim?.style.animationDelay).toBe('0s')
+})

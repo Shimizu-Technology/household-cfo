@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { useAuthContext } from '../contexts/authContextValue'
+import { restoreAccountFocus } from '../lib/accountFocus'
 import { SignOutButton } from './AuthControls'
 
 export function AccountMenu({ children, menuRef, onOpen, onClose, participantLabel = 'Household member' }: { participantLabel?: string; children?: ReactNode; menuRef?: RefObject<HTMLDetailsElement | null>; onOpen?: () => void; onClose?: () => void }) {
@@ -7,7 +8,7 @@ export function AccountMenu({ children, menuRef, onOpen, onClose, participantLab
   const ownRef = useRef<HTMLDetailsElement>(null)
   const ref = menuRef ?? ownRef
   useEffect(() => {
-    const reposition = () => positionSidebarPanel(ref.current)
+    const reposition = () => positionAccountPanel(ref.current)
     window.addEventListener('resize', reposition)
     document.addEventListener('scroll', reposition, true)
     const dismiss = (event: PointerEvent) => {
@@ -21,17 +22,13 @@ export function AccountMenu({ children, menuRef, onOpen, onClose, participantLab
     }
   }, [ref])
   return <details ref={ref} className="shell-account-menu" onToggle={event => {
-    if (event.currentTarget.open) { positionSidebarPanel(event.currentTarget); onOpen?.() }
+    if (event.currentTarget.open) { positionAccountPanel(event.currentTarget); onOpen?.() }
     else onClose?.()
   }} onKeyDown={event => {
     if (event.key === 'Escape' && !(event.target as HTMLElement).closest('dialog, [role="dialog"]')) {
       event.preventDefault()
       event.currentTarget.open = false
-      const summary = event.currentTarget.querySelector<HTMLElement>('summary')
-      const more = event.currentTarget.closest('.participant-app')?.querySelector<HTMLElement>('.tabs-more-toggle')
-      // Chat's phone identity row disappears when this account disclosure closes.
-      const destination = summary?.getClientRects().length ? summary : more ?? summary
-      destination?.focus({ preventScroll: true })
+      restoreAccountFocus(event.currentTarget)
     }
   }} onBlur={event => {
     // Let a dialog launched from an account action manage its own focus.
@@ -50,10 +47,14 @@ export function AccountMenu({ children, menuRef, onOpen, onClose, participantLab
   </details>
 }
 
-// Anchor above the actual trigger, including staff's Admin row and a scrolled sidebar.
-function positionSidebarPanel(menu: HTMLDetailsElement | null) {
-  if (!menu?.open || !menu.closest('.sidebar-account')) return
+// Anchor to the visible avatar, or above the actual trigger in a scrolled sidebar.
+function positionAccountPanel(menu: HTMLDetailsElement | null) {
+  if (!menu?.open) return
   const summary = menu.querySelector('summary')?.getBoundingClientRect()
   if (!summary) return
+  if (!menu.closest('.sidebar-account')) {
+    menu.style.setProperty('--shell-account-top', `${Math.max(64, Math.min(summary.bottom + 8, 96))}px`)
+    return
+  }
   menu.style.setProperty('--shell-account-bottom', `${window.innerHeight - summary.top + 8}px`)
 }

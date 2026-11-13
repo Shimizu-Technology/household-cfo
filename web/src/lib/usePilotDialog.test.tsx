@@ -113,3 +113,18 @@ test('releases the focus trap and scroll lock before the parent restores focus',
   fireEvent.click(view.getByRole('button', { name: 'Dismiss' }))
   expect(restored).toHaveBeenCalledWith('')
 })
+
+
+test('returns to More when phone chat hides the account summary after a dialog opens', () => {
+  const root = document.createElement('div')
+  root.className = 'participant-app'
+  root.innerHTML = '<details class="shell-account-menu" open><summary>Account and help</summary><button>Guide</button></details><button class="tabs-more-toggle">More</button>'
+  document.body.append(root)
+  const details = root.querySelector('details')!
+  root.querySelector<HTMLElement>('details button')!.focus()
+  const view = render(<Probe />)
+  flushFrames()
+  details.open = false
+  view.unmount()
+  expect(document.activeElement).toBe(root.querySelector('.tabs-more-toggle'))
+})

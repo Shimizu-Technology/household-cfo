@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode, type PointerEvent } from 'react'
+import { useCallback, useId, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode, type PointerEvent } from 'react'
 import { createPortal, flushSync } from 'react-dom'
 import { useBrand } from '../contexts/brandContextValue'
 import { partitionParticipantSections, participantSectionLabel, PARTICIPANT_TOOL_SECTIONS } from '../lib/participantNavigation'
 
+import { lockBodyScroll } from '../lib/bodyScrollLock'
+import { TEXT_ENTRY_SELECTOR } from '../lib/textEntry'
 import { dialogExit } from '../lib/dialogExit'
 import { useShellSidebar } from '../lib/useShellSidebar'
 
@@ -77,6 +79,7 @@ export function ParticipantTabs(props: ParticipantTabsProps) {
 function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, sections, activeSection, onChange, savingsChallenge = false, customModuleOrder = false }: ParticipantTabsProps) {
   const { assistantName, brand } = useBrand()
   const sidebar = useShellSidebar()
+  const reviewDescriptionId = useId()
   const drag = useRef<{ id: number; y: number; time: number; distance: number } | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
   const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
@@ -91,7 +94,23 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
 
   useEffect(() => {
     let heldRoot: HTMLElement | null = null
+    let releaseTimer: number | undefined
+    const root = shellRef.current?.closest<HTMLElement>('.participant-app')
+    const updateFocus = (event?: FocusEvent) => {
+      const active = event?.type === 'focusout' ? event.relatedTarget : document.activeElement
+      root?.toggleAttribute('data-text-entry-focus', active instanceof Element && active.matches(TEXT_ENTRY_SELECTOR) && root.contains(active))
+    }
+    const releaseOnUp = () => {
+      if (!heldRoot) return
+      // A synthesized click follows pointerup; keep its target uncovered until
+      // that dispatch finishes. The bounded fallback also covers legacy delayed
+      // touch clicks and releases presses that produce no click.
+      window.clearTimeout(releaseTimer)
+      releaseTimer = window.setTimeout(release, 350)
+    }
     const release = () => {
+      window.clearTimeout(releaseTimer)
+      releaseTimer = undefined
       const root = heldRoot
       heldRoot = null
       // Click has its target now. Release after its handlers commit, including
@@ -102,15 +121,24 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
       const active = document.activeElement
       const root = shellRef.current?.closest<HTMLElement>('.participant-app')
       if (window.innerWidth > 620 || !root || !active || !root.contains(active)
-        || !active.matches('input, textarea, select, [contenteditable="true"]')) return
+        || !active.matches(TEXT_ENTRY_SELECTOR)) return
       heldRoot = root
       root.setAttribute('data-field-pointer', '')
     }
+    updateFocus()
+    document.addEventListener('focusin', updateFocus)
+    document.addEventListener('focusout', updateFocus)
+    window.addEventListener('pointerup', releaseOnUp, true)
     document.addEventListener('pointerdown', hold, true)
     document.addEventListener('click', release, true)
     window.addEventListener('blur', release)
     document.addEventListener('pointercancel', release, true)
     return () => {
+      window.clearTimeout(releaseTimer)
+      root?.removeAttribute('data-text-entry-focus')
+      document.removeEventListener('focusin', updateFocus)
+      document.removeEventListener('focusout', updateFocus)
+      window.removeEventListener('pointerup', releaseOnUp, true)
       heldRoot?.removeAttribute('data-field-pointer')
       document.removeEventListener('pointerdown', hold, true)
       document.removeEventListener('click', release, true)
@@ -127,9 +155,7 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
 
   useLayoutEffect(() => {
     if (!moreOpen || sidebar) { drag.current = null; return }
-    const previous = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = previous }
+    return lockBodyScroll()
   }, [moreOpen, sidebar])
 
   useEffect(() => {
@@ -180,6 +206,9 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
     if (!moreOpen || sidebar) return
 
     const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
+      // Touch's click is hit-tested on release. Keep the live backdrop until
+      // its own click consumes the tap, so it cannot reach a page control.
+      if (event.pointerType === 'touch') return
       const target = event.target as Node
       if (!shellRef.current?.contains(target) && !secondaryRef.current?.contains(target)) closeTools()
     }
@@ -255,20 +284,21 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
     <div className="tabs-ground" aria-hidden="true" />
     <div className={`tabs-shell${sidebar ? ' shell-sidebar' : ''}${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       {sidebar && identity && <header className="shell-header">{identity}</header>}
+      {sidebar && reviewCount > 0 && <span id={reviewDescriptionId} className="sr-only">{reviewCount} purchases waiting</span>}
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>
         {primary.map((section) => (
           <a
             key={section}
             href={sectionHref(section)}
             className={activeSection === section ? 'active' : ''}
-            aria-label={sectionLabel(section)}
+            aria-label={sectionLabel(section)} aria-describedby={sidebar && section === 'Review' && reviewCount > 0 ? reviewDescriptionId : undefined}
             aria-current={activeSection === section ? 'page' : undefined}
             onClick={(event) => chooseSection(event, section)}
           >
             <SectionIcon section={section} />
             <span className="tabs-label-full">{sectionLabel(section)}</span>
             <span className="tabs-label-short" aria-hidden="true">{sectionLabel(section, true)}</span>
-            {sidebar && section === 'Review' && reviewCount > 0 && <span className="tabs-review-count" aria-label={`${reviewCount} purchases waiting`}>{reviewCount}</span>}
+            {sidebar && section === 'Review' && reviewCount > 0 && <span className="tabs-review-count" aria-hidden="true">{reviewCount}</span>}
           </a>
         ))}
         {!sidebar && hasMore && (
@@ -287,7 +317,7 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
 
           </button>
         )}
-        {sidebar && destinations.map(section => <a key={section} href={sectionHref(section)} aria-label={sectionLabel(section)} aria-current={activeSection === section ? 'page' : undefined} className={activeSection === section ? 'active' : ''} onClick={event => chooseSection(event, section)}><SectionIcon section={section} /><span>{sectionLabel(section)}</span>{section === 'Review' && reviewCount > 0 && <span className="tabs-review-count" aria-label={`${reviewCount} purchases waiting`}>{reviewCount}</span>}</a>)}
+        {sidebar && destinations.map(section => <a key={section} href={sectionHref(section)} aria-label={sectionLabel(section)} aria-describedby={sidebar && section === 'Review' && reviewCount > 0 ? reviewDescriptionId : undefined} aria-current={activeSection === section ? 'page' : undefined} className={activeSection === section ? 'active' : ''} onClick={event => chooseSection(event, section)}><SectionIcon section={section} /><span>{sectionLabel(section)}</span>{section === 'Review' && reviewCount > 0 && <span className="tabs-review-count" aria-hidden="true">{reviewCount}</span>}</a>)}
         {sidebar && tools.length > 0 && <div className="sidebar-tools"><span className="sidebar-group-label">Tools</span>{tools.map(section => <a key={section} href={sectionHref(section)} aria-label={sectionLabel(section)} aria-current={activeSection === section ? 'page' : undefined} className={activeSection === section ? 'active' : ''} onClick={event => chooseSection(event, section)}><SectionIcon section={section} /><span>{sectionLabel(section)}</span></a>)}</div>}
       </nav>
       {sidebar && account && <div className="sidebar-account">{account}</div>}
