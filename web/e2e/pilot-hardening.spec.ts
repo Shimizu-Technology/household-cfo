@@ -11940,6 +11940,7 @@ test('BOG UI a selected coach can open own setup help from Context My Money and 
   await page.locator('.chat-card').getByRole('button', { name: 'Fix my setup', exact: true }).click()
   await expect(help).toBeVisible()
   await help.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(help).toHaveCount(0)
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Help me fix my own household setup.')
   await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
   await expect(help).toBeVisible()

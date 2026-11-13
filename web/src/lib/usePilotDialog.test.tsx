@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { useLayoutEffect, useState } from 'react'
 import { usePilotDialog } from './usePilotDialog'
 
 let frames: Map<number, FrameRequestCallback>
@@ -109,7 +110,27 @@ test('returns to a disclosure summary when its opening action became hidden', ()
   document.body.append(details)
   details.querySelector('button')!.focus()
   const view = render(<Probe />)
+  flushFrames()
   details.open = false
   view.unmount()
   expect(document.activeElement).toBe(details.querySelector('summary'))
+})
+
+test('releases the focus trap and scroll lock before the parent restores focus', () => {
+  const restored = vi.fn()
+  function Dialog({ onClose }: { onClose: () => void }) {
+    const { dialogRef, requestClose } = usePilotDialog(onClose)
+    return <section ref={dialogRef} role="dialog"><button onClick={requestClose}>Dismiss</button></section>
+  }
+  function Parent() {
+    const [open, setOpen] = useState(true)
+    useLayoutEffect(() => {
+      if (!open) restored(document.body.style.overflow)
+    }, [open])
+    return open ? <Dialog onClose={() => setOpen(false)} /> : null
+  }
+  const view = render(<Parent />)
+  expect(document.body.style.overflow).toBe('hidden')
+  fireEvent.click(view.getByRole('button', { name: 'Dismiss' }))
+  expect(restored).toHaveBeenCalledWith('')
 })

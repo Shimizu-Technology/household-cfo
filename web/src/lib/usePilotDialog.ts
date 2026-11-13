@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { flushSync } from 'react-dom'
 import { dialogExit } from './dialogExit'
 import { revealDialogControl } from './dialogFocus'
 
@@ -14,10 +15,13 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
   const onCloseRef = useRef(onClose)
   const onDismissRef = useRef(onDismiss)
   const cancelExit = useRef<(() => void) | null>(null)
+  // CSS completion runs outside React's event lifecycle. Commit dismissal
+  // before a caller's next-frame focus return, while preserving guarded closes.
+  const finishClose = () => flushSync(() => onCloseRef.current())
   const requestClose = () => {
     if (dialogRef.current?.dataset.dialogClosing) return
     onDismissRef.current?.()
-    cancelExit.current = dialogExit(dialogRef.current, () => onCloseRef.current())
+    cancelExit.current = dialogExit(dialogRef.current, finishClose)
   }
 
   useEffect(() => {
@@ -25,7 +29,9 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
     onDismissRef.current = onDismiss
   }, [onClose, onDismiss])
 
-  useEffect(() => {
+  // Release the trap during unmount, before a parent's next-frame focus return.
+  // A passive cleanup can run after that frame, especially in WebKit.
+  useLayoutEffect(() => {
     const token = Symbol('pilot-dialog')
     if (openDialogs.length === 0) overflowBeforeFirstDialog = document.body.style.overflow
     openDialogs.push(token)
@@ -70,7 +76,7 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
         event.preventDefault()
         event.stopPropagation()
         onDismissRef.current?.()
-        cancelExit.current = dialogExit(dialogRef.current, () => onCloseRef.current())
+        cancelExit.current = dialogExit(dialogRef.current, finishClose)
         return
       }
       if (event.key !== 'Tab') return
