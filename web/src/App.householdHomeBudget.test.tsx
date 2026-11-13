@@ -46,23 +46,34 @@ it('says plainly when the plan spends more than comes in, counting debt minimums
   expect(screen.queryByText(/over the plan/)).toBeNull()
 })
 
-it('makes Home money and the visible year lead, with one recommended review action', () => {
+it('leads Needs you with purchase review and keeps one Mia action available', () => {
   const review = vi.fn()
-  const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenBudget={vi.fn()} />)
+  const ask = vi.fn()
+  const openBudget = vi.fn()
+  const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={1} onOpenBudget={openBudget} />)
   expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
   expect(screen.getByText('2 months of breathing room')).toBeTruthy()
   expect(screen.getByText('$2,180')).toBeTruthy()
   expect(container.querySelector('.home-money-values')?.textContent).toContain('$4,020')
   expect(container.querySelector('details .annual-cash-flow-chart')).toBeNull()
-  expect(container.querySelectorAll('button:not(.text-button):not(.cash-flow-month-trigger)')).toHaveLength(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Review 2 purchases' }))
+  const reviewButton = screen.getByRole('button', { name: 'Review 2 purchases' })
+  expect(within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('button')[0]).toBe(reviewButton)
+  fireEvent.click(reviewButton)
   expect(review).toHaveBeenCalledOnce()
-  expect(screen.queryByRole('button', { name: /Tell .+ what changed/ })).toBeNull()
+  expect(screen.getAllByRole('button', { name: /Tell .+ what changed/ })).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
+  expect(ask).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: 'Plan details →' }))
+  expect(openBudget).toHaveBeenCalledOnce()
 })
 
 it('offers one Mia action when purchases are caught up', () => {
-  render(<HomeScreen dashboard={{ ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: 0 } }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  const ask = vi.fn()
+  render(<HomeScreen dashboard={{ ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: 0 } }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
   expect(screen.getAllByRole('button', { name: /Tell .+ what changed/ })).toHaveLength(1)
+  expect(screen.queryByRole('region', { name: 'Needs you' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
+  expect(ask).toHaveBeenCalledOnce()
 })
 
 it('uses one setup primary and one manual alternative on first Home', () => {
@@ -256,3 +267,102 @@ for (const actual of [123, 0]) {
     expect(screen.queryByRole('heading', { name: 'Your spending groups' })).toBeNull()
   })
 }
+
+it.each([
+  ['nothing confirmed', { spent_so_far_cents: null }, false, true],
+  ['typical month', { spent_so_far_cents: 161200 }, true, true],
+  ['missing amounts', { money_in_cents: null, planned_out_cents: null, plan_left_cents: null }, false, false],
+  ['confirmed zero', { money_in_cents: 0, planned_out_cents: 0, plan_left_cents: 0, spent_so_far_cents: 0 }, true, true],
+  ['short month', { money_in_cents: 300000, plan_left_cents: -102000 }, true, true],
+])('draws the Home bar honestly for %s', (_name, changes, hasSpent, hasBar) => {
+  const { container } = render(<HomeScreen dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, ...changes } }} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  const bar = container.querySelector<HTMLElement>('.home-month-answer .ui-bar')
+  expect(Boolean(bar)).toBe(hasBar)
+  expect(Boolean(bar?.querySelector('.ui-bar__spent'))).toBe(hasSpent)
+  if (bar) {
+    expect(bar.getAttribute('aria-hidden')).toBe('true')
+    const spent = Number.parseFloat(bar.style.getPropertyValue('--spent'))
+    const planned = Number.parseFloat(bar.style.getPropertyValue('--planned'))
+    expect(spent).toBeGreaterThanOrEqual(0)
+    expect(planned).toBeGreaterThanOrEqual(0)
+    expect(spent + planned).toBeLessThanOrEqual(100)
+  }
+  const changed: Partial<NonNullable<DashboardData['month_answer']>> = changes
+  if (changed.spent_so_far_cents === null) expect(screen.getByText('Not known yet')).toBeTruthy()
+  if (changed.plan_left_cents != null && changed.plan_left_cents < 0) {
+    expect(screen.getByText('Short of the plan')).toBeTruthy()
+    expect(screen.getByText('$1,020')).toBeTruthy()
+    expect(container.querySelector('.home-month-answer--short')).toBeTruthy()
+  }
+})
+
+it('uses category remainder plus debt minimums, with no pending spending', () => {
+  const { container } = render(<HomeScreen dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: 620000, planned_out_cents: 402000, category_plan_cents: 390000, category_left_cents: 228800, spent_so_far_cents: 161200, pending_cents: 999999 } }} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  const bar = container.querySelector<HTMLElement>('.ui-bar')!
+  expect(Number.parseFloat(bar.style.getPropertyValue('--spent'))).toBeCloseTo(26)
+  expect(Number.parseFloat(bar.style.getPropertyValue('--planned'))).toBeCloseTo(38.8387)
+})
+
+it.each([2, 6, 12])('keeps the exact grouped list and decorates a %s month outlook', count => {
+  const months = plan.annual_outlook.months.slice(12 - count)
+  const sizedPlan = { ...plan, months: plan.months.slice(12 - count), rows: plan.rows.map(row => ({ ...row, months: row.months.slice(12 - count) })), annual_outlook: { ...plan.annual_outlook, months } }
+  const { container } = render(<YearOutlook plan={sizedPlan} currentMonth={11} />)
+  expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
+  expect(container.querySelectorAll('.year-outlook-months button')).toHaveLength(0)
+  expect(container.querySelectorAll('.year-outlook-months .home-outlook-track')).toHaveLength(2)
+  expect(container.querySelectorAll('.home-year-columns .ui-cols__column')).toHaveLength(count >= 4 ? count : 0)
+  expect(container.querySelector('.home-tight-month')?.textContent).toBe('December is your tight month: $680 left after $5,520 planned out.')
+})
+
+it('does not invent a tight month when the year is steady or unknown', () => {
+  const months = plan.annual_outlook.months.map(month => ({ ...month, baseline_surplus: 2180 }))
+  const view = render(<YearOutlook plan={{ ...plan, annual_outlook: { ...plan.annual_outlook, months } }} />)
+  expect(view.container.querySelector('.home-tight-month')).toBeNull()
+  view.rerender(<YearOutlook plan={plan} moneyKnown={false} />)
+  expect(view.container.querySelector('.home-tight-month')).toBeNull()
+  expect(view.container.querySelector('.home-year-columns')).toBeNull()
+})
+
+it('keeps the Mia row and starter prompts useful without adding a second Ask Mia link', () => {
+  const ask = vi.fn(), choose = vi.fn()
+  render(<HomeScreen dashboard={dashboard} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} starterPrompts={[{ label: 'Update my income', message: 'Help me update my income.' }]} onChoosePrompt={choose} />)
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
+  expect(ask).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: 'Update my income' }))
+  expect(choose).toHaveBeenCalledWith('Help me update my income.')
+  expect(screen.queryByRole('link', { name: /Ask Mia/ })).toBeNull()
+})
+
+it('fills Home tracks once per page lifetime and removes movement for reduced motion', () => {
+  const animate = vi.fn()
+  const originalAnimate = Element.prototype.animate
+  Element.prototype.animate = animate
+  class Observer {
+    callback: IntersectionObserverCallback
+    constructor(callback: IntersectionObserverCallback) { this.callback = callback }
+    observe(target: Element) { this.callback([{ target, isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver) }
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('IntersectionObserver', Observer)
+  const media = vi.fn().mockReturnValue({ matches: true })
+  vi.stubGlobal('matchMedia', media)
+  const props = { dashboard: { ...dashboard, readiness_path: { ...dashboard.readiness_path, target_runway_months: 6 } }, budget: {} as ComponentProps<typeof HomeScreen>['budget'], onAskMia: vi.fn(), onReviewTransactions: vi.fn(), onReviewMiaActions: vi.fn(), onReviewImports: vi.fn(), pendingImportCount: 0 } as ComponentProps<typeof HomeScreen>
+  try {
+    const reduced = render(<HomeScreen {...props} />)
+    expect(animate).not.toHaveBeenCalled()
+    reduced.unmount()
+    media.mockReturnValue({ matches: false })
+    const first = render(<HomeScreen {...props} />)
+    expect(animate).toHaveBeenCalledTimes(2)
+    expect(animate.mock.calls[0][1]).toMatchObject({ duration: 400 })
+    first.rerender(<HomeScreen {...props} dashboard={{ ...props.dashboard, month_answer: { ...props.dashboard.month_answer!, spent_so_far_cents: 10000 } }} />)
+    expect(animate).toHaveBeenCalledTimes(2)
+    first.unmount()
+    render(<HomeScreen {...props} />)
+    expect(animate).toHaveBeenCalledTimes(2)
+  } finally {
+    Element.prototype.animate = originalAnimate
+    vi.unstubAllGlobals()
+  }
+})

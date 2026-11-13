@@ -2161,7 +2161,8 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
   await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)
-  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
+  await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
+  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
   await home.getByRole('button', { name: 'Review 2 purchases' }).click()
   await expect(page).toHaveURL(/#Review$/)
 })
@@ -2184,6 +2185,104 @@ test('BOG UI household Home respects the shared penny-level answer instead of re
   await expect(answer).toContainText('What’s left · planned$0.70')
   await expect(answer).not.toContainText('over the plan')
 })
+
+test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ page }) => {
+  await page.goto('/')
+  const home = page.locator('.home-screen')
+  await expect(home.locator('.home-month-answer.ui-answer')).toBeVisible()
+  const marks = await home.evaluate(root => {
+    const answer = root.querySelector('.home-month-answer')!
+    const bar = answer.querySelector<HTMLElement>('.ui-bar')!
+    const row = root.querySelector('.home-needs-you .ui-row')!
+    const figure = root.querySelector('.home-money-values .is-hero dd')!
+    return {
+      first: root.children[1] === answer,
+      hidden: bar.getAttribute('aria-hidden'),
+      sum: parseFloat(bar.style.getPropertyValue('--spent')) + parseFloat(bar.style.getPropertyValue('--planned')),
+      rowRadius: getComputedStyle(row).borderRadius,
+      rowHeight: row.getBoundingClientRect().height,
+      figureFits: figure.scrollWidth <= figure.clientWidth + 1,
+      overflow: document.documentElement.scrollWidth > innerWidth,
+    }
+  })
+  expect(marks.first).toBe(true)
+  expect(marks.hidden).toBe('true')
+  expect(marks.sum).toBeLessThanOrEqual(100)
+  expect(marks.rowRadius).toBe('0px')
+  expect(marks.rowHeight).toBeGreaterThanOrEqual(56)
+  expect(marks.figureFits).toBe(true)
+  expect(marks.overflow).toBe(false)
+  await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
+  await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
+  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
+})
+
+test('BOG UI Home fits its own column before adding a right rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const layout = page.locator('.home-layout')
+  for (const [width, columns] of [[639, 1], [640, 2], [959, 2], [960, 3]] as const) {
+    await layout.evaluate((root, size) => { root.style.width = `${size}px` }, width)
+    const positions = await page.locator('.home-screen').evaluate(root => {
+      const rect = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().toJSON()
+      return { columns: getComputedStyle(root).gridTemplateColumns.split(' ').length, answer: rect('.home-month-answer'), cushion: rect('.home-cushion'), needs: rect('.home-needs-you'), mia: rect('.home-mia'), year: rect('.year-outlook') }
+    })
+    expect(positions.columns).toBe(columns)
+    if (columns === 2) {
+      expect(positions.cushion.y).toBe(positions.answer.y)
+      expect(positions.needs.y).toBeGreaterThanOrEqual(positions.answer.bottom)
+      expect(positions.needs.y).toBeLessThan(positions.year.y)
+    }
+    if (columns === 3) {
+      expect(positions.needs.y).toBe(positions.answer.y)
+      expect(positions.mia.x).toBe(positions.needs.x)
+    }
+  }
+})
+
+test('BOG UI Home keeps one working Mia action with and without purchases waiting', async ({ page }) => {
+  for (const count of [2, 0]) {
+    await page.route('http://api.test/api/demo/dashboard', route => route.fulfill({ json: { ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: count } } }))
+    await page.goto('/')
+    const home = page.locator('.home-screen')
+    if (count > 0) await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
+    const mia = home.getByRole('button', { name: 'Tell Mia what changed' })
+    await expect(mia).toHaveCount(1)
+    await mia.click()
+    await expect(page).toHaveURL(/#Ask%20Mia$/)
+    await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  }
+})
+
+test('BOG UI Home starter prompt keeps App composer focus without sending', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const sent: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/mia/messages')) sent.push(request.url()) })
+  await page.locator('.home-mia').getByRole('button', { name: 'Update my income', exact: true }).click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(composer).toHaveValue('Help me update my household income sources and schedules.')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(composer).toBeFocused()
+  expect(sent).toEqual([])
+})
+
+for (const draft of ['text', 'files', 'text and files']) {
+  test(`BOG UI Home starter prompt preserves an unsent App draft with ${draft}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    const text = draft.includes('text') ? 'Keep my own question about these purchases.' : ''
+    await composer.fill(text)
+    if (draft.includes('files')) await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'QA-draft-statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await page.locator('.home-mia').getByRole('button', { name: 'Update my income', exact: true }).click()
+    await expect(composer).toHaveValue(text)
+    await expect(page.getByText('Your message and files are waiting here. Send or clear them before choosing another prompt.', { exact: true })).toBeVisible()
+    if (draft.includes('files')) await expect(page.getByRole('button', { name: 'Remove QA-draft-statement.pdf', exact: true })).toBeVisible()
+  })
+}
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
