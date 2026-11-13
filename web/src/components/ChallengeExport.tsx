@@ -66,7 +66,7 @@ function Export({ scope, cohortId, variant = 'panel' }: ExportProps) {
   return (
     <details className={variant === 'row' ? 'savings-row-group savings-export' : 'challenge-personal-export'}>
       {variant === 'row'
-        ? <summary className="savings-row"><SavingsRowContent label="Download your record" description="Keep or print a private copy" /></summary>
+        ? <summary className="savings-row ui-row"><SavingsRowContent label="Download your record" description="Keep or print a private copy" /></summary>
         : <summary>Download your record</summary>}
       <div className={variant === 'row' ? 'savings-row-body' : undefined}>
       <p>

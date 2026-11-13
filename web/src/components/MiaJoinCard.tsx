@@ -4,6 +4,7 @@ import { formatRange } from '../lib/plainDates'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import type { SavingsChallenge } from '../lib/savingsChallenge'
 import './MiaDailyCheckIn.css'
+import './MiaJoinCard.css'
 
 type Props = { onJoined: () => void; onDone: () => void }
 
@@ -77,29 +78,29 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
 
   if (joined) {
-    return <section className="mia-daily-card mia-action-card is-saved" aria-label="You joined the challenge"><h3 ref={heading} tabIndex={-1}>You’re in. Welcome to the challenge.</h3><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p><button type="button" className="mia-daily-dismiss" onClick={onDone}>Done</button></section>
+    return <section className="mia-daily-card mia-action-card mia-join-card ui-card is-saved" aria-label="You joined the challenge"><h3 ref={heading} tabIndex={-1}>You’re in. Welcome to the challenge.</h3><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" onClick={onDone}>Done</button></section>
   }
   if (alreadyIn) return null
   if (loadFailed) {
-    return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setRefreshing(true); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss" onClick={onDone}>Not now</button></div></section>
+    return <section className="mia-daily-card mia-action-card mia-join-card ui-card" aria-label="Join the challenge"><h3>Join the 90-day savings challenge</h3><p role="alert">We couldn’t load the joining details. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button ui-btn ui-btn--tonal" onClick={() => { setLoadFailed(false); setRefreshing(true); setAttempt(value => value + 1) }}>Try again</button><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" onClick={onDone}>Not now</button></div></section>
   }
-  if (!challenge || !offer) return <section className="mia-daily-card mia-action-card" aria-label="Join the challenge" aria-busy="true"><h3>Join the 90-day savings challenge</h3><p role="status">Getting your joining details…</p></section>
+  if (!challenge || !offer) return <section className="mia-daily-card mia-action-card mia-join-card ui-card" aria-label="Join the challenge" aria-busy="true"><h3>Join the 90-day savings challenge</h3><p role="status">Getting your joining details…</p></section>
 
   const needsLate = Boolean(offer.late_start_acceptance_required)
-  return <section ref={card} className="mia-daily-card mia-action-card" aria-label="Join the challenge" aria-busy={busy}>
+  return <section ref={card} className="mia-daily-card mia-action-card mia-join-card ui-card" aria-label="Join the challenge" aria-busy={busy}>
     <h3>Join the 90-day savings challenge</h3>
     <p><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on) : 'dates not set yet'}</strong><br /><span className="mia-daily-hint">{offer.cohort_label}</span></p>
     <p className="mia-daily-hint">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
     <fieldset className="mia-card-checks" disabled={busy || refreshing || !offer.accepting_enrollments}>
-      <label className="mia-card-check"><input type="checkbox" checked={participation} onChange={event => setParticipation(event.target.checked)} /><span>I’ve read this and accept joining the challenge.</span></label>
-      {needsLate && <label className="mia-card-check"><input type="checkbox" checked={lateAcceptance} onChange={event => setLateAcceptance(event.target.checked)} /><span>I accept that my 90 days start later than the group’s, as shown above.</span></label>}
+      <label className="mia-card-check ui-check"><input type="checkbox" checked={participation} onChange={event => setParticipation(event.target.checked)} /><span>I’ve read this and accept joining the challenge.</span></label>
+      {needsLate && <label className="mia-card-check ui-check"><input type="checkbox" checked={lateAcceptance} onChange={event => setLateAcceptance(event.target.checked)} /><span>I accept that my 90 days start later than the group’s, as shown above.</span></label>}
     </fieldset>
     {!offer.accepting_enrollments && <p role="status">This group isn’t taking new members right now.</p>}
     {error && <p role="alert">{error}</p>}
     {refreshing && <p role="status">Getting the updated joining details…</p>}
     <div className="mia-daily-actions">
-      <button type="button" className="mia-daily-save" disabled={busy || refreshing || !offer.accepting_enrollments || !participation || (needsLate && !lateAcceptance)} onClick={() => void join()}>{busy ? 'Joining…' : 'Accept and join'}</button>
-      <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={onDone}>Not now</button>
+      <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy || refreshing || !offer.accepting_enrollments || !participation || (needsLate && !lateAcceptance)} onClick={() => void join()}>{busy ? 'Joining…' : 'Accept and join'}</button>
+      <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={onDone}>Not now</button>
     </div>
     <p className="mia-daily-footnote">You’re not joined until you tap Accept and join.</p>
   </section>

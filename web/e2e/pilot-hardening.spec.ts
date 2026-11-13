@@ -9244,7 +9244,7 @@ test('BOG UI private source PDF opens only after fresh content reads and release
 })
 
 
-async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncertainEntry?: boolean; manyDrafts?: boolean; ended?: boolean; staleOffer?: boolean } = {}) {
+async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncertainEntry?: boolean; manyDrafts?: boolean; ended?: boolean; staleOffer?: boolean; timeline?: boolean } = {}) {
   const scopedChallenge = (enrolled = true): SavingsChallenge => {
     const value = { ...savingsFixture(enrolled), cohort_id: 41 }
     if (value.enrollment) value.enrollment.cohort_id = 41
@@ -9252,6 +9252,20 @@ async function openSavingsHome(page: Page, options: { enrolled?: boolean; uncert
   }
   let challenge: SavingsChallenge = scopedChallenge(options.enrolled !== false)
   if (options.ended) { challenge.calendar = { ...challenge.calendar!, local_today: '2027-01-02', phase: 'window_ended', day: 90 }; challenge.projection!.cutoff_on = '2026-12-29' }
+  if (options.timeline) {
+    // All 90 days, so the strip's own layout is exercised: the first week checked in, the rest still to come.
+    challenge.timeline = {
+      checkpoints_due: [],
+      days: Array.from({ length: 90 }, (_, index) => ({
+        day: index + 1,
+        local_on: new Date(Date.UTC(2026, 9, 4 + index)).toISOString().slice(0, 10),
+        future: index >= 7,
+        check_in: index < 7 ? 'no_spend' as const : 'unknown' as const,
+        purchase_count: 0,
+        deposit_cents: index === 2 ? 2500 : 0,
+      })),
+    }
+  }
   let revoked = false
   const plans: SavingsPlanDraft[] = []
   const drafts: SavingsEntryDraft[] = options.manyDrafts ? Array.from({ length: 25 }, (_, index) => ({ ...savingsEntryDraft(100 * (index + 1)), id: index + 1 })) : []
@@ -9498,12 +9512,24 @@ test('BOG UI savings Home postpones target and reports historical actuals inside
 })
 
 test('BOG UI savings Home captures accessible desktop and narrow-phone layouts', async ({ page }, testInfo) => {
-  const { home } = await openSavingsHome(page)
+  const { home } = await openSavingsHome(page, { timeline: true })
   await expect(home.getByRole('article', { name: 'Approved savings progress' })).toBeVisible()
   await page.evaluate(() => document.fonts.ready)
   await page.screenshot({ path: testInfo.outputPath('savings-home-viewport.png') })
   await page.screenshot({ path: testInfo.outputPath('savings-home-full.png'), fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  // The 90 days are a grid from 1024px; below that the strip scrolls inside itself, never the page.
+  const days = home.locator('.challenge-days')
+  await expect(days.getByRole('button')).toHaveCount(90)
+  const fits = await days.evaluate(element => element.scrollWidth <= element.clientWidth)
+  const swipeHint = home.getByText('Swipe for all 90 days')
+  if (page.viewportSize()!.width >= 1024) {
+    expect(fits).toBe(true)
+    await expect(swipeHint).toBeHidden()
+  } else {
+    expect(fits).toBe(false)
+    await expect(swipeHint).toBeVisible()
+  }
 })
 
 
