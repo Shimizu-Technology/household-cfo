@@ -40,10 +40,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/BankActivityResumeDialog.css\",\"shadow\",[],\".bank-resume-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .baseline-dialog.
   "[\"src/components/BaselineReview.css\",\"shadow\",[],\".baseline-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .challenge-privacy-dialog.
-  "[\"src/components/ChallengePrivacyDialog.css\",\"shadow\",[],\".challenge-privacy-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .daily-dialog.
-  "[\"src/components/ChallengeToday.css\",\"shadow\",[],\".daily-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .coach-source-guard.
   "[\"src/components/CoachContentSources.css\",\"shadow\",[],\".coach-source-guard\",\"box-shadow: var(--shadow-soft)\"]",
   // Intentional floating surface or focus ring: .cohort-release-modal.
@@ -78,8 +74,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/App.css\",\"side-border\",[],\".document-processing-state span\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
   // Intentional floating surface or focus ring: .document-preview-spinner.
   "[\"src/App.css\",\"side-border\",[],\".document-preview-spinner\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .savings-home .savings-secondary, .savings-home .savings-action.
-  "[\"src/components/SavingsChallengeHome.css\",\"side-border\",[],\".savings-home .savings-secondary, .savings-home .savings-action\",\"border: 1.5px solid var(--emerald)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .evidence-legs.
   "[\"src/components/SavingsEvidenceDialog.css\",\"side-border\",[],\".evidence-legs\",\"border-left: 2px solid var(--line,#cad6d2)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .opening-progress-indicator.

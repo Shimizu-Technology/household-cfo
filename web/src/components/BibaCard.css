@@ -1,0 +1,11 @@
+/* A completed milestone gets one quiet celebration, never a looping effect. */
+section.biba-card { animation: savings-biba-in var(--duration-enter) var(--ease-out) both; }
+section.biba-card > :is(h3, p, button) { animation: savings-biba-copy 180ms var(--ease-out) both; }
+section.biba-card > h3 { animation-delay: 40ms; }
+section.biba-card > p { animation-delay: 80ms; }
+section.biba-card > button { animation-delay: 120ms; }
+@keyframes savings-biba-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
+@keyframes savings-biba-copy { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) {
+  section.biba-card, section.biba-card > :is(h3, p, button) { animation: none; }
+}

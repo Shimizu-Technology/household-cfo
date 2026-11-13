@@ -134,3 +134,30 @@ test('BOG UI chat savings approval preserves its Saved notice and open entry pan
   await expect(home.getByLabel('Amount in US dollars', { exact: true })).toHaveValue('')
   expect(approved).toBe(true)
 })
+
+
+test('BOG UI Today keeps the selected tab and content position during a background refresh', async ({ page }) => {
+  await mockSavingsHome(page, true)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await page.getByRole('button', { name: 'Open today’s saved items', exact: true }).click()
+  const today = page.getByRole('dialog', { name: 'Today', exact: true })
+  await today.getByRole('button', { name: 'Checkpoints', exact: true }).click()
+  const heading = today.getByRole('heading', { name: 'Checkpoints', exact: true })
+  await expect(heading).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  const before = await heading.boundingBox()
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  await page.route('http://api.test/api/v1/savings_challenge/daily', async route => {
+    await held
+    await route.fallback()
+  })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect(today.getByRole('status').filter({ hasText: 'Loading today…' })).toHaveCount(1)
+  await expect(today.locator('.daily-loading')).toHaveCount(0)
+  await expect(today.getByRole('button', { name: 'Checkpoints', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const during = await heading.boundingBox()
+  expect(Math.abs(during!.y - before!.y)).toBeLessThanOrEqual(1)
+  release()
+  await expect(today.locator('.daily-refreshing')).toHaveCount(0)
+})
