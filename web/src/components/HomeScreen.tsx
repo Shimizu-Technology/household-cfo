@@ -64,7 +64,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
   const barStyle = { '--spent': `${income > 0 ? spent / income * 100 : 0}%`, '--planned': `${income > 0 ? Math.min(income - spent, stillPlanned) / income * 100 : 0}%` } as CSSProperties
   const miaName = `Tell ${assistantName} what changed`
   const miaContent = <><span className="ui-monogram" aria-hidden="true" data-initial={Array.from(assistantName)[0]} /><span className="ui-row__body"><span className="ui-row__title">{miaName}</span></span><Chevron /></>
-  return <section ref={screenRef} className="screen-grid home-screen">
+  return <div className="home-layout"><section ref={screenRef} className="screen-grid home-screen">
     <div className="screen-heading home-heading">
       <h2 data-page-heading tabIndex={-1}>Home</h2>
       <p>{actionCenter.current_month_label}{actionCenter.current_year !== Number(guamTodayIso().slice(0, 4)) ? ` ${actionCenter.current_year}` : ''}</p>
@@ -102,12 +102,12 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
       </>}
     </section>
     {plan && <YearOutlook plan={plan} currentMonth={answer?.month ?? actionCenter.current_month_index + 1} moneyKnown={incomeKnown && planKnown && answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
-    {onOpenBudget && <p className="home-plan-link"><a className="ui-row" href="#Budget" onClick={event => { event.preventDefault(); onOpenBudget() }}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Plan details →</span><Chevron /></a></p>}
+    {onOpenBudget && <p className="home-plan-link"><button className="ui-btn ui-btn--text" type="button" onClick={onOpenBudget}>Plan details →</button></p>}
     {canAskMia && <section className="home-mia ui-card" aria-label={assistantName}>
-      {purchaseCount > 0 ? <a className="ui-row" href="#Ask%20Mia" onClick={event => { event.preventDefault(); onAskMia() }}>{miaContent}</a> : <div className="home-next-action"><button className="ui-row" type="button" onClick={onAskMia}>{miaContent}</button></div>}
+      <div className="home-next-action"><button className="ui-row" type="button" onClick={onAskMia}>{miaContent}</button></div>
       {onChoosePrompt && <div className="home-mia-prompts">{starterPrompts.map(prompt => <button type="button" className="ui-chip" key={prompt.label} onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>)}</div>}
     </section>}
-  </section>
+  </section></div>
 }
 
 function Chevron() {

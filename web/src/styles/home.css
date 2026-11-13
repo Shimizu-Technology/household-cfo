@@ -1,5 +1,6 @@
 /* Home owns its contents; the shell owns outside spacing. */
-.home-screen { gap: var(--space-4); align-items: start; }
+.home-layout { container: home-layout / inline-size; min-width: 0; }
+.home-screen { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); align-items: start; }
 .home-screen > .home-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); padding: 0; }
 .home-screen > .home-heading h2, .home-welcome-panel h2, .budget-screen > .screen-heading h2 { margin: 0; }
 .home-screen > .home-heading p { margin: 0; color: var(--muted); }
@@ -28,7 +29,7 @@
 .home-spent .ui-dot { width: 7px; height: 7px; margin-inline-end: 6px; }
 .home-answer-recovery, .home-answer-pending { grid-column: 1 / -1; margin-top: var(--space-3); }
 .home-month-answer--short .home-money-values > div:first-child dt { color: var(--on-brand-deep); }
-.home-month-answer--short .home-money-values > div:first-child dd { text-decoration: underline; text-decoration-color: var(--data-deep-spent); text-decoration-thickness: 2px; text-underline-offset: 8px; }
+.home-month-answer--short .home-money-values > div:first-child dt::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-inline-end: 6px; border-radius: 50%; background: var(--data-deep-spent); }
 .home-cushion h3, .home-screen .year-outlook h3 { border: 0; padding: 0; margin: 0 0 var(--space-3); color: var(--ink); font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); }
 .home-cushion p, .year-outlook p { margin: var(--space-2) 0; line-height: 1.5; }
 .home-cushion > p { color: var(--muted); font-size: var(--text-sm); }
@@ -37,6 +38,7 @@
 .home-cushion .home-cushion-goal { font-size: var(--text-xs); }
 .home-needs-heading { display: none; }
 .home-plan-link { margin: 0; }
+body #root .home-plan-link .ui-btn { padding-inline: 0; border-radius: 0; }
 .home-mia-prompts { display: none; }
 .home-mia .ui-row { min-width: 0; }
 .home-screen .home-mia.ui-card { padding-block: var(--space-2); }
@@ -65,7 +67,18 @@
 .home-welcome-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 .home-welcome-panel .year-outlook { margin-top: var(--space-5); padding: var(--space-4) 0 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
 .home-welcome-panel .home-setup-missing { margin: 0; }
-@media (min-width: 1024px) {
+/* Home responds to its allotted column, including beside the shell sidebar. */
+@container home-layout (min-width: 640px) {
+  .home-screen { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: var(--space-5); }
+  .home-screen > .home-heading { grid-column: 1 / -1; }
+  .home-month-answer { grid-column: 1; grid-row: 2; align-self: stretch; align-content: start; }
+  .home-cushion { grid-column: 2; grid-row: 2; align-self: stretch; }
+  .home-needs-you { grid-column: 1 / -1; grid-row: 3; }
+  .home-screen > .year-outlook { grid-column: 1 / -1; grid-row: 4; }
+  .home-plan-link { grid-column: 1 / -1; grid-row: 5; }
+  .home-mia { grid-column: 1 / -1; grid-row: 6; }
+}
+@container home-layout (min-width: 960px) {
   .home-screen { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(240px, 1fr); gap: var(--space-5); }
   .home-screen > .home-heading { grid-column: 1 / -1; }
   .home-month-answer { grid-column: 1; grid-row: 2; align-self: stretch; align-content: start; }

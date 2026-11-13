@@ -46,23 +46,34 @@ it('says plainly when the plan spends more than comes in, counting debt minimums
   expect(screen.queryByText(/over the plan/)).toBeNull()
 })
 
-it('makes Home money and the visible year lead, with one recommended review action', () => {
+it('leads Needs you with purchase review and keeps one Mia action available', () => {
   const review = vi.fn()
-  const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenBudget={vi.fn()} />)
+  const ask = vi.fn()
+  const openBudget = vi.fn()
+  const { container } = render(<HomeScreen dashboard={dashboard} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={review} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={1} onOpenBudget={openBudget} />)
   expect(container.querySelectorAll('.year-outlook-months > li')).toHaveLength(2)
   expect(screen.getByText('2 months of breathing room')).toBeTruthy()
   expect(screen.getByText('$2,180')).toBeTruthy()
   expect(container.querySelector('.home-money-values')?.textContent).toContain('$4,020')
   expect(container.querySelector('details .annual-cash-flow-chart')).toBeNull()
-  expect(container.querySelectorAll('button:not(.text-button):not(.cash-flow-month-trigger)')).toHaveLength(1)
-  fireEvent.click(screen.getByRole('button', { name: 'Review 2 purchases' }))
+  const reviewButton = screen.getByRole('button', { name: 'Review 2 purchases' })
+  expect(within(screen.getByRole('region', { name: 'Needs you' })).getAllByRole('button')[0]).toBe(reviewButton)
+  fireEvent.click(reviewButton)
   expect(review).toHaveBeenCalledOnce()
-  expect(screen.queryByRole('button', { name: /Tell .+ what changed/ })).toBeNull()
+  expect(screen.getAllByRole('button', { name: /Tell .+ what changed/ })).toHaveLength(1)
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
+  expect(ask).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: 'Plan details →' }))
+  expect(openBudget).toHaveBeenCalledOnce()
 })
 
 it('offers one Mia action when purchases are caught up', () => {
-  render(<HomeScreen dashboard={{ ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: 0 } }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  const ask = vi.fn()
+  render(<HomeScreen dashboard={{ ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: 0 } }} budget={{ annual_plan: plan } as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
   expect(screen.getAllByRole('button', { name: /Tell .+ what changed/ })).toHaveLength(1)
+  expect(screen.queryByRole('region', { name: 'Needs you' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
+  expect(ask).toHaveBeenCalledOnce()
 })
 
 it('uses one setup primary and one manual alternative on first Home', () => {
@@ -315,7 +326,7 @@ it('does not invent a tight month when the year is steady or unknown', () => {
 it('keeps the Mia row and starter prompts useful without adding a second Ask Mia link', () => {
   const ask = vi.fn(), choose = vi.fn()
   render(<HomeScreen dashboard={dashboard} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={ask} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} starterPrompts={[{ label: 'Update my income', message: 'Help me update my income.' }]} onChoosePrompt={choose} />)
-  fireEvent.click(screen.getByRole('link', { name: /Tell .+ what changed/ }))
+  fireEvent.click(screen.getByRole('button', { name: /Tell .+ what changed/ }))
   expect(ask).toHaveBeenCalledOnce()
   fireEvent.click(screen.getByRole('button', { name: 'Update my income' }))
   expect(choose).toHaveBeenCalledWith('Help me update my income.')

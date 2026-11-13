@@ -2145,7 +2145,7 @@ test('BOG UI household Home keeps known debt and unknown liquid guidance distinc
   await expect(page.locator('.home-cushion')).toContainText('Add the missing starting numbers')
   await expect(page.locator('.home-screen')).not.toContainText('Safe to spend')
   await expect(page.locator('.home-money-values')).toContainText('$15,000')
-  await page.getByRole('link', { name: 'Plan details →' }).click()
+  await page.getByRole('button', { name: 'Plan details →' }).click()
   await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in debt minimums.')
 })
 
@@ -2161,7 +2161,8 @@ test('BOG UI household Home leads with the shared money answer, visible runway a
   await expect(home.getByRole('heading', { name: '0.5 months of breathing room' })).toBeVisible()
   await expect(home.locator('.year-outlook-months')).toContainText('Holiday travel')
   await expect(home.locator('.cash-flow-month')).toHaveCount(0)
-  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(0)
+  await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
+  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
   await home.getByRole('button', { name: 'Review 2 purchases' }).click()
   await expect(page).toHaveURL(/#Review$/)
 })
@@ -2213,7 +2214,44 @@ test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ p
   expect(marks.overflow).toBe(false)
   await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
   await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
-  await expect(home.getByRole('link', { name: 'Tell Mia what changed' })).toHaveCount(1)
+  await expect(home.getByRole('button', { name: 'Tell Mia what changed' })).toHaveCount(1)
+})
+
+test('BOG UI Home fits its own column before adding a right rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const layout = page.locator('.home-layout')
+  for (const [width, columns] of [[639, 1], [640, 2], [959, 2], [960, 3]] as const) {
+    await layout.evaluate((root, size) => { root.style.width = `${size}px` }, width)
+    const positions = await page.locator('.home-screen').evaluate(root => {
+      const rect = (selector: string) => root.querySelector(selector)!.getBoundingClientRect().toJSON()
+      return { columns: getComputedStyle(root).gridTemplateColumns.split(' ').length, answer: rect('.home-month-answer'), cushion: rect('.home-cushion'), needs: rect('.home-needs-you'), mia: rect('.home-mia'), year: rect('.year-outlook') }
+    })
+    expect(positions.columns).toBe(columns)
+    if (columns === 2) {
+      expect(positions.cushion.y).toBe(positions.answer.y)
+      expect(positions.needs.y).toBeGreaterThanOrEqual(positions.answer.bottom)
+      expect(positions.needs.y).toBeLessThan(positions.year.y)
+    }
+    if (columns === 3) {
+      expect(positions.needs.y).toBe(positions.answer.y)
+      expect(positions.mia.x).toBe(positions.needs.x)
+    }
+  }
+})
+
+test('BOG UI Home keeps one working Mia action with and without purchases waiting', async ({ page }) => {
+  for (const count of [2, 0]) {
+    await page.route('http://api.test/api/demo/dashboard', route => route.fulfill({ json: { ...dashboard, action_center: { ...dashboard.action_center, transaction_review_count: count } } }))
+    await page.goto('/')
+    const home = page.locator('.home-screen')
+    if (count > 0) await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
+    const mia = home.getByRole('button', { name: 'Tell Mia what changed' })
+    await expect(mia).toHaveCount(1)
+    await mia.click()
+    await expect(page).toHaveURL(/#Ask%20Mia$/)
+    await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+  }
 })
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
