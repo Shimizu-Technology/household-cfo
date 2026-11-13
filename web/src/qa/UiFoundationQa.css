@@ -1,0 +1,20 @@
+/* Preview composition only. All product primitives come from ui.css. */
+.qa-foundation { max-width: 1160px; margin: 0 auto; padding: 28px 16px max(28px, env(safe-area-inset-bottom)); }
+.qa-heading { margin-bottom: 28px; }
+.qa-heading p { color: var(--muted); }
+.qa-brands { display: grid; gap: 32px; }
+.qa-brand { display: grid; align-content: start; gap: 12px; min-width: 0; padding: 16px; border-radius: var(--radius-lg); background: var(--surface-ground); color: var(--ink); font-family: var(--font-body); }
+.qa-brand > header { padding: 2px 0 6px; }
+.qa-brand > header p { margin: 4px 0 8px; }
+.qa-subtitle { font-size: var(--text-xs); color: var(--muted); }
+.qa-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+.qa-fields { display: grid; gap: 16px; }
+.qa-fields > label:not(.ui-check) { display: grid; gap: 6px; min-width: 0; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.qa-fields .ui-field { width: 100%; }
+.qa-fields .qa-actions > button:not(.ui-btn) { min-height: 44px; padding: 10px 16px; }
+.qa-chart-note { margin: 12px 0 18px; font-size: var(--text-sm); line-height: 1.5; }
+.qa-chart-note:last-child { margin-bottom: 0; }
+.qa-native-dialog { width: min(440px, calc(100% - 32px)); max-height: var(--dialog-available-height); }
+@media (min-width: 1024px) { .qa-brands { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
+@media (max-width: 620px) { .qa-foundation { padding-inline: 0; } .qa-heading { padding-inline: 16px; } .qa-brand { padding: 16px; border-radius: 0; } }
+.qa-chart-note strong { font-weight: var(--weight-semibold); }
