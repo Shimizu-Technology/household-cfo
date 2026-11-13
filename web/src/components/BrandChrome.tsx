@@ -2,6 +2,12 @@ import { useState } from 'react'
 import type { BrandConfig } from '../api'
 import { useBrand } from '../contexts/brandContextValue'
 
+export function BrandWordmark({ brand }: { brand: BrandConfig }) {
+  return brand.organization_name === 'Household CFO Method'
+    ? <span className="brand-wordmark">The <em>Household CFO</em></span>
+    : <span className="brand-wordmark">{brand.short_name}</span>
+}
+
 export function BrandLogo({ brand }: { brand: BrandConfig }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const showLogo = Boolean(brand.logo_url && failedUrl !== brand.logo_url)

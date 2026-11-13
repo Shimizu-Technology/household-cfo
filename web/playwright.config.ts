@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    // Reduced motion removes every animation and transition, so a dialog or sheet is in
+    // Reduced motion removes movement, so a dialog or sheet is in
     // its resting place the moment it exists and layout can be measured without waiting.
     // 'BOG UI dialogs rise into place...' opts back in to check the entry motion itself.
     contextOptions: { reducedMotion: 'reduce' },
@@ -23,7 +23,7 @@ export default defineConfig({
     { name: 'desktop-chrome', use: { ...devices['Desktop Chrome'], channel: chromeChannel } },
     {
       name: 'tablet-768-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
+
       use: {
         channel: chromeChannel,
         viewport: { width: 768, height: 1024 },
@@ -33,7 +33,7 @@ export default defineConfig({
     },
     {
       name: 'tablet-1024-chrome',
-      grep: /large financial values|participant navigation remains available|participant links preserve|desktop Tools|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
+
       use: {
         channel: chromeChannel,
         viewport: { width: 1024, height: 768 },
@@ -63,7 +63,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview|Coach Studio|Mia memory|BOG UI|Admin UI|Auth recovery/,
+
       use: {
         browserName: 'webkit',
         viewport: { width: 390, height: 844 },

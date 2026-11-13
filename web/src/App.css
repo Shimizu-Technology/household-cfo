@@ -10192,7 +10192,7 @@ h3 {
 .is-chat-page .shell-mia-button { display: none; }
 .is-chat-page .account-pill { min-height: 0; padding: 4px 8px; }
 .is-chat-page .tabs a { min-height: 44px; }
-.is-chat-page > .mia-screen { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+.is-chat-page .shell-main > .mia-screen { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
 .mia-page-heading { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 8px; position: relative; }
 .is-chat-page .screen-heading { min-width: 0; padding: 0; }
 .is-chat-page .screen-heading .eyebrow, .is-chat-page .screen-heading > p { display: none; }
