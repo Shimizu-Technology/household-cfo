@@ -10,8 +10,10 @@ import { BrandDocument } from '../components/BrandDocument'
 import { WorkspaceOpening } from '../components/WorkspaceOpening'
 import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { SignInButton } from '../components/AuthControls'
+import '../styles/tokens.css'
 import '../index.css'
-import '../App.css'
+import '../appStyles'
+import '../styles/opening.css'
 import '../dialogViewport.css'
 
 // This isolated DEV entry exercises the actual program/session/actor gates. Its

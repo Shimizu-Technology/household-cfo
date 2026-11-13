@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
+import { PublicBrandMark } from './PublicBrandMark'
 import './WorkspaceOpening.css'
 
 export function OpeningProgress({ status }: { status: string }) {
@@ -10,20 +11,20 @@ export function OpeningProgress({ status }: { status: string }) {
 export function WorkspaceOpening({ status, error, onRetry, recovery, children }: {
   status: string; error?: string | null; onRetry?: () => void; recovery?: ReactNode; children?: ReactNode
 }) {
-  const { brand, status: brandStatus } = useBrand()
+  const { status: brandStatus } = useBrand()
   const [slow, setSlow] = useState(false)
   useEffect(() => {
     const timer = window.setTimeout(() => setSlow(true), 8_000)
     return () => window.clearTimeout(timer)
   }, [])
   return <main className="workspace-opening">
-    <section className="workspace-opening-panel" aria-label="Opening workspace" aria-busy={!error}>
-      <p className="workspace-opening-brand" title={brandStatus === 'ready' ? brand.organization_name : undefined}>{brandStatus === 'ready' ? brand.organization_name : 'Secure workspace'}</p>
+    <PublicBrandMark pending={brandStatus !== 'ready'} />
+    <section className="workspace-opening-panel ui-card" aria-label="Opening workspace" aria-busy={!error}>
       <h1>{error ? 'We couldn’t open your workspace' : 'Opening your workspace…'}</h1>
       {error ? <p className="workspace-opening-error" role="alert">{error}</p> : <OpeningProgress status={status} />}
       {(error || slow) && <div className="workspace-opening-recovery">
         {!error && <p>This is taking a little longer. You can keep waiting or try again.</p>}
-        {onRetry && <button type="button" className="secondary-button" onClick={onRetry}>Try again</button>}
+        {onRetry && <button type="button" className="ui-btn ui-btn--primary" onClick={onRetry}>Try again</button>}
         {recovery}
       </div>}
       {children}

@@ -1,4 +1,5 @@
 import { WorkspaceOpening } from './WorkspaceOpening'
+import { PublicBrandMark } from './PublicBrandMark'
 import { useBrand } from '../contexts/brandContextValue'
 
 export function BrandBootstrapState() {
@@ -8,15 +9,14 @@ export function BrandBootstrapState() {
   if (loading) return <WorkspaceOpening status="Checking your program…" onRetry={retry} />
 
   return (
-    <main className="brand-bootstrap-state">
-      <section className="brand-bootstrap-panel" aria-busy={loading} aria-live="polite">
-        <span className="brand-bootstrap-mark" aria-hidden="true">{Array.from(brand.short_name.trim())[0]?.toUpperCase()}</span>
-        <p className="eyebrow">{loading ? 'Opening your program' : brand.organization_name}</p>
+    <main className="brand-bootstrap-state public-state">
+      <PublicBrandMark />
+      <section className="brand-bootstrap-panel ui-card" aria-busy={loading} aria-live="polite">
         <h1>{loading ? 'Loading your coaching workspace…' : status === 'error' ? 'Your program could not load' : brand.welcome_heading}</h1>
         <p role={error ? 'alert' : undefined}>
           {loading ? 'Confirming this program link before sign-in.' : error ?? brand.welcome_description}
         </p>
-        {!loading && <button type="button" onClick={retry}>Try again</button>}
+        {!loading && <button type="button" className="ui-btn ui-btn--primary" onClick={retry}>Try again</button>}
       </section>
     </main>
   )

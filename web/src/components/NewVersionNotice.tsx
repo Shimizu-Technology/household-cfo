@@ -39,10 +39,10 @@ export function NewVersionNotice({ currentVersion = BUILD_ID, reload = reloadPag
   if (!ready) return null
   return <div className="app-version-notice" role="status">
     <div>
-    <p>A newer version is ready.</p>
+    <p className="app-version-title">A newer version is ready.</p>
     {waiting && <p>Save or cancel your open changes, then reload.</p>}
     </div>
-    <Button variant="secondary" onClick={() => {
+    <Button onClick={() => {
       // Ask the same guards used by closing/reloading the tab, without leaving it
       // or opening a browser dialog. Any unsaved form can veto this reload.
       if (document.querySelector('[role="dialog"], [role="alertdialog"], dialog[open]') || !window.dispatchEvent(new Event('beforeunload', { cancelable: true }))) return setWaiting(true)

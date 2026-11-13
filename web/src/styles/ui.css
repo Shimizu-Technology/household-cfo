@@ -272,3 +272,11 @@ body :is(#root, [role='dialog'], [role='alertdialog']) button[type='submit']:not
 /* Neutral browser link blue should never leak into an otherwise branded app.
    Keep this low-specificity so navigation and action classes own their states. */
 :where(#root, [role='dialog'], [role='alertdialog']) a[href] { color: var(--brand-strong); }
+
+/* Public deep-ground actions retain the shared button geometry and states. */
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep { border-color: var(--on-brand-deep-muted); background: transparent; color: var(--on-brand-deep); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep.ui-btn--primary { border-color: transparent; background: var(--on-brand-deep); color: var(--brand-deep); }
+@media (hover: hover) and (pointer: fine) {
+  body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep:not(:disabled, [aria-disabled='true']):hover { background: color-mix(in srgb, var(--on-brand-deep) 10%, var(--brand-deep)); color: var(--on-brand-deep); }
+  body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep.ui-btn--primary:not(:disabled, [aria-disabled='true']):hover { background: var(--on-brand-deep-muted); color: var(--brand-deep); }
+}

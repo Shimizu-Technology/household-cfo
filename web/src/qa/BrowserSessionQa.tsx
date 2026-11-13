@@ -9,8 +9,10 @@ import { AuthAccessPanel } from '../components/AuthAccessPanel'
 import { AccountMenu } from '../components/AccountMenu'
 import { SignInButton } from '../components/AuthControls'
 import { captureBrowserAuthError, restoreBrowserAuthNavigation } from '../lib/browserAuthSession'
+import '../styles/tokens.css'
 import '../index.css'
-import '../App.css'
+import '../appStyles'
+import '../styles/opening.css'
 import '../dialogViewport.css'
 const callbackError = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' ? captureBrowserAuthError() : null
 if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') restoreBrowserAuthNavigation()
