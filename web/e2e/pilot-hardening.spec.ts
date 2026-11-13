@@ -5406,11 +5406,15 @@ for (const [status, message] of [
   [409, 'Your voice changed. Reopen it and preview the latest saved version.'],
 ] as const) {
   test(`Coach Studio preview HTTP ${status} explains how to recover without a timed retry`, async ({ page }) => {
-    await page.route('http://api.test/api/v1/admin/personas/81/preview', route => route.fulfill({ status, json: { error: 'Internal permission or draft details' } }))
+    let previews = 0
+    await page.route('http://api.test/api/v1/admin/personas/81/preview', route => { previews++; return route.fulfill({ status, json: { error: 'Internal permission or draft details' } }) })
     await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+    await expect(page.getByLabel('Message Mia', { exact: true })).toBeEnabled()
     const areas = page.getByRole('navigation', { name: 'Coaching steps', exact: true })
     await areas.getByRole('button', { name: /Preview and go live/ }).click()
-    await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+    const live = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Hear your assistant, then go live', exact: true }) })
+    await live.getByRole('button', { name: 'Preview answers', exact: true }).click()
+    await expect.poll(() => previews).toBe(1)
     await expect(page.getByRole('alert')).toHaveText(message)
     await expect(page.getByRole('button', { name: 'Approve and go live', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
