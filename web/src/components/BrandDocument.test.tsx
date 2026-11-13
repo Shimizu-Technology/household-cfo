@@ -3,6 +3,7 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { BrandConfig } from '../api'
+import { SeoManager } from './SeoManager'
 import { BrandDocument } from './BrandDocument'
 import { brandFontStylesheetHref } from '../lib/brandFonts'
 import { BrandContext, type BrandContextValue } from '../contexts/brandContextValue'
@@ -36,6 +37,20 @@ function value(config = brand): BrandContextValue {
 afterEach(() => cleanup())
 
 describe('BrandDocument', () => {
+  it('uses the page ground for both runtime theme writers and restores the previous meta', () => {
+    const meta = document.head.appendChild(document.createElement('meta'))
+    meta.name = 'theme-color'
+    meta.content = '#f7f2ea'
+    const view = render(<BrandContext.Provider value={value()}><BrandDocument /></BrandContext.Provider>)
+    expect(meta.content).toBe(brand.colors.background)
+    view.unmount()
+    expect(meta.content).toBe('#f7f2ea')
+    const seo = render(<BrandContext.Provider value={value()}><SeoManager section="Home" /></BrandContext.Provider>)
+    expect(meta.content).toBe(brand.colors.background)
+    seo.unmount()
+    meta.remove()
+  })
+
   it('requests only the active brand font families and removes them on unmount', () => {
     const view = render(<BrandContext.Provider value={value()}><BrandDocument /></BrandContext.Provider>)
     const links = document.head.querySelectorAll<HTMLLinkElement>('link[data-brand-fonts]')

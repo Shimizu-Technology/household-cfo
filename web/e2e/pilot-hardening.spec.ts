@@ -12128,6 +12128,23 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await more.click()
   await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeHidden()
   await page.locator('.tabs-tools-group > summary').click()
+  const tool = page.getByRole('link', { name: 'Wealth', exact: true })
+  const style = await tool.evaluate(element => {
+    const css = getComputedStyle(element)
+    const icon = element.querySelector('svg')!.getBoundingClientRect()
+    // A top-level row is the reference: a tool row's arrow must be drawn, and drawn at the same size.
+    const reference = document.querySelector('.tabs-tools-list > a > svg')!.getBoundingClientRect()
+    return { color: css.color, decoration: css.textDecorationLine, height: element.getBoundingClientRect().height, iconWidth: icon.width, iconHeight: icon.height, referenceWidth: reference.width, referenceHeight: reference.height }
+  })
+  expect(style.color).not.toBe('rgb(0, 0, 238)')
+  expect(style.decoration).toBe('none')
+  expect(style.height).toBeGreaterThanOrEqual(44)
+  expect(style.iconWidth).toBeGreaterThan(0)
+  expect(style.iconHeight).toBeGreaterThan(0)
+  expect(style.iconWidth).toBeLessThanOrEqual(24)
+  expect(style.iconHeight).toBeLessThanOrEqual(24)
+  expect(Math.abs(style.iconWidth - style.referenceWidth)).toBeLessThanOrEqual(1)
+  expect(Math.abs(style.iconHeight - style.referenceHeight)).toBeLessThanOrEqual(1)
   await page.getByRole('link', { name: 'Wealth', exact: true }).click()
   await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
   // Every milestone says its status in words, not only by color.

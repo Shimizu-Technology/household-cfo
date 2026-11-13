@@ -119,16 +119,16 @@
   line-height: var(--leading-tight);
 }
 
-.tabs-tools-list > a {
+.tabs-tools-list a {
   min-height: 56px;
 }
 
-.tabs-tools-list > a strong {
+.tabs-tools-list a strong {
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
 }
 
-.tabs-tools-list > a small {
+.tabs-tools-list a small {
   font-weight: var(--weight-regular);
 }
 

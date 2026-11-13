@@ -89,7 +89,7 @@ export function BrandDocument() {
     root.style.fontFamily = bodyFont
     document.title = brand.tagline ? `${brand.product_name} | ${brand.tagline}` : brand.product_name
 
-    theme?.setAttribute('content', brand.colors.primary)
+    theme?.setAttribute('content', brand.colors.background)
 
     if (favicon) {
       const requestedHref = brand.favicon_url ?? '/favicon.svg'
