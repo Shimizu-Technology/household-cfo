@@ -124,7 +124,7 @@ export function SetupHelpDialog(props: Props) {
     if (moved) requestClose()
     else setError('That correction tool is not available right now. Finish any open edits, or ask Mia to help.')
   }
-  return <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation"><section ref={dialog} data-dialog-panel="true" className="pilot-dialog setup-help-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-help-title" tabIndex={-1}>
+  return <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation"><section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog setup-help-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-help-title" tabIndex={-1}>
     <header><div><h2 id="setup-help-title">Fix my setup</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>Close</button></header>
     <div className="pilot-dialog-body">
       <section className="setup-help-section"><h3>Correct something I entered</h3><p>Open the right record or ask Mia to prepare a correction. Check the change before applying it.</p>

@@ -82,27 +82,6 @@ test('closing the topmost dialog keeps the page locked for the one underneath', 
 })
 
 
-test('dismissal releases private resources immediately, before the close transition', () => {
-  vi.useFakeTimers()
-  vi.stubGlobal('CSS', { supports: () => true })
-  const release = vi.fn(), close = vi.fn()
-  function PrivateProbe() {
-    const { dialogRef, requestClose } = usePilotDialog(close, release)
-    return <section ref={dialogRef} role="dialog"><button onClick={requestClose}>Dismiss</button></section>
-  }
-  const view = render(<PrivateProbe />)
-  const panel = view.getByRole('dialog')
-  panel.getAnimations = () => [{ finished: new Promise(() => {}) } as unknown as Animation]
-  panel.parentElement!.getAnimations = () => []
-  fireEvent.click(view.getByRole('button', { name: 'Dismiss' }))
-  expect(release).toHaveBeenCalledOnce()
-  expect(close).not.toHaveBeenCalled()
-  view.unmount()
-  vi.runAllTimers()
-  expect(close).not.toHaveBeenCalled()
-})
-
-
 test('returns to a disclosure summary when its opening action became hidden', () => {
   const details = document.createElement('details')
   details.open = true

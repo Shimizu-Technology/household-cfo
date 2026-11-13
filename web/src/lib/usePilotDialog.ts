@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
 import { dialogExit } from './dialogExit'
 import { revealDialogControl } from './dialogFocus'
@@ -10,24 +10,13 @@ const openDialogs: symbol[] = []
 // its own saved value would unlock the page while a confirmation is still open.
 let overflowBeforeFirstDialog = ''
 
-export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
+export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
-  const onDismissRef = useRef(onDismiss)
-  const cancelExit = useRef<(() => void) | null>(null)
-  // CSS completion runs outside React's event lifecycle. Commit dismissal
-  // before a caller's next-frame focus return, while preserving guarded closes.
-  const finishClose = () => flushSync(() => onCloseRef.current())
-  const requestClose = () => {
-    if (dialogRef.current?.dataset.dialogClosing) return
-    onDismissRef.current?.()
-    cancelExit.current = dialogExit(dialogRef.current, finishClose)
-  }
-
-  useEffect(() => {
-    onCloseRef.current = onClose
-    onDismissRef.current = onDismiss
-  }, [onClose, onDismiss])
+  useLayoutEffect(() => { onCloseRef.current = onClose }, [onClose])
+  // Commit dismissal and all owner cleanups now, before any visual-only exit.
+  // Guarded callbacks run at the original event, never after an animation.
+  const requestClose = () => dialogExit(dialogRef.current, () => flushSync(() => onCloseRef.current()))
 
   // Release the trap during unmount, before a parent's next-frame focus return.
   // A passive cleanup can run after that frame, especially in WebKit.
@@ -71,12 +60,10 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
 
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (!isTopmost()) return
-      if (dialog?.dataset.dialogClosing) { event.preventDefault(); event.stopPropagation(); return }
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        onDismissRef.current?.()
-        cancelExit.current = dialogExit(dialogRef.current, finishClose)
+        dialogExit(dialogRef.current, () => flushSync(() => onCloseRef.current()))
         return
       }
       if (event.key !== 'Tab') return
@@ -116,7 +103,6 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
     document.addEventListener('focusin', handleFocusIn)
     document.body.style.overflow = 'hidden'
     return () => {
-      cancelExit.current?.()
       window.cancelAnimationFrame(focusFrame)
       const position = openDialogs.indexOf(token)
       if (position >= 0) openDialogs.splice(position, 1)

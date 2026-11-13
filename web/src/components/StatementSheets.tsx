@@ -34,7 +34,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
-    <section ref={ref} data-dialog-panel="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-line-title" tabIndex={-1}>
+    <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-line-title" tabIndex={-1}>
       <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         <label>What was this?
@@ -92,7 +92,7 @@ export function StatementAccountSheet({ accounts, reviewed, names, busy, canClos
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
-    <section ref={ref} data-dialog-panel="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-account-title" tabIndex={-1}>
+    <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-account-title" tabIndex={-1}>
       <header><h2 id="statement-account-title">{accounts.length > 1 ? 'Your accounts' : 'Your account'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         {drafts.map((row, index) => <fieldset key={row.source_account_id}>

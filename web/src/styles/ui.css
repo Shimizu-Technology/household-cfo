@@ -203,8 +203,8 @@ body :is(#root, [role='dialog'], [role='alertdialog']) input[type='checkbox']:ch
   align-self: center;
 }
 body :is(#root, [role='dialog'], [role='alertdialog']) input[type='radio']:checked::after { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-on-primary); justify-self: center; align-self: center; }
-body :is(#root, [role='dialog'], [role='alertdialog']) input:indeterminate::before { background: var(--brand); }
-body :is(#root, [role='dialog'], [role='alertdialog']) input:indeterminate::after { content: ''; position: absolute; width: 12px; height: 2px; background: var(--brand-on-primary); justify-self: center; align-self: center; }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type="checkbox"]:indeterminate::before { background: var(--brand); }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type="checkbox"]:indeterminate::after { content: ''; position: absolute; width: 12px; height: 2px; background: var(--brand-on-primary); justify-self: center; align-self: center; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(input, select, textarea):disabled { opacity: 0.55; cursor: not-allowed; }
 .ui-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: var(--text-md); }
 body :is(#root, [role='dialog'], [role='alertdialog']) details > summary {

@@ -113,7 +113,7 @@ function ChallengeTodaySession({initialDate,initialSection,scope,cohortId,onClos
   const dayNumber=calendar&&day?daysBetween(calendar.starts_on,day.local_on)+1:null
   const totalDays=calendar?daysBetween(calendar.starts_on,calendar.ends_on)+1:null
   const purchaseWord=(count:number)=>`${count} ${count===1?'purchase':'purchases'} saved`
-  return <div className="daily-overlay" data-dialog-surface="true"><section ref={dialog} data-dialog-panel="true" className="daily-dialog" role="dialog" aria-modal="true" aria-labelledby="daily-title" tabIndex={-1}>
+  return <div className="daily-overlay" data-dialog-surface="true"><section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="daily-dialog" role="dialog" aria-modal="true" aria-labelledby="daily-title" tabIndex={-1}>
     <header><div><h2 id="daily-title">Today</h2>{calendar&&day&&<p className="daily-subtitle">{dayTitle(day.local_on,calendar.local_today)}{dayNumber&&totalDays?` · Day ${dayNumber} of ${totalDays}`:''}</p>}</div><button type="button" aria-label="Close Today" className="daily-close" onClick={requestClose}>×</button></header>
     {(error||mutation.error)&&<p role="alert" className="daily-note">{error??mutation.error}</p>}
     {mutation.pending&&<section aria-label="Earlier daily request"><h3>Check the earlier save first</h3><p>{mutation.pending.working?'Checking…':'We need to confirm whether your last change saved before making another.'}</p><div className="daily-actions">{mutation.checkStatus&&<button type="button" disabled={mutation.pending.working} onClick={()=>void mutation.checkStatus?.()}>Check earlier daily result</button>}{mutation.retry&&<button type="button" onClick={()=>void mutation.retry?.()}>Retry the same daily request</button>}</div></section>}

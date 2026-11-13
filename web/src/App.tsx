@@ -4925,7 +4925,7 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
   return (
     <div className="document-preview-overlay" data-dialog-surface="true" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={requestClose} />
-      <section ref={dialogRef} data-dialog-panel="true" className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)} tabIndex={-1}>
+      <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)} tabIndex={-1}>
         <div className="document-preview-header">
           <div>
             <span className="document-status blue">Attachment preview</span>

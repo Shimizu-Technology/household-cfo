@@ -97,3 +97,50 @@ test.describe('BOG UI design foundation', () => {
     await expect(check).toBeChecked()
   })
 })
+
+test.describe('BOG UI dismissal boundary', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/ui-foundation-qa.html')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+  })
+  test('unselected radio groups are empty until one is selected', async ({ page }) => {
+    const radios = page.getByRole('region', { name: 'Household CFO', exact: true }).getByRole('radio')
+    expect(await radios.evaluateAll(nodes => nodes.every(node => node.matches(':indeterminate')))).toBe(true)
+    for (const radio of await radios.all()) {
+      await expect(radio).not.toBeChecked()
+      expect(await radio.evaluate(node => getComputedStyle(node, '::after').content)).toBe('none')
+    }
+    await radios.first().check()
+    await expect(radios.first()).toBeChecked()
+    await expect(radios.last()).not.toBeChecked()
+  })
+  test('dismissal leaves only an inert visual copy with typed text and scroll; the page accepts focus and clicks now', async ({ page }) => {
+    await page.getByRole('button', { name: 'Open dismissal preview', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Dismissal preview' })
+    await dialog.getByRole('textbox', { name: 'Correction' }).fill('Keep this typed correction')
+    await dialog.evaluate(node => Promise.allSettled(node.getAnimations().map(animation => animation.finished)))
+    const result = await dialog.evaluate(node => {
+      node.querySelector('.qa-exit-scroll')!.scrollTop = 60
+      ;(node.querySelector('button') as HTMLElement).click()
+      const copy = document.querySelector<HTMLElement>('[data-dialog-exit-copy]')!
+      const field = document.querySelector<HTMLInputElement>('[aria-label="Page draft"]')!
+      field.focus()
+      const action = [...document.querySelectorAll('button')].find(button => button.textContent === 'Page action 0')!
+      const box = action.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
+      ;(hit as HTMLElement)?.click()
+      return { live: node.isConnected, inert: copy.inert, hidden: copy.getAttribute('aria-hidden'), pointer: getComputedStyle(copy).pointerEvents, text: copy.querySelector('textarea')!.value, scroll: copy.querySelector('.qa-exit-scroll')!.scrollTop, focus: document.activeElement === field, hit: hit === action, copies: document.querySelectorAll('[data-dialog-exit-copy]').length, overflow: document.body.style.overflow }
+    })
+    expect(result).toEqual({ live: false, inert: true, hidden: 'true', pointer: 'none', text: 'Keep this typed correction', scroll: 60, focus: true, hit: true, copies: 1, overflow: '' })
+    await expect(page.getByRole('button', { name: 'Page action 1' })).toBeVisible()
+    await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0, { timeout: 500 })
+  })
+  test('private panels leave no pixels or duplicate content after dismissal', async ({ page }) => {
+    await page.getByRole('button', { name: 'Open private preview' }).click()
+    const result = await page.getByRole('dialog', { name: 'Dismissal preview' }).evaluate(node => {
+      ;(node.querySelector('button') as HTMLElement).click()
+      return { live: node.isConnected, copies: document.querySelectorAll('[data-dialog-exit-copy]').length }
+    })
+    expect(result).toEqual({ live: false, copies: 0 })
+  })
+})

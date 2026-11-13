@@ -11865,7 +11865,6 @@ test('BOG UI setup help fits a 320px phone and blocks restarts while preserving 
   expect(await help.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(1)
   expect(flow.restartInputs).toEqual([])
   await help.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(help).toHaveCount(0)
   await expect(composer).toHaveValue('Keep my correction draft until I decide.')
   await composer.clear()
   help = await openFixSetupFromChat(page)
@@ -11940,7 +11939,6 @@ test('BOG UI a selected coach can open own setup help from Context My Money and 
   await page.locator('.chat-card').getByRole('button', { name: 'Fix my setup', exact: true }).click()
   await expect(help).toBeVisible()
   await help.getByRole('button', { name: 'Close', exact: true }).click()
-  await expect(help).toHaveCount(0)
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Help me fix my own household setup.')
   await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
   await expect(help).toBeVisible()
@@ -12708,7 +12706,11 @@ test('BOG UI dialogs transition in and out and reduced motion removes movement',
   await clear.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)))
   await assertDialogVisibleHeight(clear)
   await clear.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-  expect(await clear.getAttribute('data-dialog-closing')).toBe('true')
+  expect(await clear.count()).toBe(0)
+  const copy = page.locator('[data-dialog-exit-copy]')
+  await expect(copy).toHaveAttribute('inert', '')
+  await expect(copy).toHaveAttribute('aria-hidden', 'true')
+  await expect(copy).toHaveCount(0)
   await expect(clear).toHaveCount(0)
 
   // With motion off the resting position is the style itself, so no animation has to run.

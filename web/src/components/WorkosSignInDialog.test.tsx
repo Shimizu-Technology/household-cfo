@@ -1,3 +1,4 @@
+import { useState } from 'react'
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -138,10 +139,14 @@ it('routes a policy redirect to work SSO rather than showing an email-code form'
   await waitFor(() => expect(props.onExternalSignIn).toHaveBeenCalledWith('sso', 'https://api.workos.com/user_management/authorize'))
   expect(screen.queryByRole('textbox', { name: 'Sign-in code' })).toBeNull()
 })
+function DismissibleSignIn() {
+  const [open, setOpen] = useState(true)
+  return open ? <WorkosSignInDialog {...props} onClose={() => { props.onClose(); setOpen(false) }} /> : null
+}
 it('cancels a stale challenge returned after close and does not move to the code step', async () => {
   let resolve!: (result: DialogEmailAuthStep) => void
   client.startEmail.mockImplementation(() => new Promise<DialogEmailAuthStep>(done => { resolve = done }))
-  render(<WorkosSignInDialog {...props} />)
+  render(<DismissibleSignIn />)
   fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'invited@example.test' } })
   fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }))
   fireEvent.click(screen.getByRole('button', { name: 'Close' }))
@@ -155,14 +160,14 @@ it('does not report a late authentication result after Escape and cancels the ac
   vi.stubGlobal('CSS', { supports: () => true })
   let resolve!: (result: DialogEmailAuthStep) => void
   client.verifyEmail.mockImplementation(() => new Promise<DialogEmailAuthStep>(done => { resolve = done }))
-  render(<WorkosSignInDialog {...props} />); await startEmail()
+  render(<DismissibleSignIn />); await startEmail()
   fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
   const panel = screen.getByRole('dialog')
   panel.getAnimations = () => [{ finished: new Promise(() => {}) } as unknown as Animation]
   panel.parentElement!.getAnimations = () => []
   fireEvent.keyDown(document, { key: 'Escape' })
-  expect(props.onClose).not.toHaveBeenCalled()
+  expect(props.onClose).toHaveBeenCalledOnce()
   expect(client.cancelEmail).toHaveBeenCalledWith('challenge_test')
   await act(async () => resolve({ step: 'complete', return_to: '/#Home' }))
   expect(props.onAuthenticated).not.toHaveBeenCalled()

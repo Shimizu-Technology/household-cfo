@@ -64,11 +64,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
     releaseResources()
     onClose()
   }, [onClose, releaseResources])
-  const { dialogRef, requestClose } = usePilotDialog(close, () => {
-    // Private reads and URLs stop at dismissal, including Escape, before motion.
-    mounted.current = false
-    releaseResources()
-  })
+  const { dialogRef, requestClose } = usePilotDialog(close)
 
   const recheckAccess = useCallback(async () => {
     if (!mounted.current || checking.current !== null) return
@@ -194,7 +190,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
   return (
     <div className="document-preview-overlay" data-dialog-surface="true" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={requestClose} />
-      <section ref={dialogRef} data-dialog-panel="true" className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${title}`} tabIndex={-1}>
+      <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${title}`} tabIndex={-1}>
         <header className="document-preview-header">
           <div><span className="document-status blue">Private preview</span><h3>{title}</h3><p>{description} · Every source read rechecks your access.</p></div>
           <div className="document-preview-actions">

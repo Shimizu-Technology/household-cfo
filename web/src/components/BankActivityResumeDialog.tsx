@@ -10,7 +10,7 @@ export function BankActivityResumeDialog({ institutionName, busy, error, onClose
   const { dialogRef: ref, requestClose } = usePilotDialog(() => { if (!busy) onClose() })
   return createPortal(<div className="bank-resume-overlay" data-dialog-surface="true">
     <button type="button" className="bank-resume-backdrop" aria-label="Close bank activity review" disabled={busy} onClick={requestClose} tabIndex={-1} />
-    <section ref={ref} data-dialog-panel="true" className="bank-resume-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-resume-title" tabIndex={-1}>
+    <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="bank-resume-dialog" role="dialog" aria-modal="true" aria-labelledby="bank-resume-title" tabIndex={-1}>
       <header><h2 id="bank-resume-title">Use new bank activity</h2><button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>Close</button></header>
       <div className="pilot-dialog-body">
         <p>Resume {institutionName} for your new financial picture using your existing bank connection.</p>

@@ -99,7 +99,7 @@ export function EnterpriseSettings({ currentUser, onClose }: { currentUser: Curr
   const organization = detail?.enterprise_organization
   const selectedOrganization = organizations.find(org => org.id === selectedId)
   return <div className="pilot-dialog-overlay" data-dialog-surface="true" onClick={event => { if (event.target === event.currentTarget) requestClose() }}>
-    <section ref={dialog} data-dialog-panel="true" className="pilot-dialog enterprise-settings" role="dialog" aria-modal="true" aria-labelledby="enterprise-settings-title" tabIndex={-1}>
+    <section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog enterprise-settings" role="dialog" aria-modal="true" aria-labelledby="enterprise-settings-title" tabIndex={-1}>
       <header className="pilot-dialog-header"><div><h2 id="enterprise-settings-title">Sign-in &amp; provisioning</h2></div><Button variant="secondary" size="compact" onClick={requestClose}>Close</Button></header>
       <div className="pilot-dialog-body enterprise-settings-body">
         <p>Connect company sign-in and manage assigned users. Household financial information stays in each person’s private workspace.</p>

@@ -6,8 +6,8 @@
   --dialog-available-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top) - var(--dialog-space-bottom));
 }
 
-/* Shared by the public entry and lazy workspace. Native dialogs keep their
-   top-layer overlay through exit. React panels stay mounted via dialogExit. */
+/* Shared by the public entry and lazy workspace. React owners unmount immediately;
+   dialogExit animates only an inert, non-private copy. */
 body [data-dialog-panel] {
   opacity: 1;
   transform: translateY(0) scale(1);

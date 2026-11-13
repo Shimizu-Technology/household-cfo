@@ -95,12 +95,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
   function cancelChallenge(challengeId: string | null) {
     if (challengeId) void client.cancelEmail(challengeId).catch(() => { /* Expiring server-side challenges cannot authenticate without verification. */ })
   }
-  function cancelPendingSignIn() {
-    generation.current += 1
-    cancelChallenge(activeChallenge.current)
-    activeChallenge.current = null
-  }
-  const { dialogRef: dialog, requestClose } = usePilotDialog(onClose, cancelPendingSignIn)
+  const { dialogRef: dialog, requestClose } = usePilotDialog(onClose)
   useDialogViewport()
 
   useEffect(() => {
@@ -216,7 +211,7 @@ export function WorkosSignInDialog({ client, options = {}, screen, onClose, onAu
 
   return createPortal(<div className="workos-sign-in-overlay" data-dialog-surface="true">
     <div className="workos-sign-in-backdrop" aria-hidden="true" />
-    <section ref={dialog} data-dialog-panel="true" className="workos-sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1}>
+    <section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="workos-sign-in-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`} tabIndex={-1}>
       <header><div><h2 id={`${id}-title`}>{challenge ? 'Check your email' : screen === 'sign-up' ? 'Join your invited workspace' : 'Welcome back'}</h2></div><button type="button" className="workos-sign-in-close" aria-label="Close" onClick={requestClose}><svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg></button></header>
       <div className="pilot-dialog-body workos-sign-in-body">
         <p id={`${id}-description`}>{external ? 'Continue through your organization’s secure sign-in flow.' : challenge ? <>Enter the six-digit code sent to <strong>{challenge.email}</strong>.</> : 'Sign in with the email your program invited. Your saved information stays with your account.'}</p>

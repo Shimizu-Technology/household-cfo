@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { selectChevron } from '../lib/selectChevron'
 import { brandDeep } from '../lib/brandDeep'
 import { dialogExit } from '../lib/dialogExit'
+import { usePilotDialog } from '../lib/usePilotDialog'
 import '../styles/tokens.css'
 import '../index.css'
 import '../appStyles'
@@ -55,7 +56,7 @@ function BrandPrimitives({ name, theme, id }: { name: string; theme: CSSProperti
       <label>Merchant<input className="ui-field" defaultValue="Payless" /></label><label>Category<select className="ui-select" defaultValue="groceries"><option value="groceries">Groceries and household essentials</option><option>Transport</option></select></label>
       <label>Amount<input type="number" defaultValue="53.40" step="0.01" /></label><label>Purchase date<input type="date" defaultValue="2026-11-13" /></label><label>Note<textarea className="ui-field" defaultValue="For the week ahead" /></label>
       <label className="ui-check"><input className="ui-check__input" type="checkbox" defaultChecked />I reviewed this purchase</label><label className="ui-check"><input type="checkbox" />Remind me later</label><label className="ui-check"><input type="checkbox" disabled />Reminder unavailable</label>
-      <label className="ui-check"><input type="radio" name={`${id}-period`} defaultChecked />This month</label><label className="ui-check"><input type="radio" name={`${id}-period`} />Next month</label>
+      <label className="ui-check"><input type="radio" name={`${id}-period`} />This month</label><label className="ui-check"><input type="radio" name={`${id}-period`} />Next month</label>
       <label>Unavailable category<select disabled><option>Choose a category</option></select></label>
       <details className="ui-disclosure"><summary>How this is counted</summary><p>Only purchases you confirm count as spent.</p></details><details open><summary>What stays private</summary><p>Your records start private. You choose what to share.</p></details>
       <div className="qa-actions"><button className="button button--primary">Legacy primary</button><button className="primary-button" disabled>Legacy disabled</button><button className="secondary-button">Legacy tonal</button><button className="danger-button">Legacy danger</button><button className="text-button">Legacy text</button></div>
@@ -66,8 +67,22 @@ function BrandPrimitives({ name, theme, id }: { name: string; theme: CSSProperti
   </section>
 }
 
+function ExitProbe({ onClose, privatePanel }: { onClose: () => void; privatePanel: boolean }) {
+  const { dialogRef, requestClose } = usePilotDialog(onClose)
+  return <div className="pilot-dialog-overlay" data-dialog-surface="true"><button className="pilot-dialog-backdrop" tabIndex={-1} aria-hidden="true" onClick={requestClose} /><section className="pilot-dialog ui-card" ref={dialogRef} role="dialog" aria-label="Dismissal preview" tabIndex={-1} data-dialog-panel="true" data-dialog-private={privatePanel || undefined}>
+    <h2 className="ui-title">Keep your place</h2><p>Fictional preview. Closing releases the page immediately.</p>
+    <label>Correction<textarea className="ui-field" defaultValue="For the week ahead" /></label>
+    <div className="qa-exit-scroll">{Array.from({ length: 12 }, (_, index) => <p key={index}>Fictional row {index + 1}</p>)}</div>
+    <button className="ui-btn ui-btn--tonal" onClick={requestClose}>Dismiss preview</button>
+  </section></div>
+}
+function ExitPreview() {
+  const [open, setOpen] = useState(false), [privatePanel, setPrivate] = useState(false), [clicks, setClicks] = useState(0)
+  return <section className="ui-card qa-exit-preview"><button className="ui-btn ui-btn--tonal" onClick={() => { setPrivate(false); setOpen(true) }}>Open dismissal preview</button><button className="ui-btn ui-btn--tonal" onClick={() => { setPrivate(true); setOpen(true) }}>Open private preview</button><button className="ui-btn ui-btn--text" onClick={() => setClicks(value => value + 1)}>Page action {clicks}</button><input className="ui-field" aria-label="Page draft" />{open && <ExitProbe onClose={() => setOpen(false)} privatePanel={privatePanel} />}</section>
+}
+
 export function UiFoundationQa() {
-  return <main className="qa-foundation"><header className="qa-heading"><p className="ui-label">Development QA · synthetic data</p><h1 className="ui-title">The shared foundation</h1><p>Two brands. The same controls, rhythm and care.</p></header><div className="qa-brands"><BrandPrimitives name="Household CFO" id="plum" theme={plum} /><BrandPrimitives name="Blue coach" id="blue" theme={blue} /></div></main>
+  return <main className="qa-foundation"><header className="qa-heading"><p className="ui-label">Development QA · synthetic data</p><h1 className="ui-title">The shared foundation</h1><p>Two brands. The same controls, rhythm and care.</p></header><ExitPreview /><div className="qa-brands"><BrandPrimitives name="Household CFO" id="plum" theme={plum} /><BrandPrimitives name="Blue coach" id="blue" theme={blue} /></div></main>
 }
 
 if (import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true') createRoot(document.getElementById('root')!).render(<UiFoundationQa />)

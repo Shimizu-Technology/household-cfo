@@ -18,3 +18,6 @@
 @media (min-width: 1024px) { .qa-brands { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; } }
 @media (max-width: 620px) { .qa-foundation { padding-inline: 0; } .qa-heading { padding-inline: 16px; } .qa-brand { padding: 16px; border-radius: 0; } }
 .qa-chart-note strong { font-weight: var(--weight-semibold); }
+
+.qa-exit-preview { display: grid; gap: 12px; margin-bottom: 24px; }
+.qa-exit-scroll { max-height: 120px; overflow-y: auto; }

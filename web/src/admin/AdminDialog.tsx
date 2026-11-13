@@ -8,7 +8,7 @@ export function AdminDialog({ title, onClose, children, labelId, locked = false 
   const { dialogRef, requestClose } = usePilotDialog(close)
   return <div className="pilot-dialog-overlay admin-dialog-overlay" data-dialog-surface="true" role="presentation">
     <div className="pilot-dialog-backdrop" aria-hidden="true" onClick={requestClose} />
-    <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} tabIndex={-1}>
+    <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} tabIndex={-1}>
       <header><h2 id={labelId}>{title}</h2><button type="button" className="secondary-button" onClick={requestClose} disabled={locked}>Close</button></header>
       <div className="pilot-dialog-body admin-dialog-body">{children}</div>
     </section>

@@ -145,7 +145,7 @@ export function PilotFeedbackDialog({
   return (
     <div className="pilot-dialog-overlay" data-dialog-surface="true" role="presentation">
       <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={requestClose} />
-      <section ref={dialogRef} data-dialog-panel="true" className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
+      <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
         <header>
           <div><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
           <button type="button" className="secondary-button" onClick={requestClose}>Close</button>
