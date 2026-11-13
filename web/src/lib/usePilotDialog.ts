@@ -117,7 +117,17 @@ export function usePilotDialog(onClose: () => void, onDismiss?: () => void) {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
       if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeFirstDialog
-      previousFocus?.focus({ preventScroll: true })
+      // An account action may have closed its disclosure while opening us.
+      // Its button is then hidden; return to the nearest visible summary,
+      // after unmount, rather than racing a parent's animation-frame fallback.
+      let destination = previousFocus
+      for (let node = previousFocus?.parentElement; node; node = node.parentElement) {
+        if (node instanceof HTMLDetailsElement && !node.open) {
+          const summary = node.querySelector<HTMLElement>(':scope > summary')
+          if (summary && !summary.contains(destination)) destination = summary
+        }
+      }
+      destination?.focus({ preventScroll: true })
     }
   }, [])
 

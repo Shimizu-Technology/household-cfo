@@ -100,3 +100,16 @@ test('dismissal releases private resources immediately, before the close transit
   vi.runAllTimers()
   expect(close).not.toHaveBeenCalled()
 })
+
+
+test('returns to a disclosure summary when its opening action became hidden', () => {
+  const details = document.createElement('details')
+  details.open = true
+  details.innerHTML = '<summary tabindex="0">Account and help</summary><button>Guide</button>'
+  document.body.append(details)
+  details.querySelector('button')!.focus()
+  const view = render(<Probe />)
+  details.open = false
+  view.unmount()
+  expect(document.activeElement).toBe(details.querySelector('summary'))
+})
