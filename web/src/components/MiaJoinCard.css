@@ -1,0 +1,4 @@
+.mia-join-card h3 { font: var(--weight-semibold) 28px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+.mia-join-card .mia-daily-hint { color: var(--ink); }
+.mia-join-card .mia-card-checks { padding: 0; border: 0; }
+.mia-join-card .mia-card-check { display: flex; align-items: flex-start; gap: 8px; }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { Button } from './Button'
+import './BibaCard.css'
 
 type BibaCardProps = {
   title: string
@@ -11,7 +12,7 @@ type BibaCardProps = {
 /**
  * "Biba!": one card for a finished milestone. A serif headline, one plain sentence with the
  * participant's real figure, and one action. It takes focus so a keyboard or screen-reader user
- * lands on it and the page scrolls to it; the fade is CSS (styles/cards.css) and respects reduced motion.
+ * lands on it and the page scrolls to it; the celebration is CSS (BibaCard.css) and respects reduced motion.
  */
 export function BibaCard({ title, children, actionLabel, onAction }: BibaCardProps) {
   const card = useRef<HTMLElement>(null)

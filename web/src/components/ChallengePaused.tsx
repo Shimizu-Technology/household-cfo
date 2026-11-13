@@ -6,7 +6,7 @@ import './SavingsChallengeHome.css'
 // Read-only: nothing here records money. Their own record stays downloadable.
 export function ChallengePaused({ joined, children }: { joined: boolean; children?: ReactNode }) {
   const { assistantName } = useBrand()
-  return <section className="savings-home screen-grid" aria-label="Savings challenge">
+  return <section className="savings-home screen-grid ui-card savings-inactive" aria-label="Savings challenge">
     <div className="screen-heading">
       <h2 data-page-heading tabIndex={-1}>Your savings challenge is paused</h2>
     </div>

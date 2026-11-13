@@ -311,7 +311,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
   const showPlanForm = pendingPlans === 0 || changingPlan || Boolean(planMutation.pending)
   return <section className="savings-home screen-grid" aria-label="Savings challenge">
     <div className="screen-heading"><h2 data-page-heading tabIndex={-1}>Your savings challenge</h2>{loading && challenge && <p className="savings-refreshing" role="status">Loading your challenge…</p>}</div>
-    {error && <div className="savings-error" role="alert" tabIndex={-1} ref={requestErrorRef}><p>{error}</p>{retry ? <><p>We couldn’t confirm that this saved. Try again before making another change.</p><button type="button" disabled={busy} onClick={() => void mutate(retry)}>Retry same request</button></> : <button type="button" disabled={busy} onClick={() => {privateDenied.current=false;void refresh()}}>Refresh challenge</button>}</div>}
+    {error && <div className="savings-error" role="alert" tabIndex={-1} ref={requestErrorRef}><p>{error}</p>{retry ? <><p>We couldn’t confirm that this saved. Try again before making another change.</p><button className="ui-btn ui-btn--tonal" type="button" disabled={busy} onClick={() => void mutate(retry)}>Retry same request</button></> : <button className="ui-btn ui-btn--tonal" type="button" disabled={busy} onClick={() => {privateDenied.current=false;void refresh()}}>Refresh challenge</button>}</div>}
     <HomeSavingsRequestRecovery state={homeMutation} onFresh={prepareHomeFresh}/>
     {freshHome?.action==='entry_stage'&&freshHome.entryId&&<p role="status">Open “Your records & corrections” below and choose Fix on the record you were changing. Only that record can be changed right now.</p>}
     {(planMutation.pending || planMutation.error) && <PlanRequestRecovery state={planMutation} onRefresh={()=>void refresh()}/>}
@@ -321,69 +321,77 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
     {loading && !challenge && <OpeningProgress status="Loading your challenge…" />}
     {!challenge && !loading && <p>Your challenge is unavailable right now. Nothing has changed.</p>}
 
-    {challenge && !challenge.enrollment && <article className="panel savings-enrollment" aria-label="Join the challenge">
+    {challenge && !challenge.enrollment && <article className="panel savings-enrollment ui-card" aria-label="Join the challenge">
       <h3>Join the 90-day savings challenge</h3>
       <p>A {suggested} cushion can keep surprises off the card while you pay down debt. Choose a comfortable goal for your 90 days.</p>
       {offer ? <>
         <p className="savings-join-dates"><strong>Your 90 days: {offer.personal_starts_on && offer.personal_ends_on ? formatRange(offer.personal_starts_on, offer.personal_ends_on).split(' – ').map((part, index) => <span key={index}>{index > 0 && ' – '}<span className="savings-nowrap">{part}</span></span>) : 'dates not set yet'}</strong><span>{offer.cohort_label}</span></p>
         <p className="savings-terms">You approve each amount; the app doesn’t move money. A bank link, statements and a full budget are optional. Your records stay private unless you share them.</p>
-        <label className="savings-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I’ve read this and accept joining the challenge.</label>
-        {offer.late_start_acceptance_required && <label className="savings-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my 90 days start later than the group’s, as shown above.</label>}
-        <button type="button" className="savings-primary" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
+        <label className="savings-check ui-check"><input type="checkbox" checked={participation} disabled={actionLocked('enrollment')} onChange={(event) => setParticipation(event.target.checked)} />I’ve read this and accept joining the challenge.</label>
+        {offer.late_start_acceptance_required && <label className="savings-check ui-check"><input type="checkbox" checked={lateAcceptance} disabled={actionLocked('enrollment')} onChange={(event) => setLateAcceptance(event.target.checked)} />I accept that my 90 days start later than the group’s, as shown above.</label>}
+        <button type="button" className="savings-primary ui-btn ui-btn--primary" disabled={actionLocked('enrollment') || !offer.accepting_enrollments || !participation || Boolean(offer.late_start_acceptance_required && !lateAcceptance)} onClick={() => homeStage('enrollment',(key, signal) => enrollSavingsChallenge({ participation_accepted: true, policy_version: offer.policy_version, late_start_accepted: lateAcceptance, expected_acceptance_digest: offer.acceptance_digest }, key, signal))}>Accept and join</button>
         {!offer.accepting_enrollments && <p role="status">This group isn’t taking new members right now.</p>}
       </> : <p>We couldn’t load the joining details. Refresh to see them before joining.</p>}
     </article>}
 
     {challenge?.enrollment && <>
-      <article className="savings-summary" aria-label="Approved savings progress">
+      <div className="savings-overview">
+      <article className="savings-summary ui-answer" aria-label="Approved savings progress">
         <h3 ref={progressHeadingRef} tabIndex={-1}>Set aside so far</h3>
         <p className={reported === null ? 'savings-total savings-total--words' : 'savings-total'}>{reported === null ? 'No amounts added yet' : savingsDollars(reported)}</p>
         <p className="savings-target-line">{plan?.target_cents != null
-          ? <>of {savingsTargetDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}{pendingPlans > 0 && <> · <button type="button" className="savings-link" onClick={openWaitingTarget}>new target waiting</button></>}</>
+          ? <>of {savingsTargetDollars(plan.target_cents)} target{projection?.progress_basis_points != null ? ` · ${Math.floor(projection.progress_basis_points / 100)}%` : ''}{pendingPlans > 0 && <> · <button type="button" className="savings-link ui-btn ui-btn--text" onClick={openWaitingTarget}>new target waiting</button></>}</>
           : pendingPlans > 0
-            ? <><span>Target waiting for you to confirm</span> — <button type="button" className="savings-link" onClick={openWaitingTarget}>review it</button></>
+            ? <><span>Target waiting for you to confirm</span> — <button type="button" className="savings-link ui-btn ui-btn--text" onClick={openWaitingTarget}>review it</button></>
             : !plan
-              ? <><span>No target yet</span> — <button type="button" className="savings-link" onClick={openTarget}>choose one</button></>
-              : <><span>You’ll choose a target later</span> — <button type="button" className="savings-link" onClick={openTarget}>choose now</button></>}</p>
-        {projection?.progress_basis_points != null && <progress className="savings-bar" aria-label="Progress toward your target" max={10000} value={projection.progress_basis_points} />}
+              ? <><span>No target yet</span> — <button type="button" className="savings-link ui-btn ui-btn--text" onClick={openTarget}>choose one</button></>
+              : <><span>You’ll choose a target later</span> — <button type="button" className="savings-link ui-btn ui-btn--text" onClick={openTarget}>choose now</button></>}</p>
+        {projection?.progress_basis_points != null && <progress className="savings-bar ui-track" aria-label="Progress toward your target" max={10000} value={projection.progress_basis_points} />}
         {calendar && <p className="savings-day-line">{dayLine(calendar, next)}</p>}
-        {challenge.timeline && <ChallengeTimeline timeline={challenge.timeline} onDay={onDay} onCheckpoint={onCheckpoint ?? onToday} />}
-        {projection && !projection.reporting_known && <p className="savings-caption">Your total is waiting for your first report. Add money when you set it aside, or {elapsed ? <button type="button" className="savings-link savings-link--inline" onClick={openZero}>tell us if you set nothing aside</button> : 'tell us later if you set nothing aside'}.</p>}
+        {challenge.timeline && <ChallengeTimeline timeline={challenge.timeline} onDay={onDay} onCheckpoint={onCheckpoint ?? onToday} today={calendar?.local_today} showCheckpoint={false} />}
+        {projection && !projection.reporting_known && <p className="savings-caption">Your total is waiting for your first report. Add money when you set it aside, or {elapsed ? <button type="button" className="savings-link savings-link--inline ui-btn ui-btn--text" onClick={openZero}>tell us if you set nothing aside</button> : 'tell us later if you set nothing aside'}.</p>}
         {projection?.zero_attested && <p className="savings-caption">You confirmed nothing set aside through {formatDay(projection.cutoff_on)}.</p>}
         {/* Withdrawals use up matched money first, so the matched part can be smaller than any one record's match. */}
         {matched > 0 && <p className="savings-caption">{projection?.withdrawal_cents ? `After the money you took out, ${savingsDollars(matched)} of what’s left is matched to a statement.` : `${savingsDollars(matched)} of this is matched to a statement.`} That’s included above, not extra.</p>}
         {excluded > 0 && <p className="savings-caption">{excluded === 1 ? '1 record isn’t counted because it wasn’t' : `${excluded} records aren’t counted because they weren’t`} new money (for example, money you already had or borrowed).</p>}
         {reported !== null && reported < 0 && <p className="savings-caption">You’ve taken out more than you set aside, so the bar stays empty.</p>}
+      </article>
         <div className="savings-actions">
           {checkIn && checkInOpen && (checkedInToday ? <>
             <p className="savings-caption">You checked in today</p>
-            <button type="button" className="savings-secondary" onClick={(event) => { event.currentTarget.focus(); (onToday ?? checkIn)() }}>Open today’s saved items</button>
-          </> : <button type="button" className="savings-primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>)}
-          <button type="button" className="savings-secondary" aria-expanded={entryOpen} aria-controls={asideId} onClick={() => { if (entryOpen) setEntryOpen(false); else openAside() }}>I set money aside{pendingEntries > 0 && <span className="savings-badge"> · {pendingEntries} to confirm</span>}</button>
+            <button type="button" className="savings-secondary ui-btn ui-btn--tonal" onClick={(event) => { event.currentTarget.focus(); (onToday ?? checkIn)() }}>Open today’s saved items</button>
+          </> : <button type="button" className="savings-primary ui-btn ui-btn--primary" onClick={(event) => { event.currentTarget.focus(); checkIn() }}>Check in for today</button>)}
+          <button type="button" className="savings-secondary ui-btn ui-btn--tonal" aria-expanded={entryOpen} aria-controls={asideId} onClick={() => { if (entryOpen) setEntryOpen(false); else openAside() }}>I set money aside{pendingEntries > 0 && <span className="savings-badge"> · {pendingEntries} to confirm</span>}</button>
         </div>
-      </article>
+      {challenge.timeline?.checkpoints_due[0] && <div className="savings-ready ui-card"><SavingsRowButton label={`Day ${challenge.timeline.checkpoints_due[0]} ready to review`} description="" onClick={() => (onCheckpoint ?? onToday)?.()} /></div>}
 
-      <section id={asideId} className={entryOpen ? 'savings-aside panel' : 'savings-aside panel is-collapsed'} aria-label="Add money you set aside">
+      {calendar && <section className="savings-checkpoints" aria-label="Personal challenge calendar">
+        <ol>{(['30', '60', '90'] as const).map((day) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current ui-card' : 'ui-card'}><strong>Day {day}</strong><span>{formatDay(calendar.checkpoints[day]).split(', ').map((part, index) => <span key={index}>{index > 0 && ', '}<span className="savings-nowrap">{part}</span></span>)}</span></li>)}</ol>
+        {onCheckIn && onToday && <button type="button" className="savings-link ui-btn ui-btn--text" onClick={(event) => { event.currentTarget.focus(); onToday() }}>Open today’s record and check-ins</button>}
+      </section>}
+      </div>
+
+      <section id={asideId} className={entryOpen ? 'savings-aside panel ui-card' : 'savings-aside panel ui-card is-collapsed'} aria-label="Add money you set aside">
         <h3 ref={entryHeadingRef} tabIndex={-1}>{editingEntry?.current_approved_version ? `Fix the ${entryWords(editingEntry.current_approved_version.signed_cents, editingEntry.current_approved_version.effective_on, 'fix')}` : editingEntry ? 'Fix this record' : 'Add money you set aside'}</h3>
         <p>{editingEntry ? `Replace this entry with the corrected amount. Your total changes only after you review and confirm the correction.` : 'Record new money you already set aside. This won’t move money; card payments and money you already had stay separate.'}</p>
         <form onSubmit={submitEntry}><fieldset disabled={entryFormLocked || !elapsed}>
-          <label>Amount in US dollars<input inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
-          <label className="savings-check"><input type="checkbox" checked={withdrawal} onChange={(event) => { setNewMoneyReviewed(false); setWithdrawal(event.target.checked) }} />I took this money out of my challenge savings</label>
-          <label>Date you set it aside or took it out<input type="date" value={effectiveOn} min={challenge.enrollment.starts_on} max={calendar?.local_today && calendar.local_today < challenge.enrollment.ends_on ? calendar.local_today : challenge.enrollment.ends_on} onChange={(event) => { setNewMoneyReviewed(false); setEffectiveOn(event.target.value) } } required /></label>
+          <label>Amount in US dollars<input className="ui-field" inputMode="decimal" value={amount} onChange={(event) => { setNewMoneyReviewed(false); setAmount(event.target.value) } } required /></label>
+          <label className="savings-check ui-check"><input type="checkbox" checked={withdrawal} onChange={(event) => { setNewMoneyReviewed(false); setWithdrawal(event.target.checked) }} />I took this money out of my challenge savings</label>
+          <label>Date you set it aside or took it out<input className="ui-field" type="date" value={effectiveOn} min={challenge.enrollment.starts_on} max={calendar?.local_today && calendar.local_today < challenge.enrollment.ends_on ? calendar.local_today : challenge.enrollment.ends_on} onChange={(event) => { setNewMoneyReviewed(false); setEffectiveOn(event.target.value) } } required /></label>
           {!withdrawal && <label>Where did this money come from?<select value={funding} onChange={(event) => { setNewMoneyReviewed(false); setFunding(event.target.value as SavingsFundingSource) }}>{savingsFundingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>}
           {!withdrawal && !fundingEligible && <p className="savings-excluded">This won’t count toward your total, but it stays in your record.</p>}
-          {editingEntry && <label>Reason for correction (required)<textarea maxLength={500} value={entryReason} onChange={(event) => setEntryReason(event.target.value)} required /></label>}
-          {intakeActive && <><p>{assistantName} filled this in from your chat. Check the amount, date and where the money came from. Nothing counts until you confirm.</p>{!editingEntry && !withdrawal && fundingEligible && <label className="savings-check"><input type="checkbox" checked={newMoneyReviewed} onChange={event=>setNewMoneyReviewed(event.target.checked)}/>This was new money I set aside after expenses, not borrowed or money I already had.</label>}</>}
-          <div className="savings-form-actions"><button type="submit" className="savings-action" disabled={intakeActive && !editingEntry && !withdrawal && Boolean(fundingEligible) && !newMoneyReviewed}>Review savings record</button>{editingEntry && <button type="button" onClick={() => { setEditingEntry(null); setIntakeActive(false); setAmount(''); setEntryReason(''); onIntakeCleared?.() }}>Cancel correction</button>}</div>
+          {editingEntry && <label>Reason for correction (required)<textarea className="ui-field" maxLength={500} value={entryReason} onChange={(event) => setEntryReason(event.target.value)} required /></label>}
+          {intakeActive && <><p>{assistantName} filled this in from your chat. Check the amount, date and where the money came from. Nothing counts until you confirm.</p>{!editingEntry && !withdrawal && fundingEligible && <label className="savings-check ui-check"><input type="checkbox" checked={newMoneyReviewed} onChange={event=>setNewMoneyReviewed(event.target.checked)}/>This was new money I set aside after expenses, not borrowed or money I already had.</label>}</>}
+          <div className="savings-form-actions"><button type="submit" className="savings-action ui-btn ui-btn--primary" disabled={intakeActive && !editingEntry && !withdrawal && Boolean(fundingEligible) && !newMoneyReviewed}>Review savings record</button>{editingEntry && <button className="ui-btn ui-btn--tonal" type="button" onClick={() => { setEditingEntry(null); setIntakeActive(false); setAmount(''); setEntryReason(''); onIntakeCleared?.() }}>Cancel correction</button>}</div>
         </fieldset></form>
         {!elapsed && <p>You can add money once your 90 days start.</p>}
-        {projection && !projection.reporting_known && elapsed && <details className="savings-zero" open={zeroOpen} onToggle={event => setZeroOpen(event.currentTarget.open)}><summary ref={zeroSummaryRef}>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
+        {projection && !projection.reporting_known && elapsed && <details className="savings-zero" open={zeroOpen} onToggle={event => setZeroOpen(event.currentTarget.open)}><summary ref={zeroSummaryRef}>Nothing to add?</summary><section aria-label="Confirm nothing set aside"><p>If you’re not sure, leave it for now. If you know you haven’t set aside or taken out any new money through {formatDay(projection.cutoff_on)}, you can say so.</p><label className="savings-check ui-check"><input type="checkbox" checked={knownZero} disabled={actionLocked('zero_attest')} onChange={(event) => setKnownZero(event.target.checked)} />I know I haven’t set aside or taken out any new money through this date.</label><button type="button" className="savings-action ui-btn ui-btn--primary" disabled={actionLocked('zero_attest') || !knownZero} onClick={() => homeStage('zero_attest',(key, signal) => attestSavingsZero({ known_zero: true, cutoff_on: projection.cutoff_on, expected_enrollment_lock_version: challenge.enrollment!.lock_version }, key, signal), () => setKnownZero(false))}>Confirm nothing set aside</button></section></details>}
         {/* Waiting entries are fetched on their own (newest first), so they show even when they are older than the latest page. */}
         {(pendingEntries > 0 || (reviewAnchor?.collection === 'entry_drafts' && homeMutation.pending !== null)) && <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key={reviewAnchor?.collection === 'entry_drafts' ? `waiting:${reviewAnchor.id}` : 'waiting'} focusRecordId={reviewAnchor?.collection === 'entry_drafts' ? reviewAnchor.id : undefined} options={WAITING} collection="entry_drafts" label="Waiting for you to confirm" hideWhenEmpty revision={revision} enabled={!busy && entryOpen} render={(draft) => <>
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)}{draft.status === 'pending' ? '' : ` · ${statusWord(draft.status)}`}</p>
           <p>{savingsFundingLabel(draft.funding_source)}</p>
           {draft.reason && <p>{draft.reason}</p>}
-          {draft.status === 'pending' && <><p>Your total doesn’t change until you confirm.</p><button type="button" className="savings-action" disabled={actionLocked('entry_approve',draft.id) || !calendar || draft.effective_on > calendar.local_today} onClick={() => homeStage('entry_approve',(key, signal) => approveSavingsEntry(draft.id, { accepted: true, expected_draft_lock_version: draft.lock_version, expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version }, key, signal),undefined,draft.id)}>Confirm {entryWords(draft.signed_cents, draft.effective_on)}</button>{(!calendar || draft.effective_on > calendar.local_today) && <p>You can confirm this on or after {formatDay(draft.effective_on)}.</p>}</>}
+          {draft.status === 'pending' && <><p>Your total doesn’t change until you confirm.</p><button type="button" className="savings-action ui-btn ui-btn--primary" disabled={actionLocked('entry_approve',draft.id) || !calendar || draft.effective_on > calendar.local_today} onClick={() => homeStage('entry_approve',(key, signal) => approveSavingsEntry(draft.id, { accepted: true, expected_draft_lock_version: draft.lock_version, expected_version_id: draft.base_version_id, expected_entry_lock_version: draft.base_entry_lock_version }, key, signal),undefined,draft.id)}>Confirm {entryWords(draft.signed_cents, draft.effective_on)}</button>{(!calendar || draft.effective_on > calendar.local_today) && <p>You can confirm this on or after {formatDay(draft.effective_on)}.</p>}</>}
         </>} />}
         <SavingsHistory<SavingsEntryDraft> scope={historyScope} onDenied={clearPrivatePlan} key="confirmed" options={CONFIRMED} collection="entry_drafts" label="Your entries" hideWhenEmpty revision={revision} enabled={!busy && entryOpen} render={(draft) => <>
           <p><strong>{savingsDollars(draft.signed_cents)}</strong> · {formatDay(draft.effective_on)} · {draft.replaced ? 'Replaced by a correction' : statusWord(draft.status)}</p>
@@ -392,37 +400,34 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
         </>} />
       </section>
 
-      {calendar && <section className="savings-checkpoints" aria-label="Personal challenge calendar">
-        <ol>{(['30', '60', '90'] as const).map((day) => <li key={day} aria-current={next?.day === day ? 'step' : undefined} className={next?.day === day ? 'is-current' : undefined}><strong>Day {day}</strong><span>{formatDay(calendar.checkpoints[day]).split(', ').map((part, index) => <span key={index} className="savings-nowrap">{index > 0 && ', '}{part}</span>)}</span></li>)}</ol>
-        {onCheckIn && onToday && <button type="button" className="savings-link" onClick={(event) => { event.currentTarget.focus(); onToday() }}>Open today’s record and check-ins</button>}
-      </section>}
+
     </>}
 
     {/* Wait for the first read so rows don't flash in before the summary. */}
-    {(challenge || !loading) && <><div className="savings-rows">
+    {(challenge || !loading) && <><div className="savings-rows ui-rows">
       {challenge?.enrollment && <details className="savings-row-group" open={planOpen} onToggle={event => setPlanOpen(event.currentTarget.open)}>
-        <summary className="savings-row"><SavingsRowContent label="Your target & spending choices" count={pendingPlans ? `${pendingPlans} to review` : undefined} description={!plan ? `Choose ${suggested} or an amount that fits you` : plan.target_cents === null ? 'Choose a target whenever you’re ready' : `Your target is ${savingsTargetDollars(plan.target_cents)}. Change it or add spending choices.`} /></summary>
+        <summary className="savings-row ui-row"><SavingsRowContent label="Your target & spending choices" count={pendingPlans ? `${pendingPlans} to review` : undefined} description={!plan ? `Choose ${suggested} or an amount that fits you` : plan.target_cents === null ? 'Choose a target whenever you’re ready' : `Your target is ${savingsTargetDollars(plan.target_cents)}. Change it or add spending choices.`} /></summary>
         <section className="savings-row-body" aria-label="Savings target plan">
           <h3 ref={targetHeadingRef} tabIndex={-1}>{plan ? 'Change your target' : 'Choose your target'}</h3>
           <p>{suggested} is the suggested target. You can pick a smaller amount, or decide later.</p>
           {plan && <section aria-label="Accepted spending choices"><h4>Your current plan</h4><ComfortablePlanSummary plan={plan}/></section>}
           {showPlanForm && <form onSubmit={submitPlan}><fieldset disabled={planFormLocked}>
-            <label>Target in US dollars<input inputMode="decimal" value={target} disabled={postponed} onChange={(event) => setTarget(event.target.value)} /></label>
-            <label className="savings-check"><input type="checkbox" checked={postponed} onChange={(event) => setPostponed(event.target.checked)} />I will choose my target later</label>
-            {plan && <label>Reason for target change<textarea maxLength={500} value={planReason} onChange={(event) => setPlanReason(event.target.value)} required /></label>}
+            <label>Target in US dollars<input className="ui-field" inputMode="decimal" value={target} disabled={postponed} onChange={(event) => setTarget(event.target.value)} /></label>
+            <label className="savings-check ui-check"><input type="checkbox" checked={postponed} onChange={(event) => setPostponed(event.target.checked)} />I will choose my target later</label>
+            {plan && <label>Reason for target change<textarea className="ui-field" maxLength={500} value={planReason} onChange={(event) => setPlanReason(event.target.value)} required /></label>}
             <ComfortablePlanChoices key={`${participantScope?.user_id}:${participantScope?.household_id}:${challenge.enrollment.id}`} acceptedPlan={plan} scope={participantScope} disabled={planFormLocked} freshness={revision} onChange={setComfortable} onDenied={clearPrivatePlan} onBaseline={onReviewBaseline}/>
             {comfortable.error && <p className="savings-caption">{comfortable.error}</p>}
-            <div className="savings-form-actions"><button type="submit" className="savings-action" disabled={Boolean(planMutation.pending?.working) || (comfortable.edited && (!comfortable.reviewed || Boolean(comfortable.error)))}>Review target plan</button>{changingPlan && <button type="button" onClick={() => { setChangingPlan(false); setFocusRequest('confirm-target') }}>Keep the target waiting below</button>}</div>
+            <div className="savings-form-actions"><button type="submit" className="savings-action ui-btn ui-btn--primary" disabled={Boolean(planMutation.pending?.working) || (comfortable.edited && (!comfortable.reviewed || Boolean(comfortable.error)))}>Review target plan</button>{changingPlan && <button className="ui-btn ui-btn--tonal" type="button" onClick={() => { setChangingPlan(false); setFocusRequest('confirm-target') }}>Keep the target waiting below</button>}</div>
           </fieldset></form>}
           {/* Keep the review mounted when switching between confirming and changing a target.
               Moving it between branches restarted its read and its autofocus while focus was restoring. */}
           {planHistory}
-          {!showPlanForm && <p>Want a different target? <button type="button" className="savings-link" onClick={() => { setChangingPlan(true); setFocusRequest('target') }}>Change it instead</button></p>}
+          {!showPlanForm && <p>Want a different target? <button type="button" className="savings-link ui-btn ui-btn--text" onClick={() => { setChangingPlan(true); setFocusRequest('target') }}>Change it instead</button></p>}
         </section>
       </details>}
 
       {challenge?.enrollment && <details className="savings-row-group" open={historyOpen} onToggle={event => setHistoryOpen(event.currentTarget.open)}>
-        <summary className="savings-row"><SavingsRowContent label="Your records & corrections" description="See what you’ve saved and fix a mistake" /></summary>
+        <summary className="savings-row ui-row"><SavingsRowContent label="Your records & corrections" description="See what you’ve saved and fix a mistake" /></summary>
         <section className="savings-row-body" aria-label="Approved savings history">
           <p>A fix doesn’t change your total until you confirm it.</p>
           <SavingsHistory<SavingsEntry> scope={historyScope} onDenied={clearPrivatePlan} key={freshHome?.entryId??'entries'} focusRecordId={freshHome?.entryId} options={NEWEST} collection="entries" label="Savings history" level={3} revision={revision} enabled={!busy && historyOpen} render={(entry) => {
@@ -434,21 +439,21 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
               <p>{savingsFundingLabel(version.funding_source)}{match ? ` · ${match}` : ''}</p>
               <div className="savings-form-actions">
                 <details className="savings-record-actions"><summary>Review or fix this record</summary>
-                {onReviewEvidence && version.signed_cents > 0 && savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible) && <button type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>{version.evidence_status === 'not_linked' ? 'Match to a statement' : 'Review statement match'}</button>}
-                <button type="button" disabled={actionLocked('entry_stage',undefined,entry.id)} onClick={() => editEntry(entry)}>Fix the {entryWords(version.signed_cents, version.effective_on, 'fix')}</button>
+                {onReviewEvidence && version.signed_cents > 0 && savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible) && <button className="ui-btn ui-btn--tonal" type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>{version.evidence_status === 'not_linked' ? 'Match to a statement' : 'Review statement match'}</button>}
+                <button className="ui-btn ui-btn--tonal" type="button" disabled={actionLocked('entry_stage',undefined,entry.id)} onClick={() => editEntry(entry)}>Fix the {entryWords(version.signed_cents, version.effective_on, 'fix')}</button>
                 </details>
               </div>
             </>
           }} />
-          {onReviewEvidence && <details className="savings-versions" open={versionsOpen} onToggle={event => setVersionsOpen(event.currentTarget.open)}><summary>Earlier versions of your records</summary><p>Only the latest version of each record counts. You can remove an old statement match so that money can be matched to another record.</p><SavingsHistory<SavingsEntryVersion> scope={historyScope} onDenied={clearPrivatePlan} collection="entry_versions" label="Earlier versions" revision={revision} enabled={!busy && historyOpen && versionsOpen} render={(version)=><><p><strong>{savingsDollars(version.signed_cents)}</strong> · {formatDay(version.effective_on)} · version {version.version_number}</p><p>{savingsFundingLabel(version.funding_source)}{version.reason ? ` · ${version.reason}` : ''}</p>{version.signed_cents>0&&savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible)&&<button type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>Review statement match for version {version.version_number}</button>}</>}/></details>}
+          {onReviewEvidence && <details className="savings-versions" open={versionsOpen} onToggle={event => setVersionsOpen(event.currentTarget.open)}><summary>Earlier versions of your records</summary><p>Only the latest version of each record counts. You can remove an old statement match so that money can be matched to another record.</p><SavingsHistory<SavingsEntryVersion> scope={historyScope} onDenied={clearPrivatePlan} collection="entry_versions" label="Earlier versions" revision={revision} enabled={!busy && historyOpen && versionsOpen} render={(version)=><><p><strong>{savingsDollars(version.signed_cents)}</strong> · {formatDay(version.effective_on)} · version {version.version_number}</p><p>{savingsFundingLabel(version.funding_source)}{version.reason ? ` · ${version.reason}` : ''}</p>{version.signed_cents>0&&savingsFundingOptions.some(option=>option.value===version.funding_source&&option.eligible)&&<button className="ui-btn ui-btn--tonal" type="button" disabled={locked} onClick={()=>onReviewEvidence(version.id)}>Review statement match for version {version.version_number}</button>}</>}/></details>}
         </section>
       </details>}
 
       <details className="savings-row-group">
-        <summary className="savings-row"><SavingsRowContent label="Statements & spending snapshot (optional)" description="Upload statements or see where your money goes" /></summary>
+        <summary className="savings-row ui-row"><SavingsRowContent label="Statements & spending snapshot (optional)" description="Upload statements or see where your money goes" /></summary>
         <div className="savings-row-body">
           <p>Optional. You can do the whole challenge without statements, a spending snapshot or a full budget.</p>
-          <div className="savings-form-actions"><button type="button" onClick={onReviewStatements}>Review or upload statements</button>{onReviewBaseline && <button type="button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Open your spending snapshot</button>}</div>
+          <div className="savings-form-actions"><button className="ui-btn ui-btn--tonal" type="button" onClick={onReviewStatements}>Review or upload statements</button>{onReviewBaseline && <button className="ui-btn ui-btn--tonal" type="button" onClick={(event) => { event.currentTarget.focus(); onReviewBaseline?.() }}>Open your spending snapshot</button>}</div>
         </div>
       </details>
 
@@ -456,7 +461,7 @@ function SavingsChallengeHomeBody({ onIntakeStaged, onIntakeCleared, dailyRefres
       {privacyRow && <div className="savings-row-group">{privacyRow}</div>}
       {exportScope && scopeCohort && <ChallengeExport scope={exportScope} cohortId={scopeCohort} variant="row" />}
     </div>
-    <p className="savings-footnote">{zone && `Dates follow ${zone}. `}Questions? <button type="button" className="savings-link" onClick={onAskMia}>Ask {assistantName}</button></p></>}
+    <p className="savings-footnote">{zone && `Dates follow ${zone}. `}Questions? <button type="button" className="savings-link ui-btn ui-btn--text" onClick={onAskMia}>Ask {assistantName}</button></p></>}
   </section>
 }
 // Lists that should open on the latest records ask the server for newest-first pages (one request per page).
@@ -512,7 +517,7 @@ function SavingsHistory<T extends RecordRow>({ collection, label, revision, enab
   // Lists that only matter once something exists (waiting entries, target changes) stay out of the way until then.
   if (hideWhenEmpty && !error && !canBack && (page ? page.records.length === 0 && !canForward : loading)) return null
   const anchoredAway = view.kind === 'from' && view.anchored && canBack
-  return <section className="savings-history" aria-label={label}><Heading>{label}</Heading>{anchoredAway && <p className="savings-caption">Opened at the record you were working on. Use {back} to see the rest.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(canBack || canForward) && <div className="savings-pager"><button type="button" disabled={!canBack} onClick={goBack}>{back}</button><button type="button" disabled={!canForward} onClick={goForward}>{forward}</button></div>}{(canBack || canForward) && <p className="savings-caption">{canForward ? `More records are available. Use ${forward} to see them.` : `Use ${back} to go back.`}</p>}</>}</section>
+  return <section className="savings-history" aria-label={label}><Heading>{label}</Heading>{anchoredAway && <p className="savings-caption">Opened at the record you were working on. Use {back} to see the rest.</p>}{loading && <p role="status">Loading {label.toLowerCase()}…</p>}{error && <div role="alert"><p>{error}</p><button className="ui-btn ui-btn--tonal" type="button" onClick={() => setAttempt((value) => value + 1)}>Retry history</button></div>}{!loading && page && <>{page.records.length === 0 && <p>Nothing here yet.</p>}<ol>{page.records.map((record) => <li key={record.id}>{render(record)}</li>)}</ol>{(canBack || canForward) && <div className="savings-pager"><button className="ui-btn ui-btn--tonal" type="button" disabled={!canBack} onClick={goBack}>{back}</button><button className="ui-btn ui-btn--tonal" type="button" disabled={!canForward} onClick={goForward}>{forward}</button></div>}{(canBack || canForward) && <p className="savings-caption">{canForward ? `More records are available. Use ${forward} to see them.` : `Use ${back} to go back.`}</p>}</>}</section>
 }
 const homeNotice: Record<Exclude<HomeSavingsAction, 'zero_attest'>, string> = { enrollment: 'You’re in. Welcome to the challenge.', entry_stage: 'Check it below, then confirm to add it to your total.', entry_approve: 'Saved. Your total is up to date.' }
 function zeroNotice(result: SavingsMutation<unknown>) { const cutoff = (result.record as { cutoff_on?: string }).cutoff_on ?? result.challenge.projection?.cutoff_on; return cutoff ? `You confirmed nothing set aside through ${formatDay(cutoff)}.` : 'You confirmed nothing set aside.' }
