@@ -298,3 +298,7 @@ for (const path of stylesheetFiles) {
 assert.deepEqual(cssPolicyFailures, [], 'new CSS decoration/ungated hover: remove it or document a specific intentional exception')
 assert.deepEqual([...cssPolicyAllowlist].filter((key) => !matchedAllowlistKeys.has(key)), [], 'stale CSS policy exceptions: remove keys whose finding no longer exists')
 console.log('design regression checks passed')
+
+// Browser chrome must match the page ground before runtime branding loads.
+assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /name="theme-color" content="#f7f2ea"/)
+assert.equal(JSON.parse(readFileSync(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8')).theme_color, '#f7f2ea')

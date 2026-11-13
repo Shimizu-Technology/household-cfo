@@ -1,10 +1,27 @@
 /* W6 navigation overrides stay separate from W7's shared visual cleanup. */
 .tabs-tools-group > summary {
   min-height: 44px;
-  padding: 12px 16px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  color: var(--ink);
+  font-size: var(--text-md);
   cursor: pointer;
   font-weight: var(--weight-semibold);
 }
+.tabs-tools-group > summary::-webkit-details-marker { display: none; }
+.tabs-tools-group > summary::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-right: 1px solid currentcolor;
+  border-bottom: 1px solid currentcolor;
+  transform: rotate(45deg);
+}
+.tabs-tools-group[open] > summary::after { transform: rotate(225deg); }
 .tabs-tools-group > summary:focus-visible {
   outline: 3px solid var(--brand-focus);
   outline-offset: 3px;

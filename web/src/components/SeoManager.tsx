@@ -59,7 +59,7 @@ export function SeoManager({ section }: { section: string }) {
     upsertMeta('meta[name="keywords"]', { name: 'keywords', content: keywords })
     upsertMeta('meta[name="author"]', { name: 'author', content: brand.organization_name })
     upsertMeta('meta[name="robots"]', { name: 'robots', content: robots })
-    upsertMeta('meta[name="theme-color"]', { name: 'theme-color', content: brand.colors.primary })
+    upsertMeta('meta[name="theme-color"]', { name: 'theme-color', content: brand.colors.background })
 
     upsertLink('link[rel="canonical"]', { rel: 'canonical', href: canonical })
 

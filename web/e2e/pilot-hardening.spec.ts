@@ -12128,6 +12128,17 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await more.click()
   await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeHidden()
   await page.locator('.tabs-tools-group > summary').click()
+  const tool = page.getByRole('link', { name: 'Wealth', exact: true })
+  const style = await tool.evaluate(element => {
+    const css = getComputedStyle(element)
+    const icon = element.querySelector('svg')!.getBoundingClientRect()
+    return { color: css.color, decoration: css.textDecorationLine, height: element.getBoundingClientRect().height, iconWidth: icon.width, iconHeight: icon.height }
+  })
+  expect(style.color).not.toBe('rgb(0, 0, 238)')
+  expect(style.decoration).toBe('none')
+  expect(style.height).toBeGreaterThanOrEqual(44)
+  expect(style.iconWidth).toBeLessThanOrEqual(24)
+  expect(style.iconHeight).toBeLessThanOrEqual(24)
   await page.getByRole('link', { name: 'Wealth', exact: true }).click()
   await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
   // Every milestone says its status in words, not only by color.

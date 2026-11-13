@@ -1444,7 +1444,7 @@ h3 {
   padding-top: 8px;
 }
 
-.tabs-tools-list > a {
+.tabs-tools-list a {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1459,23 +1459,23 @@ h3 {
   text-align: left;
 }
 
-.tabs-tools-list > a > span {
+.tabs-tools-list a > span {
   display: grid;
   gap: 2px;
 }
 
-.tabs-tools-list > a strong {
+.tabs-tools-list a strong {
   font-size: var(--text-sm);
 }
 
-.tabs-tools-list > a small {
+.tabs-tools-list a small {
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: var(--weight-semibold);
   line-height: 1.35;
 }
 
-.tabs-tools-list > a > svg {
+.tabs-tools-list a > svg {
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
@@ -1485,13 +1485,13 @@ h3 {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .tabs-tools-list > a:hover {
+  .tabs-tools-list a:hover {
     background: var(--emerald-soft);
     color: var(--emerald);
   }
 }
 
-.tabs-tools-list > a.active {
+.tabs-tools-list a.active {
   background: var(--emerald-soft);
   color: var(--emerald);
 }
@@ -4339,7 +4339,7 @@ h3 {
     min-width: 44px;
   }
 
-  .tabs-tools-list > a {
+  .tabs-tools-list a {
     min-height: 64px;
   }
 
