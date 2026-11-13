@@ -36,7 +36,7 @@ export async function expectPhoneGroundCoverage(page: Page) {
     ground.append(probe)
     const pageGround = getComputedStyle(probe).backgroundColor
     probe.remove()
-    const exposed: string[] = []
+    const exposed: { text: string; x: number; y: number; front: string | null }[] = []
     let coveredLines = 0
     const walker = document.createTreeWalker(document.querySelector('.shell-main')!, NodeFilter.SHOW_TEXT)
     while (walker.nextNode()) {
@@ -46,12 +46,18 @@ export async function expectPhoneGroundCoverage(page: Page) {
       range.selectNodeContents(node)
       for (const rect of range.getClientRects()) {
         if (rect.bottom <= band.top || rect.top >= innerHeight) continue
-        coveredLines++
         const top = Math.max(rect.top, band.top), bottom = Math.min(rect.bottom, innerHeight)
-        for (const y of [top + 0.5, (top + bottom) / 2, bottom - 0.5]) {
-          for (let x = Math.max(0.5, rect.left); x < Math.min(innerWidth, rect.right); x += 4) {
+        // Hit-test whole CSS pixels inside both the text intersection and the
+        // viewport. Chromium rounds a bottom-edge subpixel outside the screen.
+        const firstY = Math.ceil(top), lastY = Math.min(innerHeight - 1, Math.floor(bottom))
+        if (firstY > lastY) continue
+        coveredLines++
+        for (const y of [firstY, Math.floor((firstY + lastY) / 2), lastY]) {
+          for (let x = Math.max(1, Math.ceil(rect.left)); x < Math.min(innerWidth - 1, rect.right); x += 4) {
             const front = document.elementFromPoint(x, y)
-            if (front !== ground && !bar.contains(front)) exposed.push(node.textContent.trim())
+            if (front !== ground && !bar.contains(front) && exposed.length < 12) {
+              exposed.push({ text: node.textContent.trim(), x, y, front: front?.className ?? null })
+            }
           }
         }
       }
@@ -59,7 +65,8 @@ export async function expectPhoneGroundCoverage(page: Page) {
     // The empty margins and the gap below the pill must be covered too.
     for (const x of [1, innerWidth / 2, innerWidth - 1]) {
       for (const y of [pill.bottom + 1, innerHeight - 1]) {
-        if (document.elementFromPoint(x, y) !== ground) exposed.push(`gap at ${x},${y}`)
+        const front = document.elementFromPoint(x, y)
+        if (front !== ground) exposed.push({ text: 'bottom gap', x, y, front: front?.className ?? null })
       }
     }
     return { visible: ground.checkVisibility(), band: band.toJSON(), centre: pill.top + pill.height / 2,
