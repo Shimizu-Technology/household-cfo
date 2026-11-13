@@ -3986,7 +3986,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               budget={homeBudget ?? data.budget}
               onAskMia={() => switchSection('Ask Mia')}
               starterPrompts={MIA_UPDATE_PROMPTS}
-              onChoosePrompt={prompt => { switchSection('Ask Mia'); prepareMiaUpdate(prompt) }}
+              onChoosePrompt={prompt => {
+                if (!switchSection('Ask Mia', { focusHeading: false })) return
+                if (question.trim() || pendingMiaAttachments.length > 0) {
+                  setMiaError('Your message and files are waiting here. Send or clear them before choosing another prompt.')
+                  requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+                  return
+                }
+                prepareMiaUpdate(prompt)
+              }}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={visibleSections.includes('Statements') ? (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) : 0}

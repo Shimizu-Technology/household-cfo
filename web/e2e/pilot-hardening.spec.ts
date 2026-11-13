@@ -2254,6 +2254,36 @@ test('BOG UI Home keeps one working Mia action with and without purchases waitin
   }
 })
 
+test('BOG UI Home starter prompt keeps App composer focus without sending', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const sent: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/mia/messages')) sent.push(request.url()) })
+  await page.locator('.home-mia').getByRole('button', { name: 'Update my income', exact: true }).click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(composer).toHaveValue('Help me update my household income sources and schedules.')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(composer).toBeFocused()
+  expect(sent).toEqual([])
+})
+
+for (const draft of ['text', 'files', 'text and files']) {
+  test(`BOG UI Home starter prompt preserves an unsent App draft with ${draft}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+    const text = draft.includes('text') ? 'Keep my own question about these purchases.' : ''
+    await composer.fill(text)
+    if (draft.includes('files')) await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'QA-draft-statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
+    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await page.locator('.home-mia').getByRole('button', { name: 'Update my income', exact: true }).click()
+    await expect(composer).toHaveValue(text)
+    await expect(page.getByText('Your message and files are waiting here. Send or clear them before choosing another prompt.', { exact: true })).toBeVisible()
+    if (draft.includes('files')) await expect(page.getByRole('button', { name: 'Remove QA-draft-statement.pdf', exact: true })).toBeVisible()
+  })
+}
+
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
   for (const section of ['Home', 'Review', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
