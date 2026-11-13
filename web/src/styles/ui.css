@@ -43,7 +43,8 @@
 .ui-section > :is(h2, h3, h4) { margin: 0; font: inherit; font-variant-numeric: tabular-nums lining-nums; }
 .ui-section > a { min-height: 44px; display: inline-flex; align-items: center; font-size: var(--text-xs); font-weight: var(--weight-medium); }
 .ui-rows { margin: 0; padding: 0; list-style: none; }
-body :is(#root, [role='dialog'], [role='alertdialog']) .ui-row {
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-row,
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-row.text-button {
   display: flex;
   align-items: center;
   gap: 12px;

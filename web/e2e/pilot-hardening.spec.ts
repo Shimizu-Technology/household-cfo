@@ -2145,7 +2145,7 @@ test('BOG UI household Home keeps known debt and unknown liquid guidance distinc
   await expect(page.locator('.home-cushion')).toContainText('Add the missing starting numbers')
   await expect(page.locator('.home-screen')).not.toContainText('Safe to spend')
   await expect(page.locator('.home-money-values')).toContainText('$15,000')
-  await page.getByRole('button', { name: 'Plan details →' }).click()
+  await page.getByRole('link', { name: 'Plan details →' }).click()
   await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in debt minimums.')
 })
 
@@ -2183,6 +2183,37 @@ test('BOG UI household Home respects the shared penny-level answer instead of re
   await expect(answer).toContainText('Money out · planned$0.30')
   await expect(answer).toContainText('What’s left · planned$0.70')
   await expect(answer).not.toContainText('over the plan')
+})
+
+test('BOG UI Home Look A keeps the answer, rows and outlook bounded', async ({ page }) => {
+  await page.goto('/')
+  const home = page.locator('.home-screen')
+  await expect(home.locator('.home-month-answer.ui-answer')).toBeVisible()
+  const marks = await home.evaluate(root => {
+    const answer = root.querySelector('.home-month-answer')!
+    const bar = answer.querySelector<HTMLElement>('.ui-bar')!
+    const row = root.querySelector('.home-needs-you .ui-row')!
+    const figure = root.querySelector('.home-money-values .is-hero dd')!
+    return {
+      first: root.children[1] === answer,
+      hidden: bar.getAttribute('aria-hidden'),
+      sum: parseFloat(bar.style.getPropertyValue('--spent')) + parseFloat(bar.style.getPropertyValue('--planned')),
+      rowRadius: getComputedStyle(row).borderRadius,
+      rowHeight: row.getBoundingClientRect().height,
+      figureFits: figure.scrollWidth <= figure.clientWidth + 1,
+      overflow: document.documentElement.scrollWidth > innerWidth,
+    }
+  })
+  expect(marks.first).toBe(true)
+  expect(marks.hidden).toBe('true')
+  expect(marks.sum).toBeLessThanOrEqual(100)
+  expect(marks.rowRadius).toBe('0px')
+  expect(marks.rowHeight).toBeGreaterThanOrEqual(56)
+  expect(marks.figureFits).toBe(true)
+  expect(marks.overflow).toBe(false)
+  await expect(home.locator('.year-outlook-months > li')).toHaveCount(3)
+  await expect(home.locator('.home-year-columns')).toHaveAttribute('aria-hidden', 'true')
+  await expect(home.getByRole('link', { name: 'Tell Mia what changed' })).toHaveCount(1)
 })
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
