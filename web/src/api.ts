@@ -453,6 +453,8 @@ export type MiaMonthAnswer = {
   cushion_missing_inputs?: Array<{ label: string; destination: 'profile' | 'budget' | 'debt' | 'accounts' }>
   money_in_cents: number | null
   planned_out_cents: number | null
+  category_plan_cents?: number | null
+  category_left_cents?: number | null
   spent_so_far_cents: number | null
   plan_left_cents: number | null
   pending_count: number | null

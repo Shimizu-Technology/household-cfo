@@ -3992,6 +3992,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               dashboard={data.dashboard}
               budget={homeBudget ?? data.budget}
               onAskMia={() => switchSection('Ask Mia')}
+              starterPrompts={MIA_UPDATE_PROMPTS}
+              onChoosePrompt={prompt => {
+                if (!switchSection('Ask Mia', { focusHeading: false })) return
+                if (question.trim() || pendingMiaAttachments.length > 0) {
+                  setMiaError('Your message and files are waiting here. Send or clear them before choosing another prompt.')
+                  requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+                  return
+                }
+                prepareMiaUpdate(prompt)
+              }}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={visibleSections.includes('Statements') ? (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) : 0}
@@ -5069,14 +5079,14 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, p
   const { assistantName } = useBrand()
   const started = (status?.completed_count ?? 0) > 0
   const missingFields = status?.missing_fields.filter(field => !answer?.main_income_missing || field.key !== 'primary_income') ?? []
-  return <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
+  return <section className="home-welcome-panel ui-card" aria-labelledby="home-welcome-title">
     <h2 id="home-welcome-title" data-page-heading tabIndex={-1}>{started ? 'Your household plan' : 'Welcome to your household plan.'}</h2>
     <p>{started ? 'Your approved numbers so far. You can finish the rest one question at a time.' : `Start with your money in and money out; ${assistantName} will help you one question at a time.`}</p>
     <HomeMoneyValues answer={answer} />
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
-    {answer?.main_income_missing && <p>Still to add: your main income.</p>}
-    {missingFields.length > 0 && <p>Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</p>}
-    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="secondary-button" onClick={onOpenDebt}>Add debt minimums</button>}
+    {answer?.main_income_missing && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: your main income.</span></p>}
+    {missingFields.length > 0 && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</span></p>}
+    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="ui-row text-button" onClick={onOpenDebt}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Add debt minimums</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
     {!started && <p className="home-welcome-note">Takes about 3 minutes. You can skip anything.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
@@ -5087,7 +5097,7 @@ function FirstSessionCard({ onChat, onManual }: { onChat: () => void; onManual: 
   const { assistantName } = useBrand()
   return <div className="home-welcome-actions">
     <Button onClick={onChat}>Set up with {assistantName}</Button>
-    <Button variant="ghost" onClick={onManual}>Enter my numbers</Button>
+    <Button variant="secondary" onClick={onManual}>Enter my numbers</Button>
   </div>
 }
 
