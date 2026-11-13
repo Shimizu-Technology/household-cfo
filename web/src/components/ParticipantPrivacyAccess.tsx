@@ -102,9 +102,9 @@ function PrivacyAccess({ userId, householdId, variant, description, savingsChall
 }
 
 function HouseholdPrivacyDialog({ onClose }: { onClose: () => void }) {
-  const dialog = usePilotDialog(onClose)
-  return createPortal(<div className="household-privacy-backdrop"><section ref={dialog} className="challenge-privacy-dialog household-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="household-privacy-title" tabIndex={-1}>
-    <header><h2 id="household-privacy-title">Your household privacy</h2><button type="button" aria-label="Close privacy controls" onClick={onClose}>×</button></header>
+  const { dialogRef: dialog, requestClose } = usePilotDialog(onClose)
+  return createPortal(<div className="household-privacy-backdrop"><section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="challenge-privacy-dialog household-privacy-dialog" role="dialog" aria-modal="true" aria-labelledby="household-privacy-title" tabIndex={-1}>
+    <header><h2 id="household-privacy-title">Your household privacy</h2><button type="button" aria-label="Close privacy controls" onClick={requestClose}>×</button></header>
     <div className="privacy-scroll">
       <p>Your household money, statements and conversations stay in your private workspace.</p>
       <p>Your coach doesn't see your financial records unless you choose to share them.</p>

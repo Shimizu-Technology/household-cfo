@@ -32,7 +32,7 @@ function checkedPage<T>(value: DebtPage<T>, scope: DebtScope) {
 }
 export function OptionalDebtReview(props: OptionalDebtReviewProps) { return <DebtReviewBody key={`${props.actorScope.user_id}:${props.actorScope.household_id}:${props.cohortId}`} {...props}/> }
 function DebtReviewBody({ actorScope, cohortId, onClose, api = optionalDebtApi }: OptionalDebtReviewProps) {
-  const dialog = usePilotDialog(onClose), reviewHeading = useRef<HTMLHeadingElement>(null), alive = useRef(true), generation = useRef(0), findControllers = useRef(new Set<AbortController>()), enrollmentIdentity = useRef<number | null>(null)
+  const { dialogRef: dialog, requestClose } = usePilotDialog(onClose), reviewHeading = useRef<HTMLHeadingElement>(null), alive = useRef(true), generation = useRef(0), findControllers = useRef(new Set<AbortController>()), enrollmentIdentity = useRef<number | null>(null)
   const bumpGeneration = useCallback(() => { generation.current++ }, [])
   const actor = useMemo(() => ({ user_id: actorScope.user_id, household_id: actorScope.household_id }), [actorScope.user_id, actorScope.household_id])
   const [enrollmentId, setEnrollmentId] = useState<number>(), [data, setData] = useState<{ summary: DebtSummary; pages: Pages } | null>(null), [loading, setLoading] = useState(true), [denied, setDenied] = useState(false), [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [attempt, setAttempt] = useState(0)
@@ -54,6 +54,7 @@ function DebtReviewBody({ actorScope, cohortId, onClose, api = optionalDebtApi }
   useEffect(() => {
     let live = true; const controller = new AbortController()
     api.summary(cohortId, controller.signal).then(async raw => {
+      if (!live || controller.signal.aborted) return
       const summary = checkedDebtSummary(raw, actor, cohortId), expected = { ...actor, cohort_id: cohortId, enrollment_id: summary.enrollment_id }
       const [cards, drafts, versions, candidates, household] = await Promise.all([api.records<DebtCard>(expected, 'cards', cursors.cards, controller.signal), api.records<DebtDraft>(expected, 'drafts', cursors.drafts, controller.signal), api.records<DebtVersion>(expected, 'versions', cursors.versions, controller.signal), api.candidates(expected, cursors.candidates, controller.signal), api.householdCandidates(expected, cursors.household, controller.signal)])
       if (!live) return
@@ -124,7 +125,7 @@ function DebtReviewBody({ actorScope, cohortId, onClose, api = optionalDebtApi }
   const labels = new Map(data?.summary.cards.map(row => [row.card_id, row.label]) ?? [])
   const householdDraftChanged = draftReview && data?.pages.household.records.some(row => row.household_debt_id === draftReview.draft.household_debt_id && row.fingerprint !== draftReview.draft.household_debt_fingerprint)
   const canApprove = !householdDraftChanged && draftReview && draftReview.draft.base_version_id === draftReview.card.current_version_id && draftReview.draft.base_head_lock_version === draftReview.card.lock_version
-  return <div className="optional-debt-overlay"><section ref={dialog} className="optional-debt-dialog" role="dialog" aria-modal="true" aria-labelledby="optional-debt-title" tabIndex={-1}><header><div><h2 id="optional-debt-title">Card & debt review</h2></div><button type="button" className="debt-secondary" aria-label="Close card review" onClick={onClose}>Close</button></header><div className="optional-debt-scroll">
+  return <div className="optional-debt-overlay" data-dialog-surface="true"><section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="optional-debt-dialog" role="dialog" aria-modal="true" aria-labelledby="optional-debt-title" tabIndex={-1}><header><div><h2 id="optional-debt-title">Card & debt review</h2></div><button type="button" className="debt-secondary" aria-label="Close card review" onClick={requestClose}>Close</button></header><div className="optional-debt-scroll">
     <p>Optional. Use this only if comparing cards would help. You can do the whole challenge without it.</p><p>Paying down a card isn’t counted as money set aside. Cards you saved in your household stay as they are; what you confirm here is kept separately.</p>
     {notice && <p role="status" className="debt-notice">{notice}</p>}{(error || mutation.error || mutation.pending?.error) && <p role="alert" className="debt-warning">{error ?? mutation.error ?? mutation.pending?.error}</p>}
     {denied ? <p>Private card review is unavailable for this account or program. Financial details have been cleared. Your earlier reference number, if any, is kept for a later authorized status check.</p> : <><button type="button" className="debt-secondary" disabled={loading || Boolean(mutation.pending)} onClick={refresh}>Refresh card review</button>{loading && <p role="status">Checking your current private terms…</p>}

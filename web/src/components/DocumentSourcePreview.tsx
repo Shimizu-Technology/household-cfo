@@ -64,7 +64,7 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
     releaseResources()
     onClose()
   }, [onClose, releaseResources])
-  const dialogRef = usePilotDialog(close)
+  const { dialogRef, requestClose } = usePilotDialog(close)
 
   const recheckAccess = useCallback(async () => {
     if (!mounted.current || checking.current !== null) return
@@ -188,14 +188,14 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
   const isPdf = source?.inline_supported && source.content_type === 'application/pdf'
   const serverPreviewType = source && usesServerPreview(source.filename, source.content_type)
   return (
-    <div className="document-preview-overlay" role="presentation">
-      <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={close} />
-      <section ref={dialogRef} className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${title}`} tabIndex={-1}>
+    <div className="document-preview-overlay" data-dialog-surface="true" role="presentation">
+      <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={requestClose} />
+      <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${title}`} tabIndex={-1}>
         <header className="document-preview-header">
           <div><span className="document-status blue">Private preview</span><h3>{title}</h3><p>{description} · Every source read rechecks your access.</p></div>
           <div className="document-preview-actions">
             {source && <button type="button" disabled={loading || operation !== null} onClick={() => void readContent(true)}>{operation === 'download' ? 'Downloading' : 'Download source'}</button>}
-            <button type="button" onClick={close}>Close</button>
+            <button type="button" onClick={requestClose}>Close</button>
           </div>
         </header>
         <div className="document-preview-body">

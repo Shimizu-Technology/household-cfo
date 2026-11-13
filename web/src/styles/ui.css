@@ -1,0 +1,273 @@
+/* Shared Look A primitives. Loaded after legacy app styles; scoped control
+   selectors also win over lazy component styles, regardless of chunk order. */
+.ui-card,
+.ui-answer {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-card);
+  color: var(--ink);
+  box-shadow: none;
+}
+.ui-answer {
+  --data-spent: var(--data-deep-spent);
+  --data-planned: var(--data-deep-planned);
+  --data-remainder: var(--data-deep-remainder);
+  padding: 20px 20px 18px;
+  border-color: transparent;
+  background: var(--brand-deep);
+  color: var(--on-brand-deep);
+}
+.ui-title,
+.ui-figure {
+  margin: 0;
+  font: var(--weight-semibold) 32px/1.05 var(--font-display);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+.ui-figure { margin: 6px 0 4px; font-size: clamp(2.75rem, 14vw, 3.5rem); line-height: 1; }
+.ui-label { font: var(--weight-medium) var(--text-xs)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; color: var(--muted); }
+.ui-answer :is(.ui-label, .ui-answer__note, .ui-key) { color: var(--on-brand-deep-muted); }
+.ui-answer__note { margin: 0; font-size: var(--text-xs); line-height: 1.5; }
+.ui-section {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin: 0 0 10px;
+  color: var(--ink);
+  font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums;
+}
+.ui-section > :is(h2, h3, h4) { margin: 0; font: inherit; font-variant-numeric: tabular-nums lining-nums; }
+.ui-section > a { min-height: 44px; display: inline-flex; align-items: center; font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.ui-rows { margin: 0; padding: 0; list-style: none; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: var(--weight-medium) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums;
+  text-align: start;
+  text-decoration: none;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-row + .ui-row { border-top: 1px solid var(--rule); }
+.ui-row__body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ui-row__title { display: block; font-weight: var(--weight-medium); }
+.ui-row__detail { display: block; margin-top: 2px; color: var(--muted); font: var(--weight-regular) var(--text-xs)/1.45 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+.ui-row__trailing { flex: 0 1 auto; max-width: 35%; overflow-wrap: anywhere; font-size: var(--text-xs); }
+.ui-row__chevron { flex: 0 0 16px; width: 16px; height: 16px; color: var(--muted); }
+
+/* Three action looks; legacy names retain their existing dimensions. */
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn, .button, .primary-button, .secondary-button, .danger-button, .text-button) {
+  box-sizing: border-box;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  font-family: var(--font-body);
+  font-weight: var(--weight-semibold);
+  box-shadow: none;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 10px 18px;
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn--primary, .button--primary, .primary-button) { background: var(--brand); color: var(--brand-on-primary); }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn--tonal, .button--secondary, .secondary-button) { background: var(--brand-soft); color: var(--brand-strong); }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn--text, .button--ghost, .text-button) { background: transparent; color: var(--brand-strong); }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.danger-button, .button--danger) { background: color-mix(in srgb, var(--color-danger) 10%, var(--surface-card)); color: var(--color-danger); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--full { display: flex; width: 100%; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(button, .ui-btn, .ui-row, .ui-chip):is(:disabled, [aria-disabled='true']) { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+/* Data stays in React. Widths/heights are percentages, not pre-baked pictures. */
+.ui-bar { display: flex; height: 10px; overflow: hidden; margin: 16px 0 10px; border-radius: var(--radius-pill); background: var(--data-remainder); }
+.ui-bar__spent { flex: 0 0 var(--spent, 0%); background: var(--data-spent); }
+.ui-bar__planned { flex: 0 0 var(--planned, 0%); background: var(--data-planned); }
+.ui-bar__remainder { flex: 1; background: var(--data-remainder); }
+.ui-key { display: flex; flex-wrap: wrap; gap: 10px 16px; color: var(--muted); font-size: var(--text-xs); }
+.ui-key > span { flex: 1 1 72px; min-width: 0; }
+.ui-key strong { display: block; margin-top: 2px; color: var(--ink); font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.ui-answer .ui-key strong { color: var(--on-brand-deep); }
+.ui-key .ui-dot { margin-inline-end: 6px; }
+.ui-dot--spent { background: var(--data-spent); }
+.ui-dot--planned { background: var(--data-planned); }
+.ui-dot--remainder { background: var(--data-remainder); }
+.ui-track { position: relative; height: 8px; margin: 12px 0 8px; border-radius: var(--radius-pill); background: var(--data-remainder); }
+.ui-track__fill { display: block; width: clamp(0%, var(--value, 0%), 100%); height: 100%; border-radius: inherit; background: var(--brand); }
+.ui-track__goal { position: absolute; left: clamp(0%, var(--goal, 100%), 100%); top: -4px; width: 2px; height: 16px; background: currentColor; transform: translateX(-100%); }
+.ui-cols { display: grid; grid-template-columns: repeat(var(--columns, 12), minmax(0, 1fr)); align-items: end; gap: clamp(3px, 1vw, 6px); margin: 12px 0; padding: 0; list-style: none; }
+.ui-cols__column { display: grid; grid-template-rows: 92px auto; gap: 8px; min-width: 0; align-items: end; text-align: center; }
+.ui-cols__bar { display: block; height: clamp(0%, var(--value, 0%), 100%); border-radius: 4px 4px 0 0; background: var(--line); }
+.ui-cols__label { color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.ui-cols__column--current .ui-cols__bar { background: var(--brand); }
+.ui-cols__column--current .ui-cols__label { color: var(--ink); font-weight: var(--weight-semibold); }
+.ui-cols__column--attention .ui-cols__bar { background: var(--accent-warm); }
+.ui-chip,
+.ui-pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface-ground); color: var(--ink); font: var(--weight-medium) var(--text-xs)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-chip { min-height: 44px; padding: 8px 12px; background: var(--surface-card); color: var(--brand-strong); }
+.ui-pill--good { border-color: transparent; background: color-mix(in srgb, var(--positive) 12%, var(--surface-card)); }
+.ui-pill--attention { border-color: transparent; background: color-mix(in srgb, var(--accent-warm) 12%, var(--surface-card)); }
+.ui-dot { display: inline-block; flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+.ui-dot.ui-dot--good { background: var(--positive); }
+.ui-dot.ui-dot--attention { background: var(--accent-warm); }
+.ui-dot.ui-dot--neutral { background: var(--line); }
+.ui-dot.ui-dot--spent { background: var(--data-spent); }
+.ui-dot.ui-dot--planned { background: var(--data-planned); }
+.ui-dot.ui-dot--remainder { background: var(--data-remainder); }
+.ui-monogram { display: inline-grid; flex: 0 0 32px; place-items: center; width: 32px; height: 32px; border: 1px solid var(--brand); border-radius: 50%; background: var(--brand-soft); color: var(--brand-strong); font: var(--weight-semibold) 18px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+
+/* Scoped app-wide controls. The native date picker remains available. */
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(select, input[type='number'], input[type='date'], .ui-field) {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-card);
+  color: var(--ink);
+  font: var(--weight-regular) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums;
+  caret-color: var(--brand);
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) select {
+  appearance: none;
+  padding-inline-end: 38px;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  text-overflow: ellipsis;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) select:dir(rtl) { background-position: left 12px center; padding-inline-end: 38px; }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='number'] { appearance: textfield; -moz-appearance: textfield; }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='number']::-webkit-inner-spin-button,
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='number']::-webkit-outer-spin-button { appearance: none; margin: 0; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio']) {
+  appearance: none;
+  position: relative;
+  box-sizing: border-box;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  display: inline-grid;
+  place-content: center;
+  vertical-align: middle;
+  cursor: pointer;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio'])::before {
+  content: '';
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--brand);
+  border-radius: 5px;
+  background: var(--surface-card);
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='radio']::before { border-radius: 50%; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio']):checked::before { background: var(--brand); }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--brand-on-primary);
+  clip-path: polygon(0 45%, 15% 30%, 40% 55%, 85% 8%, 100% 23%, 40% 87%);
+  justify-self: center;
+  align-self: center;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type='radio']:checked::after { content: ''; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--brand-on-primary); justify-self: center; align-self: center; }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type="checkbox"]:indeterminate::before { background: var(--brand); }
+body :is(#root, [role='dialog'], [role='alertdialog']) input[type="checkbox"]:indeterminate::after { content: ''; position: absolute; width: 12px; height: 2px; background: var(--brand-on-primary); justify-self: center; align-self: center; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(input, select, textarea):disabled { opacity: 0.55; cursor: not-allowed; }
+.ui-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: var(--text-md); }
+body :is(#root, [role='dialog'], [role='alertdialog']) details > summary {
+  position: relative;
+  box-sizing: border-box;
+  align-content: center;
+  min-height: 44px;
+  padding-inline-end: 32px;
+  list-style: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) details > summary::-webkit-details-marker { display: none; }
+body :is(#root, [role='dialog'], [role='alertdialog']) details > summary::marker { content: ''; }
+body :is(#root, [role='dialog'], [role='alertdialog']) details > summary::after {
+  content: '';
+  position: absolute;
+  inset: 50% 12px auto auto;
+  margin-top: -8px;
+  width: 16px;
+  height: 16px;
+  background: var(--muted);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='m6 4 4 4-4 4' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  transform: rotate(0deg);
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) details[open] > summary::after { transform: rotate(90deg); }
+.ui-disclosure { border-top: 1px solid var(--rule); }
+.ui-disclosure > summary { font-weight: var(--weight-medium); }
+.ui-disclosure > :not(summary) { margin-block: 8px 16px; }
+
+/* One focus treatment, including programmatically focused notices and portals.
+   Noninteractive route headings keep their intentional outline exemption. */
+body :is(#root, [role='dialog'], [role='alertdialog']) :focus-visible,
+body :is([role='dialog'], [role='alertdialog']):focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
+body #root :is(h1, h2, h3)[data-page-heading][tabindex='-1']:focus { outline: none; }
+
+@media (hover: hover) and (pointer: fine) {
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn, .button, .primary-button, .secondary-button, .danger-button, .text-button):not(:disabled, [aria-disabled='true']):hover { background: color-mix(in srgb, var(--brand-soft) 85%, var(--brand)); color: var(--brand-strong); }
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.ui-btn--primary, .button--primary, .primary-button):not(:disabled, [aria-disabled='true']):hover { background: var(--brand-strong); color: var(--brand-on-primary); }
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(a.ui-row, button.ui-row, .ui-chip):not(:disabled, [aria-disabled='true']):hover { background: var(--brand-soft); }
+  body :is(#root, [role='dialog'], [role='alertdialog']) .danger-button:not(:disabled):hover { background: color-mix(in srgb, var(--color-danger) 16%, var(--surface-card)); color: var(--color-danger); }
+}
+@media (forced-colors: active) {
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio']) { appearance: auto; forced-color-adjust: auto; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio'])::before,
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio'])::after { content: none; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) select { appearance: auto; background-image: none; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) details > summary::after { background: CanvasText; }
+}
+
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-chip[aria-pressed='true'] { background: var(--brand-soft); }
+
+/* Unclassed form submits share the primary shape in enabled and disabled
+   states. Existing icon submits and explicit danger/variant controls keep theirs. */
+body :is(#root, [role='dialog'], [role='alertdialog']) button[type='submit']:not([class]) {
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--brand);
+  color: var(--brand-on-primary);
+}
+
+/* Neutral browser link blue should never leak into an otherwise branded app.
+   Keep this low-specificity so navigation and action classes own their states. */
+:where(#root, [role='dialog'], [role='alertdialog']) a[href] { color: var(--brand-strong); }

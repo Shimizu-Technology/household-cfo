@@ -9,6 +9,9 @@
   --muted: #66625b;
   --line: #e2d9cb;
   --emerald: #7b4a58;
+  --brand-deep: color-mix(in srgb, var(--emerald) 60%, black);
+  --on-brand-deep: var(--cream);
+  --on-brand-deep-muted: color-mix(in srgb, var(--on-brand-deep) 80%, var(--brand-deep));
   --mauve: #7b4a58;
   --berry: #683d49;
   --emerald-soft: #f1e2e3;
@@ -17,6 +20,7 @@
   --brand-on-primary: #ffffff;
   --brand-primary-hover: #683d49;
   --brand-focus: #7b4a58;
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath d='m4 6 4 4 4-4' fill='none' stroke='%2366625b' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
   /* Pending money keeps a flat hatch, distinct from confirmed spending, without a gradient. */
   --pending-hatch: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath fill='%23f2c9ac' d='M0 0h8v8H0z'/%3E%3Cpath stroke='%23b57352' stroke-width='4' d='M-2 2L2-2M0 8L8 0M6 10l4-4'/%3E%3C/svg%3E");
   --font-body: Montserrat, ui-sans-serif, system-ui, sans-serif;
@@ -5209,7 +5213,7 @@ h3 {
   border: 2px solid rgba(123, 74, 88, 0.18);
   border-top-color: var(--emerald);
   border-radius: var(--radius-pill);
-  animation: spin 850ms linear infinite;
+  animation: spin 600ms linear infinite;
 }
 
 @keyframes spin {
@@ -5768,7 +5772,7 @@ h3 {
   border: 2px solid rgba(123, 74, 88, 0.18);
   border-top-color: var(--emerald);
   border-radius: var(--radius-pill);
-  animation: spin 850ms linear infinite;
+  animation: spin 600ms linear infinite;
 }
 
 @media (max-width: 620px) {
@@ -7491,12 +7495,8 @@ h3 {
     scroll-behavior: auto;
   }
 
-  /* Motion is removed, not shortened. A 0.01ms animation or transition still
-     starts on the next frame, so a sheet would rest off-screen, the tab bar
-     would stay hidden, and padding would lag a frame behind the layout it
-     belongs to. Every keyframe in the app only describes an entry from the
-     resting style, so with no animation the element is already in its final
-     state. */
+  /* Legacy motion rests instantly. Shared motion and dialog styles opt
+     colour and opacity fades back in without movement. */
   *,
   *::before,
   *::after {

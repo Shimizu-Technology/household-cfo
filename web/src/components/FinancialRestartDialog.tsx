@@ -125,7 +125,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
       if (mounted.current) setError(caught instanceof Error ? caught.message : 'Cancel was not confirmed. Check the review before closing.')
     } finally { if (mounted.current) setPhase('ready') }
   }
-  const dialogRef = usePilotDialog(() => { void close() })
+  const { dialogRef, requestClose } = usePilotDialog(() => { void close() })
   useEffect(() => {
     mounted.current = true
     let active = true
@@ -135,10 +135,10 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return <div className="pilot-dialog-overlay financial-restart-overlay" role="presentation">
-    <section ref={dialogRef} className="pilot-dialog financial-restart-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-restart-title" tabIndex={-1}>
+  return <div className="pilot-dialog-overlay financial-restart-overlay" data-dialog-surface="true" role="presentation">
+    <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog financial-restart-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-restart-title" tabIndex={-1}>
       <header><div><h2 id="financial-restart-title">{title}</h2></div>
-        <button type="button" className="secondary-button" disabled={busy} onClick={() => void close()}>Close</button></header>
+        <button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>Close</button></header>
       <div className="pilot-dialog-body">
         {blockedReason && <p role="status">{blockedReason}</p>}
         {!blockedReason && phase === 'loading' && <p role="status">Preparing your review. Your saved information stays as it is until you confirm.</p>}

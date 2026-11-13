@@ -107,36 +107,6 @@
   text-overflow: ellipsis;
 }
 
-/* Dialog entry. A window that just appears feels broken, so the scrim fades and
-   the panel rises a little. Dialogs open occasionally, so this is a standard
-   200ms ease-out; reduced motion is handled by the global block in App.css.
-   Phones get a bottom sheet that slides up from the edge instead. */
-@keyframes dialog-scrim-in { from { opacity: 0; } }
-@keyframes dialog-panel-in { from { opacity: 0; transform: translateY(12px) scale(0.98); } }
-@keyframes dialog-sheet-in { from { transform: translateY(100%); } }
-
-.pilot-dialog-overlay,
-.document-preview-overlay,
-.clear-chat-overlay,
-.cohort-release-modal-backdrop,
-.daily-overlay,
-.baseline-overlay,
-.evidence-overlay,
-.optional-debt-overlay,
-.bank-resume-overlay,
-.mia-assist-overlay,
-.household-privacy-backdrop {
-  animation: dialog-scrim-in 160ms ease-out both;
-}
-
-body :is(
-  .pilot-dialog, .clear-chat-dialog, .cohort-release-modal, .daily-dialog, .baseline-dialog,
-  .evidence-dialog, .optional-debt-dialog, .bank-resume-dialog, .mia-assist-panel.is-modal,
-  .document-preview-modal, .local-attachment-preview, .challenge-privacy-dialog
-) {
-  animation: dialog-panel-in 200ms var(--ease-out) both;
-}
-
 @media (max-width: 640px) {
   .pilot-dialog-overlay,
   .document-preview-overlay,
@@ -166,6 +136,6 @@ body :is(
     border-bottom: env(safe-area-inset-bottom, 0px) solid transparent;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     max-height: calc(var(--dialog-viewport-height, 100dvh) - var(--dialog-space-top));
-    animation: dialog-sheet-in 240ms var(--ease-drawer) both;
+
   }
 }

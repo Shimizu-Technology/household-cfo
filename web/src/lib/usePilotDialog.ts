@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import { flushSync } from 'react-dom'
+import { dialogExit } from './dialogExit'
 import { revealDialogControl } from './dialogFocus'
 
 // A confirmation can open over another dialog; only the topmost one traps focus
@@ -11,18 +13,22 @@ let overflowBeforeFirstDialog = ''
 export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
   const onCloseRef = useRef(onClose)
+  useLayoutEffect(() => { onCloseRef.current = onClose }, [onClose])
+  // Commit dismissal and all owner cleanups now, before any visual-only exit.
+  // Guarded callbacks run at the original event, never after an animation.
+  const requestClose = () => dialogExit(dialogRef.current, () => flushSync(() => onCloseRef.current()))
 
-  useEffect(() => {
-    onCloseRef.current = onClose
-  }, [onClose])
-
-  useEffect(() => {
+  // Release the trap during unmount, before a parent's next-frame focus return.
+  // A passive cleanup can run after that frame, especially in WebKit.
+  useLayoutEffect(() => {
     const token = Symbol('pilot-dialog')
     if (openDialogs.length === 0) overflowBeforeFirstDialog = document.body.style.overflow
     openDialogs.push(token)
     const isTopmost = () => openDialogs[openDialogs.length - 1] === token
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const dialog = dialogRef.current
+    dialog?.setAttribute('data-dialog-panel', 'true')
+    dialog?.parentElement?.setAttribute('data-dialog-surface', 'true')
     const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
       .filter((element) => {
@@ -57,7 +63,7 @@ export function usePilotDialog(onClose: () => void) {
       if (event.key === 'Escape') {
         event.preventDefault()
         event.stopPropagation()
-        onCloseRef.current()
+        dialogExit(dialogRef.current, () => flushSync(() => onCloseRef.current()))
         return
       }
       if (event.key !== 'Tab') return
@@ -103,9 +109,19 @@ export function usePilotDialog(onClose: () => void) {
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
       if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeFirstDialog
-      previousFocus?.focus({ preventScroll: true })
+      // An account action may have closed its disclosure while opening us.
+      // Its button is then hidden; return to the nearest visible summary,
+      // after unmount, rather than racing a parent's animation-frame fallback.
+      let destination = previousFocus
+      for (let node = previousFocus?.parentElement; node; node = node.parentElement) {
+        if (node instanceof HTMLDetailsElement && !node.open) {
+          const summary = node.querySelector<HTMLElement>(':scope > summary')
+          if (summary && !summary.contains(destination)) destination = summary
+        }
+      }
+      destination?.focus({ preventScroll: true })
     }
   }, [])
 
-  return dialogRef
+  return { dialogRef, requestClose }
 }

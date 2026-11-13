@@ -1,20 +1,20 @@
-/* Press feedback settles quickly and eases out, so a tap reads as a response
- * rather than a jump. Only transform moves, so nothing else is delayed.
- * Disabled controls stay still. */
-:is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']) {
-  transition: transform var(--duration-press) var(--ease-out);
+/* Interaction colours crossfade; repeated navigation never moves. */
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(button, a, summary, select, input, .ui-row, .ui-chip, .ui-pill) {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transition: color var(--duration-color) ease, background-color var(--duration-color) ease, border-color var(--duration-color) ease, transform var(--duration-press) var(--ease-out);
 }
-
-:is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']):active {
-  transform: scale(0.97);
-}
+:is(button, [role='button'], nav a) { -webkit-user-select: none; user-select: none; }
+:is(input, textarea, [contenteditable='true']) { caret-color: var(--brand); }
+::selection { background: var(--brand-soft); color: var(--ink); }
+:is(h1, h2, h3, h4) { text-wrap: balance; }
+:is(button, .button, .ui-btn, a.ui-row, .ui-chip, .secondary-button, .primary-button, .danger-button):not(:disabled, [aria-disabled='true'], [class*='backdrop']):active { transform: scale(0.97); }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']) {
-    transition: none;
+  /* App.css disables legacy motion. Opt this vocabulary back into fades only;
+     no transform transition can leave a sheet resting outside the viewport. */
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(button, a, summary, select, input, .ui-row, .ui-chip, .ui-pill) {
+    transition: color var(--duration-color) ease, background-color var(--duration-color) ease, border-color var(--duration-color) ease !important;
   }
-
-  :is(button, .button, .secondary-button, .primary-button, .danger-button, .tabs a):not(:disabled, [aria-disabled='true']):active {
-    transform: none;
-  }
+  :is(button, .button, .ui-btn, a.ui-row, .ui-chip, .secondary-button, .primary-button, .danger-button):not(:disabled, [aria-disabled='true'], [class*='backdrop']):active { transform: none; }
 }

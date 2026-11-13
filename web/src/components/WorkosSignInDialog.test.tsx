@@ -1,3 +1,4 @@
+import { useState } from 'react'
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -10,7 +11,7 @@ const clock = new Date('2026-10-21T02:00:00Z')
 let challenge: DialogEmailAuthStep
 const freshChallenge = (): DialogEmailAuthStep => ({ step: 'code', challenge_id: 'challenge_test', email: 'invited@example.test', expires_at: new Date(clock.getTime() + 600_000).toISOString(), resend_after: 60 })
 beforeEach(() => { vi.resetAllMocks(); sessionStorage.clear(); vi.useFakeTimers({ toFake: ['Date', 'setInterval', 'clearInterval'] }); vi.setSystemTime(clock); vi.spyOn(window, 'setInterval'); challenge = freshChallenge(); client.authOptions.mockResolvedValue({ google_enabled: false }); client.startEmail.mockResolvedValue(challenge); client.cancelEmail.mockResolvedValue(undefined); props.onExternalSignIn.mockResolvedValue(undefined) })
-afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks(); vi.useRealTimers() })
+afterEach(() => { cleanup(); sessionStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 async function startEmail() {
   fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: ' Invited@Example.test ' } })
   fireEvent.submit(screen.getByRole('textbox', { name: 'Email address' }).closest('form')!)
@@ -138,10 +139,14 @@ it('routes a policy redirect to work SSO rather than showing an email-code form'
   await waitFor(() => expect(props.onExternalSignIn).toHaveBeenCalledWith('sso', 'https://api.workos.com/user_management/authorize'))
   expect(screen.queryByRole('textbox', { name: 'Sign-in code' })).toBeNull()
 })
+function DismissibleSignIn() {
+  const [open, setOpen] = useState(true)
+  return open ? <WorkosSignInDialog {...props} onClose={() => { props.onClose(); setOpen(false) }} /> : null
+}
 it('cancels a stale challenge returned after close and does not move to the code step', async () => {
   let resolve!: (result: DialogEmailAuthStep) => void
   client.startEmail.mockImplementation(() => new Promise<DialogEmailAuthStep>(done => { resolve = done }))
-  render(<WorkosSignInDialog {...props} />)
+  render(<DismissibleSignIn />)
   fireEvent.change(screen.getByRole('textbox', { name: 'Email address' }), { target: { value: 'invited@example.test' } })
   fireEvent.click(screen.getByRole('button', { name: 'Continue with email' }))
   fireEvent.click(screen.getByRole('button', { name: 'Close' }))
@@ -152,12 +157,18 @@ it('cancels a stale challenge returned after close and does not move to the code
   expect(screen.queryByRole('textbox', { name: 'Sign-in code' })).toBeNull()
 })
 it('does not report a late authentication result after Escape and cancels the active challenge', async () => {
+  vi.stubGlobal('CSS', { supports: () => true })
   let resolve!: (result: DialogEmailAuthStep) => void
   client.verifyEmail.mockImplementation(() => new Promise<DialogEmailAuthStep>(done => { resolve = done }))
-  render(<WorkosSignInDialog {...props} />); await startEmail()
+  render(<DismissibleSignIn />); await startEmail()
   fireEvent.change(screen.getByRole('textbox', { name: 'Sign-in code' }), { target: { value: '123456' } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify and sign in' }))
+  const panel = screen.getByRole('dialog')
+  panel.getAnimations = () => [{ finished: new Promise(() => {}) } as unknown as Animation]
+  panel.parentElement!.getAnimations = () => []
   fireEvent.keyDown(document, { key: 'Escape' })
+  expect(props.onClose).toHaveBeenCalledOnce()
+  expect(client.cancelEmail).toHaveBeenCalledWith('challenge_test')
   await act(async () => resolve({ step: 'complete', return_to: '/#Home' }))
   expect(props.onAuthenticated).not.toHaveBeenCalled()
   expect(client.cancelEmail).toHaveBeenCalledWith('challenge_test')

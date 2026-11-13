@@ -12681,7 +12681,7 @@ test('BOG UI bank activity dates and selection targets fit 320px', async ({ page
   await expectPhoneTargets(page)
 })
 
-test('BOG UI dialogs rise into place with motion on and are already in place with motion off', async ({ page }) => {
+test('BOG UI dialogs transition in and out and reduced motion removes movement', async ({ page }) => {
   // The suite runs with reduced motion, so this is the one place that checks the entry itself.
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.goto('/#Ask%20Mia')
@@ -12695,22 +12695,30 @@ test('BOG UI dialogs rise into place with motion on and are already in place wit
     for (let turn = 0; turn < 20 && !document.querySelector('.clear-chat-dialog'); turn += 1) await Promise.resolve()
     const dialog = document.querySelector('.clear-chat-dialog')!
     const box = dialog.getBoundingClientRect()
-    return { top: box.top, bottom: box.bottom, viewport: innerHeight, phone: innerWidth <= 640, names: dialog.getAnimations().map(animation => (animation as CSSAnimation).animationName) }
+    return { top: box.top, bottom: box.bottom, viewport: innerHeight, phone: innerWidth <= 640, properties: dialog.getAnimations().map(animation => (animation as CSSTransition).transitionProperty), still: new DOMMatrix(getComputedStyle(dialog).transform).isIdentity }
   })
 
   const withMotion = await openAndMeasure()
-  expect(withMotion.names).toEqual([withMotion.phone ? 'dialog-sheet-in' : 'dialog-panel-in'])
+  // The scrim owns the fade; the phone panel may only expose transform.
+  expect(withMotion.properties.length).toBeGreaterThan(0)
+  expect(withMotion.properties).toContain('transform')
   if (withMotion.phone) expect(withMotion.top, 'a phone sheet starts below the screen edge').toBeGreaterThanOrEqual(withMotion.viewport - 1)
   await clear.evaluate(dialog => Promise.all(dialog.getAnimations().map(animation => animation.finished)))
   await assertDialogVisibleHeight(clear)
-  await page.keyboard.press('Escape')
+  await clear.evaluate(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  expect(await clear.count()).toBe(0)
+  const copy = page.locator('[data-dialog-exit-copy]')
+  await expect(copy).toHaveAttribute('inert', '')
+  await expect(copy).toHaveAttribute('aria-hidden', 'true')
+  await expect(copy).toHaveCount(0)
   await expect(clear).toHaveCount(0)
 
   // With motion off the resting position is the style itself, so no animation has to run.
   await page.emulateMedia({ reducedMotion: 'reduce' })
   if (!(await clearButton.isVisible())) await openChatContext(page)
   const withoutMotion = await openAndMeasure()
-  expect(withoutMotion.names).toEqual([])
+  expect(withoutMotion.properties).not.toContain('transform')
+  expect(withoutMotion.still).toBe(true)
   expect(withoutMotion.top).toBeGreaterThanOrEqual(0)
   expect(withoutMotion.bottom).toBeLessThanOrEqual(withoutMotion.viewport)
   await page.keyboard.press('Escape')

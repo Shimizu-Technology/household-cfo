@@ -18,7 +18,7 @@ const message=(failure:unknown)=>participantErrorMessage(failure, 'Evidence revi
 type DialogProps={actorScope:BaselineScope;entryVersionId:number;onClose:()=>void;onChanged:()=>void}
 export function SavingsEvidenceDialog(props:DialogProps){return <EvidenceDialogBody key={`${props.actorScope.user_id}:${props.actorScope.household_id}:${props.entryVersionId}`} {...props}/>}
 function EvidenceDialogBody({actorScope,entryVersionId,onClose,onChanged}:DialogProps){
- const dialog=usePilotDialog(onClose);const heading=useRef<HTMLHeadingElement>(null);const contribution=useRef<HTMLElement>(null)
+ const { dialogRef: dialog, requestClose } = usePilotDialog(onClose);const heading=useRef<HTMLHeadingElement>(null);const contribution=useRef<HTMLElement>(null)
  const expected=useMemo(()=>({user_id:actorScope.user_id,household_id:actorScope.household_id}),[actorScope.user_id,actorScope.household_id])
  const[page,setPage]=useState<EvidencePage|null>(null);const[candidates,setCandidates]=useState<EvidenceCandidates|null>(null);const[loading,setLoading]=useState(true);const[failed,setFailed]=useState(false);const[denied,setDenied]=useState(false);const[error,setError]=useState<string|null>(null);const[notice,setNotice]=useState<string|null>(null)
  const[historyOpen,setHistoryOpen]=useState(false)
@@ -54,7 +54,7 @@ function EvidenceDialogBody({actorScope,entryVersionId,onClose,onChanged}:Dialog
  }
  function changePage(kind:'history'|'candidate',next:number|null,previous=false){clearReview();setLoading(true);if(kind==='history'){setHistoryPages(rows=>previous?rows.slice(0,-1):[...rows,historyCursor]);setHistoryCursor(next)}else{setPages(rows=>previous?rows.slice(0,-1):[...rows,cursor]);setCursor(next)}}
  const canApprove=proposal&&accepted&&(proposal.action==='revoke'||ownership&&newMoney)&&!loading&&!failed&&!busy&&(proposal.action==='attach'?canAttach:canRevoke)&&(!mutation.pending||mutation.pending.action===proposal.action)
- return <div className="evidence-overlay"><section ref={dialog} className="evidence-dialog" role="dialog" aria-modal="true" aria-labelledby="evidence-title" tabIndex={-1}><header><div><h2 id="evidence-title">Match to a statement</h2></div><button type="button" onClick={onClose} aria-label="Close evidence">Close</button></header>
+ return <div className="evidence-overlay" data-dialog-surface="true"><section ref={dialog} data-dialog-panel="true" data-dialog-private="true" className="evidence-dialog" role="dialog" aria-modal="true" aria-labelledby="evidence-title" tabIndex={-1}><header><div><h2 id="evidence-title">Match to a statement</h2></div><button type="button" onClick={requestClose} aria-label="Close evidence">Close</button></header>
  <p>Optional. Match money you set aside to income or a transfer on a statement you’ve already reviewed. A match is included in what you set aside, not added to it. No money moves here.</p>
  {notice&&<p role="status">{notice}</p>}{(error||mutation.error||mutation.pending?.error)&&<p role="alert">{error??mutation.error??mutation.pending?.error}</p>}
  {denied?<p>Private access is unavailable. Close this and open it again from your savings home.</p>:<><button type="button" onClick={refresh} disabled={loading||Boolean(mutation.pending)}>Refresh matches</button>{loading&&<p role="status">Checking your statement matches…</p>}{failed&&<p>We couldn’t refresh your matches. Refresh before changing anything.</p>}
