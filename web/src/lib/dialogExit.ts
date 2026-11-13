@@ -31,6 +31,11 @@ export function dialogExit(panel: HTMLElement | null, done: () => void) {
     for (const attr of [...node.attributes]) {
       if (/^(id|name|form|autofocus|aria-.+|on.+)$/i.test(attr.name)) node.removeAttribute(attr.name)
     }
+    // Advance every copied CSS animation to its finished state, including
+    // descendant scrims. Removing animations would lose forwards/both fills.
+    node.style.setProperty('animation-duration', '0s', 'important')
+    node.style.setProperty('animation-delay', '0s', 'important')
+    node.style.setProperty('transition', 'none', 'important')
     node.tabIndex = -1
     node.style.setProperty('pointer-events', 'none', 'important')
     if (node instanceof HTMLInputElement && original instanceof HTMLInputElement) {
@@ -51,7 +56,6 @@ export function dialogExit(panel: HTMLElement | null, done: () => void) {
   if (!copy || panel!.isConnected || !parent!.isConnected) return noExit
   const copiedPanel = copyNodes[panelIndex]
   for (const node of [copy, copiedPanel]) {
-    node.style.animation = 'none'
     node.style.transition = 'none'
   }
   // Keep a newly queued dialog above the old visual, at the original sibling slot.

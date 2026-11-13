@@ -13,7 +13,7 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
-    // Reduced motion removes every animation and transition, so a dialog or sheet is in
+    // Reduced motion removes movement, so a dialog or sheet is in
     // its resting place the moment it exists and layout can be measured without waiting.
     // 'BOG UI dialogs rise into place...' opts back in to check the entry motion itself.
     contextOptions: { reducedMotion: 'reduce' },

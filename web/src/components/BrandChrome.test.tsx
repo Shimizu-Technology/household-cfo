@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { NEUTRAL_BRAND } from '../contexts/brandContextValue'
 import { BrandRuntimeProvider } from '../contexts/BrandContext'
-import { BrandFooter, BrandLogo } from './BrandChrome'
+import { BrandFooter, BrandLogo, BrandWordmark } from './BrandChrome'
 
 afterEach(cleanup)
 
@@ -53,5 +53,17 @@ describe('closing line', () => {
     const { container } = inBrand({ ...method, organization_name: 'Island Money Coaching' }, true)
     expect(container.querySelector('.brand-closing-line')).toBeNull()
     expect(container.textContent).toContain('Educational guidance only.')
+  })
+})
+
+
+describe('shell wordmark', () => {
+  it('uses the italic only for Household CFO Method', () => {
+    const view = render(<BrandWordmark brand={{ ...NEUTRAL_BRAND, organization_name: 'Household CFO Method' }} />)
+    expect(view.container.textContent).toBe('The Household CFO')
+    expect(view.container.querySelector('em')?.textContent).toBe('Household CFO')
+    view.rerender(<BrandWordmark brand={{ ...NEUTRAL_BRAND, organization_name: 'Island Coaching', short_name: 'Island Money' }} />)
+    expect(view.container.textContent).toBe('Island Money')
+    expect(view.container.querySelector('em')).toBeNull()
   })
 })

@@ -1,3 +1,4 @@
+import { expectPhoneGroundCoverage } from './helpers/shellGround'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import workspace from './fixtures/savings-home-workspace.json' with { type: 'json' }
@@ -135,6 +136,41 @@ test('BOG UI chat savings approval preserves its Saved notice and open entry pan
   expect(approved).toBe(true)
 })
 
+
+test('BOG UI shell savings Home last control and footer clear the floating bar', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone clearance')
+  await mockSavingsHome(page)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.getByRole('region', { name: 'Savings challenge', exact: true })).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  const bounds = await page.evaluate(() => {
+    const bar = document.querySelector('.tabs-shell')!.getBoundingClientRect()
+    const footer = document.querySelector('.brand-footer')!.getBoundingClientRect()
+    const controls = [...document.querySelectorAll<HTMLElement>('.shell-main :is(a[href], button, summary, input, select, textarea)')].filter(node => node.checkVisibility() && !node.closest('.brand-footer'))
+    return { bar: bar.top, footer: footer.bottom, last: controls.at(-1)?.getBoundingClientRect().bottom }
+  })
+  expect(bounds.footer).toBeLessThanOrEqual(bounds.bar - 16)
+  expect(bounds.last).toBeDefined()
+  expect(bounds.last!).toBeLessThanOrEqual(bounds.bar - 16)
+})
+
+
+test('BOG UI shell savings identity names the program once', async ({ page }) => {
+  await mockSavingsHome(page)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const identity = page.locator('.shell-brand')
+  await expect(identity.locator('h1')).toHaveText(workspace.workspace.cohort.name)
+  await expect(identity.locator('.sidebar-scope')).toHaveCount(0)
+})
+
+test('BOG UI shell savings page ground covers mid-scroll text below the phone pill', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone paint coverage')
+  await mockSavingsHome(page)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.getByRole('article', { name: 'Approved savings progress', exact: true })).toBeVisible()
+  await expectPhoneGroundCoverage(page)
+})
 
 test('BOG UI Today keeps the selected tab and content position during a background refresh', async ({ page }) => {
   await mockSavingsHome(page, true)

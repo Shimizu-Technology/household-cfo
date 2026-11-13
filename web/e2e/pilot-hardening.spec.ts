@@ -1,3 +1,5 @@
+import { TEXT_ENTRY_SELECTOR } from '../src/lib/textEntry'
+import { expectPhoneGroundCoverage } from './helpers/shellGround'
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
 import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
@@ -87,6 +89,11 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   }
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
+  if (!(await page.locator('.tabs-shell, .staff-navigation').isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
+    // Explicitly dismiss a text keyboard before navigating away from its draft.
+    // Buttons, selects and checkboxes must never require this workaround.
+    await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
+  }
   await expect(page.locator('.tabs-shell, .staff-navigation')).toBeVisible()
   if (!(await section.isVisible())) {
     await more.click()
@@ -154,6 +161,14 @@ async function selectBudgetEditMonth(page: Page, index: number) {
 }
 
 async function openAccountHelp(page: Page) {
+  const account = page.getByLabel('Account and help', { exact: true })
+  if (!(await account.isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
+    await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: 'Account and help' }).click()
+    await expect(page.locator('.shell-account-panel')).toBeVisible()
+    return
+  }
   const disclosure = page.locator('.shell-account-menu')
   if (!(await disclosure.evaluate((node: HTMLDetailsElement) => node.open))) await disclosure.locator('summary').click()
 }
@@ -1535,7 +1550,7 @@ test('unknown program domains stay on the neutral boundary before workspace data
   expect(workspaceRequests).toBe(0)
 })
 
-test('an unavailable sealed workspace brand fails closed to the neutral brand and retries cleanly', async ({ page }) => {
+test('BOG UI an unavailable sealed workspace brand fails closed to the neutral brand and retries cleanly', async ({ page }) => {
   const leakedBrand = {
     ...legacyBrandConfig,
     product_name: 'Brand That Must Not Render',
@@ -1566,7 +1581,7 @@ test('an unavailable sealed workspace brand fails closed to the neutral brand an
 
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect.poll(() => workspaceRequests).toBe(2)
-  await expect(page.getByRole('heading', { name: 'Household CFO', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'The Household CFO', exact: true })).toBeVisible()
 })
 
 test('Coach Studio release and rollout stays truthful, keyboard usable, and responsive', async ({ page }, testInfo) => {
@@ -1865,7 +1880,7 @@ test('Mia memory stays explicit, reversible, and usable on mobile and desktop', 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 
   // Memory opens in place: the conversation stays put and focus returns to the control that opened it.
-  await expect(page.locator('main.app')).toHaveClass(/is-chat-page/)
+  await expect(page.locator('.participant-app')).toHaveClass(/is-chat-page/)
   await closeChatAssistPanel(page)
   await expect(await chatReturnTarget(page, 'Memory')).toBeFocused()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
@@ -2325,9 +2340,9 @@ test('large financial values stay on one line and participant screens stay insid
   }
 })
 
-test('Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
+test('BOG UI Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   const suggestedQuestion = page.getByRole('button', { name: 'Why is my readiness Red?' })
   await expect(suggestedQuestion).toBeHidden()
   await (await chatHeaderAction(page, 'Prompts')).click()
@@ -2355,7 +2370,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.getByRole('button', { name: 'Review this file' }).click()
   await expect(page).toHaveURL(/#Statements$/)
   await expect(page.getByRole('heading', { name: 'Statements' })).toBeVisible()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
 
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
   await expect(page.locator('.message-row')).toHaveCount(100)
@@ -4212,7 +4227,7 @@ test('BOG UI household focused manual budget tools expose exact controls without
   await expect(page.getByRole('button', { name: 'Previous year' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Next year' })).toBeDisabled()
   await expect(page.getByLabel('Report month')).toBeDisabled()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(januaryDining).toHaveValue('650')
   await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
@@ -4275,7 +4290,7 @@ test('BOG UI household a partially saved budget keeps the approved change and pr
   await expect(februaryDining).toHaveValue('700')
   await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
   await expect(page.getByLabel('Report month')).toBeDisabled()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(februaryDining).toHaveValue('700')
 
@@ -4297,12 +4312,20 @@ test('BOG UI household participant navigation remains available after deep scrol
   await expect(page.locator('.tabs-shell')).toBeInViewport()
   const navEdges = await page.locator('.tabs-shell').evaluate((element) => {
     const box = element.getBoundingClientRect()
-    return { top: Math.round(box.top), bottom: Math.round(box.bottom), viewport: window.innerHeight, phone: window.innerWidth <= 620 }
+    return { top: Math.round(box.top), bottom: Math.round(box.bottom), left: box.left, right: box.right, height: box.height, width: window.innerWidth, viewport: window.innerHeight, phone: window.innerWidth <= 620 }
   })
-  // Phones pin the bar to the bottom edge; wider layouts keep it at the top.
-  if (navEdges.phone) expect(navEdges.bottom).toBe(navEdges.viewport)
-  else expect(navEdges.top).toBe(0)
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  // Phones float clear of all edges; laptop navigation spans the left edge.
+  if (navEdges.phone) {
+    expect(navEdges.viewport - navEdges.bottom).toBeGreaterThanOrEqual(8)
+    expect(navEdges.viewport - navEdges.bottom).toBeLessThanOrEqual(40)
+    expect(navEdges.left).toBeGreaterThan(0)
+    expect(navEdges.right).toBeLessThan(navEdges.width)
+  } else if (navEdges.width >= 1024) {
+    expect(navEdges.left).toBe(0)
+    expect(navEdges.top).toBe(0)
+    expect(navEdges.height).toBe(navEdges.viewport)
+  } else expect(navEdges.top).toBe(0)
+  await openSection(page, 'Home')
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   await expect(page.locator('.shell-header')).toHaveCount(1)
@@ -4326,7 +4349,7 @@ test('BOG UI household participant links preserve browser history, heading focus
   const budgetScrollTop = await page.evaluate(() => Math.round(window.scrollY))
   expect(budgetScrollTop).toBeGreaterThan(0)
 
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(page).toHaveURL(/#Ask%20Mia$/)
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeFocused()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
@@ -4529,13 +4552,13 @@ test('Wealth stays accurate while the frontend and API metric contracts roll out
   await expect(page.getByText('$190,000', { exact: true })).toHaveCount(0)
 })
 
-test('desktop Tools stays anchored to its trigger and contains keyboard focus', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name.includes('mobile'), 'desktop-only popover assertion')
+test('desktop Tools on tablets stays anchored to its trigger and contains keyboard focus', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) <= 620 || (page.viewportSize()?.width ?? 0) >= 1024, 'tablet popover assertion; laptops list every destination inline')
   await page.goto('/')
 
   const tools = page.getByRole('button', { name: 'More', exact: true })
   const triggerBox = await tools.boundingBox()
-  await tools.click()
+  if (await tools.isVisible()) await tools.click()
 
   const dialog = page.getByRole('dialog', { name: 'More' })
   await expect(dialog).toBeVisible()
@@ -4559,7 +4582,7 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   await expect(dialog).toBeHidden()
   await expect(tools).toBeFocused()
 
-  await tools.click()
+  if (await tools.isVisible()) await tools.click()
   await openSection(page, 'My Profile')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
 })
@@ -4569,14 +4592,13 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await page.goto('/')
 
   const header = page.locator('.shell-header')
-  const homeHeaderBox = await header.boundingBox()
   const homeContentY = await page.locator('.home-screen').evaluate((element) => Math.round(element.getBoundingClientRect().top))
   const tools = page.getByRole('button', { name: 'More', exact: true })
   await expect(tools).toBeVisible()
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toBeVisible()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toHaveCount(0)
-  await tools.click()
+  if (await tools.isVisible()) await tools.click()
   await expect(tools).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   expect(await page.locator('.home-screen').evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(homeContentY)
@@ -4587,14 +4609,12 @@ test('BOG UI household compact phone layouts keep a stable shell and overlay sec
   await openSection(page, 'My Profile')
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(page.locator('.home-screen .year-outlook-months > li')).toHaveCount(3)
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
-  const askMiaHeaderBox = await header.boundingBox()
-  // Chat never grows the shell; every page uses the compact phone identity row.
-  expect(askMiaHeaderBox!.height).toBeLessThanOrEqual(homeHeaderBox!.height)
-  expect(askMiaHeaderBox!.y).toBeGreaterThanOrEqual(0)
+  // Mia owns the phone header; Account remains reachable through More.
+  await expect(header).toBeHidden()
   await expect(page.getByText('More prompts →')).toBeHidden()
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
@@ -4861,7 +4881,7 @@ test('BOG UI household incomplete participants get a short first session, privat
 
   await openSection(page, 'Statements')
   await expect(page.getByRole('heading', { name: 'Upload a statement' })).toBeVisible()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
 
   await openAccountHelp(page)
   await page.locator('.shell-account-menu').getByRole('button', { name: 'Report a problem', exact: true }).click()
@@ -5078,7 +5098,7 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await expect(progress.getByText('Flexible spending')).toBeVisible()
 })
 
-test('ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
+test('BOG UI ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
   const ignoredImport = {
     id: 404,
     household_id: 77,
@@ -5118,7 +5138,7 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [ignoredImport] } }))
   await page.goto('/?pilot_e2e_role=participant')
 
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await openChatContext(page)
   await expect(chatAssistPanel(page)).toContainText('No approved file sources yet. Uploading a file does not update your numbers until you review and apply it.')
   await closeChatAssistPanel(page)
@@ -5487,11 +5507,15 @@ for (const [status, message] of [
   [409, 'Your voice changed. Reopen it and preview the latest saved version.'],
 ] as const) {
   test(`Coach Studio preview HTTP ${status} explains how to recover without a timed retry`, async ({ page }) => {
-    await page.route('http://api.test/api/v1/admin/personas/81/preview', route => route.fulfill({ status, json: { error: 'Internal permission or draft details' } }))
+    let previews = 0
+    await page.route('http://api.test/api/v1/admin/personas/81/preview', route => { previews++; return route.fulfill({ status, json: { error: 'Internal permission or draft details' } }) })
     await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+    await expect(page.getByLabel('Message Mia', { exact: true })).toBeEnabled()
     const areas = page.getByRole('navigation', { name: 'Coaching steps', exact: true })
     await areas.getByRole('button', { name: /Preview and go live/ }).click()
-    await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+    const live = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Hear your assistant, then go live', exact: true }) })
+    await live.getByRole('button', { name: 'Preview answers', exact: true }).click()
+    await expect.poll(() => previews).toBe(1)
     await expect(page.getByRole('alert')).toHaveText(message)
     await expect(page.getByRole('button', { name: 'Approve and go live', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
@@ -5976,9 +6000,9 @@ test('BOG UI household participant navigation remains available when a saved opt
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
 
   const tools = page.getByRole('button', { name: 'More', exact: true })
-  await tools.click()
+  if (await tools.isVisible()) await tools.click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toHaveCount(0)
-  await page.locator('.tabs-tools-group > summary').click()
+  if (await page.locator('.tabs-tools-group > summary').isVisible()) await page.locator('.tabs-tools-group > summary').click()
   await expect(page.getByRole('link', { name: 'Optionality', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeVisible()
@@ -6027,8 +6051,8 @@ test('BOG UI household participant navigation keeps a disabled deep link canonic
   releaseRefresh?.()
   await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toHaveCount(0)
   await openSection(page, 'Home')
-  await page.getByRole('button', { name: 'More', exact: true }).click()
-  await page.locator('.tabs-tools-group > summary').click()
+  if (await page.getByRole('button', { name: 'More', exact: true }).isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click()
+  if (await page.locator('.tabs-tools-group > summary').isVisible()) await page.locator('.tabs-tools-group > summary').click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toBeVisible()
   await expect(page).toHaveURL(/#Home$/)
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
@@ -8289,7 +8313,7 @@ test('BOG UI household a late Mia response cannot replace the ledger after the p
 
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await openSection(page, 'Budget')
@@ -8351,7 +8375,7 @@ test('BOG UI household a same-month Mia response cannot undo a newer transaction
 
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await openSection(page, 'Review')
@@ -8905,10 +8929,10 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.locator('.document-workspace-heading')).toContainText('1')
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
-  await page.getByRole('button', { name: 'More', exact: true }).click()
+  if (await page.getByRole('button', { name: 'More', exact: true }).isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Statements', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveAttribute('aria-expanded', 'false')
+  if (await page.getByRole('button', { name: 'More', exact: true }).count()) await expect(page.getByRole('button', { name: 'More', exact: true })).toHaveAttribute('aria-expanded', 'false')
   await openDetails(page, 'Find an upload')
   await page.getByLabel('Filter by status').selectOption('needs_review')
   await expect(page.locator('.document-history-card').filter({ hasText: 'QA-partial.pdf' })).toBeVisible()
@@ -9685,14 +9709,18 @@ test('BOG UI compact normal chat shows history and composer on first screen with
   await page.keyboard.press('Escape')
   await expect(expandReturn).toBeFocused()
   await expect(composer).toHaveValue('Keep this draft while I check context.')
-  await page.getByRole('button', { name: 'More', exact: true }).click()
-  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+  const sectionMore = page.getByRole('button', { name: 'More', exact: true })
+  if (await sectionMore.count()) {
+    await composer.blur()
+    await sectionMore.click()
+    await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(sectionMore).toBeFocused()
+  } else await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
   await page.screenshot({ path: `.codex-qa/compact-chat-${testInfo.project.name}.png` })
   await openSection(page, 'Home')
-  await expect(page.locator('main.app')).not.toHaveClass(/is-chat-page/)
+  await expect(page.locator('.participant-app')).not.toHaveClass(/is-chat-page/)
 })
 
 test('BOG UI program choices live inside Account and help and preserve the chat draft', async ({ page }) => {
@@ -9705,7 +9733,7 @@ test('BOG UI program choices live inside Account and help and preserve the chat 
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await composer.fill('Keep this draft while checking my program.')
   await expect(page.locator('.participant-program-switch')).toHaveCount(0)
-  await page.getByLabel('Account and help', { exact: true }).click()
+  await openAccountHelp(page)
   await expect(page.getByRole('combobox', { name: 'Switch participant program' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Your participant programs' })).toContainText(name)
   await page.getByLabel('Account and help', { exact: true }).click()
@@ -10142,7 +10170,7 @@ test('BOG UI daily revoked context hides personal reports and purchase controls'
 const miaDailyReport={kind:'daily_report',local_on:'2026-09-28',purchases:[{amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28'},{amount_cents:1250,merchant:'',purchased_on:'2026-09-28'}],no_spend:false,feelings:{when_spent:'Fictional rushed',now:null},approval_state:'unreviewed_input',counted:false}
 async function sendMiaDailyReport(page:Page,reply?:object){
   await page.route('http://api.test/api/v1/mia/messages',route=>route.request().method()!=='POST'?route.fallback():reply?route.fulfill({json:reply}):route.fulfill({json:{user_message:{id:8001,role:'user',author:'You',content:'$8 at Fictional fuel and 12.50 for lunch'},assistant_message:{id:8002,role:'assistant',author:'Mia',content:'Got it: $8.00 at Fictional fuel and $12.50. I\'ve put these below — check them and tap Save. Nothing is saved until you do.'},savings_intake:miaDailyReport}}))
-  await page.getByRole('link',{name:'Ask Mia',exact:true}).click();await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('$8 at Fictional fuel and 12.50 for lunch');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click()
+  await openSection(page, 'Ask Mia');await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('$8 at Fictional fuel and 12.50 for lunch');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click()
   return page.getByRole('region',{name:'Your check-in',exact:true})
 }
 async function assertDailySaveUncovered(button: ReturnType<Page['getByRole']>) {
@@ -10167,7 +10195,7 @@ test('BOG UI daily Mia report card saves every listed purchase once with one tap
   const storedCards = () => page.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('household-cfo:mia-daily-cards:v1:')).flatMap(key => JSON.parse(sessionStorage.getItem(key) ?? '[]')))
   await expect.poll(async () => (await storedCards()).length).toBe(1)
   // Leaving Ask Mia and coming back restores the saved summary; it cannot be saved again.
-  await page.getByRole('link',{name:'Savings',exact:true}).click();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
+  await page.getByRole('link',{name:'Savings',exact:true}).click();await openSection(page, 'Ask Mia')
   await expect(card.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(card.getByRole('button',{name:'Save',exact:true})).toHaveCount(0);expect(calls).toHaveLength(7)
   // A new reply removes the completed card and registers exactly one replacement under StrictMode.
   await sendMiaDailyReport(page)
@@ -10181,7 +10209,7 @@ test('BOG UI daily Mia card reload mid-save checks the interrupted approval and 
   const{dialog,calls}=await openDaily(page,{holdSecondApprove:true});await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await card.getByLabel('Place for purchase 2').fill('Fictional lunch');await card.getByRole('button',{name:'Save',exact:true}).click()
   await expect.poll(()=>calls.filter(row=>row.action==='purchase_approve').length).toBe(2)
-  await page.reload();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
+  await page.reload();await openSection(page, 'Ask Mia')
   const restored=page.getByRole('region',{name:'Your check-in',exact:true})
   await expect(restored.getByRole('heading',{name:'Almost done',exact:true})).toBeVisible()
   await expect(restored.getByRole('status')).toHaveText('Your purchases are saved. Tap Save to finish this check-in.')
@@ -10195,9 +10223,9 @@ test('BOG UI daily Mia card reload mid-save checks the interrupted approval and 
   expect(calls.filter(row=>row.action==='purchase_stage')).toHaveLength(2);expect(calls.filter(row=>row.action==='purchase_approve')).toHaveLength(2)
   expect(calls.filter(row=>row.action==='check_in_save')).toHaveLength(1);expect(calls.filter(row=>row.action==='reflection_save')).toHaveLength(2)
   // A saved card stays a read-only summary after another reload, until Done.
-  await page.reload();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
+  await page.reload();await openSection(page, 'Ask Mia')
   await expect(restored.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(restored.getByRole('button',{name:/^Save/})).toHaveCount(0)
-  await restored.getByRole('button',{name:'Done',exact:true}).click();await page.reload();await page.getByRole('link',{name:'Ask Mia',exact:true}).click()
+  await restored.getByRole('button',{name:'Done',exact:true}).click();await page.reload();await openSection(page, 'Ask Mia')
   await expect(page.getByRole('heading',{name:/Ask Mia/}).first()).toBeVisible();await expect(restored).toHaveCount(0)
 })
 test('BOG UI daily Mia keeps money prompts and cards away from a safety reply',async({page})=>{
@@ -10221,13 +10249,13 @@ test('BOG UI daily prompt returns on reload after server expires a crisis episod
   await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
     ? route.fulfill({ json: { messages: [reply], oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   const prompt = page.getByRole('group', { name: /asks about today/ })
   await expect(page.getByText('Call or text 988 now, or 911 in an emergency.', { exact: true })).toBeVisible()
   await expect(prompt).toHaveCount(0)
   reply.care_hold = false
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(prompt).toBeVisible()
   await expect(page.getByRole('region', { name: 'Your check-in', exact: true })).toHaveCount(0)
 })
@@ -10297,7 +10325,7 @@ test('BOG UI daily Mia report card hands off to Today prefilled without saving',
 test('BOG UI daily Mia savings note requires new-money confirmation before a draft',async({page})=>{
   const{dialog}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   await page.route('http://api.test/api/v1/mia/messages',route=>route.fulfill({json:{user_message:{id:8011,role:'user',author:'You',content:'I saved $25 yesterday'},assistant_message:{id:8012,role:'assistant',author:'Mia',content:'Review the actual reserve contribution.'},savings_intake:{kind:'contribution',amount_cents:2500,signed_cents:2500,effective_on:'2026-10-03',approval_state:'unreviewed_input',counted:false,new_money_confirmation_required:true}}}))
-  await page.getByRole('link',{name:'Ask Mia',exact:true}).click();await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('I saved $25 yesterday');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click();await page.getByRole('button',{name:'Review savings',exact:true}).click()
+  await openSection(page, 'Ask Mia');await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('I saved $25 yesterday');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click();await page.getByRole('button',{name:'Review savings',exact:true}).click()
   const home=page.getByRole('region',{name:'Savings challenge',exact:true});await expect(home.getByLabel('Amount in US dollars',{exact:true})).toHaveValue('25.00');await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeDisabled();await home.getByRole('checkbox',{name:/This was new money I set aside/}).check();await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeEnabled();await home.getByLabel('Amount in US dollars',{exact:true}).fill('30.00');await expect(home.getByRole('button',{name:'Review savings record',exact:true})).toBeDisabled();await expect(home.getByText('Participant reported eligible progress',{exact:true})).toHaveCount(0)
 })
 
@@ -10386,9 +10414,15 @@ for (const role of ['participant', 'coach', 'admin']) {
     await account.press('Escape')
     await expect(account).toBeFocused()
     if (role === 'participant') {
-      await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+      await openSection(page, 'Ask Mia')
       await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
-      expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
+      if ((page.viewportSize()?.width ?? 0) <= 620) {
+        await expect(page.locator('.shell-header')).toBeHidden()
+        await openAccountHelp(page)
+        await expect(page.locator('.shell-account-panel')).toBeVisible()
+        await account.press('Escape')
+        await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+      } else expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(4)
       await openSection(page, 'Budget')
     } else {
       await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
@@ -10743,7 +10777,7 @@ test('BOG UI My Money blocks transitions until income source and schedule drafts
   await openMoneyTopic(page, 'Spending')
   await expectMoneyTopic(page, 'Income')
   await expect(page.getByRole('alert').filter({ hasText: 'You have unsaved income changes. Save or cancel them before switching money topics.' })).toBeVisible()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(page).toHaveURL(/#My%20Money$/)
   await page.getByRole('button', { name: 'Next income year' }).click()
   await expect(page.locator('.money-period-controls')).toContainText(String(currentYear))
@@ -10827,7 +10861,7 @@ test('BOG UI My Money preserves account goal and debt drafts until save or cance
     await openMoneyTopic(page, 'Income')
     await expectMoneyTopic(page, scenario.topic)
     await expect(form.getByLabel(scenario.field)).toHaveValue(scenario.value)
-    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await openSection(page, 'Home')
     await expect(page).toHaveURL(/#My%20Money$/)
     await form.getByRole('button', { name: 'Cancel', exact: true }).click()
     await openMoneyTopic(page, 'Income')
@@ -10904,7 +10938,7 @@ for (const currentRefreshWorks of [false, true]) {
     await expect(warning).toBeVisible()
     expect(yearRequests).toBe(2)
     if (currentRefreshWorks) await expect(page.locator('.account-row')).toContainText('$200')
-    await page.getByRole('link', { name: 'Home', exact: true }).click()
+    await openSection(page, 'Home')
     await expect(warning).toBeVisible()
     await openSection(page, 'My Money')
     await openMoneyTopic(page, 'Income')
@@ -10930,7 +10964,7 @@ test('BOG UI income refresh failure stays visible after leaving the income edito
   await page.getByRole('button', { name: 'Add source', exact: true }).click()
   const warning = page.getByRole('alert').filter({ hasText: 'income change was saved' }).first()
   await expect(warning).toBeVisible()
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(page.getByRole('alert').filter({ hasText: 'income change was saved' })).toBeVisible()
 })
 
@@ -11190,7 +11224,7 @@ test('BOG UI account-save reload preserves a Profile edit begun while its respon
   await page.locator('.account-form').getByLabel('Approved balance').fill('200')
   await page.getByRole('button', { name: 'Save account', exact: true }).click()
   await started
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(page).toHaveURL(/#My%20Money$/)
   const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
   releaseReload()
@@ -11233,7 +11267,7 @@ test('BOG UI income-save reload preserves a new Profile edit while refreshing ca
   await page.getByRole('spinbutton', { name: 'Starting amount', exact: true }).fill('200')
   await page.getByRole('button', { name: 'Add source', exact: true }).click()
   await started
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Home')
   await expect(page).toHaveURL(/#My%20Money$/)
   const completedReload = page.waitForResponse(response => response.url().endsWith('/api/v1/workspace') && response.status() === 200)
   releaseReload()
@@ -11274,10 +11308,10 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
   expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
-  // The phone disclosure lives in About, leaving more room for the thread.
-  await expect(page.locator('.mia-disclaimer')).toBeHidden()
+  // The compact footer stays visible; About keeps the complete program disclosure.
+  await expect(page.locator('.brand-footer .mia-disclaimer')).toBeVisible()
   await page.locator('.chat-more-button').click()
-  await page.getByRole('button', { name: 'About Mia', exact: true }).click()
+  await page.locator('.chat-more-menu').getByRole('button', { name: 'About Mia', exact: true }).click()
   const disclosure = page.getByRole('dialog', { name: 'About Mia', exact: true })
   await expect(disclosure).toContainText(disclaimer)
   await disclosure.getByRole('button', { name: 'Close', exact: true }).click()
@@ -12250,15 +12284,17 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   await page.goto('/?pilot_e2e_role=participant')
   await expect(page.locator('.tabs-shell')).toBeVisible()
   const more = page.getByRole('button', { name: 'More', exact: true })
-  await more.click()
-  await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeHidden()
-  await page.locator('.tabs-tools-group > summary').click()
+  if (await more.isVisible()) {
+    await more.click()
+    await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeHidden()
+  }
+  if (await page.locator('.tabs-tools-group > summary').isVisible()) await page.locator('.tabs-tools-group > summary').click()
   const tool = page.getByRole('link', { name: 'Wealth', exact: true })
   const style = await tool.evaluate(element => {
     const css = getComputedStyle(element)
     const icon = element.querySelector('svg')!.getBoundingClientRect()
     // A top-level row is the reference: a tool row's arrow must be drawn, and drawn at the same size.
-    const reference = document.querySelector('.tabs-tools-list > a > svg')!.getBoundingClientRect()
+    const reference = (document.querySelector('.tabs-tools-list > a > svg') ?? document.querySelector('.tabs > a > svg'))!.getBoundingClientRect()
     return { color: css.color, decoration: css.textDecorationLine, height: element.getBoundingClientRect().height, iconWidth: icon.width, iconHeight: icon.height, referenceWidth: reference.width, referenceHeight: reference.height }
   })
   expect(style.color).not.toBe('rgb(0, 0, 238)')
@@ -12271,7 +12307,8 @@ test('BOG UI participant navigation groups tools and keeps household privacy rel
   expect(Math.abs(style.iconWidth - style.referenceWidth)).toBeLessThanOrEqual(1)
   expect(Math.abs(style.iconHeight - style.referenceHeight)).toBeLessThanOrEqual(1)
   await page.getByRole('link', { name: 'Wealth', exact: true }).click()
-  await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
+  if (await more.count()) await expect(more).toHaveAttribute('aria-description', 'Current section: Wealth')
+  else await expect(tool).toHaveAttribute('aria-current', 'page')
   // Every milestone says its status in words, not only by color.
   const milestones = page.locator('.milestone-card')
   await expect(milestones.first()).toBeVisible()
@@ -12850,7 +12887,7 @@ test('BOG UI dialogs transition in and out and reduced motion removes movement',
   await expect(clear).toHaveCount(0)
 })
 
-test('mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
+test('BOG UI mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
   // This test checks the real reply timing, so it opts back in to motion.
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   const workspace = realWorkspaceData(true)
@@ -12896,8 +12933,8 @@ test('mobile Ask Mia anchors the sent message above typing and never returns to 
   await expect.poll(() => page.locator('.chat-card').evaluate(card => card.scrollHeight - card.clientHeight - card.scrollTop)).toBeLessThan(3)
   await expect(page.locator('.message-row.assistant').last()).toContainText('This is the newest end')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.getByRole('link', { name: 'Home', exact: true }).click()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Home')
+  await openSection(page, 'Ask Mia')
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(0)
 })
 
@@ -12935,7 +12972,7 @@ test(`mobile Ask Mia Latest during a pending request follows the arriving ${long
 })
 }
 
-test('mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
+test('BOG UI mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.mia.messages = []
   workspace.mia.older_message_count = 0
@@ -12953,15 +12990,19 @@ test('mobile Ask Mia empty history offers a compact review link and gives the th
   const viewport = page.viewportSize()!
   if (viewport.width <= 620) {
     const height = await page.locator('.chat-card').evaluate(card => card.clientHeight)
-    expect(height).toBeGreaterThan(viewport.height - 270)
+    const footerHeight = await page.locator('.mia-footer').evaluate(footer => footer.getBoundingClientRect().height)
+    // Keep the existing budget for other chrome, plus the newly required footer.
+    expect(height).toBeGreaterThan(viewport.height - 270 - footerHeight)
+    const clearance = await page.evaluate(() => ({ about: document.querySelector('.mia-disclaimer-toggle')!.getBoundingClientRect().bottom, bar: document.querySelector('.tabs-shell')!.getBoundingClientRect().top }))
+    expect(clearance.about).toBeLessThanOrEqual(clearance.bar)
     await page.locator('.chat-more-button').click()
-    await page.getByRole('button', { name: 'About Mia', exact: true }).click()
+    await page.locator('.chat-more-menu').getByRole('button', { name: 'About Mia', exact: true }).click()
     const about = page.getByRole('dialog', { name: 'About Mia', exact: true })
     await expect(about).toContainText('AI coach, not a financial advisor.')
     await about.getByRole('button', { name: 'Close', exact: true }).click()
     const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
     await composer.focus()
-    await expect(page.locator('.shell-header')).toBeVisible()
+    await expect(page.locator('.shell-header')).toBeHidden()
     await page.setViewportSize({ width: viewport.width, height: 430 })
     await expect(composer).toBeInViewport()
     await expect(page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })).toBeInViewport()
@@ -13974,13 +14015,13 @@ test('BOG UI daily prompt stays held on an empty restarted conversation', async 
   await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
     ? route.fulfill({ json: { messages: [], care_hold: held, oldest_message_id: null, older_message_count: 0 } }) : route.fallback())
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   const prompt = page.getByRole('group', { name: /asks about today/ })
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
   await expect(prompt).toHaveCount(0)
   held = false
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(prompt).toBeVisible()
 })
 
@@ -13996,13 +14037,13 @@ test('BOG UI leave card waits for a tap, survives reload and confirms the chosen
     return route.fulfill({ json: { record: card, assistant_message: { id: 8766, role: 'assistant', author: 'Mia', content: "I've let your coach know you'd like to pause the challenge. Nothing about your challenge has changed." } } })
   })
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   const region = page.getByRole('region', { name: 'Talk with your coach', exact: true })
   await expect(region).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   expect(calls).toEqual([])
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(region).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   await region.getByRole('button', { name: 'Tell my coach I’d like to pause', exact: true }).click()
@@ -14024,7 +14065,7 @@ test('BOG UI leave veto removes an already visible offer without notifying the c
   let notifications = 0
   await page.route('http://api.test/api/v1/savings_challenge/chat_cards/8771', route => { notifications += 1; return route.abort() })
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   const region = page.getByRole('region', { name: 'Talk with your coach', exact: true })
   await expect(region).toBeVisible()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill("Don't tell my coach I want to leave")
@@ -14051,7 +14092,7 @@ test('BOG UI persisted care hides every financial review without a safety flag',
     { ...base, id: 8813, kind: 'daily_report', input: miaDailyReport },
   ], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(page.getByText(reply.content, { exact: true })).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   for (const name of ['Talk with your coach', 'Your check-in', 'Your savings', 'Your goal']) {
@@ -14107,8 +14148,273 @@ test('BOG UI recovered care keeps the daily prompt quiet and makes explicit revi
   const card = { id: 8831, kind: 'leave', input: { intents: ['leave'] }, state: {}, status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 8830 }
   await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: [card], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
   await page.reload()
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await openSection(page, 'Ask Mia')
   await expect(page.getByText(reply.content, { exact: true })).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Talk with your coach', exact: true })).toBeVisible()
+})
+
+
+test('BOG UI shell phone Home Budget and Review last controls and footer clear the floating bar', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone clearance')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/')
+  for (const section of ['Home', 'Budget', 'Review']) {
+    await openSection(page, section)
+    await page.evaluate(() => document.fonts.ready)
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const bounds = await page.evaluate(() => {
+      const bar = document.querySelector('.tabs-shell')!.getBoundingClientRect()
+      const footer = document.querySelector('.brand-footer')!.getBoundingClientRect()
+      const controls = [...document.querySelectorAll<HTMLElement>('.shell-main :is(a[href], button, summary, input, select, textarea)')].filter(node => node.checkVisibility() && !node.closest('.brand-footer'))
+      return { bar: bar.top, footer: footer.bottom, last: controls.at(-1)?.getBoundingClientRect().bottom }
+    })
+    expect(bounds.footer).toBeLessThanOrEqual(bounds.bar - 16)
+    expect(bounds.last).toBeDefined()
+    expect(bounds.last!).toBeLessThanOrEqual(bounds.bar - 16)
+  }
+})
+
+test('BOG UI shell laptop sidebar lists every destination and supports account and skip navigation', async ({ page }, info) => {
+  test.skip(info.project.name !== 'desktop-chrome', 'laptop navigation')
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities = experienceCapabilities({ cfo_filter: true, optionality: true })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant')
+  const nav = page.locator('.tabs-shell')
+  for (const name of ['Home', 'Ask Mia', 'Budget', 'Review', 'My Money', 'My Profile', 'Statements', 'Wealth', 'CFO Filter', 'Optionality']) await expect(nav.getByRole('link', { name, exact: true })).toBeVisible()
+  await expect(nav.getByRole('button', { name: 'More', exact: true })).toHaveCount(0)
+  await page.getByRole('link', { name: 'Skip to content' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#participant-main')).toBeFocused()
+  await nav.getByLabel('Account and help', { exact: true }).click()
+  await expect(page.locator('.shell-account-panel')).toBeVisible()
+  const panel = await page.locator('.shell-account-panel').boundingBox()
+  expect(panel!.y).toBeGreaterThanOrEqual(0)
+  expect(panel!.y + panel!.height).toBeLessThan(page.viewportSize()!.height)
+})
+
+
+test('BOG UI shell More closes synchronously, traps focus and dismisses on a phone flick', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone sheet gesture')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/')
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await more.click()
+  const sheet = page.getByRole('dialog', { name: 'More' })
+  await expect(sheet).toBeVisible()
+  await sheet.evaluate(async node => { await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => undefined))) })
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(more).toBeFocused()
+  await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0)
+  await more.click()
+  await sheet.evaluate(async node => { await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => undefined))) })
+  const handle = await page.locator('.tabs-sheet-grab').boundingBox()
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2 + 100, { steps: 5 })
+  await page.mouse.up()
+  await expect(sheet).toHaveCount(0)
+  await expect(more).toBeFocused()
+  expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden')
+  await more.click()
+  await sheet.getByRole('button', { name: 'Account and help' }).click()
+  await expect(sheet).toHaveCount(0)
+  await expect(page.locator('.shell-account-panel')).toBeVisible()
+})
+
+
+test('BOG UI shell page ground covers mid-scroll text below the phone pill', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone paint coverage')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/')
+  for (const section of ['Home', 'Budget', 'Review']) {
+    await openSection(page, section)
+    await expectPhoneGroundCoverage(page)
+  }
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'More', exact: true })).toBeVisible()
+  await expect(page.locator('.tabs-ground')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.tabs-ground')).toBeHidden()
+  await expect(page.locator('.tabs-shell')).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).focus()
+  await expect(page.locator('.tabs-shell')).toBeHidden()
+  await expect(page.locator('.tabs-ground')).toBeHidden()
+})
+
+
+for (const target of ['More', 'purchase']) {
+  test(`BOG UI shell touch backdrop consumes the closing tap over ${target}`, async ({ page }, info) => {
+    test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'touch phone dismissal')
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    const more = page.getByRole('button', { name: 'More', exact: true })
+    const purchase = page.getByRole('button', { name: /^Confirm Dinner with friends/ })
+    await expect(purchase).toBeVisible()
+    if (target === 'purchase') {
+      await purchase.evaluate(node => window.scrollBy(0, node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2 - 12))
+    }
+    await page.evaluate(() => document.fonts.ready)
+    const control = target === 'More' ? more : purchase
+    const box = await control.boundingBox()
+    await purchase.evaluate(node => { node.setAttribute('data-tap-count', '0'); node.addEventListener('click', () => node.setAttribute('data-tap-count', String(Number(node.getAttribute('data-tap-count')) + 1))) })
+    await more.tap()
+    const sheet = page.getByRole('dialog', { name: 'More', exact: true })
+    await expect(sheet).toBeVisible()
+    const x = box!.x + box!.width / 2, y = box!.y + box!.height / 2
+    expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('tabs-tools-backdrop'), { x, y })).toBe(true)
+    await page.touchscreen.tap(x, y)
+    await expect(sheet).toHaveCount(0)
+    await expect(more).toHaveAttribute('aria-expanded', 'false')
+    await expect(purchase).toHaveAttribute('data-tap-count', '0')
+    await expect(page.locator('body')).not.toHaveCSS('overflow', 'hidden')
+  })
+}
+
+
+test('BOG UI shell phone text focus hides the bar while buttons checkboxes and selects keep it available', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone keyboard policy')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const bar = page.locator('.tabs-shell')
+  const checkbox = page.getByRole('checkbox', { name: /Select Dinner with friends/ })
+  await checkbox.check()
+  await checkbox.focus()
+  await expect(checkbox).toBeChecked()
+  await expect(bar).toBeVisible()
+  await openSection(page, 'Budget')
+  const select = page.getByRole('combobox', { name: 'Report month', exact: true })
+  await select.selectOption('1')
+  await select.focus()
+  await expect(bar).toBeVisible()
+  const budgetButton = page.locator('fieldset').getByRole('button', { name: 'Next year', exact: true })
+  await budgetButton.click()
+  await budgetButton.focus()
+  await expect(bar).toBeVisible()
+  await openSection(page, 'Review')
+  const capture = page.locator('.manual-transaction-capture')
+  await capture.getByRole('button', { name: 'Add transaction', exact: true }).click()
+  await expect(bar).toBeVisible()
+  await capture.getByLabel('Merchant', { exact: true }).fill('Bottom Edge Market')
+  await expect(bar).toBeHidden()
+  await capture.getByLabel('Amount', { exact: true }).fill('12.50')
+  const category = capture.getByRole('combobox')
+  await category.selectOption('2')
+  await category.focus()
+  await expect(bar).toBeVisible()
+  let submitted = 0
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    submitted++
+    expect(route.request().postDataJSON().transaction_draft).toMatchObject({ merchant: 'Bottom Edge Market', amount: '12.50', budget_category_id: 2 })
+    return route.fulfill({ json: { transaction_draft: { ...realWorkspaceData(true).budget.annual_plan.pending_transaction_drafts[0], merchant: 'Bottom Edge Market', amount: 12.5, amount_cents: 1250 }, workspace: realWorkspaceData(true) } })
+  })
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 568 })
+  await capture.getByLabel('Amount', { exact: true }).focus()
+  await expect(bar).toBeHidden()
+  const submit = capture.getByRole('button', { name: 'Add to review', exact: true })
+  await submit.evaluate(node => window.scrollBy(0, node.getBoundingClientRect().bottom - (innerHeight - 12)))
+  const box = await submit.boundingBox()
+  expect(box!.y + box!.height).toBeGreaterThan(page.viewportSize()!.height - 35)
+  await page.touchscreen.tap(box!.x + box!.width / 2, box!.y + box!.height / 2)
+  await expect(capture.getByRole('status')).toContainText('Added Bottom Edge Market')
+  expect(submitted).toBe(1)
+  await expect(bar).toBeVisible()
+  await expect(page.locator('.participant-app')).not.toHaveAttribute('data-field-pointer')
+})
+
+test('BOG UI shell account actions stay in the viewport at top middle and end without scrolling', async ({ page }, info) => {
+  test.skip(info.project.name === 'tablet-1024-chrome' || info.project.name === 'desktop-chrome', 'phone and tablet account placement')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.locator('.home-screen')).toBeVisible()
+  await page.evaluate(() => document.fonts.ready)
+  for (const ratio of [0, 0.5, 1]) {
+    await page.evaluate(ratio => window.scrollTo(0, ratio * (document.documentElement.scrollHeight - innerHeight)), ratio)
+    const before = await page.evaluate(() => scrollY)
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+    const panel = page.locator('.shell-account-panel')
+    await expect(panel).toBeVisible()
+    const box = await panel.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+    expect(await page.evaluate(() => scrollY)).toBe(before)
+    await expect(panel.getByRole('button', { name: 'Privacy', exact: true })).toBeInViewport()
+    await page.keyboard.press('Escape')
+  }
+})
+
+test('BOG UI shell phone chat returns account dialogs to More and preserves staff preview identity', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone chat account focus')
+  await mockStaffWithParticipantSeat(page, 'coach')
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.cohort.name = 'Mrs. Mel — Household coaching'
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=coach#Ask%20Mia')
+  await expect(page.locator('.chat-shell-header').getByRole('status')).toHaveText('Using: Mrs. Mel — Household coaching · Preview')
+  await expect(page.locator('.chat-shell-header').getByRole('status')).toBeVisible()
+  await expect(page.locator('.chat-shell-preview-note, .shell-chat-preview-note').filter({ visible: true })).toHaveCSS('white-space', 'normal')
+  for (const action of ['Guide', 'Report a problem']) {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+    await page.locator('.shell-account-panel').getByRole('button', { name: action, exact: true }).click()
+    await expect(page.locator('.pilot-dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.pilot-dialog')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+    expect(await page.evaluate(() => document.body.style.overflow)).not.toBe('hidden')
+  }
+})
+
+test('BOG UI shell phone chat returns focus to More after a dialog that has no focus fallback of its own', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone chat account focus')
+  await mockStaffWithParticipantSeat(page, 'admin')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=admin#Ask%20Mia')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+  await page.locator('.shell-account-panel').getByRole('button', { name: 'Organization access', exact: true }).click()
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]:not(.tabs-secondary)')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+})
+
+test('BOG UI shell sidebar Review keeps its exact name and announces waiting purchases as a description', async ({ page }, info) => {
+  test.skip(!['desktop-chrome', 'tablet-1024-chrome'].includes(info.project.name), 'sidebar count')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAccessibleDescription('2 purchases waiting')
+})
+
+test('BOG UI shell More exit holds the backdrop at its finished opacity', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone sheet exit')
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  const surface = page.locator('.tabs-tools-surface')
+  await surface.evaluate(node => Promise.allSettled(node.getAnimations({ subtree: true }).map(a => a.finished)))
+  const samples = await surface.evaluate(async node => {
+    ;(node.querySelector('.tabs-tools-close') as HTMLElement).click()
+    const copy = document.querySelector<HTMLElement>('[data-dialog-exit-copy]')!
+    const dim = copy.querySelector<HTMLElement>('.tabs-tools-backdrop')!
+    const values = []
+    while (copy.isConnected) {
+      values.push({ dim: Number(getComputedStyle(dim).opacity), root: Number(getComputedStyle(copy).opacity) })
+      await new Promise(requestAnimationFrame)
+    }
+    return values
+  })
+  expect(samples.length).toBeGreaterThan(2)
+  for (const [index, sample] of samples.entries()) {
+    expect(sample.dim).toBe(1)
+    if (index) expect(sample.root).toBeLessThanOrEqual(samples[index - 1].root)
+  }
 })

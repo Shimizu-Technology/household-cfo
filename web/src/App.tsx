@@ -17,6 +17,7 @@ import { formatRunway } from './lib/runway'
 import { YearOutlook } from './components/YearOutlook'
 import { formatReviewMoney } from './lib/reviewMoney'
 import { moneyTopics, moneyTopicForOperation, type MoneyTopic } from './lib/moneyNavigation'
+import { restoreAccountFocus } from './lib/accountFocus'
 import { AccountMenu } from './components/AccountMenu'
 import { PARTICIPANT_SECTIONS, SECTION_CAPABILITY_IDS, participantSectionsForModules } from './lib/participantNavigation'
 import { SignOutButton } from './components/AuthControls'
@@ -209,7 +210,7 @@ import { BrandRuntimeProvider } from './contexts/BrandContext'
 import { NEUTRAL_BRAND, useBrand } from './contexts/brandContextValue'
 import { brandByline, brandHeaderByline } from './lib/brandByline'
 import { shortAssistantName } from './lib/assistantName'
-import { BrandFooter, BrandLogo } from './components/BrandChrome'
+import { BrandFooter, BrandLogo, BrandWordmark } from './components/BrandChrome'
 import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
@@ -3087,7 +3088,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   function restoreHelpFocus() {
     requestAnimationFrame(() => {
       const active = document.activeElement as HTMLElement | null
-      if (!active || active === document.body || active.getClientRects().length === 0) shellAccountMenuRef.current?.querySelector<HTMLElement>('summary')?.focus()
+      if (!active || active === document.body || active.getClientRects().length === 0) restoreAccountFocus(shellAccountMenuRef.current)
     })
   }
 
@@ -3923,19 +3924,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     onAskPatterns={askMiaAboutPatterns}
   /> : null
 
-  const workspace = (
-    <main className={`app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
-      <SeoManager section={activeSection} />
-      <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
-      <header className="shell-header">
+  const shellIdentity = (
         <div className="shell-brand">
           <BrandLogo brand={brand} />
           <div className="shell-brand-copy">
             {brandHeaderByline(brand) && <p className="eyebrow">{brandHeaderByline(brand)}</p>}
-            <h1>{isSavingsExperience ? data.workspace.cohort?.name || 'Bank of Guam 90-Day Challenge' : brand.short_name}</h1>
+            <h1>{isSavingsExperience ? data.workspace.cohort?.name || brand.short_name : <BrandWordmark brand={brand} />}</h1>
           </div>
+          {!isSavingsExperience && <p className="sidebar-scope">{data.profile.household.name}</p>}
           {staffPreviewing && <p className="shell-using-note" role="status">Using: {data.workspace.cohort?.name} · Preview</p>}
         </div>
+  )
+  const shellAccount = (
         <div className="shell-actions">
           {hasAdminSide && <a className="shell-admin-link" href={adminPath()} onClick={event => { if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); openAdmin() }}>Admin</a>}
           <AccountMenu participantLabel={isSavingsExperience ? 'Challenge participant' : undefined} menuRef={shellAccountMenuRef} onOpen={() => setAccountProgramsOpen(true)} onClose={() => setAccountProgramsOpen(false)}>
@@ -3950,12 +3950,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               {isRealWorkspace && auth.currentUser?.is_admin && <Button variant="ghost" size="compact" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); setFinancialRestartOpen(true) }}>Reset my test workspace</Button>}
           </AccountMenu>
         </div>
-      </header>
+  )
+
+  const workspace = (
+    <div className={`app participant-app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
+      <a className="shell-skip-link" href="#participant-main" onClick={event => { event.preventDefault(); const main = document.getElementById('participant-main'); if (main) { main.tabIndex = -1; main.addEventListener('blur', () => main.removeAttribute('tabindex'), { once: true }); main.focus() } }}>Skip to content</a>
+      <SeoManager section={activeSection} />
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
+
 
       {transactionNotice && ['Ask Mia', 'Statements'].includes(activeSection) && <p data-review-result tabIndex={-1} role="status" className="document-alert success">{transactionNotice}</p>}
       {selectionNotice && <p className="document-alert" role="status">{selectionNotice}</p>}
       {restartNotice && <div className="document-alert financial-restart-notice" role="status"><p>{restartNotice}</p><button type="button" className="secondary-button" onClick={onDismissRestartNotice}>Dismiss</button></div>}
-      <ParticipantTabs customModuleOrder={Boolean(data.workspace.capabilities.module_order?.length)} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
+      <ParticipantTabs identity={shellIdentity} account={shellAccount} reviewCount={data.dashboard.action_center.transaction_review_count} onAccount={() => { if (shellAccountMenuRef.current) { shellAccountMenuRef.current.open = true; shellAccountMenuRef.current.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true }) } }} customModuleOrder={Boolean(data.workspace.capabilities.module_order?.length)} sections={visibleSections} activeSection={activeSection} onChange={switchSection} savingsChallenge={isSavingsExperience} />
+      <main className="shell-main" id="participant-main">
 
 
       {!workspaceRefreshNotice && (homeBudgetStale || dataBudgetStale) && <p className="document-alert" role="status">Your records just changed. Totals will update in a moment.</p>}
@@ -4046,6 +4054,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   {isFirstSessionSetup
                     ? <p className="mia-setup-count">{data.workspace.setup_status.completed_count} of {data.workspace.setup_status.required_count} essentials confirmed</p>
                     : !isSavingsExperience && <p className="chat-period-context">{miaPlanLabel}</p>}
+                  {staffPreviewing && <p className="shell-chat-preview-note" role="status">Using: {data.workspace.cohort?.name} · Preview</p>}
                 </div>
                 <div className="chat-actions">
                   {data.workspace.experience_mode === 'savings_challenge' && !challengeNotOpen && savingsJoined && auth.currentUser && <button type="button" className="secondary-button chat-today-button" onClick={(event) => { event.currentTarget.focus(); setDailyIntake(null); setDailyOpen(true) }}>Today</button>}
@@ -4283,7 +4292,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : [...data.mia.quick_prompts, SPENDING_PATTERNS_PROMPT]).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
-          <MiaDisclaimer assistantName={assistantName} fullText={data.mia.disclaimer} />
+          <footer className="brand-footer mia-footer"><MiaDisclaimer assistantName={assistantName} fullText={data.mia.disclaimer} /></footer>
         </section>
       )}
 
@@ -4789,7 +4798,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         </section>
       )}
 
-      {activeSection !== 'Ask Mia' && <BrandFooter closingLine={data.workspace.experience_mode !== 'savings_challenge'} />}
+      {activeSection !== 'Ask Mia' && <BrandFooter closingLine={activeSection === 'Home' && !isSavingsExperience} />}
+      </main>
 
       {bulkConfirmRequest && (
         <BulkConfirmDialog
@@ -4855,8 +4865,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         onClose={() => setSetupRestart(null)} onReturnToSetupHelp={(requestId, reviewId) => { setSetupRestart(null); setStaleSetupReview(requestId == null || reviewId == null ? null : { requestId, reviewId }); setSetupHelpOpen(true) }} onApplied={finishFinancialRestart} />}
       {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
-        onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
-      {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => setEnterpriseSettingsOpen(false)} />}
+        onClose={() => { setFinancialRestartOpen(false); restoreHelpFocus() }} onApplied={finishFinancialRestart} />}
+      {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => { setEnterpriseSettingsOpen(false); restoreHelpFocus() }} />}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => { setPilotGuideOpen(false); restoreHelpFocus() }} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog
@@ -4866,7 +4876,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           onSubmit={submitPilotFeedback}
         />
       )}
-    </main>
+    </div>
   )
 
   return (

@@ -1,269 +1,139 @@
-/*
- * Application shell: identity row and participant navigation.
- *
- * Desktop and tablet use a flat identity row with a quiet sticky section bar.
- * Phones use a bottom tab bar so primary destinations stay under the thumb.
- * Loaded after App.css; older shell rules there are superseded by this file.
- */
-
-/* Identity row: flat, so the page content is the first card the eye meets. */
-.app > .shell-header {
-  min-height: 56px;
-  padding: var(--space-2) var(--space-1);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.app .shell-brand-copy .eyebrow {
-  margin: 0 0 2px;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0;
-}
-
-.app .shell-brand-copy h1 {
-  font-size: var(--text-2xl);
-  line-height: var(--leading-tight);
-}
-
-/* Chat keeps a compact identity row but the same side padding, so account help never shifts. */
-.app.is-chat-page > .shell-header {
-  min-height: 52px;
-  padding: var(--space-1) var(--space-1);
-}
-
-/* Section bar. */
-.app > .tabs-shell {
-  margin: 0 0 var(--space-6);
-  padding: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--cream);
-  box-shadow: none;
-}
-
-/* Chat is a working surface; keep the section bar tight above the conversation. */
-.app.is-chat-page > .tabs-shell {
-  margin-bottom: var(--space-2);
-}
-
-.app .tabs-shell .tabs {
-  gap: var(--space-1);
-  margin: 0;
-  padding: var(--space-2) 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-}
-
-.app .tabs-shell .tabs :where(button, a) {
-  gap: var(--space-2);
-  min-height: 40px;
-  padding: var(--space-2) var(--space-3);
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--ink-soft);
-  font-size: var(--text-sm);
-  font-weight: var(--weight-semibold);
-  box-shadow: none;
-}
-
+/* One shell: phone floating navigation, tablet top row, laptop sidebar.
+   Screen content always reserves the phone bar + gap + 16px + safe area. */
+.participant-app .shell-main { display: block; min-width: 0; }
+.participant-app.is-chat-page { min-height: 0; }
+.participant-app.is-chat-page .shell-main { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.participant-app .shell-main:focus { outline: none; }
+.shell-account-menu > summary .shell-account-initial { display: grid; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .shell-account-menu > summary::after { display: none; }
+body #root .participant-app .shell-account-menu > summary { padding-inline-end: 4px; }
+.shell-skip-link { min-height: 44px; position: fixed; top: -100px; left: 16px; z-index: 100; padding: 12px; background: var(--surface-card); color: var(--ink); }
+.shell-skip-link:focus { top: 8px; }
+.app > .shell-header { min-height: 56px; padding: 0 0 16px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.app.participant-app.is-chat-page > .shell-header { min-height: 56px; padding: 0 0 16px; }
+.app .shell-brand-copy .eyebrow { display: none; }
+.app .shell-brand-copy h1 { margin: 0; font-size: 21px; line-height: 1.15; font-weight: var(--weight-semibold); }
+.brand-wordmark { font-family: var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+.brand-wordmark em { color: var(--brand); font-weight: inherit; }
+.sidebar-scope { display: none; }
+.tabs-ground { display: none; }
+.app > .tabs-shell { margin: 0 0 24px; padding: 0; border-bottom: 1px solid var(--line); background: var(--surface-ground); box-shadow: none; }
+.app .tabs-shell .tabs { gap: 4px; margin: 0; padding: 8px 0; border: 0; border-radius: 0; background: transparent; }
+.app .tabs-shell .tabs :where(button, a) { gap: 8px; min-height: 44px; padding: 8px 12px; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: var(--text-sm); font-weight: var(--weight-medium); box-shadow: none; transition: transform var(--duration-press) var(--ease-out); }
+.app .tabs-shell .tabs :where(button, a).active { color: var(--brand); background: var(--brand-soft); font-weight: var(--weight-semibold); }
+.app .tabs-shell .tabs :where(button, a):active { transform: scale(0.97); }
+.tabs-icon { width: 20px; height: 20px; flex: 0 0 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.app .tabs-shell .tabs-more-toggle svg { width: 20px; height: 20px; stroke-width: 1.7; }
+/* 36px drawing, 44px target. Account name is visible in the laptop sidebar. */
+.participant-app .shell-account-menu > summary { width: 44px; height: 44px; padding: 4px; border: 0; border-radius: var(--radius-pill); background: transparent; }
+.shell-account-initial { display: grid; place-items: center; flex: 0 0 36px; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface-card); color: var(--brand); font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.participant-app .shell-account-name { display: none; }
+.app .brand-footer { margin-top: 24px; padding: 16px 0; font-size: var(--text-xs); color: var(--muted); line-height: 1.5; }
+.app .brand-footer p { font-size: var(--text-xs); }
+.app.is-chat-page .brand-footer.mia-footer { display: block; flex: 0 0 auto; margin: 0; padding: 10px 0; border: 0; max-height: none; overflow: visible; }
+.app.is-chat-page .mia-footer > .mia-disclaimer { margin: 0; }
+.app .brand-footer nav { gap: 4px 12px; }
+.app .brand-footer a { min-height: 44px; display: inline-flex; align-items: center; }
+.app.participant-app.is-chat-page .chat-shell-copy h3 { font-family: var(--font-display); font-size: 24px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
+.app.participant-app.is-chat-page .mia-chat-shell .chat-period-context { display: block; margin: 2px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.35; white-space: nowrap; }
+/* More owns its live lifecycle; only dialogExit's inert copy outlives close. */
+.tabs-tools-surface { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.tabs-tools-surface > * { pointer-events: auto; }
+.tabs-tools-backdrop { z-index: 0; border: 0; background: color-mix(in srgb, var(--ink) 20%, transparent); }
+.tabs-tools-surface .tabs-secondary { z-index: 1; border-color: var(--line); background: var(--surface-card); animation: none; opacity: 1; transform: translateY(0); transition: opacity var(--duration-enter) ease, transform var(--duration-enter) var(--ease-drawer); }
+.tabs-secondary > header { padding: 0 0 8px; border-color: var(--rule); }
+.tabs-secondary > header strong { font-family: var(--font-display); font-size: 28px; font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
+.tabs-tools-close { width: 44px; height: 44px; min-width: 44px; border-color: var(--line); background: var(--surface-card); color: var(--ink); }
+.tabs-tools-list { gap: 0; padding: 0; }
+.tabs-tools-list a { min-height: 56px; border-radius: 0; border-bottom: 1px solid var(--rule); }
+.tabs-tools-list a strong { font-size: var(--text-md); font-weight: var(--weight-semibold); }
+.tabs-tools-list a small { font-weight: var(--weight-regular); }
+.tabs-account-row { width: 100%; padding: 12px; text-align: left; color: var(--ink); background: transparent; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; justify-content: space-between; }
+.tabs-account-row svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.tabs-sheet-grab { display: none; }
+@starting-style { .tabs-tools-surface .tabs-secondary { opacity: 0; transform: translateY(12px); } }
 @media (hover: hover) and (pointer: fine) {
-  .app .tabs-shell .tabs :where(button, a):hover {
-    color: var(--ink);
-    background: color-mix(in srgb, var(--emerald-soft) 55%, transparent);
-  }
+  .app .tabs-shell .tabs :where(button, a):hover { color: var(--ink); background: var(--surface-tint); }
 }
-
-.app .tabs-shell .tabs :where(button, a).active {
-  color: var(--emerald);
-  background: var(--emerald-soft);
-  box-shadow: none;
-}
-
-.app .tabs-shell .tabs .tabs-today-action {
-  border: 1px solid var(--line);
-  background: var(--paper);
-  color: var(--ink);
-}
-
-.tabs-icon {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  fill: none;
-  stroke: currentcolor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.app .tabs-shell .tabs-more-toggle svg {
-  width: 20px;
-  height: 20px;
-  stroke-width: 1.7;
-}
-
-/* More menu. */
-.tabs-secondary > header {
-  padding: 2px 4px 10px;
-}
-
-.tabs-secondary > header strong {
-  font-family: var(--font-body);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-bold);
-  line-height: var(--leading-tight);
-}
-
-.tabs-tools-list a {
-  min-height: 56px;
-}
-
-.tabs-tools-list a strong {
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-}
-
-.tabs-tools-list a small {
-  font-weight: var(--weight-regular);
-}
-
-/* Phones: bottom tab bar. */
 @media (max-width: 620px) {
-  .app {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom));
-  }
+  .app.participant-app { padding-top: calc(12px + env(safe-area-inset-top)); padding-bottom: calc(106px + env(safe-area-inset-bottom)); }
+  .app > .shell-header { min-height: 52px; padding: 0 0 12px; }
+  .app > .tabs-shell { position: fixed; top: auto; right: max(12px, env(safe-area-inset-right)); bottom: calc(14px + env(safe-area-inset-bottom)); left: max(12px, env(safe-area-inset-left)); z-index: 45; margin: 0; padding: 4px 6px; border: 0; border-radius: var(--radius-pill); background: var(--surface-card); box-shadow: var(--shadow-float); }
+  /* Opaque page ground from 8px above the pill to the screen edge, so a card passing
+     behind never shows as slivers beside the pill's rounded ends.
+     Keep it below the pill (including its shadow) and above scrolling content. */
+  .app:not(.is-chat-page) > .tabs-ground { display: block; position: fixed; inset: auto 0 0; height: calc(82px + env(safe-area-inset-bottom)); z-index: 44; background: var(--surface-ground); }
+  .app .tabs-shell .tabs { display: grid; min-height: 52px; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; grid-template-columns: none; gap: 0; margin: 0; padding: 0; }
+  .app .tabs-shell .tabs :where(button, a) { flex-direction: column; gap: 3px; min-width: 0; min-height: 52px; padding: 4px 0; border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: 11px; line-height: 1.15; }
+  .app .tabs-shell .tabs :where(button, a).active { color: var(--brand); background: transparent; }
+  .app .tabs-shell .tabs-icon, .app .tabs-shell .tabs-more-toggle svg { display: block; width: 22px; height: 22px; flex: 0 0 22px; }
+  .app .tabs-shell .tabs-label-full { display: none; }
+  .app .tabs-shell :is(.tabs-label-short, .tabs-label) { display: block; max-width: 100%; white-space: nowrap; }
+  .app.participant-app.is-chat-page { padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right)); padding-top: max(8px, env(safe-area-inset-top)); padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
+  .app.is-chat-page > .shell-header { display: none; }
+  .app.participant-app.is-chat-page .chat-shell-copy { display: block; min-width: 0; }
+  .app.participant-app.is-chat-page .mia-chat-shell .chat-period-context { text-overflow: clip; overflow: visible; white-space: normal; }
+  .app.is-chat-page > .shell-header:has(details[open]) { display: flex; position: fixed; top: max(8px, env(safe-area-inset-top)); right: 12px; z-index: 65; }
+  .app.is-chat-page > .shell-header:has(details[open]) .shell-brand { display: none; }
+  .app.is-chat-page > .tabs-shell { position: relative; order: 99; inset: auto; flex: 0 0 auto; margin: 8px 0 0; }
+  .app.is-chat-page .brand-footer { flex: 0 0 auto; max-height: 40px; overflow-y: auto; overscroll-behavior: contain; margin: 0; padding: 2px 0; }
+  .app.is-chat-page .brand-footer nav { display: none; }
+  /* Focused fields must never have floating controls over their keyboard. */
+  .participant-app[data-field-pointer] > :is(.tabs-shell, .tabs-ground),
+  .participant-app[data-text-entry-focus] > :is(.tabs-shell, .tabs-ground) { visibility: hidden; }
+  body:has([role='dialog'][aria-modal='true']:not(.tabs-secondary), dialog[open]) .app > :is(.tabs-shell, .tabs-ground) { visibility: hidden; }
+  .tabs-tools-surface .tabs-secondary { top: auto; left: 12px; right: 12px; bottom: calc(82px + env(safe-area-inset-bottom)); width: auto; max-height: calc(100dvh - 110px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); padding: 0 14px 12px; }
+  .tabs-sheet-grab { display: grid; place-items: center; height: 28px; margin: 0 -14px; touch-action: pan-x; user-select: none; }
+  .tabs-sheet-grab span { width: 32px; height: 4px; border-radius: var(--radius-pill); background: var(--line); }
+  @starting-style { .tabs-tools-surface .tabs-secondary { opacity: 0; transform: translateY(100%); } }
+}
+@media (max-width: 1023px) {
+  /* The header scrolls with the page; its account actions remain in reach. */
+  .participant-app > .shell-header .shell-account-panel { position: fixed; top: max(calc(64px + env(safe-area-inset-top)), var(--shell-account-top, 0px)); right: max(12px, env(safe-area-inset-right)); max-height: calc(100dvh - max(calc(64px + env(safe-area-inset-top)), var(--shell-account-top, 0px)) - 12px - env(safe-area-inset-bottom)); }
+}
+.shell-chat-preview-note { display: none; }
+@media (max-width: 620px) {
+  .app.participant-app.is-chat-page .mia-chat-shell .shell-chat-preview-note { display: block; margin: 2px 0 0; color: var(--muted); font-size: var(--text-xs); line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; }
+}
+/* Shared sidebar vocabulary is also available to the admin redesign. */
+@media (min-width: 1024px) {
+  .participant-app .shell-main > .savings-home { margin-inline: 0; }
+  .app.participant-app { width: calc(100% - 232px); max-width: 1260px; margin: 0 auto 0 232px; padding: 32px 40px 48px; }
+  .app.participant-app > .shell-sidebar, .shell-sidebar { width: 232px; height: 100dvh; display: flex; flex-direction: column; gap: 20px; padding: 24px 14px; border: 0; border-right: 1px solid var(--line); overflow-y: auto; overscroll-behavior: contain; background: var(--surface-ground); }
+  .app.participant-app > .tabs-shell { position: fixed; inset: 0 auto 0 0; width: 232px; height: 100dvh; margin: 0; border-bottom: 0; }
+  .app .tabs-shell .shell-header { display: block; min-height: 0; padding: 0 8px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+  .app .tabs-shell .shell-brand { display: block; }
+  .app .tabs-shell .shell-brand-logo { display: none; }
+  .app .tabs-shell .shell-brand-copy h1 { font-size: 21px; }
+  .sidebar-scope { display: block; margin: 10px 0 0; color: var(--muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+  .app .tabs-shell .tabs { display: grid; gap: 4px; padding: 0; overflow: visible; }
+  .app .tabs-shell .tabs a, .shell-sidebar-link { justify-content: flex-start; min-height: 44px; padding: 10px 12px; gap: 10px; border-radius: var(--radius-md); font-size: var(--text-sm); white-space: normal; }
+  .app .tabs-shell .tabs a.active, .shell-sidebar-link[aria-current='page'] { color: var(--ink); background: var(--surface-tint); }
+  .app .tabs-shell .tabs-label-short { display: none; }
+  .tabs-review-count { display: grid; place-items: center; min-width: 22px; height: 22px; margin-left: auto; padding: 0 5px; border-radius: var(--radius-pill); color: var(--brand-on-primary); background: var(--brand); font-size: var(--text-xs); }
+  .sidebar-tools { display: grid; gap: 4px; }
+  .sidebar-group-label { padding: 16px 12px 4px; color: var(--muted); font-size: var(--text-xs); }
+  .sidebar-account { margin-top: auto; }
+  .sidebar-account .shell-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; }
+  .sidebar-account .shell-account-menu { order: -1; }
+  .participant-app .sidebar-account .shell-account-menu > summary { width: 100%; height: auto; padding: 4px 8px; }
+  .participant-app .sidebar-account .shell-account-name { display: block; overflow-wrap: anywhere; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--muted); }
+  .sidebar-account .shell-account-panel { position: fixed; left: 12px; right: auto; top: auto; bottom: var(--shell-account-bottom, 80px); max-height: calc(100dvh - var(--shell-account-bottom, 80px) - 12px); }
+  .sidebar-account .shell-admin-link { justify-content: flex-start; }
+  .app.participant-app.is-chat-page { height: 100dvh; padding-block: 24px; }
+  .participant-app.is-chat-page .shell-main > .mia-screen { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  .app.is-chat-page .brand-footer { flex: 0 0 auto; margin-top: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app .tabs-shell .tabs :where(button, a):active { transform: none; }
+  .tabs-tools-surface .tabs-secondary { transition-property: opacity; }
+  @starting-style { .tabs-tools-surface .tabs-secondary { transform: none; } }
+}
 
-  .app > .shell-header,
-  .app.is-chat-page > .shell-header {
-    min-height: 52px;
-    padding: var(--space-1) var(--space-1) var(--space-2);
-  }
 
-  .app .shell-brand-copy .eyebrow {
-    display: none;
-  }
-
-  .app .shell-brand-copy h1 {
-    font-size: var(--text-xl);
-  }
-
-  .app > .tabs-shell {
-    position: fixed;
-    top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 45;
-    margin: 0;
-    padding: 0 max(var(--space-2), env(safe-area-inset-right)) env(safe-area-inset-bottom) max(var(--space-2), env(safe-area-inset-left));
-    border-top: 1px solid var(--line);
-    border-bottom: 0;
-    background: var(--paper);
-  }
-
-  .app .tabs-shell .tabs,
-  .app.is-savings-navigation .tabs-shell .tabs,
-  .app .tabs-shell.is-savings-navigation .tabs {
-    display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
-    grid-template-columns: none;
-    gap: 0;
-    margin: 0;
-    padding: var(--space-1) 0;
-  }
-
-  .app .tabs-shell.is-savings-navigation .tabs {
-    grid-template-columns: minmax(0, 1fr) minmax(0, .8fr) minmax(0, 1.4fr) minmax(0, .8fr);
-  }
-
-  .app .tabs-shell .tabs :where(button, a),
-  .app .tabs-shell.is-savings-navigation .tabs :where(button, a) {
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    min-height: 56px;
-    padding: var(--space-1) 2px;
-    border: 0;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--ink-soft);
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    line-height: 1.1;
-  }
-
-  .app .tabs-shell .tabs :where(button, a).active {
-    background: transparent;
-    color: var(--emerald);
-  }
-
-  .app .tabs-shell .tabs :where(button, a).active .tabs-icon {
-    fill: var(--emerald-soft);
-    stroke-width: 2;
-  }
-
-  .app .tabs-shell .tabs .tabs-today-action {
-    border: 0;
-    background: transparent;
-    color: var(--emerald);
-  }
-
-  .app .tabs-shell .tabs-icon,
-  .app .tabs-shell .tabs-more-toggle svg {
-    display: block;
-    width: 24px;
-    height: 24px;
-    flex: 0 0 24px;
-  }
-
-  .app .tabs-shell .tabs-label-full {
-    display: none;
-  }
-
-  .app .tabs-shell .tabs-label-short,
-  .app .tabs-shell .tabs-label {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Chat keeps the bar in flow beneath the composer instead of covering it. */
-  .app.is-chat-page {
-    padding-bottom: 0;
-  }
-
-  /* Chat keeps every pixel it can for the conversation; targets stay above 44px. */
-  .app.is-chat-page .tabs-shell .tabs {
-    padding: 2px 0;
-  }
-
-  .app.is-chat-page .tabs-shell .tabs :where(button, a) {
-    min-height: 48px;
-    gap: 0;
-    padding-block: 2px;
-  }
-
-  .app.is-chat-page > .tabs-shell {
-    position: relative;
-    order: 99;
-    margin: var(--space-1) calc(-1 * max(8px, env(safe-area-inset-right))) 0 calc(-1 * max(8px, env(safe-area-inset-left)));
-  }
-
-  /* Dialogs own the whole screen; the bar must never sit over their actions. */
-  body:has([role="dialog"][aria-modal="true"]:not(.tabs-secondary), dialog[open]) .app > .tabs-shell {
-    visibility: hidden;
-  }
-
-  /* The More sheet rises above the bar. */
-  .tabs-secondary {
-    bottom: calc(76px + env(safe-area-inset-bottom));
-  }
+/* Landscape and very short keyboard viewports keep both navigation and chat
+   reachable: the conversation surface scrolls instead of clipping its controls. */
+@media (max-width: 620px) and (max-height: 400px) {
+  .app.participant-app.is-chat-page .shell-main { display: block; overflow-y: auto; overscroll-behavior: contain; }
+  .app.participant-app.is-chat-page .shell-main > .mia-screen { min-height: 360px; }
 }

@@ -33,7 +33,7 @@ Data marks have two sets: `--data-spent`, `--data-planned`, `--data-remainder` o
 
 - Paper cards: 1px `--line`, 20px `--radius-lg`, 18px padding. No shadows at rest. Inside a card, use rows and hairlines, never another card.
 - Rows: at least 56px. Targets: at least 44×44px. Inputs: `--text-md` (16px) so iOS does not zoom.
-- Text: `--text-xs` 13px labels/captions, `--text-sm` 14px, `--text-md` 16px body, then `--text-lg`, `--text-xl`, `--text-2xl`, `--text-3xl`. No text smaller than 13px.
+- Text: `--text-xs` 13px labels/captions, `--text-sm` 14px, `--text-md` 16px body, then `--text-lg`, `--text-xl`, `--text-2xl`, `--text-3xl`. No text smaller than 13px, except the fixed phone navigation labels (11px).
 - Body regular 400; labels medium 500 and muted; section titles 16px semibold 600; figures semibold. Do not introduce new 700 weights.
 - Spacing: `--space-1/2/3/4/5/6/8/10` = 4/8/12/16/20/24/32/40px. Radii: `--radius-sm/md/lg/pill` = 10/14/20/999px.
 - Elevation tokens are legacy values, not permission to add shadows. The floating phone navigation is the explicit navigation exception; its exact CSS policy entry belongs to the shell slice.
@@ -104,7 +104,13 @@ Interactive elements use `touch-action: manipulation` and no tap highlight; butt
 
 For **new code**: phone up to 620px; tablet 621–1023px; laptop 1024px and up. CSS custom properties cannot be used as media-query breakpoints. Existing screens may retain older breakpoints until their slice.
 
-The phone tab bar may float as a paper pill. Content must clear its entire height, gap and safe-area inset. Chat keeps navigation in flow beneath the composer. Tablet keeps the top navigation row; laptop receives a sidebar in the shell slice. This foundation does not restructure any screen or build that navigation.
+The phone tab bar floats as a paper pill: 12px side margins, 14px above the bottom safe area, 60px tall, equal columns and 11px labels. `--shadow-float` is its single allowed shadow; active colour comes from the brand. The participant shell reserves 106px plus the safe area at the bottom so the last control and compact footer clear the bar. A flat page-ground band covers the screen from 8px above the pill to the bottom edge, including the safe area, so scrolling content cannot show beside or below it. Chat keeps the pill in flow beneath its composer and has no backing band. Focused text-entry inputs, textareas and editable text hide phone navigation without changing chat geometry; a pointer interaction that starts in a focused field keeps navigation hidden until its click finishes (with pointerup/cancel and window-blur release for interrupted presses), so the returning pill cannot cover a submit button or disclosure; dialogs hide it while their action rows own the viewport.
+
+Tablets keep the sticky top row. From 1024px the 232px sidebar spans the viewport with a hairline on the right, wordmark and scope at the top, every destination inline, Tools labelled, Review count when known, and account at the bottom. Main content uses 40px gutters and at most 1180px. Sidebar selections use `--surface-tint`, a neutral derived from the brand ink and ground. Shared `.shell-sidebar` and `.shell-sidebar-link` styling is available to the admin slice. Keyboard order is skip link, navigation, main; navigation retains heading focus and route scroll restoration.
+
+The identity row uses a 21px display wordmark and a 36px account initial in a 44px target. Only organization `Household CFO Method` gets “The *Household CFO*”; other brands use their short name, and savings keeps its program name once, without a duplicate scope line. The chat header replaces phone identity. The method closing line appears only on household Home; a compact disclaimer/footer remains throughout. Chat keeps its existing short AI-coach disclosure and About action in a footer, rather than adding a second full disclaimer below it. At phone heights of 400px or less the conversation surface scrolls, keeping its header, history, composer and navigation reachable.
+
+More is a modal sheet above the phone bar, with a scrim, 44px close target, rows, Tools disclosure, and Account and help. Its handle owns vertical dragging with pointer capture; downward distance or velocity dismisses, upward movement has resistance, cancellation returns to rest. Entrance takes 220ms; exit uses `dialogExit` for a 150ms inert copy after synchronous React unmount. Reduced motion fades without movement.
 
 ## Preview and verification
 

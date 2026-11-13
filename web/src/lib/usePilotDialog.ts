@@ -1,14 +1,13 @@
 import { useLayoutEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
+import { lockBodyScroll } from './bodyScrollLock'
+import { accountFocusTarget } from './accountFocus'
 import { dialogExit } from './dialogExit'
 import { revealDialogControl } from './dialogFocus'
 
 // A confirmation can open over another dialog; only the topmost one traps focus
 // and answers Escape, so the one underneath waits until it closes.
 const openDialogs: symbol[] = []
-// The page scrolls again only when the last dialog closes. Each dialog restoring
-// its own saved value would unlock the page while a confirmation is still open.
-let overflowBeforeFirstDialog = ''
 
 export function usePilotDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLElement | null>(null)
@@ -22,7 +21,7 @@ export function usePilotDialog(onClose: () => void) {
   // A passive cleanup can run after that frame, especially in WebKit.
   useLayoutEffect(() => {
     const token = Symbol('pilot-dialog')
-    if (openDialogs.length === 0) overflowBeforeFirstDialog = document.body.style.overflow
+    const unlockScroll = lockBodyScroll()
     openDialogs.push(token)
     const isTopmost = () => openDialogs[openDialogs.length - 1] === token
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -101,14 +100,13 @@ export function usePilotDialog(onClose: () => void) {
 
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('focusin', handleFocusIn)
-    document.body.style.overflow = 'hidden'
     return () => {
       window.cancelAnimationFrame(focusFrame)
       const position = openDialogs.indexOf(token)
       if (position >= 0) openDialogs.splice(position, 1)
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
-      if (openDialogs.length === 0) document.body.style.overflow = overflowBeforeFirstDialog
+      unlockScroll()
       // An account action may have closed its disclosure while opening us.
       // Its button is then hidden; return to the nearest visible summary,
       // after unmount, rather than racing a parent's animation-frame fallback.
@@ -116,10 +114,17 @@ export function usePilotDialog(onClose: () => void) {
       for (let node = previousFocus?.parentElement; node; node = node.parentElement) {
         if (node instanceof HTMLDetailsElement && !node.open) {
           const summary = node.querySelector<HTMLElement>(':scope > summary')
-          if (summary && !summary.contains(destination)) destination = summary
+          if (summary && !summary.contains(destination)) destination = node.matches('.shell-account-menu') ? accountFocusTarget(node) ?? summary : summary
         }
       }
       destination?.focus({ preventScroll: true })
+      // This cleanup runs before React removes the dialog, and the phone shell hides
+      // its navigation while a modal is in the page, so More cannot take focus yet.
+      // Once the commit has finished, return focus there if it was dropped.
+      if (destination && document.activeElement !== destination) queueMicrotask(() => {
+        const active = document.activeElement
+        if (destination.isConnected && openDialogs.length === 0 && (!active || active === document.body)) destination.focus({ preventScroll: true })
+      })
     }
   }, [])
 
