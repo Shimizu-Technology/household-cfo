@@ -9,6 +9,9 @@ import './AuthLanding.css'
 export function AuthLanding() {
   const { brand, assistantName } = useBrand()
   const { initial, displayName, greeting, intro } = assistantGreeting(assistantName)
+  // Signed-out visitors get the brand provider's placeholder name. Without the
+  // assistant's own name the greeting is generic, so leave the bubble out.
+  const namedAssistant = assistantName.trim().toLowerCase() !== 'your assistant'
   return (
     <main className="auth-landing">
       <header className="auth-landing-header">
@@ -51,10 +54,10 @@ export function AuthLanding() {
               <p className="auth-landing-year-note">December is your tight month.</p>
             </div>
           </div>
-          <div className="auth-landing-greeting">
+          {namedAssistant && <div className="auth-landing-greeting">
             <span className="ui-monogram" aria-hidden="true">{initial}</span>
             <div className="ui-card"><p className="auth-landing-assistant">{greeting}, I’m {displayName}.</p><p>{intro}</p></div>
-          </div>
+          </div>}
         </div>
       </div>
       <BrandFooter privacyFallback />

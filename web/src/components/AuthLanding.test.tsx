@@ -84,3 +84,10 @@ it('retains a full 120-character brand headline and the plain greeting for anoth
   expect(screen.getByText('Hi, I’m Auntie Mel.')).toBeTruthy()
   expect(screen.getByText(/I’ll prepare anything that changes your numbers for you to review first/)).toBeTruthy()
 })
+
+it('leaves the assistant greeting out when a signed-out visitor only has the placeholder assistant name', () => {
+  const view = render(<BrandContext.Provider value={{ ...context, assistantName: 'your assistant' }}><AuthLanding /></BrandContext.Provider>)
+  expect(view.container.querySelector('.auth-landing-greeting')).toBeNull()
+  expect(screen.queryByText(/I’m your assistant/)).toBeNull()
+  expect(view.container.querySelector('.auth-landing-phone')).toBeTruthy()
+})
