@@ -1,3 +1,4 @@
+import { expectPhoneGroundCoverage } from './helpers/shellGround'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import workspace from './fixtures/savings-home-workspace.json' with { type: 'json' }
@@ -152,4 +153,21 @@ test('BOG UI shell savings Home last control and footer clear the floating bar',
   expect(bounds.footer).toBeLessThanOrEqual(bounds.bar - 16)
   expect(bounds.last).toBeDefined()
   expect(bounds.last!).toBeLessThanOrEqual(bounds.bar - 16)
+})
+
+
+test('BOG UI shell savings identity names the program once', async ({ page }) => {
+  await mockSavingsHome(page)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  const identity = page.locator('.shell-brand')
+  await expect(identity.locator('h1')).toHaveText(workspace.workspace.cohort.name)
+  await expect(identity.locator('.sidebar-scope')).toHaveCount(0)
+})
+
+test('BOG UI shell savings page ground covers mid-scroll text below the phone pill', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone paint coverage')
+  await mockSavingsHome(page)
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.getByRole('article', { name: 'Approved savings progress', exact: true })).toBeVisible()
+  await expectPhoneGroundCoverage(page)
 })

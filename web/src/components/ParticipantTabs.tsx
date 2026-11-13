@@ -252,6 +252,7 @@ function ParticipantNavigation({ identity, account, onAccount, reviewCount = 0, 
   return (
     <>
     {!sidebar && identity && <header className="shell-header">{identity}{account}</header>}
+    <div className="tabs-ground" aria-hidden="true" />
     <div className={`tabs-shell${sidebar ? ' shell-sidebar' : ''}${savingsChallenge ? ' is-savings-navigation' : ''}${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       {sidebar && identity && <header className="shell-header">{identity}</header>}
       <nav className="tabs" aria-label={`${brand.short_name} participant sections`}>

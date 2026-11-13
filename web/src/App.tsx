@@ -3930,7 +3930,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             {brandHeaderByline(brand) && <p className="eyebrow">{brandHeaderByline(brand)}</p>}
             <h1>{isSavingsExperience ? data.workspace.cohort?.name || brand.short_name : <BrandWordmark brand={brand} />}</h1>
           </div>
-          <p className="sidebar-scope">{isSavingsExperience ? data.workspace.cohort?.name || brand.short_name : data.profile.household.name}</p>
+          {!isSavingsExperience && <p className="sidebar-scope">{data.profile.household.name}</p>}
           {staffPreviewing && <p className="shell-using-note" role="status">Using: {data.workspace.cohort?.name} · Preview</p>}
         </div>
   )

@@ -1,3 +1,4 @@
+import { expectPhoneGroundCoverage } from './helpers/shellGround'
 import { dailyContext, dailyDraft, dailySnapshot, dailyVersion } from '../src/test/dailyFixtures'
 import type { DailyPurchase, DailyPurchaseDraft, DailyReflection, DailyCheckpointDraft, DailyCheckpoint, DailyInput } from '../src/lib/dailyChallenge'
 import { baselineContext, baselineCurrent, baselinePreview, baselineScope, baselineVersion } from '../src/test/baselineFixtures'
@@ -1547,7 +1548,7 @@ test('unknown program domains stay on the neutral boundary before workspace data
   expect(workspaceRequests).toBe(0)
 })
 
-test('an unavailable sealed workspace brand fails closed to the neutral brand and retries cleanly', async ({ page }) => {
+test('BOG UI an unavailable sealed workspace brand fails closed to the neutral brand and retries cleanly', async ({ page }) => {
   const leakedBrand = {
     ...legacyBrandConfig,
     product_name: 'Brand That Must Not Render',
@@ -2238,7 +2239,7 @@ test('large financial values stay on one line and participant screens stay insid
   }
 })
 
-test('Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
+test('BOG UI Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Ask Mia')
   const suggestedQuestion = page.getByRole('button', { name: 'Why is my readiness Red?' })
@@ -4450,7 +4451,7 @@ test('Wealth stays accurate while the frontend and API metric contracts roll out
   await expect(page.getByText('$190,000', { exact: true })).toHaveCount(0)
 })
 
-test('tablet Tools stays anchored to its trigger and contains keyboard focus', async ({ page }) => {
+test('desktop Tools on tablets stays anchored to its trigger and contains keyboard focus', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 0) <= 620 || (page.viewportSize()?.width ?? 0) >= 1024, 'tablet popover assertion; laptops list every destination inline')
   await page.goto('/')
 
@@ -4996,7 +4997,7 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await expect(progress.getByText('Flexible spending')).toBeVisible()
 })
 
-test('ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
+test('BOG UI ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
   const ignoredImport = {
     id: 404,
     household_id: 77,
@@ -12755,7 +12756,7 @@ test('BOG UI dialogs transition in and out and reduced motion removes movement',
   await expect(clear).toHaveCount(0)
 })
 
-test('mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
+test('BOG UI mobile Ask Mia anchors the sent message above typing and never returns to an older review', async ({ page }) => {
   // This test checks the real reply timing, so it opts back in to motion.
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   const workspace = realWorkspaceData(true)
@@ -12840,7 +12841,7 @@ test(`mobile Ask Mia Latest during a pending request follows the arriving ${long
 })
 }
 
-test('mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
+test('BOG UI mobile Ask Mia empty history offers a compact review link and gives the thread phone space', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.mia.messages = []
   workspace.mia.older_message_count = 0
@@ -14090,4 +14091,25 @@ test('BOG UI shell More closes synchronously, traps focus and dismisses on a pho
   await sheet.getByRole('button', { name: 'Account and help' }).click()
   await expect(sheet).toHaveCount(0)
   await expect(page.locator('.shell-account-panel')).toBeVisible()
+})
+
+
+test('BOG UI shell page ground covers mid-scroll text below the phone pill', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone paint coverage')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/')
+  for (const section of ['Home', 'Budget', 'Review']) {
+    await openSection(page, section)
+    await expectPhoneGroundCoverage(page)
+  }
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'More', exact: true })).toBeVisible()
+  await expect(page.locator('.tabs-ground')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.tabs-ground')).toBeHidden()
+  await expect(page.locator('.tabs-shell')).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).focus()
+  await expect(page.locator('.tabs-shell')).toBeHidden()
+  await expect(page.locator('.tabs-ground')).toBeHidden()
 })
