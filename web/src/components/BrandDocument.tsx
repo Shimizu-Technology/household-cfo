@@ -1,6 +1,8 @@
 import { useLayoutEffect } from 'react'
 import { useBrand } from '../contexts/brandContextValue'
 import { brandFontStylesheetHref } from '../lib/brandFonts'
+import { selectChevron } from '../lib/selectChevron'
+import { brandDeep } from '../lib/brandDeep'
 import { readableOn } from '../lib/readableColor'
 
 const displayFonts: Record<string, string> = {
@@ -29,6 +31,8 @@ export function BrandDocument() {
     const bodyFont = bodyFonts[brand.typography.body] ?? bodyFonts.system_sans
     const mutedText = readableOn(brand.colors.text_muted, [brand.colors.surface, brand.colors.surface_muted, brand.colors.background, brand.colors.primary_soft])
     const variables: Record<string, string> = {
+      ...brandDeep(brand.colors.primary, brand.colors.background),
+      '--select-chevron': selectChevron(mutedText),
       '--surface-page': brand.colors.background,
       '--surface': brand.colors.surface,
       '--surface-muted': brand.colors.surface_muted,

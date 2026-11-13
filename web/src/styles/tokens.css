@@ -3,7 +3,8 @@
  * scale so the product reads as one system. Brand colors and fonts still come
  * from the coach brand (see BrandDocument); these tokens only fix the rhythm.
  */
-:root {
+:root,
+.ui-brand {
   /* Type scale. 13px is the floor for captions and labels; body copy is 16px. */
   --text-xs: 0.8125rem;
   --text-sm: 0.875rem;
@@ -49,6 +50,30 @@
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --duration-press: 120ms;
   --duration-fast: 160ms;
+  --duration-color: 150ms;
+  --duration-enter: 220ms;
+  --duration-exit: 150ms;
+
+  /* Honest aliases preserve the legacy runtime brand contract. */
+  --brand: var(--emerald);
+  --brand-strong: var(--berry);
+  --brand-soft: var(--emerald-soft);
+  --accent-warm: var(--gold);
+  --positive: var(--status-green);
+  --surface-ground: var(--cream);
+  --surface-card: var(--paper);
+  --rule: color-mix(in srgb, var(--line) 65%, var(--surface-card));
+  --brand-deep: color-mix(in srgb, var(--emerald) 60%, black);
+  --on-brand-deep: var(--cream);
+  --on-brand-deep-muted: color-mix(in srgb, var(--on-brand-deep) 80%, var(--brand-deep));
+
+  /* Data marks on paper, and on the single deep answer surface. */
+  --data-spent: var(--accent-warm);
+  --data-planned: color-mix(in srgb, var(--brand) 40%, var(--surface-card));
+  --data-remainder: var(--rule);
+  --data-deep-spent: var(--accent-warm);
+  --data-deep-planned: color-mix(in srgb, var(--brand) 40%, var(--on-brand-deep));
+  --data-deep-remainder: color-mix(in srgb, var(--on-brand-deep) 14%, var(--brand-deep));
 
   /* Semantic status colors, kept in step with the legacy --status-* names. */
   --color-success: var(--status-green, #4f6d53);
