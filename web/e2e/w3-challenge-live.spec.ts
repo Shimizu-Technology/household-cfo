@@ -142,6 +142,7 @@ test.describe('BOG UI W3 real challenge journey', () => {
         expect(await strip.locator('.challenge-days').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
       } else {
         await expect(strip.getByText('Swipe for all 90 days')).toBeVisible()
+        expect(await strip.locator('.challenge-days').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
         expect(await restored.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       }
       await shot(restored, 'home-strip')
