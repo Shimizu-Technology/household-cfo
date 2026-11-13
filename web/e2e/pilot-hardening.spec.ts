@@ -14372,6 +14372,21 @@ test('BOG UI shell phone chat returns account dialogs to More and preserves staf
   }
 })
 
+test('BOG UI shell phone chat returns focus to More after a dialog that has no focus fallback of its own', async ({ page }, info) => {
+  test.skip(!['mobile-chrome', 'compact-mobile-chrome', 'mobile-webkit'].includes(info.project.name), 'phone chat account focus')
+  await mockStaffWithParticipantSeat(page, 'admin')
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=admin#Ask%20Mia')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+  await page.locator('.shell-account-panel').getByRole('button', { name: 'Organization access', exact: true }).click()
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]:not(.tabs-secondary)')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+})
+
 test('BOG UI shell sidebar Review keeps its exact name and announces waiting purchases as a description', async ({ page }, info) => {
   test.skip(!['desktop-chrome', 'tablet-1024-chrome'].includes(info.project.name), 'sidebar count')
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))

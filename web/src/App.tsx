@@ -4865,8 +4865,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         onClose={() => setSetupRestart(null)} onReturnToSetupHelp={(requestId, reviewId) => { setSetupRestart(null); setStaleSetupReview(requestId == null || reviewId == null ? null : { requestId, reviewId }); setSetupHelpOpen(true) }} onApplied={finishFinancialRestart} />}
       {financialRestartOpen && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId && <FinancialRestartDialog key={chatStorageKey} scopeKey={restartScopeKey}
         blockedReason={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || hasUnsavedMoneyChanges || isProfileEditing || budgetAction || miaLoading || uploadingKind ? 'Save or cancel your open edits and let current requests finish before preparing a restart review.' : null}
-        onClose={() => setFinancialRestartOpen(false)} onApplied={finishFinancialRestart} />}
-      {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => setEnterpriseSettingsOpen(false)} />}
+        onClose={() => { setFinancialRestartOpen(false); restoreHelpFocus() }} onApplied={finishFinancialRestart} />}
+      {enterpriseSettingsOpen && auth.currentUser && <EnterpriseSettings key={`${auth.authProvider}:${auth.authIdentityId}:${auth.currentUser.id}`} currentUser={auth.currentUser} onClose={() => { setEnterpriseSettingsOpen(false); restoreHelpFocus() }} />}
       {pilotGuideOpen && <PilotGuideDialog savingsChallenge={isSavingsExperience} onClose={() => { setPilotGuideOpen(false); restoreHelpFocus() }} />}
       {pilotFeedbackOpen && (
         <PilotFeedbackDialog

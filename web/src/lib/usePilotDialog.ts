@@ -118,6 +118,13 @@ export function usePilotDialog(onClose: () => void) {
         }
       }
       destination?.focus({ preventScroll: true })
+      // This cleanup runs before React removes the dialog, and the phone shell hides
+      // its navigation while a modal is in the page, so More cannot take focus yet.
+      // Once the commit has finished, return focus there if it was dropped.
+      if (destination && document.activeElement !== destination) queueMicrotask(() => {
+        const active = document.activeElement
+        if (destination.isConnected && openDialogs.length === 0 && (!active || active === document.body)) destination.focus({ preventScroll: true })
+      })
     }
   }, [])
 
