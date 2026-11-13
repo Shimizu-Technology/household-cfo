@@ -136,10 +136,14 @@ test.describe('BOG UI W3 real challenge journey', () => {
       await expect(restored.getByRole('region', { name: 'Your 90 days', exact: true })).toBeVisible()
       const strip = restored.getByRole('region', { name: 'Your 90 days', exact: true })
       await expect(strip.getByRole('list', { name: 'Day symbols' })).toBeVisible()
-      if (restored.viewportSize()!.width >= 768) {
+      // The 90 days sit in a grid from 1024px; below that the strip scrolls inside itself.
+      if (restored.viewportSize()!.width >= 1024) {
         await expect(strip.getByText('Swipe for all 90 days')).toBeHidden()
         expect(await strip.locator('.challenge-days').evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-      } else await expect(strip.getByText('Swipe for all 90 days')).toBeVisible()
+      } else {
+        await expect(strip.getByText('Swipe for all 90 days')).toBeVisible()
+        expect(await restored.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+      }
       await shot(restored, 'home-strip')
       await restored.getByRole('button', { name: /Day 1,.*Checked in/ }).click()
       const today = restored.getByRole('dialog', { name: 'Today', exact: true })
