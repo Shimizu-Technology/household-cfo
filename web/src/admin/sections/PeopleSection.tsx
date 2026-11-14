@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AdminUser, CurrentUser, UserRole } from '../../api'
 import { Button } from '../../components/Button'
@@ -24,6 +25,8 @@ const activeTime = (person: AdminUser) => lastActiveAt(person) ? new Date(lastAc
 export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
   const { groups, people, loading, error, reload } = useAdminRoster(currentUser)
   const wide = useMatchMedia('(min-width: 840px)')
+  const phone = useMatchMedia('(max-width: 620px)')
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [groupId, setGroupId] = useState('')
   const [role, setRole] = useState<UserRole | ''>('')
@@ -71,12 +74,15 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
 
   return <section className="admin-section" aria-busy={loading}>
     <header className="admin-section-head">
-      <div><h2 ref={heading} data-page-heading tabIndex={-1}>People</h2><p>Everyone you coach, and who has joined.</p></div>
+      <div><h2 ref={heading} data-page-heading tabIndex={-1}>People</h2><AdminScope currentUser={currentUser} /><p>Everyone you coach, and who has joined.</p></div>
       <Button onClick={() => setInviting(true)} disabled={loading}>Invite people</Button>
     </header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
     {note && <p className="admin-alert success" role="status">{note}</p>}
 
+    <div className="admin-people-filters">
+      {phone && <button type="button" className="ui-chip admin-filter-toggle" aria-expanded={filtersOpen} aria-controls="admin-people-filter-fields" onClick={() => setFiltersOpen(open => !open)}>Filters ({Number(Boolean(groupId)) + Number(Boolean(role)) + Number(filter !== 'everyone') + Number(Boolean(search.trim()))})</button>}
+    <div id="admin-people-filter-fields" hidden={phone && !filtersOpen} className="admin-filter-fields">
     <div className="admin-toolbar">
       <label className="admin-field"><span>Find someone</span><input type="search" value={search} placeholder="Name or email" onChange={event => { setSearch(event.target.value); setShown(PAGE) }} /></label>
       <label className="admin-field"><span>Group</span>
@@ -93,9 +99,11 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
       {filterChoices.map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => { setFilter(value); setShown(PAGE) }}><strong>{counts[value]}</strong> {label}</button>)}
     </div>
 
+    </div></div>
+
     {loading ? <p role="status" className="admin-muted">Opening your people…</p>
       : rows.length === 0 ? <div className="admin-empty"><p>{people.length === 0 ? 'No one here yet.' : 'No one matches. Try another name or choose Everyone.'}</p>{people.length === 0 && <Button onClick={() => setInviting(true)}>Invite your first people</Button>}</div>
-      : wide ? <div className="admin-table-wrap"><table className="admin-table">
+      : wide ? <div className="ui-card admin-table-wrap"><table className="admin-table">
         <thead><tr>
           {head('name', 'Name')}
           <th scope="col">Group</th><th scope="col">Role</th>
@@ -103,13 +111,13 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
         </tr></thead>
         <tbody>{visible.map(person => <tr key={person.id}>
           <th scope="row"><button type="button" className="admin-row-link" onClick={() => setOpenId(person.id)}><strong>{nameOf(person)}</strong><small>{person.email}</small></button></th>
-          <td>{groupNames(person) || '—'}</td><td>{roleLabel[person.role]}</td>
-          <td><StatePill person={person} /></td><td>{lastActiveWords(lastActiveAt(person))}</td><td>{setupWords(person)}</td>
+          <td><span className="admin-group-name" title={groupNames(person) || undefined}>{groupNames(person) || '—'}</span></td><td>{roleLabel[person.role]}</td>
+          <td><StatePill person={person} /></td><td>{lastActiveWords(lastActiveAt(person))}</td><td className="admin-setup-status">{setupWords(person)}</td>
         </tr>)}</tbody>
       </table></div>
-      : <ul className="admin-list">{visible.map(person => <li key={person.id}><button type="button" className="admin-list-row" onClick={() => setOpenId(person.id)}>
+      : <ul className="ui-card ui-rows admin-list">{visible.map(person => <li key={person.id}><button type="button" className="admin-list-row admin-people-row" onClick={() => setOpenId(person.id)}>
         <strong>{nameOf(person)}</strong>
-        <span>{groupNames(person) || roleLabel[person.role]}</span>
+        <span className="admin-group-name" title={groupNames(person) || undefined}>{groupNames(person) || roleLabel[person.role]}</span>
         <span className="admin-list-meta"><StatePill person={person} /> · {lastActiveWords(lastActiveAt(person))}</span>
       </button></li>)}</ul>}
     {!wide && rows.length > visible.length && <Button variant="secondary" onClick={() => setShown(count => count + PAGE)}>Show {Math.min(PAGE, rows.length - visible.length)} more of {rows.length - visible.length}</Button>}

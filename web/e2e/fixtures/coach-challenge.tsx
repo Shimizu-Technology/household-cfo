@@ -5,7 +5,8 @@ import { ReportsSection } from '../../src/admin/sections/ReportsSection'
 import type { CurrentUser } from '../../src/api'
 import { ChallengeExport } from '../../src/components/ChallengeExport'
 import { AuthContext, type AuthContextValue } from '../../src/contexts/authContextValue'
-import '../../src/App.css'
+import '../../src/styles/tokens.css'
+import '../../src/appStyles'
 let savedDay = 60
 let revoked = false
 ;(window as unknown as { __revoke: () => void }).__revoke = () => { revoked = true }
