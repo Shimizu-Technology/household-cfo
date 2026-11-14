@@ -15858,3 +15858,31 @@ test('BOG UI P5 no-plan Budget uses a whole column and waiting rows retain their
   await actions.getByRole('button', { name: 'Review in Mia', exact: true }).click()
   await expect(page.locator('.chat-card')).toBeVisible()
 })
+
+test('BOG UI P8b wealth groups figures and keeps missing money in words', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const missing = { ...workspace, wealth: { ...workspace.wealth, summary: { ...workspace.wealth.summary, net_worth: null, liquid_net_worth: null } } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: missing }))
+  await page.goto('/?pilot_e2e_role=participant#Wealth')
+  const figures = page.locator('.wealth-figures')
+  await expect(figures).toBeVisible()
+  await expect(figures.locator('.metric-value-unknown')).toHaveCount(2)
+  await expect(figures.locator('.metric-value-unknown').first()).toHaveText('—Not available')
+  const labels = await figures.locator('.metric-card').evaluateAll(cards => cards.map(card => ({
+    border: getComputedStyle(card).borderTopWidth, background: getComputedStyle(card).backgroundColor,
+  })))
+  expect(labels.every(card => card.background === 'rgba(0, 0, 0, 0)')).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI P8b Statements keeps upload and history on paper with no review frame', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const upload = page.locator('.document-upload-primary .document-upload-card')
+  await expect(upload).toBeVisible()
+  await expect(upload).toHaveCSS('border-top-width', '1px')
+  await expect(page.locator('.document-history')).toHaveCSS('border-top-width', '1px')
+  await expect(page.locator('.document-import-workspace')).toHaveCSS('border-top-width', '0px')
+  await expect(page.getByText('No documents yet', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
