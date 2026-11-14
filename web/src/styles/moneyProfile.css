@@ -72,3 +72,7 @@ body .use-app-as-row { border-bottom: 1px solid var(--rule); border-radius: 0; m
 .money-screen .money-topics > button { border-radius: var(--radius-pill); }
 .money-screen :is(.account-manager, .goal-manager, .debt-manager) > .ui-btn--tonal { align-self: start; }
 .profile-screen .mia-memory-heading h2 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+.money-screen :is(.account-summary, .debt-summary, .goal-summary) > span { min-height: 56px; box-sizing: border-box; }
+.money-screen .setup-fieldset, .profile-screen .setup-fieldset { background: transparent; border: 0; border-radius: 0; padding: 0; }
+.profile-screen .mia-memory-form, .profile-screen .mia-memory-private-note { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: var(--space-4) 0; }
+body .optional-debt-dialog .debt-orders > div { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; }
