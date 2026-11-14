@@ -138,6 +138,8 @@ export function IncomeSourceManager({
   function beginEdit(source: IncomeTimelineSource, trigger?: HTMLButtonElement) {
     if (editorBlocked) return
     if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another source.'); return }
+    trigger?.focus({ preventScroll: true })
+    const origin = document.activeElement
     setFormOpen(true)
     lastActionTriggerRef.current = trigger ?? null
     setEndingId(null)
@@ -146,6 +148,7 @@ export function IncomeSourceManager({
     setDraft(incomeSourceDraftFor(source))
     setFormError(null)
     requestAnimationFrame(() => {
+      if (document.activeElement !== origin && document.activeElement !== document.body) return
       sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       sourceNameRef.current?.focus({ preventScroll: true })
       sourceNameRef.current?.select()
@@ -327,7 +330,7 @@ export function IncomeSourceManager({
         </div>
       )}
 
-      {!formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { setFormOpen(true); requestAnimationFrame(() => sourceNameRef.current?.focus()) }}>Add income source</button>}
+      {!formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={(event) => { const trigger = event.currentTarget; trigger.focus({ preventScroll: true }); setFormOpen(true); requestAnimationFrame(() => { if (document.activeElement === trigger || document.activeElement === document.body) sourceNameRef.current?.focus() }) }}>Add income source</button>}
       {formOpen && <form ref={sourceFormRef} className="income-source-form" onSubmit={(event) => void submit(event)}>
         <div className="income-source-form-heading">
           <div>

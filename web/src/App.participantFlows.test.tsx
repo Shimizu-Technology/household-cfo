@@ -187,3 +187,19 @@ it('keeps approval explicit when a statement includes a selected account value',
   view.rerender(<DocumentReviewPanel {...actions} documentImport={{ ...applied, items: [...applied.items, { ...applied.items[0], id: 6, label: 'Other checking' }] }} />)
   expect(screen.getByRole('heading', { name: '2 saved values already feed your assistant' })).toBeTruthy()
 })
+
+
+it('keeps a deliberate amount focus when the income opener frame runs later', () => {
+  const frames: FrameRequestCallback[] = []
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    render(<IncomeSourceManager sources={[]} action={null} error={null} onSave={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add income source' }))
+    const amount = screen.getByRole('spinbutton', { name: 'Starting amount', exact: true })
+    amount.focus()
+    act(() => { for (const frame of frames.splice(0)) frame(0) })
+    expect(document.activeElement).toBe(amount)
+    fireEvent.change(amount, { target: { value: '200' } })
+    expect((screen.getByRole('textbox', { name: 'Name', exact: true }) as HTMLInputElement).value).toBe('')
+  } finally { raf.mockRestore() }
+})
