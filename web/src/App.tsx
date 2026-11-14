@@ -6847,12 +6847,12 @@ export function WorkspaceSetupForm({
         <div className="setup-field-grid">
           <label className="setup-field text-wide" title={`The household name ${assistantName} should use in this workspace.`}>
             <span>Household name</span>
-            {!editing ? <strong className="profile-saved-value">{values.household_name || 'Not entered'}</strong> : <input name="household_name" value={values.household_name} required={firstSession} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />}
+            {!editing ? <strong className="profile-saved-value">{values.household_name || 'Not entered'}</strong> : <input className="ui-field" name="household_name" value={values.household_name} required={firstSession} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />}
             <small>The name {assistantName} should use for this household.</small>
           </label>
           <label className="setup-field text-wide" title={`The money goal or life decision ${assistantName} should keep in mind when coaching you.`}>
             <span>Primary goal</span>
-            {!editing ? <strong className="profile-saved-value">{values.primary_goal || 'Not entered'}</strong> : <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />}
+            {!editing ? <strong className="profile-saved-value">{values.primary_goal || 'Not entered'}</strong> : <textarea className="ui-field" name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />}
             <small>Write the goal, worry, or decision {assistantName} should coach around.</small>
           </label>
           {!personalOnly && <>
@@ -6874,7 +6874,7 @@ export function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
           <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
             <span>Target runway months</span>
-            <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
+            <input className="ui-field" type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
             <small>How many months of expenses you want protected before bigger moves.</small>
           </label>
         </div>
@@ -6906,7 +6906,7 @@ function MoneyInput({ disabled = false, name, label, value, help, onChange }: { 
       <span>{label}</span>
       <span className="money-input-shell">
         <span aria-hidden="true">$</span>
-        <input name={name} type="number" inputMode="decimal" min="0" step="any" placeholder="Not entered" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+        <input className="ui-field" name={name} type="number" inputMode="decimal" min="0" step="any" placeholder="Not entered" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       </span>
       <small>{help}</small>
     </label>
@@ -7154,8 +7154,8 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
         </fieldset>
         {modeDraft === 'summary' && <div className="debt-summary-inputs">
-          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
-          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
+          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
+          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
         <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>
@@ -7180,11 +7180,11 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
       {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
         <fieldset className="debt-form-grid" disabled={saving || trackingDirty} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}><legend className="sr-only">Debt fields</legend>
-          <label className="setup-field text-wide"><span>Debt name</span><input ref={debtNameRef} autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
+          <label className="setup-field text-wide"><span>Debt name</span><input className="ui-field" ref={debtNameRef} autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
           <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps {assistantName} explain tradeoffs clearly.</small></label>
-          <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
-          <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
-          <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
+          <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
+          <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
+          <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input className="ui-field" type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
         </fieldset>
         {error && <p className="setup-error" role="alert">{error}</p>}
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>

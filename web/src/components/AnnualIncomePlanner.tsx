@@ -352,7 +352,7 @@ export function AnnualIncomePlanner({
                 <div hidden={step !== 1} className="income-question-fields">
                   <label>
                     <span>Starting month</span>
-                    <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => {
+                    <input className="ui-field" type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => {
                       const effectiveOn = event.currentTarget.value ? `${event.currentTarget.value}-01` : ''
                       const nextEligible = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, effectiveOn))
                       const keepsSource = nextEligible.some((source) => String(source.id) === draft.income_source_id)
@@ -374,7 +374,7 @@ export function AnnualIncomePlanner({
                       <span>Amount</span>
                       <div className="income-schedule-money-input">
                         <span aria-hidden="true">$</span>
-                        <input ref={amountInputRef} aria-label="Amount" inputMode="decimal" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'one_time' ? '500' : '1200'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
+                        <input className="ui-field" ref={amountInputRef} aria-label="Amount" inputMode="decimal" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'one_time' ? '500' : '1200'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
                       </div>
                     </label>
                     {draft.entry_type === 'recurring_change' ? <label>
@@ -384,7 +384,7 @@ export function AnnualIncomePlanner({
                       </select>
                     </label> : <label>
                       <span>Label (optional)</span>
-                      <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
+                      <input className="ui-field" maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
                     </label>}
                   </div>}
                   <div className="income-schedule-preview" aria-live="polite">

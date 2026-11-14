@@ -305,7 +305,7 @@ export function IncomeSourceManager({
                     <div className="income-source-end-confirmation">
                       <label>
                         <span>First month without this income</span>
-                        <input ref={endMonthRef} disabled={incomeOperationPending} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
+                        <input className="ui-field" ref={endMonthRef} disabled={incomeOperationPending} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
                       </label>
                       {formError && <p className="setup-error" role="alert">{formError}</p>}
                       <button type="button" className="secondary-button" aria-label={`Cancel ending ${source.label}`} disabled={incomeOperationPending} onClick={cancelEnd}>Cancel</button>
@@ -342,7 +342,7 @@ export function IncomeSourceManager({
         <fieldset className="income-source-fields budget-loading-boundary" style={{ border: 0 }} disabled={incomeOperationPending}><legend className="sr-only">Income source fields</legend>
           <label>
             <span>Name</span>
-            <input ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
+            <input className="ui-field" ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
           </label>
           <label>
             <span>Type</span>
@@ -354,7 +354,7 @@ export function IncomeSourceManager({
             <span>Starting amount</span>
             <div className="income-schedule-money-input">
               <span aria-hidden="true">$</span>
-              <input aria-label="Starting amount" type="number" min="0" step="0.01" value={draft.amount} placeholder="5000" onChange={(event) => updateSourceDraft({ amount: event.currentTarget.value })} />
+              <input className="ui-field" aria-label="Starting amount" type="number" min="0" step="0.01" value={draft.amount} placeholder="5000" onChange={(event) => updateSourceDraft({ amount: event.currentTarget.value })} />
             </div>
           </label>
           <label>
@@ -365,7 +365,7 @@ export function IncomeSourceManager({
           </label>
           <label>
             <span>Starting month</span>
-            <input type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
+            <input className="ui-field" type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
           </label>
         </fieldset>
         {formError && <p className="setup-error" role="alert">{formError}</p>}
