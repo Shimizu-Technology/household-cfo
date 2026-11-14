@@ -121,7 +121,7 @@ export function ParticipantHelp({ row, onTicketChanged }: { row: CoachParticipan
     })
   }
   return (
-    <section className="coach-challenge-card" aria-label="Participant permitted sharing">
+    <section className="coach-challenge-card participant-help" aria-label="Participant permitted sharing">
       <h4>Help &amp; sharing</h4>
       <p>Only what this person shared with you is available. Permission is checked each time you open a record.</p>
       {error && <p role="alert">{error}</p>}
@@ -215,6 +215,7 @@ export function ParticipantHelp({ row, onTicketChanged }: { row: CoachParticipan
       <h4>Requests addressed to you</h4>
       {tickets.map((help) => (
         <button
+          className="ui-row"
           key={help.id}
           disabled={busy}
           onClick={() =>

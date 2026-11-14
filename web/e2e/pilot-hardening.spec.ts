@@ -8964,7 +8964,10 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await expect(chatAssistPanel(page).getByLabel('Files to review').locator('.mia-assist-status > div').filter({ hasText: 'Waiting for review' }).locator('dd')).toHaveText('1')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
-  await expect(page.locator('.document-workspace-heading')).toContainText('1')
+  await expect(page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true })).toBeVisible()
+  // The page keeps a level-three heading above the upload card, so the cards' level-four headings never skip a level.
+  await expect(page.getByRole('heading', { name: 'Upload a statement', level: 3 })).toBeVisible()
+  await page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
   const review = page.locator('.document-review-panel')
   await expect(review.locator('.document-review-header .document-status')).toHaveCount(0)
@@ -9014,7 +9017,7 @@ test('BOG UI Home links a file waiting for review without loading statements fir
   await others.getByRole('button', { name: '1 file waiting for review', exact: true }).click()
   await expect(page).toHaveURL(/#Statements$/)
   await expect(page.getByRole('article', { name: 'Review QA-source-only.pdf', exact: true }).getByRole('heading', { name: 'Review details', exact: true })).toBeVisible()
-  await expect(page.locator('.document-workspace-heading')).toContainText('1')
+  await expect(page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true })).toBeVisible()
 })
 
 test('BOG UI incomplete setup can review a partial source and return to starting numbers', async ({ page }) => {
@@ -9032,7 +9035,8 @@ test('BOG UI incomplete setup can review a partial source and return to starting
   await expect(chatAssistPanel(page).getByLabel('Files to review').locator('.mia-assist-status > div').filter({ hasText: 'Waiting for review' }).locator('dd')).toHaveText('1')
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
-  await expect(page.locator('.document-workspace-heading')).toContainText('1')
+  await expect(page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true })).toBeVisible()
+  await page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
   if (await page.getByRole('button', { name: 'More', exact: true }).isVisible()) await page.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Statements', exact: true })).toHaveAttribute('aria-current', 'page')
@@ -10698,6 +10702,7 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('320px')
   await assertDialogVisibleHeight(dialog)
   await expect(dialog.getByLabel('What did you attempt?')).toBeFocused()
+  // Round the reveal delta outward so fractional field bounds are fully contained.
   await expect.poll(() => dialog.getByLabel('What did you attempt?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top && control.bottom <= panel.bottom })).toBe(true)
   await dialog.getByLabel('What happened instead?').fill('Fictional lower field keyboard test')
   await page.evaluate(() => {
@@ -10765,6 +10770,7 @@ test(`BOG UI feedback reveals the focused field after content reflows inside a f
   await assertDialogVisibleHeight(dialog)
   const geometry = () => field.evaluate(el => {
     const control = el.getBoundingClientRect(), body = el.closest<HTMLElement>('.pilot-dialog-body')!, panel = body.getBoundingClientRect()
+    // Fractional field edges must stay fully inside the scrolling body.
     return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight, controlHeight: control.height, active: document.activeElement === el, activeTag: document.activeElement?.tagName, activeText: document.activeElement?.textContent?.slice(0, 50), viewportScale: window.visualViewport?.scale }
   })
   const samples: Awaited<ReturnType<typeof geometry>>[] = []
@@ -15857,4 +15863,309 @@ test('BOG UI P5 no-plan Budget uses a whole column and waiting rows retain their
   await openSection(page, 'Budget')
   await actions.getByRole('button', { name: 'Review in Mia', exact: true }).click()
   await expect(page.locator('.chat-card')).toBeVisible()
+})
+
+test('BOG UI P8b wealth groups figures and keeps missing money in words', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const missing = { ...workspace, wealth: { ...workspace.wealth, summary: { ...workspace.wealth.summary, net_worth: null, liquid_net_worth: null } } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: missing }))
+  await page.goto('/?pilot_e2e_role=participant#Wealth')
+  const figures = page.locator('.wealth-figures')
+  await expect(figures).toBeVisible()
+  await expect(figures.locator('.metric-value-unknown')).toHaveCount(2)
+  await expect(figures.locator('.metric-value-unknown').first()).toHaveText('—Not available')
+  const labels = await figures.locator('.metric-card').evaluateAll(cards => cards.map(card => ({
+    border: getComputedStyle(card).borderTopWidth, side: getComputedStyle(card).borderInlineStartWidth, background: getComputedStyle(card).backgroundColor,
+  })))
+  expect(labels.every(card => card.background === 'rgba(0, 0, 0, 0)')).toBe(true)
+  expect(labels.slice(1).every(card => card.border === '1px' || card.side === '1px')).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI P8b Statements keeps upload and history on paper with no review frame', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const upload = page.locator('.document-upload-primary .document-upload-card')
+  await expect(upload).toBeVisible()
+  await expect(upload).toHaveCSS('border-top-width', '1px')
+  await expect(page.locator('.document-history')).toHaveCSS('border-top-width', '1px')
+  await expect(page.locator('.document-import-workspace')).toHaveCSS('border-top-width', '0px')
+  await expect(page.getByText('No documents yet', { exact: true })).toBeVisible()
+  const source = { ...p8bHouseholdValueImport(), items: [], transaction_drafts: [p8bPurchase()] }
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [source] } }))
+  await page.reload()
+  await expect(page.locator('.document-review-panel')).toHaveCSS('border-top-width', '0px')
+  await expect(page.locator('.document-transaction-drafts')).toHaveCSS('border-top-width', '1px')
+  await expect(page.getByRole('heading', { name: 'Purchases to review', exact: true })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+test('BOG UI P8b earlier statement history says earlier file and stays read only', async ({ page }) => {
+  const source = { id: 7100, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional earlier statement.csv', content_type: 'text/csv', byte_size: 100, metadata: {}, items: [], transaction_drafts: [p8bPurchase()], attempts: [], details_included: true, context_paused_by_restart: true, source_available: false }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const row = page.locator('.document-history-card').filter({ hasText: source.filename })
+  await expect(row).toHaveAccessibleName(/Fictional earlier statement.csv Statement.*Previous financial picture · view only Earlier file/)
+  await expect(row).toContainText('Previous financial picture · view only')
+  await expect(page.getByRole('region', { name: 'Fresh document review' })).toBeVisible()
+  await expect(page.locator('.document-review-panel').getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+})
+
+function p8bHouseholdValueImport() {
+  return {
+    id: 7201, household_id: 77, document_kind: 'spreadsheet', status: 'needs_review', filename: 'Fictional household values.csv', content_type: 'text/csv', byte_size: 100,
+    document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'One household amount to check.', extraction_error: null,
+    processed_at: '2026-11-01T00:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-11-01T00:00:00Z', source_available: false, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, attempts: [], transaction_drafts: [],
+    items: [{ id: 7202, target_type: 'expense_item', label: 'Fixed essentials', amount: 3100, amount_cents: 310000, balance: null, balance_cents: null, payment: null, payment_cents: null, cadence: 'monthly', source_type: null, stack_key: 'non_discretionary', account_type: null, debt_type: null, confidence: 'high', evidence: 'Fictional household worksheet', selected: true, ignored: false, applied_at: null, applied_record_type: null, applied_record_id: null, metadata: {} }],
+  }
+}
+
+test('BOG UI P8b extracted-value editing stays local and approval clears phone navigation', async ({ page }) => {
+  const source = p8bHouseholdValueImport()
+  let writes = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [source] } }))
+  await page.route('http://api.test/api/v1/document_imports/7201**', route => {
+    if (route.request().method() !== 'GET') writes += 1
+    return route.fulfill({ json: { document_import: source } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const label = page.getByLabel('Label', { exact: true })
+  await expect(label).toBeDisabled()
+  await page.getByRole('button', { name: 'Edit value', exact: true }).click()
+  await label.fill('An unapproved local draft')
+  expect(writes).toBe(0)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(label).toHaveValue('Fixed essentials')
+  await expect(label).toBeDisabled()
+  expect(writes).toBe(0)
+  const apply = page.getByRole('button', { name: 'Apply selected', exact: true })
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(apply).toBeInViewport()
+  const bar = await page.locator('.document-apply-bar').boundingBox()
+  expect(bar!.x).toBeGreaterThanOrEqual(0)
+  expect(bar!.x + bar!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  if (page.viewportSize()!.width <= 620) {
+    await expect(page.locator('.tabs-shell')).toBeVisible()
+    const action = await apply.boundingBox(), tabs = await page.locator('.tabs-shell').boundingBox()
+    expect(action!.y + action!.height).toBeLessThan(tabs!.y)
+  }
+})
+
+test('BOG UI P8b unavailable optionality keeps the reason without empty figures or zero money', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const reason = 'Complete the missing debt details first.'
+  const missing = { ...workspace, workspace: { ...workspace.workspace, debt_portfolio: { ...workspace.workspace.debt_portfolio, minimum_payment_known: false } }, optionality: { ...workspace.optionality, available: false, unavailable_reason: reason, current_runway_months: null, monthly_gap: null, levers: [], choices: [] } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: missing }))
+  await page.goto('/?pilot_e2e_role=participant#Optionality')
+  const screen = page.locator('.optionality-screen')
+  await expect(screen).toContainText(reason)
+  await expect(screen.locator('.ui-card')).toHaveCount(0)
+  await expect(screen).not.toContainText('$0')
+})
+
+function p8bPurchase() {
+  return { id: 7101, occurred_on: '2026-10-15', merchant: 'Fictional grocery', amount: 25, amount_cents: 2500, status: 'pending', source_type: 'statement', category_id: 2, category_name: 'Dining out', splits: [] }
+}
+
+test('BOG UI P8b fix1 upload names distinguish periods and earlier states remain true and searchable', async ({ page }) => {
+  const imports = ['failed', 'applied', 'needs_review'].map((status, index) => ({ ...p8bHouseholdValueImport(), id: 7300 + index, filename: 'statement.pdf', period_start_on: `2026-0${index + 1}-01`, period_end_on: `2026-0${index + 1}-28`, status, context_paused_by_restart: true, transaction_drafts: [p8bPurchase()] }))
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: imports } }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const rows = page.locator('.document-history-card')
+  await expect(rows).toHaveCount(3)
+  for (let i = 0; i < 3; i++) {
+    await expect(rows.nth(i)).toHaveAccessibleName(/statement.pdf Spreadsheet.*Previous financial picture · view only Earlier file/)
+    await expect(rows.nth(i).locator('.document-status')).toHaveClass('document-status neutral')
+    expect(await rows.nth(i).getAttribute('aria-label')).toBeNull()
+  }
+  expect(new Set(await rows.allTextContents()).size).toBe(3)
+  await expect(page.locator('.document-history-card[aria-current="true"]')).toHaveCount(1)
+  await page.emulateMedia({ forcedColors: 'active' })
+  await expect(page.locator('.document-history-card[aria-current="true"]')).toHaveCSS('outline-style', 'solid')
+  await page.emulateMedia({ forcedColors: 'none' })
+  await page.getByText('Find an upload', { exact: true }).click()
+  await page.getByRole('textbox', { name: 'Search imports' }).fill('earlier file')
+  await expect(rows).toHaveCount(3)
+  await expect(page.getByRole('region', { name: 'Fresh document review' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+})
+
+test('BOG UI P8b fix1 Wealth explains summary debt and incomplete balances honestly', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.wealth.summary.liquid_net_worth = null
+  workspace.workspace.debt_portfolio = { ...workspace.workspace.debt_portfolio!, mode: 'summary', balance_known: true }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Wealth')
+  await expect(page.locator('.wealth-figures')).toContainText('This figure needs each debt listed separately.')
+  workspace.workspace.debt_portfolio.mode = 'individual'
+  workspace.wealth.summary.debt_balance_known = false
+  await page.reload()
+  await expect(page.locator('.wealth-figures')).toContainText('Complete your account and debt balances to see this figure.')
+  await expect(page.locator('.wealth-figures')).not.toContainText('each debt listed separately')
+})
+
+test('BOG UI P8b fix1 extra long Wealth figures stay inside their column', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Wealth')
+  workspace.wealth.summary.debt_balance_known = true
+  workspace.wealth.summary.liquid_net_worth = 1234567890.12
+  for (const width of [320, 390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.reload()
+    const value = page.locator('.wealth-figures .metric-value-xlong').filter({ hasText: '$1,234,567,890.12' })
+    await expect(value).toBeVisible()
+    expect(await value.evaluate(node => { const box = node.getBoundingClientRect(), card = node.parentElement!.getBoundingClientRect(); return box.left >= card.left && box.right <= card.right && node.scrollWidth <= node.clientWidth })).toBe(true)
+    expect(await page.locator('.wealth-figures').evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)).toBe(1)
+  }
+})
+
+test('BOG UI P8b fix1 long statement lines do not overlap', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, data => {
+    const plan = data.participant_review!.plan
+    plan.ready = plan.ready.map(line => ({ ...line, merchant: 'A very long fictional merchant with a complete name that wraps over several lines on a phone' }))
+    return data
+  }, undefined, true)
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    const rows = review.locator('.statement-ready li')
+    await expect(rows.first()).toBeVisible()
+    expect(await rows.evaluateAll(nodes => nodes.every((node, index) => { const box = node.getBoundingClientRect(); const children = [...node.children].map(child => child.getBoundingClientRect()); const next = nodes[index + 1]?.getBoundingClientRect(); return children.every(child => child.bottom <= box.bottom) && (!next || box.bottom <= next.top) }))).toBe(true)
+  }
+})
+
+test('BOG UI P8b fix1 portaled statement sheets use paper and safe area corners', async ({ page }) => {
+  const review = await openTypedStatementReview(page, false, undefined, undefined, true)
+  await review.getByRole('button', { name: 'Edit Fictional entry 1', exact: true }).click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet).toHaveCSS('box-shadow', 'none')
+  await expect(sheet).toHaveCSS('background-color', await page.locator('.document-history').evaluate(node => getComputedStyle(node).backgroundColor))
+  // Browsers serialise font-family differently (WebKit drops the quotes), so compare the names only.
+  const displayFace = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-display').replace(/["']/g, '').trim())
+  await expect.poll(() => sheet.getByRole('heading').evaluate(node => getComputedStyle(node).fontFamily.replace(/["']/g, ''))).toBe(displayFace)
+  await page.keyboard.press('Escape')
+  await review.locator('.statement-summary-line').getByRole('button', { name: 'Change', exact: true }).click()
+  await expect(sheet).toHaveCSS('background-color', await page.locator('.document-history').evaluate(node => getComputedStyle(node).backgroundColor))
+  await page.setViewportSize({ width: 630, height: 844 })
+  await expect(sheet).toHaveCSS('border-bottom-left-radius', '0px')
+  await expect(sheet).toHaveCSS('border-bottom-right-radius', '0px')
+  await page.keyboard.press('Escape')
+})
+
+async function p8bReducedViewport(page: Page) {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.addInitScript(() => {
+    const viewport = window.visualViewport!
+    Object.defineProperty(viewport, 'height', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportHeight ?? 844) })
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => Number(document.documentElement.dataset.testViewportTop ?? 0) })
+  })
+}
+async function p8bCheckKeyboardHeader(page: Page, dialog: Locator) {
+  await page.evaluate(() => {
+    document.documentElement.dataset.testViewportHeight = '320'
+    document.documentElement.dataset.testViewportTop = '70'
+    window.visualViewport!.dispatchEvent(new Event('resize'))
+    window.visualViewport!.dispatchEvent(new Event('scroll'))
+  })
+  await expect.poll(() => dialog.locator(':scope > header').evaluate(node => { const b = node.getBoundingClientRect(); return b.top >= 70 && b.bottom <= 390 })).toBe(true)
+  const close = dialog.locator(':scope > header').getByRole('button', { name: /^Close/ })
+  expect(await close.evaluate(node => { const b = node.getBoundingClientRect(); return b.top >= 70 && b.bottom <= 390 })).toBe(true)
+  await close.click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0)
+}
+test('BOG UI P8b fix1 snapshot header and Close stay above a phone keyboard', async ({ page }) => {
+  await p8bReducedViewport(page)
+  const { dialog } = await openBaseline(page, { home: true })
+  await p8bCheckKeyboardHeader(page, dialog)
+})
+test('BOG UI P8b fix1 evidence shipped styles keep header and Close above a phone keyboard', async ({ page }) => {
+  await p8bReducedViewport(page)
+  await page.goto('/e2e/fixtures/evidence.html')
+  await page.getByRole('button', { name: 'Review fictional savings evidence' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Match to a statement' })
+  await expect(dialog).toBeVisible()
+  await p8bCheckKeyboardHeader(page, dialog)
+  await expect(page.getByRole('button', { name: 'Review fictional savings evidence' })).toBeFocused()
+})
+
+test('BOG UI P8b fix1 phone sheets keep square safe area corners at 630 pixels', async ({ page }) => {
+  await page.setViewportSize({ width: 630, height: 844 })
+  const { dialog } = await openAuthenticatedSource(page, 'pdf')
+  await expect(dialog).toHaveCSS('border-bottom-left-radius', '0px')
+  await expect(dialog).toHaveCSS('border-bottom-right-radius', '0px')
+  await expect(dialog).toHaveCSS('border-bottom-width', '0px')
+  await page.keyboard.press('Escape')
+})
+
+test('BOG UI P8b fix1 earlier failed saved and review files have neutral truthful searchable status', async ({ page }) => {
+  const imports = ['failed', 'applied', 'needs_review'].map((status, index) => ({ ...p8bHouseholdValueImport(), id: 7400 + index, status, context_paused_by_restart: true, transaction_drafts: [p8bPurchase()] }))
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: imports } }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  await expect(page.locator('.document-history-card .document-status')).toHaveCount(3)
+  for (const status of await page.locator('.document-history-card .document-status').all()) {
+    await expect.soft(status).toHaveText('Earlier file')
+    await expect.soft(status).toHaveClass('document-status neutral')
+  }
+  await page.getByText('Find an upload', { exact: true }).click()
+  await page.getByRole('textbox', { name: 'Search imports' }).fill('earlier file')
+  await expect(page.locator('.document-history-card')).toHaveCount(3)
+})
+
+for (const kind of ['snapshot', 'daily record', 'source preview', 'evidence'] as const) {
+  test(`BOG UI P8b fix1 ${kind} title and Close share the help treatment`, async ({ page }) => {
+    let dialog: Locator, name: string
+    if (kind === 'snapshot') { dialog = (await openBaseline(page, { home: true })).dialog; name = 'Close spending snapshot' }
+    else if (kind === 'daily record') { dialog = (await openDaily(page)).dialog; name = 'Close Today' }
+    else if (kind === 'source preview') { dialog = (await openAuthenticatedSource(page, 'pdf')).dialog; name = 'Close' }
+    else {
+      await page.goto('/e2e/fixtures/evidence.html')
+      await page.getByRole('button', { name: 'Review fictional savings evidence' }).click()
+      dialog = page.getByRole('dialog'); name = 'Close evidence'
+    }
+    const heading = dialog.locator(':scope > header').getByRole('heading').first()
+    await expect(heading).toHaveCSS('font-weight', '400')
+    const close = dialog.locator(':scope > header').getByRole('button', { name, exact: true })
+    await expect(close).toHaveClass(/ui-btn--tonal/)
+    await expect(close).toHaveCSS('font-size', '14px')
+    expect(await close.evaluate(node => { const b = node.getBoundingClientRect(), owner = node.closest('header')!, header = owner.getBoundingClientRect(), css = getComputedStyle(owner); return b.top <= header.top + parseFloat(css.paddingTop) + parseFloat(css.borderTopWidth) + 1 && b.right <= header.right && b.left > header.left + header.width / 2 })).toBe(true)
+    // Only the dialog's own title is serif; a section's first heading stays in the body face.
+    const titleFace = await heading.evaluate(node => getComputedStyle(node).fontFamily)
+    expect(await dialog.locator('section > :is(h3, h4):first-child').evaluateAll((nodes, face) => nodes.every(node => getComputedStyle(node).fontFamily !== face), titleFace)).toBe(true)
+    await close.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0)
+  })
+}
+
+test('BOG UI P8b fix1 status pills fit phones and Optional has a neutral dot', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.cfoFilter.decisions[0].recommendation = 'Optional'
+  workspace.optionality.choices[0].fit_label = 'Optional'
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 844 })
+    for (const name of ['CFO Filter', 'Optionality']) {
+      await page.goto(`/?pilot_e2e_role=participant#${encodeURIComponent(name)}`)
+      const pills = page.locator(':is(.cfo-screen, .optionality-screen) .ui-pill')
+      await expect(pills.first()).toBeVisible()
+      expect(await pills.evaluateAll(nodes => nodes.every(node => { const b = node.getBoundingClientRect(); const css = getComputedStyle(node); return b.left >= 0 && b.right <= innerWidth && parseFloat(css.paddingLeft) > 0 && parseFloat(css.paddingRight) > 0 }))).toBe(true)
+      await expect(pills.filter({ hasText: 'Optional' }).locator('.ui-dot')).toHaveClass('ui-dot ui-dot--neutral')
+    }
+  }
+})
+
+
+test('BOG UI P8b fix1 setup help topic rows have one divider', async ({ page }) => {
+  await mockSetupHelpBrowser(page, { selfEligible: true })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const dialog = await openFixSetupFromChat(page)
+  const rows = dialog.locator('.setup-help-topics button')
+  await expect(rows.first()).toBeVisible()
+  expect(await rows.evaluateAll(nodes => nodes.every(node => getComputedStyle(node).borderTopWidth === '0px' && getComputedStyle(node).borderBottomWidth === '1px'))).toBe(true)
 })

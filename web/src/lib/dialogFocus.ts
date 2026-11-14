@@ -9,8 +9,8 @@ export function revealDialogControl(element: HTMLElement, dialog: Element) {
   const top = panel.top + scroller.clientTop
   const bottom = top + scroller.clientHeight
   if (control.top < top || control.height > scroller.clientHeight) {
-    scroller.scrollTop += control.top - top
+    scroller.scrollTop += Math.floor(control.top - top)
   } else if (control.bottom > bottom) {
-    scroller.scrollTop += control.bottom - bottom
+    scroller.scrollTop += Math.ceil(control.bottom - bottom)
   }
 }

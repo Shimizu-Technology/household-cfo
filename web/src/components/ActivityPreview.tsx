@@ -22,7 +22,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
 
   return (
     <article className="panel activity-preview" aria-labelledby="activity-preview-title">
-      <div className="activity-preview-heading">
+      <div className="activity-preview-heading ui-card">
         <div>
           <h3 id="activity-preview-title">Your month at a glance</h3>
           <p>This demo shows the monthly plan and any sample category actuals. It has no confirmed merchant ledger, so missing activity is never presented as $0 spending.</p>
@@ -49,7 +49,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
       />
 
       <div className="activity-preview-actions">
-        <button type="button" onClick={onOpenBudget}>Open the monthly plan</button>
+        <button className="ui-btn ui-btn--primary" type="button" onClick={onOpenBudget}>Open the monthly plan</button>
         <button type="button" className="secondary-button" onClick={onAskMia}>Ask {assistantName} about a spending decision</button>
       </div>
     </article>

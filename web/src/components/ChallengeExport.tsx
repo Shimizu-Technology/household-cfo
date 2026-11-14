@@ -75,7 +75,7 @@ function Export({ scope, cohortId, variant = 'panel' }: ExportProps) {
       </p>
       <fieldset disabled={busy}>
         <label>Record format<select value={format} onChange={event => { setFormat(event.target.value as 'printable' | 'json'); setAccepted(false) }}><option value="printable">Readable copy · print or save as PDF</option><option value="json">Data file (JSON) · everything, for other apps</option></select></label>
-        <label>
+        <label className="ui-check">
           <input
             type="checkbox"
             checked={feelings}
@@ -86,11 +86,11 @@ function Export({ scope, cohortId, variant = 'panel' }: ExportProps) {
           />
           Include my optional feeling history. Leave unchecked to exclude feelings.
         </label>
-        <label>
+        <label className="ui-check">
           <input type="checkbox" checked={accepted} onChange={(event) => setAccepted(event.target.checked)} />
           Download this private file to my device. The app cannot recall downloaded copies.
         </label>
-        <button type="button" disabled={!accepted} onClick={() => void download()}>
+        <button className="ui-btn ui-btn--primary" type="button" disabled={!accepted} onClick={() => void download()}>
           {busy ? 'Preparing your copy…' : 'Download my record'}
         </button>
       </fieldset>

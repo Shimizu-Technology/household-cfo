@@ -4,7 +4,7 @@ export function Metric({ label, value, detail, className = '' }: { label: string
   return (
     <article className={`metric-card${className ? ` ${className}` : ''}`}>
       <span>{label}</span>
-      <strong className={lengthClass} title={value}>{value}</strong>
+      <strong className={`${lengthClass}${value === 'Not available' ? ' metric-value-unknown' : ''}`} title={value}>{value === 'Not available' ? <><span aria-hidden="true">—</span><small>{value}</small></> : value}</strong>
       {detail && <small>{detail}</small>}
     </article>
   )

@@ -4068,7 +4068,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
         <>
           {unavailableModuleNotice && (
-            <div className="module-unavailable-notice" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
+            <div className="module-unavailable-notice ui-card" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
               <div><strong>That tool is not included right now.</strong><p>{unavailableModuleNotice.message}</p></div>
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
@@ -4826,9 +4826,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           />
           <MonthPlanLine answer={data.dashboard.month_answer} />
 
-          <div className="metric-row">
-            <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} />
-            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} />
+          <div className="metric-row ui-card wealth-figures">
+            <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.net_worth === null ? 'Complete your account and debt balances to see this figure.' : undefined} />
+            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.liquid_net_worth === null ? data.workspace.debt_portfolio?.mode === 'summary' ? 'This figure needs each debt listed separately.' : 'Complete your account and debt balances to see this figure.' : undefined} />
             <Metric
               className="wealth-explainer-metric"
               label={monthlySurplusAvailable != null && monthlySurplusAvailable < 0 ? 'Short of the plan this month' : 'Left to give a job this month'}
@@ -4837,13 +4837,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             />
           </div>
 
-          <div className="milestone-list">
+          <div className="milestone-list ui-card ui-rows">
             {data.wealth.milestones.map((milestone) => (
-              <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
-                <div className="milestone-heading"><h3>{milestone.label}</h3>{milestoneStatusLabels[milestone.status] && <b className={`milestone-status ${milestone.status}`}>{milestoneStatusLabels[milestone.status]}</b>}</div>
+              <article className={`milestone-card ui-row ${milestone.status}`} key={milestone.label}>
+                <div className="milestone-heading"><h3>{milestone.label}</h3>{milestoneStatusLabels[milestone.status] && <b className={`milestone-status ui-pill ${milestone.status}`}>{milestoneStatusLabels[milestone.status]}</b>}</div>
                 {milestone.kind === 'progress' && milestone.target > 0 && (
-                  <div className="progress-track">
-                    <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
+                  <div className="progress-track ui-track" aria-hidden="true">
+                    <span className="ui-track__fill" style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
                   </div>
                 )}
                 <p>{milestoneSummary(milestone)}</p>
@@ -4861,11 +4861,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.cfoFilter.prompt}
           />
 
-          <div className="decision-list">
+          <div className="decision-list ui-card ui-rows">
             {data.cfoFilter.decisions.map((decision) => (
-              <article className={`decision-card ${decision.recommendation.toLowerCase()}`} key={decision.item}>
+              <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
                 <div>
-                  <span>{decision.recommendation}</span>
+                  <span className="ui-pill"><span className={`ui-dot ${decision.recommendation.toLowerCase() === 'optional' ? 'ui-dot--neutral' : decision.recommendation.toLowerCase() === 'approve' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
                 <strong>{!debtMinimumsKnown ? 'Not available' : formatReviewMoney(Math.round((decision.amount) * 100))}</strong>
@@ -4874,7 +4874,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             ))}
           </div>
 
-          <article className="panel priority-card">
+          <article className="panel priority-card ui-card">
             <h3>Priority stack</h3>
             <ol>
               {data.cfoFilter.priority_stack.map((item) => <li key={item}>{item}</li>)}
@@ -4891,22 +4891,22 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
-          <div className="lever-row">
+          {data.optionality.levers.length > 0 && <div className="lever-row ui-card wealth-figures">
             {data.optionality.levers.map((lever) => (
               <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />
             ))}
-          </div>
+          </div>}
 
-          <div className="choice-grid">
+          {data.optionality.choices.length > 0 && <div className="choice-grid ui-card ui-rows">
             {data.optionality.choices.map((choice) => (
-              <article className={`choice-card ${choice.fit_tone}`} key={choice.label}>
-                <span>{choice.fit_label}</span>
+              <article className={`choice-card ui-row ${choice.fit_tone}`} key={choice.label}>
+                <span className="ui-pill"><span className={`ui-dot ${choice.fit_label === 'Optional' ? 'ui-dot--neutral' : choice.fit_tone === 'green' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{choice.fit_label}</span>
                 <h3>{choice.label}</h3>
                 <p>{choice.upside}</p>
                 <small>{choice.tradeoff}</small>
               </article>
             ))}
-          </div>
+          </div>}
         </section>
       )}
 
@@ -5309,7 +5309,7 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
 function milestoneProgressWidth(current: number, target: number) {
   if (target <= 0) return current > 0 ? '100%' : '0%'
 
-  return `${Math.min((current / target) * 100, 100)}%`
+  return `${Math.max(0, Math.min((current / target) * 100, 100))}%`
 }
 
 // Status is said in words, not only by color.
@@ -5400,11 +5400,10 @@ function DocumentImportWorkspace({
   onOpenSource: (documentImport: FinancialDocumentImport) => void
 }) {
   const { assistantName } = useBrand()
-  const pendingCount = imports.filter(documentNeedsReview).length
 
   if (!isRealWorkspace) {
     return (
-      <section ref={sectionRef} className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
+      <section ref={sectionRef} className="panel document-import-workspace demo-document-imports ui-card" aria-label="Document uploads preview">
         <div className="document-workspace-heading">
           <div>
             <h3>Upload review is enabled in signed-in real workspaces.</h3>
@@ -5428,13 +5427,12 @@ function DocumentImportWorkspace({
 
   return (
     <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
-        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3></div>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
       {uploadBlocked && <p className="document-alert" role="status">{uploadBlocked}</p>}
-      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <div className="document-upload-primary"><h3>{uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3>{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -5480,7 +5478,7 @@ function DocumentImportWorkspace({
             <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
             <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
           </div>
-          <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
+          <a className="ui-btn ui-btn--text" href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
         </div>
         <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
         {(onReviewBaseline || onReturnToStart) && <div className="document-other-links">
@@ -5513,7 +5511,7 @@ export function DocumentUploadCard({
   const inputId = `document-upload-${card.kind}`
 
   return (
-    <article className="document-upload-card">
+    <article className="document-upload-card ui-card">
       <input
         id={inputId}
         className="sr-only"
@@ -5532,7 +5530,7 @@ export function DocumentUploadCard({
         <p>{card.helper}</p>
         <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
-        <strong>{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
+        <strong className={`ui-btn ${card.kind === 'statement' ? 'ui-btn--primary' : 'ui-btn--tonal'}`}>{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
       </label>
       {retryFile && !uploading && (
         <div className="form-stack document-upload-recovery">
@@ -5579,7 +5577,7 @@ function DocumentImportHistory({
           documentImport.items.map((item) => `${item.label} ${item.evidence ?? ''} ${item.amount ?? ''} ${item.balance ?? ''} ${item.payment ?? ''}`).join(' '),
           documentImport.transaction_drafts.map((draft) => `${draft.merchant} ${draft.summary ?? ''}`).join(' '),
           documentKindLabel(documentImport.document_kind),
-          uploadStatusLabel(documentImport),
+          documentImport.context_paused_by_restart ? 'Earlier file Previous financial picture view only' : uploadStatusLabel(documentImport),
           importPeriodLabel(documentImport),
         ].join(' ').toLowerCase().includes(query)
       })
@@ -5598,17 +5596,18 @@ function DocumentImportHistory({
   const visibleImports = filteredImports.slice(safePage * pageSize, safePage * pageSize + pageSize)
 
   return (
-    <aside className="document-history" aria-label="Document import history">
+    <aside className="document-history ui-card" aria-label="Document import history">
       <div className="document-history-heading">
         <h4>Your uploads</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
       </div>
+      {imports.some(documentNeedsReview) && <button type="button" className="document-pending-review ui-row" onClick={() => onSelectImport(imports.find(documentNeedsReview)!.id)}><span className="ui-dot ui-dot--attention" aria-hidden="true" />{imports.filter(documentNeedsReview).length} {imports.filter(documentNeedsReview).length === 1 ? 'upload needs' : 'uploads need'} review</button>}
       {imports.length > 0 && (
         <details className="document-history-search-options"><summary>Find an upload</summary>
         <div className="document-history-controls" aria-label="Import history filters">
           <label className="document-history-search">
             <span className="sr-only">Search imports</span>
-            <input value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
+            <input className="ui-field" value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
           </label>
           <label>
             <span className="sr-only">Filter by status</span>
@@ -5664,22 +5663,22 @@ function DocumentImportHistory({
               <button
                 type="button"
                 key={documentImport.id}
-                className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
+                aria-current={selectedImportId === documentImport.id ? 'true' : undefined}
+                className={`document-history-card ui-row ${selectedImportId === documentImport.id ? 'active' : ''}`}
                 onClick={() => onSelectImport(documentImport.id)}
               >
-                <span className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{uploadStatusLabel(documentImport)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
-                {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
-                <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
-                <small>{importPeriodLabel(documentImport)}</small>
+                <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}{documentImport.context_paused_by_restart && ' · Previous financial picture · view only'}</small>
+                <span className={`document-status ${documentImport.context_paused_by_restart ? 'neutral' : documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{documentImport.context_paused_by_restart ? 'Earlier file' : uploadStatusLabel(documentImport)}</span>
+                <span className="ui-row__chevron" aria-hidden="true">›</span>
               </button>
             ))}
           </div>
           {filteredImports.length > pageSize && <div className="document-history-pagination" aria-label="Import history pagination">
             <span>{filteredImports.length === 0 ? '0 shown' : `${safePage * pageSize + 1}-${Math.min((safePage + 1) * pageSize, filteredImports.length)} of ${filteredImports.length}`}</span>
             <div>
-              <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
-              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
+              <button className="ui-btn ui-btn--tonal" type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
+              <button className="ui-btn ui-btn--tonal" type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
             </div>
           </div>}
         </>
@@ -5783,7 +5782,7 @@ export function DocumentReviewPanel({
       : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
   const fileHeader = (
-        <div className="document-review-header">
+        <div className="document-review-header ui-card">
           <div>
             <h4>Review details</h4>
             <p>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
@@ -5860,7 +5859,7 @@ export function DocumentReviewPanel({
       {sourceMode === 'typed' && fileHeader}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
-        <section className="document-transaction-drafts" aria-label="Purchases from this upload">
+        <section className="document-transaction-drafts activity-screen ui-card" aria-label="Purchases from this upload">
           {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
           <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement line review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved.`}</p>
           <TransactionDraftReviewStack
@@ -5918,11 +5917,11 @@ export function DocumentReviewPanel({
           <span>{fullyApplied ? `Saving a correction updates your household numbers immediately.` : reviewable ? 'Approve only values you recognize.' : 'This upload is not ready for review.'}</span>
         </div>
         {fullyApplied ? (
-          <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+          <button className="ui-btn ui-btn--tonal" type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
             {appliedDetailsOpen ? 'Collapse details' : 'Edit saved values'}
           </button>
         ) : (
-          <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
+          <button className="ui-btn ui-btn--primary" type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
             {actionForImport('apply') ? 'Applying' : 'Apply selected'}
           </button>
         )}
@@ -6127,7 +6126,7 @@ export function DocumentImportItemEditor({
         </label>
         <button
           type="button"
-          className="document-ignore-button"
+          className="document-ignore-button ui-btn ui-btn--text"
           disabled={selectionDisabled || editing}
           onClick={() => onUpdate({ ignored: !item.ignored, selected: false })}
         >
@@ -6141,7 +6140,7 @@ export function DocumentImportItemEditor({
             {editing ? (
               <>
                 <button type="button" className="secondary-button" disabled={saving} onClick={cancelEditing}>Cancel</button>
-                <button type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
+                <button className="ui-btn ui-btn--primary" type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
               </>
             ) : (
               <button type="button" className="secondary-button" disabled={saving} onClick={beginEditing}>{applied ? 'Correct value' : 'Edit value'}</button>
@@ -6154,6 +6153,7 @@ export function DocumentImportItemEditor({
         <label className="document-field wide">
           <span>Label</span>
           <input
+            className="ui-field"
             value={draft.label}
             disabled={fieldsDisabled}
             onChange={(event) => updateDraft({ label: event.currentTarget.value })}
