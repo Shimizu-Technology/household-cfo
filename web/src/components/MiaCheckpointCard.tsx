@@ -69,7 +69,7 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
     return <BibaCard title={celebrate.milestone_day === 90 && celebrate.final_confirmation_status !== 'confirmed' ? 'Biba! Your Day 90 review is saved.' : `Biba! Day ${celebrate.milestone_day} is done.`} actionLabel="Keep going" onAction={() => { setCelebrate(null); setDue(null); onDone() }}>{bibaSentence(celebrate)}</BibaCard>
   }
   if (!due && loadFailed) {
-    return <section className="mia-daily-card mia-action-card" aria-label="Checkpoint review"><p role="alert">I couldn’t check whether a review is due. Nothing changed.</p><div className="mia-daily-actions"><button type="button" className="secondary-button" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button></div></section>
+    return <section className="mia-daily-card mia-action-card ui-card" aria-label="Checkpoint review"><p role="alert">I couldn’t check whether a review is due. Nothing changed.</p><div className="mia-daily-actions ui-actions"><button type="button" className="secondary-button ui-btn ui-btn--tonal" onClick={() => { setLoadFailed(false); setAttempt(value => value + 1) }}>Try again</button></div></section>
   }
   if (!due || dismissed || finished) return null
 
@@ -147,9 +147,9 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
 
   const recovery = mutation.pending && !mutation.pending.working && <div className="mia-card-recovery" role="status">
     <p>I’m not sure that went through. Nothing is lost, and nothing will save twice.</p>
-    <div className="mia-daily-actions">
-      {mutation.checkStatus && <button type="button" className="secondary-button" onClick={() => void mutation.checkStatus?.()}>Check if it saved</button>}
-      {mutation.retry && <button type="button" className="mia-daily-save" onClick={() => void retrySame()}>Try again</button>}
+    <div className="mia-daily-actions ui-actions">
+      {mutation.checkStatus && <button type="button" className="secondary-button ui-btn ui-btn--tonal" onClick={() => void mutation.checkStatus?.()}>Check if it saved</button>}
+      {mutation.retry && <button type="button" className="mia-daily-save ui-btn ui-btn--primary" onClick={() => void retrySame()}>Try again</button>}
     </div>
   </div>
 
@@ -159,36 +159,36 @@ export function MiaCheckpointCard({ actor, cohortId, refreshKey = 0, onDone, onO
   }
 
   if (!draft || !snapshot) {
-    return <section ref={card} className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+    return <section ref={card} className="mia-daily-card mia-action-card ui-card" aria-label={`Day ${day} review`} aria-busy={busy}>
       <h3 ref={heading} tabIndex={-1}>Day {day} is ready to look back on</h3>
       <p>I can show what you set aside and what you noticed through {formatDay(scope && due.localToday, { year: false })}, next to your target. Nothing is saved until you approve it.</p>
-      {day === 90 && <label className="mia-card-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my 90 days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
+      {day === 90 && <label className="mia-card-check ui-check"><input type="checkbox" checked={finalDone} disabled={busy} onChange={event => setFinalDone(event.target.checked)} /><span>I’m finished reporting my 90 days. If you’re still checking, leave this blank; your saved amounts still count.</span></label>}
       {shownError && <p role="alert">{shownError}</p>}
       {recovery}
-      <div className="mia-daily-actions">
-        <button type="button" className="mia-daily-save" disabled={busy} onClick={() => void look()}>{busy ? 'Getting it ready…' : `Look at Day ${day}`}</button>
-        <button type="button" className="secondary-button" disabled={busy} onClick={onOpenCheckpoints}>Open in Checkpoints</button>
-        <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={notNow}>Not now</button>
+      <div className="mia-daily-actions ui-actions">
+        <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy} onClick={() => void look()}>{busy ? 'Getting it ready…' : `Look at Day ${day}`}</button>
+        <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={busy} onClick={onOpenCheckpoints}>Open in Checkpoints</button>
+        <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={notNow}>Not now</button>
       </div>
     </section>
   }
 
-  return <section ref={card} className="mia-daily-card mia-action-card" aria-label={`Day ${day} review`} aria-busy={busy}>
+  return <section ref={card} className="mia-daily-card mia-action-card ui-card" aria-label={`Day ${day} review`} aria-busy={busy}>
     <h3 ref={heading} tabIndex={-1}>Day {day}: here’s your look back</h3>
     <p className="mia-daily-hint">Through {formatDay(snapshot.cutoff_on, { year: true })}, from the amounts and check-ins you already saved.</p>
     <dl className="mia-card-facts">{lines.map(([term, value]) => <div key={term}><dt>{term}</dt><dd>{value}</dd></div>)}</dl>
-    <label className="mia-card-check"><input type="checkbox" checked={checked} disabled={busy} onChange={event => setChecked(event.target.checked)} /><span>I checked the dates, savings, goal and any gaps shown above.</span></label>
+    <label className="mia-card-check ui-check"><input type="checkbox" checked={checked} disabled={busy} onChange={event => setChecked(event.target.checked)} /><span>I checked the dates, savings, goal and any gaps shown above.</span></label>
     {shownError && <p role="alert">{shownError}</p>}
     {recovery}
     {stale && !mutation.pending
-      ? <div className="mia-daily-actions">
-        <button type="button" className="mia-daily-save" disabled={busy} onClick={lookAgain}>Look again</button>
-        <button type="button" className="secondary-button" disabled={busy} onClick={onOpenCheckpoints}>Open in Checkpoints</button>
-        <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={notNow}>Not now</button>
+      ? <div className="mia-daily-actions ui-actions">
+        <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy} onClick={lookAgain}>Look again</button>
+        <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={busy} onClick={onOpenCheckpoints}>Open in Checkpoints</button>
+        <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={notNow}>Not now</button>
       </div>
-      : <div className="mia-daily-actions">
-        <button type="button" className="mia-daily-save" disabled={busy || !checked} onClick={() => void approve()}>{busy ? 'Saving…' : `Approve Day ${day}`}</button>
-        <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={notNow}>Not now</button>
+      : <div className="mia-daily-actions ui-actions">
+        <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy || !checked} onClick={() => void approve()}>{busy ? 'Saving…' : `Approve Day ${day}`}</button>
+        <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={notNow}>Not now</button>
       </div>}
     <p className="mia-daily-footnote">Nothing is saved until you approve it. To fix an older review, use Checkpoints.</p>
   </section>

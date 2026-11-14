@@ -140,3 +140,15 @@ it('keeps the old offer locked while Try again is loading, and unchecks it if th
   await waitFor(() => expect(screen.getByLabelText(/I’ve read this/).closest('fieldset')?.disabled).toBe(false))
   expect((screen.getByLabelText(/I’ve read this/) as HTMLInputElement).checked).toBe(false)
 })
+
+it('fix2 keeps the joined result exposed without opening its details', async () => {
+  vi.mocked(fetchSavingsChallenge).mockResolvedValue(challenge())
+  vi.mocked(enrollSavingsChallenge).mockResolvedValue({ record: {} as never, replayed: false, challenge: challenge() })
+  render(<MiaJoinCard onJoined={vi.fn()} onDone={vi.fn()} />)
+  const checkbox = await screen.findByLabelText('I’ve read this and accept joining the challenge.')
+  fireEvent.click(checkbox)
+  fireEvent.click(screen.getByRole('button', { name: 'Accept and join' }))
+  const status = await screen.findByRole('status')
+  expect(status.textContent).toContain('Tell me when you set money aside')
+  expect(status.closest('details')).toBeNull()
+})

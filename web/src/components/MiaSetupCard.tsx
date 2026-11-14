@@ -1,3 +1,6 @@
+import { MiaReviewError } from './MiaReviewError'
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
+import { miaReviewResult } from '../lib/miaReviewResult'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { MiaActionDraft, MiaSetupCardEdit, MiaSetupCardPart, MiaSetupCardRow } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -46,6 +49,7 @@ function focusRowWhenReady(card: HTMLElement | null, key: string, tries = 12) {
 }
 
 export function MiaSetupCard({
+  error,
   draft,
   isRealWorkspace,
   action,
@@ -54,6 +58,7 @@ export function MiaSetupCard({
   onCancel,
   onEdit,
 }: {
+  error?: string
   draft: MiaActionDraft
   isRealWorkspace: boolean
   action: string | null
@@ -62,6 +67,7 @@ export function MiaSetupCard({
   onCancel: (draft: MiaActionDraft) => void
   onEdit: (draft: MiaActionDraft, edit: MiaSetupCardEdit) => Promise<boolean>
 }) {
+  const liveResult = useLiveMiaResult(draft.status !== 'pending' && draft.status !== 'partially_applied')
   const card = draft.setup_card
   const headingId = useId()
   const [editing, setEditing] = useState<Editing | null>(null)
@@ -171,11 +177,11 @@ export function MiaSetupCard({
             <div className="setup-card-edit-actions">
               <button type="submit" disabled={locked || !value.trim()}>{saving ? 'Saving' : 'Save'}</button>
               {part
-                ? <button type="button" className="secondary-button" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'remove', part_id: part.id })}>Remove</button>
+                ? <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'remove', part_id: part.id })}>Remove</button>
                 : row.status === 'missing'
-                  ? <button type="button" className="secondary-button" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'skip' })}>Skip for now</button>
+                  ? <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'skip' })}>Skip for now</button>
                   : row.status === 'entered'
-                    ? <button type="button" className="secondary-button" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'remove' })}>Remove</button>
+                    ? <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked} onClick={() => void submit({ field: row.key, action_name: 'remove' })}>Remove</button>
                     : null}
             </div>
           </form>
@@ -184,8 +190,12 @@ export function MiaSetupCard({
     )
   }
 
+  if (draft.status !== 'pending' && draft.status !== 'partially_applied') return <article ref={cardRef} className={`setup-card ui-card is-finished${liveResult}`} aria-labelledby={headingId}>
+    <h4 id={headingId} tabIndex={-1}>{card.title}</h4><p className="mia-review-result" role="status">{miaReviewResult(draft)}</p>
+  </article>
+
   return (
-    <article ref={cardRef} className="setup-card" aria-labelledby={headingId}>
+    <article ref={cardRef} className="setup-card ui-card" aria-labelledby={headingId}>
       <h4 id={headingId} tabIndex={-1}>{card.title}</h4>
       <div className="setup-card-rows">
         {card.rows.map((row) => (
@@ -205,30 +215,28 @@ export function MiaSetupCard({
       )}
       {draft.stale && <p className="mia-action-stale-note" role="status">Your numbers changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
       <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
+      <MiaReviewError message={error} />
       {confirmingCancel && hasAnswers
         ? (
           <>
             <p className="setup-card-promise" role="status">This clears what you've told me on this card. Your saved numbers stay the same.</p>
-            <div className="mia-action-draft-actions">
-              <button ref={keepButton} type="button" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
-              <button type="button" className="secondary-button" disabled={locked} onClick={() => onCancel(draft)}>
+            <div className="mia-action-draft-actions ui-actions">
+              <button ref={keepButton} type="button" className="ui-btn ui-btn--primary" disabled={locked} onClick={() => setConfirmingCancel(false)}>Keep my card</button>
+              <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked} onClick={() => onCancel(draft)}>
                 {action === `cancel-mia-action:${draft.id}` ? 'Clearing' : 'Clear this card'}
               </button>
             </div>
           </>
         )
         : (
-          // The actions stay at the bottom of the chat while a long card
-          // scrolls. On a phone only Apply rides along, so a tall bar never
-          // hides the card's own rows.
           <div className="setup-card-actions">
             <div className="mia-action-draft-actions setup-card-apply">
-              <button type="button" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
+              <button type="button" className="ui-btn ui-btn--primary" disabled={locked || !card.can_apply || Boolean(draft.stale) || Boolean(editing)} onClick={() => onApply(draft)}>
                 {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply'}
               </button>
             </div>
             <div className="mia-action-draft-actions setup-card-secondary">
-              <button ref={notNowButton} type="button" className="secondary-button" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
+              <button ref={notNowButton} type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked} onClick={() => (hasAnswers ? setConfirmingCancel(true) : onCancel(draft))}>
                 {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Not now'}
               </button>
             </div>

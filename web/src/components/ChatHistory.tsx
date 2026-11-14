@@ -25,10 +25,15 @@ type ChatHistoryProps = {
   onOpenImportId: (documentImportId: number) => void
   onReviewImportId: (documentImportId: number) => void
   freshReplyId?: number | null
+  freshUserMessageId?: string | null
+  keepReviewGap?: boolean
+  careActive?: boolean
+  threadNotice?: ReactNode
   emptyReviewContent?: ReactNode
   reviewContent?: ReactNode
   pendingPurchaseCount?: number
   onOpenReview?: () => void
+  reviewCardsVisible?: boolean
   reviewCount?: number
   onSetupHelp?: () => void
   onOpenMoneyInput?: (destination: 'profile' | 'budget' | 'debt' | 'accounts') => void
@@ -58,6 +63,11 @@ export function ChatHistory({
   reviewContent,
   emptyReviewContent,
   freshReplyId,
+  freshUserMessageId,
+  careActive = false,
+  keepReviewGap = false,
+  threadNotice,
+  reviewCardsVisible,
   reviewCount = 0,
   pendingPurchaseCount = 0,
   onOpenReview,
@@ -72,10 +82,13 @@ export function ChatHistory({
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
   const { initial: assistantInitial, displayName, greeting, intro: defaultIntro } = assistantGreeting(assistantName)
   const shownReviewContent = totalMessageCount === 0 && onOpenReview ? emptyReviewContent : reviewContent
+  const countedCardsVisible = reviewCardsVisible ?? Boolean(shownReviewContent)
+  const newestAssistantIndex = messages.findLastIndex(message => message.role === 'assistant')
   return (
+    <>
     <div className="chat-card-wrap">
       <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
-        {totalMessageCount === 0 && reviewCount > 0 && onOpenReview && (
+        {totalMessageCount === 0 && !countedCardsVisible && reviewCount > 0 && onOpenReview && (
           <button type="button" className="chat-pending-line" onClick={onOpenReview}>
             {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
           </button>
@@ -85,13 +98,6 @@ export function ChatHistory({
             <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>
             <h3>{greeting}, I’m {displayName}.</h3>
             <p>{emptyIntro ?? defaultIntro}</p>
-            {onChoosePrompt && starterPrompts.length > 0 && (
-              <div className="empty-chat-starters" role="group" aria-label="Ways to start">
-                {starterPrompts.map((prompt) => (
-                  <button key={prompt.label} type="button" onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>
-                ))}
-              </div>
-            )}
           </div>
         )}
         {remainingMessageCount > 0 && (
@@ -102,9 +108,12 @@ export function ChatHistory({
         {messages.map((message, index) => {
           const messageIndex = hiddenMessageCount + index
           const presentation = message.role === 'assistant' ? parseMiaAnswerPresentation(message.presentation) : null
+          const lastInRun = messages[index + 1]?.role !== 'assistant'
+          const careActions = index === newestAssistantIndex && (message.safety_reply || message.care_hold || message.care_active || careActive)
+            ? careContactActions(message.content) : []
           return (
-            <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}${message.role === 'assistant' && message.id != null && message.id === freshReplyId ? ' is-new-reply' : ''}`} key={messageKey(message, messageIndex)}>
-              {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">{assistantInitial}</span>}
+            <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}${(message.role === 'assistant' && message.id != null && message.id === freshReplyId) || (message.role === 'user' && message.client_id != null && message.client_id === freshUserMessageId) ? ' is-new-reply' : ''}`} key={messageKey(message, messageIndex)}>
+              {message.role === 'assistant' && <span className={`message-avatar${lastInRun ? '' : ' is-run-continuation'}`} aria-hidden="true">{assistantInitial}</span>}
               <div className={`message ${message.role}`}>
                 <strong>{message.role === 'assistant' ? shortAssistantName(message.author) || message.author : message.author}</strong>
                 {presentation
@@ -139,6 +148,9 @@ export function ChatHistory({
                     onReviewImportId={onReviewImportId}
                   />
                 )}
+                {careActions.length > 0 && <div className="mia-care-actions">
+                  {careActions.map(action => <a key={action.href} className="ui-btn ui-btn--tonal" href={action.href} tabIndex={0}>{action.label}</a>)}
+                </div>}
               </div>
             </div>
           )
@@ -153,20 +165,41 @@ export function ChatHistory({
           </div>
         )}
         {shownReviewContent && <div className="chat-review-queue">{shownReviewContent}</div>}
-        {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
-      </article>
-      {totalMessageCount > 0 && ((reviewCount > 0 && onOpenReview) || showScrollButton) && (
+        {keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
+        {threadNotice}
+        {totalMessageCount > 0 && !countedCardsVisible && reviewCount > 0 && onOpenReview && (
         <div className="chat-history-navigation">
           {reviewCount > 0 && onOpenReview && <button type="button" className="chat-pending-line" onClick={onOpenReview}>
             {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
           </button>}
-          {showScrollButton && <button type="button" className="chat-scroll-bottom-button" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
-            <ScrollDownIcon /><span>Latest</span>
-          </button>}
         </div>
-      )}
+        )}
+        {!keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
+      </article>
     </div>
+    <div className="chat-latest-space">
+    {onChoosePrompt && starterPrompts.length > 0 && <div className="empty-chat-starters" role="group" aria-label="Ways to start">
+      {starterPrompts.map(prompt => <button className="ui-chip" key={prompt.label} type="button" onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>)}
+    </div>}
+      {showScrollButton && <button type="button" className="chat-scroll-bottom-button ui-btn ui-btn--tonal" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
+        <ScrollDownIcon /><span className="sr-only">Latest</span>
+      </button>}
+    </div>
+    </>
   )
+}
+
+// Match each instruction to this reply's own words. A number or an active care
+// episode alone cannot invent an instruction, and an ordinary reply gets none.
+function careContactActions(content: string) {
+  const actions: { href: string; label: string }[] = []
+  const plain = content.replace(/[*_~]/g, '')
+  // A care reply can word the referral many ways ("reach out to 988", "988 is available"), so
+  // the number itself is enough, unless it is plainly an amount of money.
+  // No lookbehind: Safari before 16.4 cannot parse one, and the whole chat would fail to load.
+  if (/(?:^|[^\d$])\b988\b(?!\s*(?:dollars?|bucks|usd|cents)\b|[.,]\d)/i.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
+  if (/\btext(?:ing)?\s+(?:(?:or|and)\s+call\s+)?(?:to\s+|the\s+)?988\b/i.test(plain)) actions.push({ href: 'sms:988', label: 'Text 988' })
+  return actions
 }
 
 function MessageAttachmentList({

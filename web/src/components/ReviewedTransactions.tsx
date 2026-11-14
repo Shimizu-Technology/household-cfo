@@ -11,33 +11,36 @@ function shortDate(value: string) {
 type ReopenProps = {
   action: string | null
   disabled?: boolean
-  onReopen: (draft: TransactionDraft) => void
+  errors?: Record<string, string>
+  onReopen: (draft: TransactionDraft) => void | Promise<void>
 }
 
 /** "Reopen" on a confirmed row: voids the actual and returns its review card to pending. */
-export function TransactionReopenButton({ transaction, action, disabled = false, onReopen }: ReopenProps & { transaction: RecentTransaction }) {
+export function TransactionReopenButton({ transaction, action, disabled = false, errors = {}, onReopen }: ReopenProps & { transaction: RecentTransaction }) {
   const draft = transactionDraftFromLedgerRow(transaction)
   if (!draft) return null
 
   const reopening = action === `reopen-draft:${draft.id}`
   const label = reopening ? 'Reopening' : 'Reopen'
-  return (
+  return (<>
     <button
       type="button"
       className="secondary-button reviewed-transaction-action"
       aria-label={`${label} ${transactionItemName(draft)}`}
       disabled={disabled || Boolean(action)}
-      onClick={() => onReopen(draft)}
+      onClick={() => { void Promise.resolve(onReopen(draft)).catch(() => { /* The shared handler owns the row error. */ }) }}
     >
       {label}
     </button>
-  )
+    {errors[`purchase:${draft.id}`] && <p role="alert">{errors[`purchase:${draft.id}`]}</p>}
+  </>)
 }
 
 export function IgnoredTransactionList({
   drafts,
   action,
   disabled = false,
+  errors = {},
   onReopen,
   heading = 'Ignored this month',
 }: ReopenProps & { drafts: IgnoredTransactionDraft[]; heading?: string }) {
@@ -63,10 +66,11 @@ export function IgnoredTransactionList({
                 className="secondary-button reviewed-transaction-action"
                 aria-label={`${label} ${transactionItemName(draft)}`}
                 disabled={disabled || Boolean(action)}
-                onClick={() => onReopen(draft)}
+                onClick={() => { void Promise.resolve(onReopen(draft)).catch(() => { /* The shared handler owns the row error. */ }) }}
               >
                 {label}
               </button>
+              {errors[`purchase:${draft.id}`] && <p role="alert">{errors[`purchase:${draft.id}`]}</p>}
             </li>
           )
         })}
@@ -80,6 +84,7 @@ export function ReviewedTransactionsPanel({
   report,
   action,
   disabled = false,
+  errors = {},
   onReopen,
 }: ReopenProps & { report: SpendingReport | null }) {
   if (!report) return null
@@ -104,13 +109,13 @@ export function ReviewedTransactionsPanel({
                 <strong>{transaction.merchant}</strong>
                 <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
                 <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
-                <TransactionReopenButton transaction={transaction} action={action} disabled={disabled} onReopen={onReopen} />
+                <TransactionReopenButton transaction={transaction} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
               </li>
             ))}
           </ul>
         </section>
       )}
-      <IgnoredTransactionList drafts={ignored} action={action} disabled={disabled} onReopen={onReopen} />
+      <IgnoredTransactionList drafts={ignored} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
     </section>
   )
 }

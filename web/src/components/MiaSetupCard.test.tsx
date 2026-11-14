@@ -27,6 +27,12 @@ function setup(rows: MiaSetupCardRow[], canApply = true) {
 afterEach(cleanup)
 
 describe('MiaSetupCard', () => {
+  it('collapses an applied card to its result and removes financial actions immediately', () => {
+    render(<MiaSetupCard draft={{ ...draft([row('primary_income', { status: 'entered', total_cents: 420000 })]), status: 'applied' }} isRealWorkspace action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onEdit={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: 'Your setup so far' })).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('Applied to your approved household plan. Actual spending did not change.')
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+  })
   it('shows entered, missing, skipped and needs-a-monthly-amount rows without a dollar for unknown', () => {
     setup([
       row('household_name', { kind: 'text', status: 'entered', value_text: 'Cruz Ohana', label: 'Household name' }),

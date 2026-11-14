@@ -304,3 +304,16 @@ console.log('design regression checks passed')
 // Browser chrome must match the page ground before runtime branding loads.
 assert.match(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), /name="theme-color" content="#f7f2ea"/)
 assert.equal(JSON.parse(readFileSync(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8')).theme_color, '#f7f2ea')
+
+// Safari before 16.4 cannot parse a regular-expression lookbehind; one literal anywhere
+// in shipped code stops the whole bundle from loading on those phones.
+const shippedSources = []
+const collectSources = directory => {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) { if (!['qa', 'test'].includes(entry.name)) collectSources(path) }
+    else if (/\.(ts|tsx)$/.test(entry.name) && !/\.test\.(ts|tsx)$/.test(entry.name)) shippedSources.push(path)
+  }
+}
+collectSources(resolve(__dirname, '../src'))
+assert.deepEqual(shippedSources.filter(path => /\(\?<[=!]/.test(readFileSync(path, 'utf8'))), [], 'regular-expression lookbehind in shipped code: rewrite it without (?<= or (?<!')

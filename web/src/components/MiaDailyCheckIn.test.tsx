@@ -506,3 +506,23 @@ it('keeps an unresolved purchase on its card instead of defaulting to Today in a
   expect(onEditInToday).not.toHaveBeenCalled()
   expect(mutateDaily).not.toHaveBeenCalled()
 })
+
+it('a failed Done stays visible and announced outside the saved result disclosure', async () => {
+  const input = { ...report, purchases: [report.purchases[0]] }
+  const server = { id: 991, kind: 'daily_report' as const, status: 'pending' as const, lock_version: 0, enrollment_id: 10, message_id: 20, input, state: {} }
+  vi.mocked(updateChallengeChatCard).mockImplementation(async (_id, request) => {
+    if (request.action === 'dismiss') throw new Error('offline')
+    return { record: { ...server, lock_version: 1, state: request.action === 'save_state' ? request.state : {} }, challenge: {} as never }
+  })
+  registerServerDailyCard(server, 'failed-done')
+  const view = renderCard(input, 'server-card-991')
+  await ready(view.card)
+  fireEvent.click(within(view.card).getByRole('button', { name: 'Save to today' }))
+  const result = await screen.findByRole('region', { name: 'Your check-in' })
+  await waitFor(() => expect(within(result).getByRole('heading', { name: 'Saved to today' })).toBeTruthy())
+  fireEvent.click(within(result).getByRole('button', { name: 'Done' }))
+  const error = await within(result).findByRole('alert')
+  expect(error.textContent).toContain('We couldn’t close this card.')
+  expect(error.closest('details')).toBeNull()
+  expect(view.onDismiss).not.toHaveBeenCalled()
+})

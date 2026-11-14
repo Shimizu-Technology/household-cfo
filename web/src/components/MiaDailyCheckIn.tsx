@@ -1,3 +1,5 @@
+import { MiaReviewError } from './MiaReviewError'
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchDailyContext, fetchDailyRequestStatus } from '../api'
 import { dailyApproval, dailyContextMatches, dailyResponseMatches, type DailyAction, type DailyContext, type DailyInput, type DailyPurchaseDraft, type DailyScope } from '../lib/dailyChallenge'
@@ -6,6 +8,7 @@ import { clearDailyRecovery, readDailyRecovery } from '../lib/dailyRecovery'
 import type { BaselineScope } from '../lib/financialBaseline'
 import { savingsPlainDollars, savingsInputCents, savingsInputDollars, type DailyReportIntake, type SavingsIntake } from '../lib/savingsChallenge'
 import { useDailyMutation } from '../lib/useDailyMutation'
+import { MiaCardResult } from './MiaCardResult'
 import './MiaDailyCheckIn.css'
 
 // "Today", "Yesterday", or "Mon, Oct 20" for a local calendar date.
@@ -93,6 +96,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const today = anyContext?.calendar.local_today ?? report.local_on
   const firstDay = contexts[report.local_on]?.day
   const saved = finished(state, noSpend)
+  const liveResult = useLiveMiaResult(saved)
   const busy = state.phase === 'saving' || moving
   const noSpendBlocked = noSpend && !saved && Boolean(firstDay && firstDay.approved_purchase_count > 0)
   const openRows = state.rows.filter(open)
@@ -388,8 +392,14 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const setFeeling = (field: 'feelingThen' | 'feelingNow', value: string) => update((current) => ({ ...current, [field]: value }))
   const statusText = finishing && !busy && !reconciling && !state.message ? `Your purchases are saved. Tap ${allToday ? 'Save to today' : 'Save'} to finish this check-in.` : foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
 
+  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your check-in"><MiaCardResult title={title} status={noSpend ? `No spending ${dayWord}.` : undefined} live={Boolean(liveResult)} headingRef={headingRef} onDone={() => void dismiss()}>
+    {!noSpend && <ul className="mia-daily-rows">
+      {visibleRows.map(row => <li key={row.id} className="mia-daily-row is-saved"><p className="mia-daily-saved-row"><CheckIcon /><span><strong>{savingsPlainDollars(savingsInputCents(row.amount))}</strong> · {row.merchant} · {plainDay(row.purchased_on, today)}</span></p></li>)}
+    </ul>}
+  </MiaCardResult><MiaReviewError message={statusText} /></section>
+
   return (
-    <section ref={cardRef} className={`mia-daily-card${saved ? ' is-saved' : ''}`} aria-label="Your check-in" aria-busy={busy}>
+    <section ref={cardRef} className={`mia-daily-card ui-card${saved ? ' is-saved' : ''}`} aria-label="Your check-in" aria-busy={busy}>
       <h3 ref={headingRef} tabIndex={-1}>{saved && <CheckIcon />}{title}</h3>
       {noSpend ? <p className="mia-daily-nospend">{saved ? `No spending ${dayWord}.` : 'Saving records a no-spend day, which is different from a day you skip.'}</p> : (
         <ul className="mia-daily-rows">
@@ -421,16 +431,16 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       {noSpendBlocked && <p className="mia-daily-hint">You already saved a purchase for this day, so it can’t be a no-spend day.</p>}
       {changesNoSpend && !saved && <p className="mia-daily-hint">You saved this day as no spending. Saving a purchase changes it to a spending day.</p>}
       <p className="mia-daily-status" role="status">{statusText}</p>
-      {reconciling && <button type="button" className="secondary-button" disabled={checking} onClick={() => setStatusAttempt((value) => value + 1)}>{checking ? 'Checking last save…' : 'Check last save'}</button>}
-      {foreignPending && mutation.checkStatus && <button type="button" className="secondary-button" disabled={foreignPending.working} onClick={() => void mutation.checkStatus?.()}>Check the earlier save first</button>}
+      {reconciling && <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={checking} onClick={() => setStatusAttempt((value) => value + 1)}>{checking ? 'Checking last save…' : 'Check last save'}</button>}
+      {foreignPending && mutation.checkStatus && <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={foreignPending.working} onClick={() => void mutation.checkStatus?.()}>Check the earlier save first</button>}
       {!saved && footnote && <p className="mia-daily-footnote">{footnote}</p>}
       {!saved ? (
-        <div className="mia-daily-actions">
-          <button type="button" className="mia-daily-save" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
-          {!noSpend && <button type="button" className="secondary-button" disabled={busy || !movable} onClick={() => void moveToToday()}>Edit in Today</button>}
-          <button type="button" className="mia-daily-dismiss" disabled={busy || Boolean(state.unconfirmed)} onClick={() => void dismiss()}>Not right</button>
+        <div className="mia-daily-actions ui-actions ui-actions--tight">
+          <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
+          {!noSpend && <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={busy || !movable} onClick={() => void moveToToday()}>Edit in Today</button>}
+          <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy || Boolean(state.unconfirmed)} onClick={() => void dismiss()}>Not right</button>
         </div>
-      ) : <div className="mia-daily-actions"><button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void dismiss()}>Done</button></div>}
+      ) : <div className="mia-daily-actions ui-actions ui-actions--tight"><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={() => void dismiss()}>Done</button></div>}
     </section>
   )
 }

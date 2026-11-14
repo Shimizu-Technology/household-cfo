@@ -46,7 +46,7 @@ describe('pending budget positions', () => {
 })
 
 describe('cent-safe budget arithmetic', () => {
-  it('does not report a one-cent plan as over when decimal additions equal the plan', () => {
+  it('keeps unconfirmed purchases separate from this draft’s cent-safe effect', () => {
     const plan = {
       year: 2026,
       months: [{ id: 8, label: 'Aug', starts_on: '2026-08-01', ends_on: '2026-08-31', status: 'open' }],
@@ -91,6 +91,6 @@ describe('cent-safe budget arithmetic', () => {
     const impact = transactionDraftBudgetImpacts(plan, candidate).at(0)
 
     expect(budgetPositionTotals(positions)).toMatchObject({ planned: 0.3, actual: 0.1, pending: 0.1, remaining: 0.2 })
-    expect(impact).toMatchObject({ otherPending: 0.1, projectedIfApproved: 0.3, remainingIfApproved: 0 })
+    expect(impact).toMatchObject({ otherPending: 0.1, projectedIfApproved: 0.2, remainingIfApproved: 0.1 })
   })
 })

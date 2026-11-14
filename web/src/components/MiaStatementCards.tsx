@@ -1,3 +1,5 @@
+import { MiaCardResult } from './MiaCardResult'
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -56,7 +58,7 @@ export function MiaStatementCards({ imports, assistantName, challenge, onReview,
       ? <StatementProgressCard key={documentImport.id} documentImport={documentImport} failed={stage === 'failed'} onRetry={onRetry} onReview={onReview} />
       : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} waiting={disabled} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
     {waitingOnMissing && !asked && onAskPatterns && <p className="mia-statement-muted" role="status">I’ll offer to look for patterns once the missing lines are in.</p>}
-    {allApproved && !asked && onAskPatterns && <section className="mia-statement-next" aria-label={`Next step with ${assistantName}`}>
+    {allApproved && !asked && onAskPatterns && <section className="mia-statement-next ui-card" aria-label={`Next step with ${assistantName}`}>
       <p>{shown.length > 1 ? `All ${shown.length} statements are approved. ` : ''}Want me to look for patterns in {scope}?</p>
       <Button onClick={() => { writeFlag(askedKey); setAskedNow(true); onAskPatterns() }}>{challenge ? 'Yes, look for patterns' : `See what ${assistantName} notices`}</Button>
     </section>}
@@ -77,18 +79,18 @@ function StatementProgressCard({ documentImport, failed, onRetry, onReview }: { 
   const progress = documentImport.metadata.extraction_progress
   const pagesKnown = Number.isInteger(progress?.page) && Number.isInteger(progress?.page_count) && progress!.page! > 0 && progress!.page! <= progress!.page_count!
   if (!failed) {
-    return <section className="mia-statement-card" data-import-id={documentImport.id} aria-label={`Reading ${documentImport.filename}`} aria-busy="true">
+    return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label={`Reading ${documentImport.filename}`} aria-busy="true">
       <h3>{documentImport.filename}</h3>
       <p role="status">{pagesKnown ? `Reading page ${progress!.page} of ${progress!.page_count}…` : 'Reading your statement…'}</p>
       <p className="mia-statement-muted">You can leave this page. Your file is saved, and nothing counts until you approve it.</p>
     </section>
   }
-  return <section className="mia-statement-card" data-import-id={documentImport.id} aria-label={`Could not read ${documentImport.filename}`}>
+  return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label={`Could not read ${documentImport.filename}`}>
     <h3>{documentImport.filename}</h3>
     <p role="alert">{documentImport.extraction_error || 'I couldn’t read reliable lines from this file.'}</p>
     <p className="mia-statement-muted">{documentImport.source_available ? 'Nothing was saved. You can try reading it again, or upload a clearer copy.' : 'The original file has been removed, so please upload it again. Nothing was saved.'}</p>
     {retryFailed && <p role="alert">I couldn’t start reading it again just now. Try again in a moment, or open it in Statements.</p>}
-    <div className="mia-statement-actions">
+    <div className="mia-statement-actions ui-actions">
       {documentImport.source_available && <Button disabled={retrying} onClick={async () => { setRetryFailed(false); setRetrying(true); try { if (await onRetry(documentImport) === false) setRetryFailed(true) } finally { setRetrying(false) } }}>Try reading it again</Button>}
       <Button variant="secondary" onClick={() => onReview(documentImport.id)}>Open in Statements</Button>
     </div>
@@ -102,6 +104,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     importId, revisionId: documentImport.metadata.source_accounting_revision_id!, onChanged: onSaved,
     refreshKey: `${documentImport.updated_at}:${JSON.stringify(documentImport.statement_review ?? null)}:${saves}`,
   })
+  const liveResult = useLiveMiaResult(state.finished, Boolean(state.data))
   const { data, error, review, plan, categories, names, needBasis, counts, mutation, coverage, savingLines, unsavedAnswer } = state
   // Nothing is answered from lines that are being read again; the buttons come back as soon as the new read arrives.
   const busy = state.busy || state.refreshing || waiting
@@ -122,8 +125,8 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
   }, [data, focusAfterRef])
 
   if (!data || !review || !plan || !counts) {
-    if (error) return <section className="mia-statement-card" data-import-id={documentImport.id} aria-label="Statement"><h3>{documentImport.filename}</h3><p role="alert">{error}</p><Button variant="secondary" onClick={state.reload}>Try again</Button></section>
-    return <section className="mia-statement-card" data-import-id={documentImport.id} aria-label="Statement" aria-busy="true"><h3>{documentImport.filename}</h3><p role="status">Opening your statement…</p></section>
+    if (error) return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label="Statement"><h3>{documentImport.filename}</h3><p role="alert">{error}</p><Button variant="secondary" onClick={state.reload}>Try again</Button></section>
+    return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label="Statement" aria-busy="true"><h3>{documentImport.filename}</h3><p role="status">Opening your statement…</p></section>
   }
 
   const title = statementTitle(data.accounts, names, plan)
@@ -149,7 +152,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
   }
 
   if (empty) {
-    return <section className="mia-statement-card" data-import-id={importId} aria-label={`Statement: ${title}`}>
+    return <section className="mia-statement-card ui-card" data-import-id={importId} aria-label={`Statement: ${title}`}>
       <h3>{title}</h3>
       <p>I couldn’t find any lines in this statement. Nothing was saved.</p>
       <Button variant="secondary" onClick={() => onReview(importId)}>Open in Statements</Button>
@@ -157,20 +160,20 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
   }
 
   if (approved) {
-    return <section className="mia-statement-card is-approved" data-import-id={importId} aria-label={`Statement: ${title}`}>
-      <h3>{title}</h3>
-      <p role="status"><strong>Approved.</strong> {countedSentence(plan)}</p>
-      {coverage.recorded === 'something_missing' && <p className="mia-statement-muted">{coverageMissingNote()}</p>}
+    return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
+      <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
+        {coverage.recorded === 'something_missing' && <p className="mia-statement-muted">{coverageMissingNote()}</p>}
+      </MiaCardResult>
     </section>
   }
 
   const inline = plan.attention.slice(0, INLINE_QUESTIONS)
   const more = plan.attention.length - inline.length
-  return <section className="mia-statement-card" data-import-id={importId} aria-label={`Statement: ${title}`} aria-busy={busy}>
+  return <section className="mia-statement-card ui-card" data-import-id={importId} aria-label={`Statement: ${title}`} aria-busy={busy}>
     {pending && !pending.working && <div className="mia-statement-notice" role="status">
       <p>I’m not sure your last change saved.</p>
       {pending.error && <p>{pending.error}</p>}
-      <div className="mia-statement-actions">
+      <div className="mia-statement-actions ui-actions">
         {mutation.checkStatus && <Button variant="secondary" onClick={() => { void mutation.checkStatus?.() }}>Check again</Button>}
         {mutation.retry && <Button onClick={() => { void mutation.retry?.() }}>Try again</Button>}
       </div>
@@ -216,7 +219,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
       {coverage.recorded === 'something_missing' && <p className="mia-statement-muted" role="status">{coverageMissingNote()}</p>}
     </div>}
 
-    <div className="mia-statement-actions">
+    <div className="mia-statement-actions ui-actions">
       {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={() => { void approve() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
       <Button variant="secondary" onClick={() => onReview(importId)}>See every line</Button>
     </div>

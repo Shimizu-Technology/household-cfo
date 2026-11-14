@@ -1,4 +1,6 @@
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useRef, useState } from 'react'
+import { MiaCardResult } from './MiaCardResult'
 import { updateChallengeChatCard } from '../api'
 import type { ChallengeChatCard } from '../lib/challengeChatCards'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
@@ -32,6 +34,7 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   const [busy, setBusy] = useState(false)
   const section = useRef<HTMLElement>(null)
   const [saved, setSaved] = useState(false)
+  const liveResult = useLiveMiaResult(saved)
   const [newMoney, setNewMoney] = useState(false)
   const [error, setError] = useState('')
   const amount = savingsPlainDollars(intake.amount_cents)
@@ -62,22 +65,22 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   }
 
   if (saved) {
-    return <section className="mia-daily-card mia-action-card is-saved" aria-label="Savings saved"><h3>{withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`}</h3><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p><button type="button" className="mia-daily-dismiss" onClick={() => onApproved?.()}>Done</button></section>
+    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Savings saved"><MiaCardResult title={withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`} live={Boolean(liveResult)} status={withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'} onDone={() => onApproved?.()} /></section>
   }
 
   if (inPlace) {
-    return <section ref={section} className="mia-daily-card mia-action-card" aria-label="Savings to check" aria-busy={busy}>
+    return <section ref={section} className="mia-daily-card mia-action-card ui-card" aria-label="Savings to check" aria-busy={busy}>
       <h3>{title} · {plainDay(intake.effective_on, today)}</h3>
       <p>{withdrawal ? 'This takes the money out of your challenge total. Nothing changes until you tap Yes.' : original ? 'This replaces the earlier amount in your total. Nothing changes until you tap Yes.' : 'Only new money you set aside counts. Nothing is saved until you tap Yes.'}</p>
-      {needsNewMoney && <label className="mia-card-check"><input type="checkbox" checked={newMoney} disabled={busy} onChange={event => setNewMoney(event.target.checked)} /><span>This was new money I set aside after expenses, not borrowed or money I already had.</span></label>}
+      {needsNewMoney && <label className="mia-card-check ui-check"><input type="checkbox" checked={newMoney} disabled={busy} onChange={event => setNewMoney(event.target.checked)} /><span>This was new money I set aside after expenses, not borrowed or money I already had.</span></label>}
       {error && <p role="alert">{error}</p>}
-      <div className="mia-daily-actions">
-        <button type="button" className="mia-daily-save" disabled={busy || (needsNewMoney && !newMoney)} onClick={() => void act('approve_savings')}>{busy ? 'Saving…' : withdrawal ? `Yes, take out ${amount}` : original ? `Yes, change it to ${amount}` : `Yes, add ${amount}`}</button>
-        <button type="button" className="secondary-button" disabled={busy} onClick={event => { event.currentTarget.focus(); onReview() }}>Open in Savings</button>
-        <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void act('dismiss')}>Not now</button>
+      <div className="mia-daily-actions ui-actions ui-actions--long">
+        <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy || (needsNewMoney && !newMoney)} onClick={() => void act('approve_savings')}>{busy ? 'Saving…' : withdrawal ? `Yes, take out ${amount}` : original ? `Yes, change it to ${amount}` : `Yes, add ${amount}`}</button>
+        <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={busy} onClick={event => { event.currentTarget.focus(); onReview() }}>Open in Savings</button>
+        <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={() => void act('dismiss')}>Not now</button>
       </div>
     </section>
   }
 
-  return <section className="daily-note" aria-label="Savings to check"><strong>{title} · {plainDay(intake.effective_on, today)}</strong><p>{intake.kind==='purchase' ? 'Check it, then save it in Today. Nothing is saved until you do.' : withdrawal ? 'Check it, then save it to your challenge. Nothing changes until you do.' : 'Check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.'}</p><button type="button" className="secondary-button" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
+  return <section className="daily-note ui-card" aria-label="Savings to check"><strong>{title} · {plainDay(intake.effective_on, today)}</strong><p>{intake.kind==='purchase' ? 'Check it, then save it in Today. Nothing is saved until you do.' : withdrawal ? 'Check it, then save it to your challenge. Nothing changes until you do.' : 'Check it, then save it to your challenge. Only new money you set aside counts, and nothing is saved until you do.'}</p><button type="button" className="secondary-button ui-btn ui-btn--tonal" onClick={event=>{event.currentTarget.focus();onReview()}}>{intake.kind==='purchase'?'Review purchase':'Review savings'}</button></section>
 }
