@@ -31,6 +31,14 @@ async function r6MiaShot(page: Page, label: string, card?: Locator) {
   await page.evaluate(() => document.fonts.ready)
   if (card) await card.scrollIntoViewIfNeeded()
   const prefix = `${directory}/${test.info().project.name}-${label}`
+  if (process.env.HCFO_R6_P4_FIX2_DESKTOP && test.info().project.name === 'desktop-chrome') {
+    const original = page.viewportSize()!
+    await page.setViewportSize({ width: 1440, height: 900 })
+    if (card) await card.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `${prefix}-1440.png` })
+    await page.setViewportSize(original)
+    if (card) await card.scrollIntoViewIfNeeded()
+  }
   await page.screenshot({ path: `${prefix}.png` })
   if (card) {
     const viewport = page.viewportSize()!
@@ -9178,10 +9186,11 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await card.getByRole('button', { name: 'Approve these 100' }).click()
-  await expect(card.getByText('Approved.')).toBeVisible()
+  await expect(card.getByRole('status').filter({ hasText: /^Approved\./ })).toBeVisible()
+  await expect(card.getByRole('heading')).toBeFocused()
   await expect.poll(() => card.evaluate(node => node.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
   await r6MiaShot(page, 'statement-finished', card)
-  await card.locator('.mia-statement-result > summary').click()
+  // The counted result is exposed without opening a disclosure.
   await expect(card.getByText(/18 purchases, \$2,249\.65, now count in your spending\./)).toBeVisible()
   expect(saved).toMatchObject({ revision_id: 88, input: { paged: true } })
   expect((saved as { input: { lines: unknown[] } }).input.lines).toHaveLength(100)
@@ -9190,7 +9199,7 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   await expect(page.getByText('Want me to look for patterns in this statement?')).toBeVisible()
   await expect(page.getByRole('button', { name: 'See what Mia notices' })).toBeVisible()
   await page.reload()
-  await expect(card.getByText('Approved.')).toBeVisible()
+  await expect(card.getByRole('status').filter({ hasText: /^Approved\./ })).toBeVisible()
   await expect(card).not.toHaveClass(/is-live-result/)
   await expect(card).toHaveCSS('animation-name', 'none')
 })
@@ -15197,7 +15206,7 @@ for (const kind of ['attachment', 'voice', 'length'] as const) {
         node.dispatchEvent(new Event('input', { bubbles: true }))
       })
     }
-    const error = kind === 'length' ? page.locator('#mia-composer-count[role="alert"]') : page.locator('.mia-composer-notices [role="alert"]')
+    const error = kind === 'length' ? page.locator('#mia-composer-count[role="status"]') : page.locator('.mia-composer-notices [role="alert"]')
     await expect(error).toBeVisible()
     await expect(error).toBeInViewport({ ratio: 1 })
     expect(await error.evaluate(node => Boolean(node.closest('.chat-card')))).toBe(false)
@@ -15308,4 +15317,220 @@ test('BOG UI Mia fix1 failed Done is visible on a restored saved daily check-in'
   expect(await error.evaluate(node => Boolean(node.closest('details')))).toBe(false)
   await expect(error).toBeInViewport({ ratio: 1 })
   await r6MiaShot(page, 'fix1-done-error')
+})
+
+// Final fix round: retained results must agree with the participant's current plan and decisions.
+test('BOG UI Mia fix2 completed purchases stay in their plan year', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/confirm`, route => {
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== draft.id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.route('http://api.test/api/v1/budget?**', route => route.fulfill({ json: budgetFixtureForYear(currentYear + 1) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator(`[data-review-item="${draft.id}"] [data-review-confirm]`).click()
+  await expect(page.locator(`[data-review-item="${draft.id}"].is-finished`)).toBeVisible()
+  await openSection(page, 'Budget')
+  await page.getByRole('button', { name: 'Next year', exact: true }).click()
+  await expect(page.locator('.budget-year-label')).toContainText(String(currentYear + 1))
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator(`[data-review-item="${draft.id}"]`)).toHaveCount(0)
+})
+
+for (const first of ['confirm', 'ignore'] as const) {
+  test(`BOG UI Mia fix2 ${first} then reopen then opposite bulk resolution never restores stale status`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.budget.annual_plan.pending_mia_action_drafts = []
+    const [draft, other] = workspace.budget.annual_plan.pending_transaction_drafts
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/*`, route => {
+      const operation = new URL(route.request().url()).pathname.split('/').at(-1)
+      workspace.budget.annual_plan.pending_transaction_drafts = operation === 'reopen' ? [draft, other] : [other]
+      return route.fulfill({ json: { workspace } })
+    })
+    const opposite = first === 'confirm' ? 'ignore' : 'confirm'
+    let bulkCalls = 0
+    await page.route(`http://api.test/api/v1/transaction_drafts/bulk_${opposite}`, route => {
+      bulkCalls++
+      workspace.budget.annual_plan.pending_transaction_drafts = [other]
+      return route.fulfill({ json: { workspace } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    const card = page.locator(`[data-review-item="${draft.id}"]`)
+    await card.getByRole('button', { name: first === 'confirm' ? /^Confirm / : /^Not now / }).click()
+    await card.getByRole('button', { name: /^(Undo|Restore) / }).click()
+    await answerConfirm(page, 'accept')
+    await card.getByRole('checkbox').check()
+    await page.getByRole('button', { name: opposite === 'confirm' ? 'Confirm selected' : 'Ignore selected', exact: true }).click()
+    if (opposite === 'ignore') await answerConfirm(page, 'accept')
+    else {
+      const dialog = page.getByRole('dialog', { name: /Confirm.*transaction/i })
+      await dialog.getByRole('textbox').fill('CONFIRM 1')
+      await dialog.getByRole('button', { name: 'Confirm 1', exact: true }).click()
+    }
+    await expect.poll(() => bulkCalls).toBe(1)
+    await expect(card.locator('[data-review-confirm]')).toHaveCount(0)
+    // A retained row may be removed or show its current resolution, never the prior one.
+    await expect(card).not.toContainText(first === 'confirm' ? 'Confirmed. Actuals were updated.' : 'Ignored. Actuals did not change.')
+  })
+}
+
+for (const status of ['confirmed', 'ignored'] as const) {
+  test(`BOG UI Mia fix2 Review ${status} reversal failure stays beside its control without unhandled rejection`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.budget.annual_plan.pending_mia_action_drafts = []
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: {
+      period_label: `${currentMonth} ${currentYear}`, start_on: draft.occurred_on, end_on: draft.occurred_on,
+      totals: { planned: 100, actual: status === 'confirmed' ? draft.amount : 0, pending: 0, remaining: 100 }, categories: [], pending_drafts: [],
+      transactions: status === 'confirmed' ? [{ id: 901, transaction_draft_id: draft.id, occurred_on: draft.occurred_on, merchant: draft.merchant, amount: draft.amount, categories: ['Dining out'], source_type: 'manual_ui', splits: [] }] : [],
+      ignored_drafts: status === 'ignored' ? [{ ...draft, status }] : [],
+    } } }))
+    await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/reopen`, route => route.fulfill({ status: 503, json: { error: 'Fictional offline response' } }))
+    await page.goto('/?pilot_e2e_role=participant#Review')
+    const row = page.locator('.reviewed-transaction-row').filter({ hasText: draft.merchant })
+    await row.getByRole('button', { name: status === 'confirmed' ? /^Reopen / : /^Restore / }).click()
+    await answerConfirm(page, 'accept')
+    await expect(row.getByRole('alert')).toBeVisible()
+    await expect(row.getByRole('button')).toBeEnabled()
+    await row.getByRole('alert').evaluate(node => node.scrollIntoView({ block: 'center' }))
+    await expect(row.getByRole('alert')).toBeInViewport({ ratio: 1 })
+    await r6MiaShot(page, `fix2-${status}-reversal-error`, row)
+    expect(errors).toEqual([])
+  })
+}
+
+test('BOG UI Mia fix2 over-limit correction keeps the counter polite and announces each blocking episode once', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  const enter = async (length: number) => composer.evaluate((node, count) => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(node, 'x'.repeat(count))
+    node.dispatchEvent(new Event('input', { bubbles: true }))
+  }, length)
+  await enter(8025)
+  const counter = page.locator('#mia-composer-count')
+  await expect(counter).toHaveAttribute('aria-live', 'polite')
+  await expect(counter).toContainText('Remove 25 characters')
+  const blocking = page.locator('#mia-composer-limit')
+  await expect(blocking).toHaveText('Your message is too long to send. Shorten it before sending.')
+  await blocking.evaluate(node => {
+    const state = window as typeof window & { limitChanges?: number }
+    state.limitChanges = 0
+    new MutationObserver(() => { state.limitChanges!++ }).observe(node, { childList: true, characterData: true, subtree: true })
+  })
+  await enter(8024); await expect(counter).toContainText('Remove 24 characters')
+  await enter(8010); await expect(counter).toContainText('Remove 10 characters')
+  expect(await page.evaluate(() => (window as typeof window & { limitChanges?: number }).limitChanges)).toBe(0)
+  await enter(7999); await expect(blocking).toBeEmpty()
+  await enter(8001); await expect(blocking).toHaveText('Your message is too long to send. Shorten it before sending.')
+})
+
+for (const count of [6, 11, 21]) {
+  test(`BOG UI Mia fix2 folded ${count} purchase queue keeps the last card reachable and completed slots stable`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.budget.annual_plan.pending_mia_action_drafts = []
+    const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+    const queue = Array.from({ length: count }, (_, index) => ({ ...template, id: 99800 + index, merchant: `Queue shop ${index + 1}` }))
+    workspace.budget.annual_plan.pending_transaction_drafts = queue
+    const confirmed: number[] = []
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+      const id = Number(route.request().url().split('/').at(-2))
+      confirmed.push(id)
+      workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+      return route.fulfill({ json: { workspace } })
+    })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    for (const draft of queue.slice(0, -1)) {
+      const card = page.locator(`[data-review-item="${draft.id}"]`)
+      await card.locator('[data-review-confirm]').click()
+      await expect(card.locator('[data-review-result]')).toBeFocused()
+      await expect(page.locator('.chat-card [data-review-confirm]')).toHaveCount(1)
+    }
+    const last = page.locator(`[data-review-item="${queue.at(-1)!.id}"]`)
+    for (const name of [/^Confirm /, /^Change /, /^Not now /]) {
+      const action = last.getByRole('button', { name })
+      await action.scrollIntoViewIfNeeded()
+      await expect(action).toBeInViewport()
+      await expect(action).toBeEnabled()
+    }
+    expect(confirmed).toEqual(queue.slice(0, -1).map(row => row.id))
+    await expect(page.locator('.chat-card .is-finished')).toHaveCount(count - 1)
+    await r6MiaShot(page, `fix2-queue-${count}-last`)
+  })
+}
+
+for (const suggestion of [undefined, [1]]) {
+  test(`BOG UI Mia fix2 revised pending suggestion ${suggestion ? 'subset' : 'all'} resets only suggested choices`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    const draft = { ...miaBudgetDraft, id: 99850, draft_type: 'action_plan', suggested_selected_item_ids: suggestion,
+      items: [1, 2].map(id => ({ ...miaBudgetDraft.items[0], id, position: id - 1, label: `Suggested change ${id}`, dependencies: [] })) }
+    workspace.budget.annual_plan.pending_mia_action_drafts = [draft]
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+    await page.route('http://api.test/api/v1/mia/messages', route => route.request().method() === 'POST' ? route.fulfill({ json: {
+      user_message: { id: 99851, role: 'user', author: 'You', content: 'Only the second change please' },
+      assistant_message: { id: 99852, role: 'assistant', author: 'Mia', content: 'Check just the second change.' },
+      budget: workspace.budget, mia_action_draft: { ...draft, suggested_selected_item_ids: [2] },
+    } }) : route.fallback())
+    let applied: unknown
+    await page.route('http://api.test/api/v1/mia_action_drafts/99850/apply', route => { applied = route.request().postDataJSON(); return route.abort() })
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const card = page.locator('.mia-action-draft-card')
+    const disclosure = card.locator('.mia-change-details')
+    if (await disclosure.evaluate(node => (node as HTMLDetailsElement).open)) await disclosure.locator('summary').click()
+    await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Only the second change please')
+    await page.getByRole('button', { name: 'Send message to Mia' }).click()
+    await expect(page.locator('.chat-card')).toContainText('Check just the second change.')
+    await expect(disclosure).toHaveAttribute('open', '')
+    await expect(card.getByRole('checkbox', { name: 'Include Suggested change 1' })).not.toBeChecked()
+    await expect(card.getByRole('checkbox', { name: 'Include Suggested change 2' })).toBeChecked()
+    await r6MiaShot(page, 'fix2-revised-suggestion', card)
+    await card.getByRole('button', { name: 'Apply 1 selected' }).click()
+    await expect.poll(() => applied).toMatchObject({ item_ids: [2] })
+  })
+}
+
+test('BOG UI Mia fix2 savings and goal completions expose status with inert focus', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const base = { status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 99861, state: {} }
+  const cards = [
+    { ...base, id: 99862, kind: 'goal', input: { target_cents: 50000, expected_plan_version_id: null } },
+    { ...base, id: 99863, kind: 'savings', input: { kind: 'contribution', amount_cents: 5000, signed_cents: 5000, effective_on: '2026-09-28', counted: false, approval_state: 'unreviewed_input', new_money_confirmation_required: true } },
+  ]
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: cards, actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  const writes: unknown[] = []
+  await page.route(/http:\/\/api\.test\/api\/v1\/savings_challenge\/chat_cards\/9986[23]$/, route => {
+    writes.push(route.request().postDataJSON())
+    const record = cards.find(card => String(card.id) === route.request().url().split('/').at(-1))!
+    return route.fulfill({ json: { record: { ...record, status: 'closed', state: { approved_plan_version_id: 90 } }, challenge: savingsFixture, actor_scope: baselineScope } })
+  })
+  await page.reload()
+  await openSection(page, 'Ask Mia')
+  const goal = page.getByRole('region', { name: 'Your challenge goal', exact: true })
+  await goal.getByRole('button', { name: 'Yes, set my goal to $500' }).click()
+  await expect(goal.getByRole('heading', { name: 'Goal saved: $500' })).toBeFocused()
+  await expect(goal.getByRole('status')).toHaveText('This is now your goal for the whole 90 days. You can see it in Savings.')
+  await expect(goal.getByRole('status')).toBeVisible()
+  await page.keyboard.press('Enter')
+  expect(writes).toHaveLength(1)
+  await r6MiaShot(page, 'fix2-goal-result', goal)
+  const savings = page.getByRole('region', { name: 'Savings to check', exact: true })
+  await savings.getByRole('checkbox').check()
+  await savings.getByRole('button', { name: 'Yes, add $50' }).click()
+  const saved = page.getByRole('region', { name: 'Savings saved', exact: true })
+  await expect(saved.getByRole('heading', { name: '$50 added' })).toBeFocused()
+  await expect(saved.getByRole('status')).toHaveText('Saved to your challenge. Your total is up to date.')
+  await expect(saved.getByRole('status')).toBeVisible()
+  expect(await saved.getByRole('status').evaluate(node => node.closest('details'))).toBeNull()
+  await page.keyboard.press('Enter')
+  expect(writes).toHaveLength(2)
+  await r6MiaShot(page, 'fix2-savings-result', saved)
 })

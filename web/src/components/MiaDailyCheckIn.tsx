@@ -392,8 +392,8 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
   const setFeeling = (field: 'feelingThen' | 'feelingNow', value: string) => update((current) => ({ ...current, [field]: value }))
   const statusText = finishing && !busy && !reconciling && !state.message ? `Your purchases are saved. Tap ${allToday ? 'Save to today' : 'Save'} to finish this check-in.` : foreignPending ? 'An earlier daily save needs checking first. Nothing new is sent until it is.' : unconfirmed.length && !busy ? `We couldn’t confirm ${unconfirmed.map((row) => label(row, state.rows.indexOf(row))).join(' and ')} saved. Tap Save to check — it won’t save twice.` : state.message ?? ''
 
-  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your check-in"><MiaCardResult title={title} headingRef={headingRef} onDone={() => void dismiss()}>
-    {noSpend ? <p className="mia-daily-nospend">No spending {dayWord}.</p> : <ul className="mia-daily-rows">
+  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your check-in"><MiaCardResult title={title} status={noSpend ? `No spending ${dayWord}.` : undefined} live={Boolean(liveResult)} headingRef={headingRef} onDone={() => void dismiss()}>
+    {!noSpend && <ul className="mia-daily-rows">
       {visibleRows.map(row => <li key={row.id} className="mia-daily-row is-saved"><p className="mia-daily-saved-row"><CheckIcon /><span><strong>{savingsPlainDollars(savingsInputCents(row.amount))}</strong> · {row.merchant} · {plainDay(row.purchased_on, today)}</span></p></li>)}
     </ul>}
   </MiaCardResult><MiaReviewError message={statusText} /></section>

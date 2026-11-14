@@ -367,3 +367,31 @@ it('lets a suggested selection disclosure close and reopen while preserving sele
   expect((screen.getByRole('checkbox', { name: 'Include Change 1' }) as HTMLInputElement).checked).toBe(true)
   expect((screen.getByRole('checkbox', { name: 'Include Change 2' }) as HTMLInputElement).checked).toBe(false)
 })
+
+it.each([undefined, [1]])('fix2 resets a pending proposal when its server suggestion changes from %s', async suggestion => {
+  const draft = { id: 94, status: 'pending', draft_type: 'action_plan', year: 2026, title: 'Two changes', summary: 'Two household changes', rationale: null,
+    suggested_selected_item_ids: suggestion, items: [1, 2].map(id => ({ id, position: id - 1, action_type: 'update_account', label: `Change ${id}`, payload: {}, before_snapshot: {}, after_snapshot: {}, dependencies: [] })),
+  } as unknown as MiaActionDraft
+  const onApply = vi.fn()
+  const props = { isRealWorkspace: true, action: null, onApply, onCancel: vi.fn() }
+  const { rerender } = render(<MiaActionDraftReviewStack {...props} drafts={[draft]} />)
+  const details = document.querySelector('details')!
+  if (details.open) {
+    details.open = false; fireEvent(details, new Event('toggle'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+  }
+  rerender(<MiaActionDraftReviewStack {...props} drafts={[{ ...draft, suggested_selected_item_ids: [2] }]} />)
+  expect(document.querySelector('details')?.open).toBe(true)
+  expect((screen.getByRole('checkbox', { name: 'Include Change 1' }) as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByRole('checkbox', { name: 'Include Change 2' }) as HTMLInputElement).checked).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: /Apply 1 selected/ }))
+  expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ id: 94 }), [2])
+})
+
+it('keeps proposal identity through completion so its live result still fades', () => {
+  const draft = { id: 96, status: 'pending', draft_type: 'action_plan', year: 2026, title: 'Reviewed change', summary: 'Review this change', suggested_selected_item_ids: [1], items: [] } as unknown as MiaActionDraft
+  const props = { isRealWorkspace: true, action: null, onApply: vi.fn(), onCancel: vi.fn() }
+  const { container, rerender } = render(<MiaActionDraftReviewStack {...props} drafts={[draft]} />)
+  rerender(<MiaActionDraftReviewStack {...props} drafts={[{ ...draft, status: 'applied', suggested_selected_item_ids: undefined }]} />)
+  expect(container.querySelector('.mia-action-draft-card.is-live-result')).not.toBeNull()
+})

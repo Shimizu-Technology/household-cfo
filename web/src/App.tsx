@@ -1051,9 +1051,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
   const [completedPurchases, setCompletedPurchases] = useState<{ scope: string; drafts: TransactionDraft[] }>({ scope: '', drafts: [] })
   const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({})
+  function rememberPurchases(drafts: TransactionDraft[], status: TransactionDraft['status']) {
+    const ids = new Set(drafts.map(draft => draft.id))
+    setCompletedPurchases(current => ({ scope: purchaseScope, drafts: [...(current.scope === purchaseScope ? current.drafts.filter(item => !ids.has(item.id)) : []), ...drafts.map(draft => ({ ...draft, status }))] }))
+  }
   function rememberPurchase(draft: TransactionDraft, status: TransactionDraft['status']) {
-    const scope = budgetViewScopeRef.current
-    setCompletedPurchases(current => ({ scope, drafts: [...(current.scope === scope ? current.drafts.filter(item => item.id !== draft.id) : []), { ...draft, status }] }))
+    rememberPurchases([draft], status)
   }
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
@@ -1065,6 +1068,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const currentBudgetYear = data?.dashboard.action_center.current_year ?? new Date().getFullYear()
   const currentBudgetMonthIndex = data?.dashboard.action_center.current_month_index ?? new Date().getMonth()
   const selectedBudgetYear = (usesSelectedBudgetContext ? budgetView?.year : null) ?? activeBudgetPlan?.year ?? currentBudgetYear
+  const purchaseScope = `${budgetViewScope}:${selectedBudgetYear}`
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, (usesSelectedBudgetContext ? budgetView?.monthIndex : null) ?? (selectedBudgetYear === currentBudgetYear ? currentBudgetMonthIndex : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
@@ -3293,6 +3297,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`, transactionOperationKeysRef.current.keyFor(signature))
         : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      rememberPurchases(pendingDrafts, resolution === 'confirm' ? 'confirmed' : 'ignored')
       setData({ type: 'financial_mutation', update: workspace })
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -3365,6 +3370,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const signature = `transaction:reopen:${draft.id}`
       const workspace = await reopenTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      setCompletedPurchases(current => ({ ...current, drafts: current.drafts.filter(item => item.id !== draft.id) }))
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
       void refreshSpendingReport(selectedBudgetPeriodRef.current)
@@ -4247,11 +4253,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                       />
                     )}
 
-                    {(pendingTransactionDrafts.length > 0 || completedPurchases.scope === budgetViewScopeRef.current && completedPurchases.drafts.length > 0) && (
+                    {(pendingTransactionDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
                       <TransactionDraftReviewStack
                         drafts={pendingTransactionDrafts}
                         errors={reviewErrors}
-                        completedDrafts={completedPurchases.scope === budgetViewScopeRef.current ? completedPurchases.drafts : []}
+                        completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
                         draftActionsDisabled={budgetYearLoading}
                         isRealWorkspace={Boolean(isRealWorkspace)}
                         action={chatDraftAction}
@@ -4343,8 +4349,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     maxLength={MIA_MESSAGE_MAX_LENGTH}
                     ref={composerRef}
                   />
+                  <span id="mia-composer-limit" className="sr-only" role="alert">{miaCharactersRemaining < 0 ? 'Your message is too long to send. Shorten it before sending.' : ''}</span>
                   {miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT && (
-                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role={miaCharactersRemaining < 0 ? 'alert' : 'status'} aria-live={miaCharactersRemaining < 0 ? 'assertive' : 'polite'}>
+                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
                       {miaCharactersRemaining < 0
                         ? `Remove ${Math.abs(miaCharactersRemaining).toLocaleString()} ${miaCharactersRemaining === -1 ? 'character' : 'characters'} to send.`
                         : `${miaCharactersRemaining.toLocaleString()} ${miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining`}
@@ -4407,7 +4414,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
                         errors={reviewErrors}
-                        completedDrafts={completedPurchases.scope === budgetViewScopeRef.current ? completedPurchases.drafts : []}
+                        completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
                     isRealWorkspace
                     compact
                     action={chatDraftAction}
@@ -4445,7 +4452,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   />
                 </section>}
                 {!budgetYearLoading && budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
-                <ReviewedTransactionsPanel report={spendingReport} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
+                <ReviewedTransactionsPanel report={spendingReport} errors={reviewErrors} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
               </article>
               <PlaidConnections
                 householdId={data.workspace.household_id}
@@ -4781,6 +4788,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
               onReopenDraft={handleReopenTransactionDraft}
+              reviewErrors={reviewErrors}
               focusRequest={budgetFocusRequest}
               onFocusRequestHandled={() => setBudgetFocusRequest(null)}
             />
@@ -7319,6 +7327,14 @@ function MiaActionDraftReviewCard({
   ))
   const [isChoosingChanges, setIsChoosingChanges] = useState(Boolean(draft.suggested_selected_item_ids?.length))
   const [detailsOpen, setDetailsOpen] = useState(Boolean(draft.suggested_selected_item_ids?.length))
+  const suggestion = draft.suggested_selected_item_ids?.join(',') ?? ''
+  const [previousSuggestion, setPreviousSuggestion] = useState(suggestion)
+  if (isPending && suggestion !== previousSuggestion) {
+    setPreviousSuggestion(suggestion)
+    setSelectedIds(new Set(draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map(item => item.id)))
+    setIsChoosingChanges(Boolean(draft.suggested_selected_item_ids?.length))
+    setDetailsOpen(Boolean(draft.suggested_selected_item_ids?.length))
+  }
   const sentenceId = useId()
   const planRequiresFullApply = remainingItems.some((item) => item.action_type === 'confirm_household_setup')
   const positions = new Map(draft.items.map((item, index) => [item.position ?? index, item]))
@@ -7724,13 +7740,16 @@ export function TransactionDraftReviewStack({
   const [expanded, setExpanded] = useState(false)
   const [editingIds, setEditingIds] = useState<Set<number>>(() => new Set())
   const folded = collapsed && !expanded
-  const [order, setOrder] = useState<number[]>(() => pendingDrafts.map(draft => draft.id))
+  const [order, setOrder] = useState<number[]>(() => [...new Set([...pendingDrafts, ...completedDrafts].map(draft => draft.id))])
   const combined = new Map(completedDrafts.map(draft => [draft.id, draft]))
   pendingDrafts.forEach(draft => combined.set(draft.id, draft))
-  const addedIds = pendingDrafts.filter(draft => !order.includes(draft.id)).map(draft => draft.id)
+  const orderedIds = new Set(order)
+  const addedIds = [...combined.keys()].filter(id => !orderedIds.has(id))
   const nextOrder = [...addedIds, ...order].filter(id => combined.has(id))
   if (nextOrder.join() !== order.join()) setOrder(nextOrder)
   const drafts = nextOrder.flatMap(id => combined.get(id) ?? [])
+  const pendingEditingIds = new Set([...editingIds].filter(id => combined.get(id)?.status === 'pending'))
+  if (pendingEditingIds.size !== editingIds.size) setEditingIds(pendingEditingIds)
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
@@ -7762,6 +7781,10 @@ export function TransactionDraftReviewStack({
   const visibleDrafts = filteredDrafts.slice(pageStart, pageStart + pageSize)
   const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
   const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
+  // Keep every finished slot, and reach the next pending purchase across page boundaries.
+  const shownDrafts = folded
+    ? filteredDrafts.filter(draft => draft.status !== 'pending' || draft.id === filteredPendingDrafts[0]?.id || editingIds.has(draft.id))
+    : visibleDrafts
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
   const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
   const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft))
@@ -7892,7 +7915,7 @@ export function TransactionDraftReviewStack({
           <strong>No transaction reviews match that search.</strong>
           <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
         </div>
-      ) : (folded ? [...visibleDrafts.filter(draft => draft.status !== 'pending' || draft.id === visiblePendingDrafts[0]?.id || editingIds.has(draft.id)), ...drafts.filter(draft => editingIds.has(draft.id) && !visibleDrafts.some(visible => visible.id === draft.id))] : [...visibleDrafts, ...drafts.filter(draft => editingIds.has(draft.id) && !visibleDrafts.some(visible => visible.id === draft.id))]).map((draft) => (
+      ) : [...shownDrafts, ...drafts.filter(draft => editingIds.has(draft.id) && !shownDrafts.some(visible => visible.id === draft.id))].map((draft) => (
         <TransactionDraftReviewCard
           key={draft.id}
           error={errors[`purchase:${draft.id}`]}
@@ -8006,6 +8029,7 @@ function TransactionDraftReviewCard({
   const activeCategories = categories.filter((category) => category.active)
   const allowsNewCategory = draft.source_type === 'manual_chat' && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
+  if (!isPending && editing) setEditing(false)
   const liveResult = useLiveMiaResult(!isPending)
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
   const splitTotal = sumMoney(splits.map((split) => Number(split.amount || 0)))
@@ -8459,7 +8483,7 @@ export function CurrentMonthActivityPanel({
   )
 }
 
-type LedgerReopenControls = { action: string | null; disabled: boolean; onReopen: (draft: TransactionDraft) => void }
+type LedgerReopenControls = { action: string | null; disabled: boolean; errors?: Record<string, string>; onReopen: (draft: TransactionDraft) => void }
 
 function SpendingReportLedger({ report, reopen, planKnown = true }: { report: SpendingReport; reopen?: LedgerReopenControls; planKnown?: boolean }) {
   return (
@@ -8678,6 +8702,7 @@ export function AnnualBudgetPlanner({
   onArchiveCategory,
   onRestoreCategory,
   onReopenDraft,
+  reviewErrors = {},
   focusRequest,
   onFocusRequestHandled,
 }: {
@@ -8707,6 +8732,7 @@ export function AnnualBudgetPlanner({
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  reviewErrors?: Record<string, string>
   focusRequest?: BudgetFocusRequest | null
   onFocusRequestHandled?: () => void
 }) {
@@ -9202,7 +9228,7 @@ export function AnnualBudgetPlanner({
           spendingReport={spendingReport}
           loading={spendingReportLoading}
           error={spendingReportError}
-          reopen={isRealWorkspace ? { action, disabled: isEditingBudget, onReopen: onReopenDraft } : undefined}
+          reopen={isRealWorkspace ? { action, disabled: isEditingBudget, errors: reviewErrors, onReopen: onReopenDraft } : undefined}
         />
       </details>}
     </article>

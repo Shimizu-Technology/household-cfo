@@ -81,3 +81,38 @@ it('bulk confirmation cannot bypass an open purchase edit', () => {
   fireEvent.click(screen.getByText('More bulk options'))
   expect((screen.getByRole('button', { name: 'Confirm categorized 3' }) as HTMLButtonElement).disabled).toBe(true)
 })
+
+it.each([6, 11, 21])('fix2 folded queue keeps the last of %s purchases reachable after earlier completions', count => {
+  const queue = Array.from({ length: count }, (_, index) => purchase(index + 1))
+  const { rerender } = render(<TransactionDraftReviewStack {...props} drafts={queue} />)
+  for (let done = 1; done < count; done++) {
+    fireEvent.click(screen.getByRole('button', { name: `Confirm Shop ${done} $25 on Oct 4` }))
+    rerender(<TransactionDraftReviewStack {...props} drafts={queue.slice(done)} completedDrafts={queue.slice(0, done).map(draft => ({ ...draft, status: 'confirmed' }))} />)
+    expect(screen.getByRole('button', { name: `Confirm Shop ${done + 1} $25 on Oct 4` })).toBeTruthy()
+  }
+  for (const action of ['Confirm', 'Change', 'Not now']) expect(screen.getByRole('button', { name: `${action} Shop ${count} $25 on Oct 4` })).toBeTruthy()
+})
+
+it('fix2 completed-only mount retains the result and Undo', () => {
+  render(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[{ ...purchase(1), status: 'confirmed' }]} />)
+  expect(screen.getByText(/Confirmed\. Actuals were updated\./)).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Undo to edit Shop 1 $25 on Oct 4' })).toBeTruthy()
+})
+
+it.each(['individual', 'bulk'])('fix2 prunes an editor after %s Ignore so another group can be confirmed', path => {
+  const callbacks = { onBulkConfirm: vi.fn(), onBulkIgnore: vi.fn() }
+  const { rerender } = render(<TransactionDraftReviewStack {...props} {...callbacks} collapsed={false} />)
+  fireEvent.click(screen.getByRole('checkbox', { name: path === 'bulk' ? /Select Shop 1/ : 'Select this page' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Change Shop 1 $25 on Oct 4' }))
+  if (path === 'individual') fireEvent.click(screen.getByRole('button', { name: 'Not now Shop 1 $25 on Oct 4' }))
+  else {
+    fireEvent.click(screen.getByRole('button', { name: 'Ignore selected' }))
+    expect(callbacks.onBulkIgnore).toHaveBeenCalledWith([drafts[0]])
+  }
+  rerender(<TransactionDraftReviewStack {...props} {...callbacks} collapsed={false} drafts={drafts.slice(1)} completedDrafts={[{ ...drafts[0], status: 'ignored' }]} />)
+  const selectPage = screen.getByRole('checkbox', { name: 'Select this page' }) as HTMLInputElement
+  if (!selectPage.checked) fireEvent.click(selectPage)
+  expect((screen.getByRole('button', { name: 'Confirm selected' }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(screen.getByText('More bulk options'))
+  expect((screen.getByRole('button', { name: 'Confirm categorized 2' }) as HTMLButtonElement).disabled).toBe(false)
+})

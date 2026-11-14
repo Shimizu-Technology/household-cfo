@@ -50,3 +50,13 @@ it('shows the weekly conversion and requires acceptance of the whole 90-day amou
   expect(screen.getByRole('button', { name: 'Yes, set my goal to $257.14' })).toBeTruthy()
   expect(updateChallengeChatCard).not.toHaveBeenCalled()
 })
+
+it('fix2 exposes goal approval and focuses its inert result without opening details', async () => {
+  vi.mocked(updateChallengeChatCard).mockResolvedValue({ record: { ...card, status: 'closed', state: { approved_plan_version_id: 90 } }, challenge: {} as never })
+  render(<MiaChallengeGoal card={card} onDone={vi.fn()} onChangeAmount={vi.fn()} />)
+  const yes = screen.getByRole('button', { name: 'Yes, set my goal to $500' }); yes.focus(); fireEvent.click(yes)
+  const status = await screen.findByRole('status')
+  expect(status.textContent).toBe('This is now your goal for the whole 90 days. You can see it in Savings.')
+  expect(status.closest('details')).toBeNull()
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Goal saved: $500' })))
+})

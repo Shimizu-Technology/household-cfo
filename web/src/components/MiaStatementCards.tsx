@@ -1,3 +1,4 @@
+import { MiaCardResult } from './MiaCardResult'
 import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
@@ -160,11 +161,9 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
 
   if (approved) {
     return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
-      <details className="ui-disclosure mia-statement-result">
-        <summary><h3>{title}</h3> <strong>Approved.</strong></summary>
-        <p role="status">{countedSentence(plan)}</p>
+      <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
         {coverage.recorded === 'something_missing' && <p className="mia-statement-muted">{coverageMissingNote()}</p>}
-      </details>
+      </MiaCardResult>
     </section>
   }
 

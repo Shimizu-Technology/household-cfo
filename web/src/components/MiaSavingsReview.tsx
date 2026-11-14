@@ -65,7 +65,7 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   }
 
   if (saved) {
-    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Savings saved"><MiaCardResult title={withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`} onDone={() => onApproved?.()}><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p></MiaCardResult></section>
+    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Savings saved"><MiaCardResult title={withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`} live={Boolean(liveResult)} status={withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'} onDone={() => onApproved?.()} /></section>
   }
 
   if (inPlace) {

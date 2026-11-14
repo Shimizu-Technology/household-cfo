@@ -81,7 +81,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
 
   if (joined) {
-    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="You joined the challenge"><MiaCardResult title="You’re in. Welcome to the challenge." headingRef={heading} onDone={onDone}><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p></MiaCardResult></section>
+    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="You joined the challenge"><MiaCardResult title="You’re in. Welcome to the challenge." headingRef={heading} live={Boolean(liveResult)} status="Tell me when you set money aside, or ask me to help you choose a comfortable goal." onDone={onDone} /></section>
   }
   if (alreadyIn) return null
   if (loadFailed) {

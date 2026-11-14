@@ -77,3 +77,15 @@ it('sends her to Savings when the day is still unknown or there is no saved card
   fireEvent.click(screen.getByRole('button', { name: 'Review savings' }))
   expect(onReview).toHaveBeenCalledOnce()
 })
+
+it('fix2 exposes the saved savings status and focuses an inert result', async () => {
+  const saved = intake()
+  vi.mocked(updateChallengeChatCard).mockResolvedValue({ record: { ...card(saved), status: 'closed' }, challenge: {} as never })
+  render(<MiaSavingsReview intake={saved} card={card(saved)} today="2026-10-21" onReview={vi.fn()} />)
+  fireEvent.click(screen.getByLabelText(/new money I set aside/))
+  const yes = screen.getByRole('button', { name: 'Yes, add $50' }); yes.focus(); fireEvent.click(yes)
+  const status = await screen.findByRole('status')
+  expect(status.textContent).toBe('Saved to your challenge. Your total is up to date.')
+  expect(status.closest('details')).toBeNull()
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: '$50 added' })))
+})
