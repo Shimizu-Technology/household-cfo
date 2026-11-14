@@ -2959,7 +2959,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       trackPilotWorkflowFailure('mia_budget_review', 'apply')
       const message = participantErrorMessage(caught, `${assistantName} action draft could not be applied.`)
       setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
-      setBudgetError(message)
+      // This failure belongs to the review card.
       // The error is announced beside this card’s action.
       // The server marks a card out of date when the saved numbers moved on.
       // Reload so the card shows that instead of staying a live pending card.
@@ -3015,7 +3015,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       const message = participantErrorMessage(caught, 'That change didn’t save. Please try again.')
       setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
-      setBudgetError(message)
+      // This failure belongs to the review card.
       // The error is announced beside this card’s action.
       return false
     } finally {
@@ -3039,7 +3039,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       const message = participantErrorMessage(caught, 'I couldn’t open that purchase. Nothing changed.')
       setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
-      setBudgetError(message)
+      // This failure belongs to the review card.
       // The error is announced beside this card’s action.
       return false
     } finally {
@@ -3072,7 +3072,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       trackPilotWorkflowFailure('mia_budget_review', 'cancel')
       const message = participantErrorMessage(caught, `${assistantName} action draft could not be canceled.`)
       setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
-      setBudgetError(message)
+      // This failure belongs to the review card.
       // The error is announced beside this card’s action.
     } finally {
       endBudgetAction()
@@ -3126,9 +3126,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
-      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
-      setBudgetError(message)
-      setDocumentsError(message)
+      // This failure belongs to the review card.
+      // The editor announces the returned failure beside Save draft.
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
@@ -4279,6 +4278,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   </div>
                 )}
               <div className="mia-composer-notices">
+                {!budgetYearLoading && budgetError && budgetError !== miaError && <p className="chat-error" role="alert">{budgetError}</p>}
                 {miaError && <p className="chat-error" role="alert">{miaError}{miaRetryRequestRef.current && <button type="button" className="ui-btn ui-btn--text" disabled={miaLoading} onClick={() => void handleAskMia(question)}>Try again</button>}</p>}
                 {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
                 {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
@@ -8220,7 +8220,7 @@ function TransactionDraftReviewCard({
           <div className="transaction-draft-edit-actions">
             <button type="button" className="secondary-button" onClick={addSplit}>Add category</button>
             {splitMismatch && <span className="transaction-draft-disabled-reason">Category amounts total {formatReviewMoney(Math.round((splitTotal) * 100))} but draft total is {formatReviewMoney(Math.round((targetAmount) * 100))}.</span>}
-            {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
+            <MiaReviewError message={editError} />
             <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
             <button type="button" disabled={Boolean(action) || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
           </div>

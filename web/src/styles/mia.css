@@ -453,7 +453,7 @@
 .mia-chat-shell .chat-latest-space { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 0; }
 .mia-chat-shell .chat-latest-space:empty { display: none; }
 .mia-chat-shell .chat-latest-space > .empty-chat-starters { flex: 1; min-width: 0; }
-.mia-chat-shell .chat-latest-space:has(> button) { min-height: 48px; padding-block: 2px; }
+.mia-chat-shell .chat-latest-space:has(> button) { min-height: 48px; }
 .mia-chat-shell .chat-latest-space .chat-scroll-bottom-button {
   position: static;
   inset: auto;

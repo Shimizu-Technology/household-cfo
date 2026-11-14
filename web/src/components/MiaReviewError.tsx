@@ -10,8 +10,8 @@ export function MiaReviewError({ message }: { message?: string | null }) {
     const reveal = () => {
       if (!history) { element.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); return }
       const box = element.getBoundingClientRect(), area = history.getBoundingClientRect()
-      if (box.bottom > area.bottom) history.scrollTop += box.bottom - area.bottom
-      else if (box.top < area.top) history.scrollTop -= area.top - box.top
+      if (box.bottom > area.bottom - 2) history.scrollTop += box.bottom - area.bottom + 2
+      else if (box.top < area.top + 2) history.scrollTop -= area.top - box.top + 2
     }
     reveal()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(reveal)

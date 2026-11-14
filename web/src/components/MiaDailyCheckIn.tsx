@@ -1,3 +1,4 @@
+import { MiaReviewError } from './MiaReviewError'
 import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchDailyContext, fetchDailyRequestStatus } from '../api'
@@ -395,7 +396,7 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
     {noSpend ? <p className="mia-daily-nospend">No spending {dayWord}.</p> : <ul className="mia-daily-rows">
       {visibleRows.map(row => <li key={row.id} className="mia-daily-row is-saved"><p className="mia-daily-saved-row"><CheckIcon /><span><strong>{savingsPlainDollars(savingsInputCents(row.amount))}</strong> · {row.merchant} · {plainDay(row.purchased_on, today)}</span></p></li>)}
     </ul>}
-  </MiaCardResult>{statusText && <p className="mia-daily-status" role="alert">{statusText}</p>}</section>
+  </MiaCardResult><MiaReviewError message={statusText} /></section>
 
   return (
     <section ref={cardRef} className={`mia-daily-card ui-card${saved ? ' is-saved' : ''}`} aria-label="Your check-in" aria-busy={busy}>

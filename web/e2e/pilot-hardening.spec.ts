@@ -11496,7 +11496,8 @@ test('BOG UI chat assist panels keep spaced actions readable and preserve a draf
   await (await chatHeaderAction(page, 'Prompts')).click()
   await panel.getByRole('button', { name: 'Why is my readiness Red?', exact: true }).click()
   await expect(panel).toHaveCount(0)
-  await expect(composer).toHaveValue('Why is my readiness Red?')
+  await expect(composer).toHaveValue('Keep my own draft while I look for help.')
+  await expect(page.getByRole('alert').filter({ hasText: 'Your message and files are waiting here' })).toBeVisible()
   await expect(composer).toBeFocused()
   expect(sentMessages).toEqual([])
 })
@@ -12508,7 +12509,7 @@ test('BOG UI household Budget keeps categories visible without repeating Home’
 })
 
 for (const resolution of ['confirm', 'ignore'] as const) {
-  test(`BOG UI participant navigation remains available: compact phone layouts move focus after ${resolution} through the last review`, async ({ page }) => {
+  test(`BOG UI participant navigation remains available: compact phone layouts focus inert results after ${resolution} through the last review`, async ({ page }) => {
     const workspace = realWorkspaceData(true)
     workspace.budget.annual_plan.pending_transaction_drafts = [9101, 9102].map(id => ({ id, occurred_on: `${currentYear}-10-21`, merchant: `Focus Market ${id}`, amount: 12.34, amount_cents: 1234, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Dining out', splits: [], matches: [] }))
     await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
@@ -12521,11 +12522,12 @@ for (const resolution of ['confirm', 'ignore'] as const) {
     const first = page.getByRole('button', { name: new RegExp(`^${resolution === 'confirm' ? 'Confirm' : 'Not now'} Focus Market 9101`) })
     await first.focus()
     await first.press('Enter')
-    await expect(page.getByRole('button', { name: /^Confirm Focus Market 9102/ })).toBeFocused()
+    await expect(page.locator('[data-review-item="9101"] [data-review-result]')).toBeFocused()
+    await expect(page.getByRole('button', { name: /^Confirm Focus Market 9102/ })).not.toBeFocused()
     const last = page.getByRole('button', { name: new RegExp(`^${resolution === 'confirm' ? 'Confirm' : 'Not now'} Focus Market 9102`) })
     await last.focus()
     await last.press('Enter')
-    const caughtUp = page.getByRole('status').filter({ hasText: /^No purchases to review$/ })
+    const caughtUp = page.locator('[data-review-item="9102"] [data-review-result]')
     await expect(caughtUp).toBeFocused()
     await expect(caughtUp).toHaveCSS('outline-style', 'solid')
     expect(parseFloat(await caughtUp.evaluate(node => getComputedStyle(node).outlineWidth))).toBeGreaterThanOrEqual(2)
@@ -12609,7 +12611,7 @@ test('BOG UI ending income replaces a pristine schedule with one explicit confir
 })
 
 for (const width of [1366, 320]) {
-  test(`BOG UI final acceptance Reopen and Restore recover purchase focus at ${width}px`, async ({ page }) => {
+  test(`BOG UI final acceptance Reopen and Restore recover non-action focus at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 })
     const workspace = realWorkspaceData(true)
     const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
@@ -12637,14 +12639,18 @@ for (const width of [1366, 320]) {
     await expect(reopen).toBeVisible()
     await reopen.focus(); await reopen.press('Enter')
     await answerConfirm(page, 'accept')
-    await expect(confirm).toBeFocused()
+    await expect(confirm).toBeEnabled()
+    await expect(confirm).not.toBeFocused()
+    expect(await page.evaluate(() => document.activeElement?.matches('button, [data-review-confirm]'))).toBe(false)
     const ignore = page.getByRole('button', { name: /^Not now Dinner with friends/ })
     await ignore.focus(); await ignore.press('Enter')
     const restore = page.getByRole('button', { name: /^Restore Dinner with friends/ })
     await expect(restore).toBeVisible()
     await restore.focus(); await restore.press('Enter')
     await answerConfirm(page, 'accept')
-    await expect(confirm).toBeFocused()
+    await expect(confirm).toBeEnabled()
+    await expect(confirm).not.toBeFocused()
+    expect(await page.evaluate(() => document.activeElement?.matches('button, [data-review-confirm]'))).toBe(false)
   })
 }
 
@@ -14761,6 +14767,7 @@ test('BOG UI Mia finishing a long purchase keeps the thread and its result in vi
  const before=await page.locator('.message-row.assistant').last().boundingBox()
  await confirm.click()
  await expect(page.locator('.chat-card .transaction-draft-card')).toHaveCount(2)
+ await expect(page.locator('.chat-card .is-finished [data-review-result]')).toBeFocused()
  await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
  const after=await page.locator('.message-row.assistant').last().boundingBox()
  expect(Math.abs(after!.y-before!.y)).toBeLessThanOrEqual(1)
@@ -15245,3 +15252,27 @@ for (const width of [390, 1440]) {
     await r6MiaShot(page, `fix1-savings-ready-${width}`)
   })
 }
+
+test('BOG UI Mia fix1 failed Done is visible on a restored saved daily check-in', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const input = { ...miaDailyReport, purchases: [miaDailyReport.purchases[0]], feelings: null }
+  let card = { id: 99750, kind: 'daily_report', status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 99751, input,
+    state: { rows: [{ id: 0, amount: '8.00', merchant: 'Fictional fuel', purchased_on: '2026-09-28', status: 'saved', purchaseId: 200 }], feelingThen: '', feelingNow: '', keys: {}, phase: 'saved', message: null, switchedToSpending: [], checkedIn: ['2026-09-28'], noSpendSaved: false } }
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: [card], actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards/99750', route => {
+    const request = route.request().postDataJSON()
+    if (request.action === 'dismiss') return route.fulfill({ status: 503, json: { error: 'unavailable' } })
+    card = { ...card, lock_version: card.lock_version + 1, state: request.state }
+    return route.fulfill({ json: { record: card } })
+  })
+  await page.reload()
+  const saved = page.getByRole('region', { name: 'Your check-in', exact: true })
+  await expect(saved.getByRole('button', { name: 'Done', exact: true })).toBeVisible()
+  await page.setViewportSize({ width: 390, height: 430 })
+  await saved.getByRole('button', { name: 'Done', exact: true }).click()
+  const error = saved.getByRole('alert')
+  await expect(error).toContainText('We couldn’t close this card.')
+  expect(await error.evaluate(node => Boolean(node.closest('details')))).toBe(false)
+  await expect(error).toBeInViewport({ ratio: 1 })
+  await r6MiaShot(page, 'fix1-done-error')
+})
