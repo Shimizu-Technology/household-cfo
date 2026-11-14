@@ -72,7 +72,7 @@ body #root .decision-card > strong { display: block; font: var(--weight-semibold
 .module-unavailable-notice:focus { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
 /* Privacy and dismissal owners stay unchanged. */
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog, .document-source-dialog, .reviewed-source-dialog) { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; border-radius: var(--radius-lg); }
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) 32px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) :is(h3, h4, legend) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-consent, .pilot-guide-power-path, .baseline-limit, .baseline-approved, .baseline-preview, .evidence-contribution, .evidence-recovery, .evidence-proposal) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; background: transparent; color: var(--ink); box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) fieldset { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; }
@@ -108,7 +108,7 @@ body #root .statements-screen .document-history { margin: 0; }
 :is(.wealth-screen, .cfo-screen, .optionality-screen) .ui-card.ui-rows { padding: 18px; }
 body #root .statements-screen .document-upload-secondary .document-upload-card { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; padding-inline: 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; }
-body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal h3 { font: var(--weight-semibold) 32px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal h3 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 @container (min-width: 850px) {
   body #root .statements-screen .document-review-layout:has(> .document-review-panel) { grid-template-columns: minmax(0, 1fr) minmax(260px, .48fr); }
   .document-review-layout:not(:has(> .document-review-panel)) > .document-history { grid-column: 1 / -1; }
