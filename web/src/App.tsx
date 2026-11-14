@@ -3770,7 +3770,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
       if (!wasSetupComplete && payload.workspace?.setup_complete) {
         setQuestion('Based on my income, spending, and goal, what should I focus on first this month?')
-        switchSection('Ask Mia')
+        switchSection('Ask Mia', { focusHeading: false })
         window.setTimeout(() => composerRef.current?.focus(), 80)
       }
     } catch (caught) {
