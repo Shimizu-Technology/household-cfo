@@ -4865,7 +4865,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             {data.cfoFilter.decisions.map((decision) => (
               <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
                 <div>
-                  <span>{decision.recommendation}</span>
+                  <span className="ui-pill"><span className={`ui-dot ${decision.recommendation.toLowerCase() === 'approve' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
                 <strong>{!debtMinimumsKnown ? 'Not available' : formatReviewMoney(Math.round((decision.amount) * 100))}</strong>
@@ -4900,7 +4900,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           <div className="choice-grid ui-card ui-rows">
             {data.optionality.choices.map((choice) => (
               <article className={`choice-card ui-row ${choice.fit_tone}`} key={choice.label}>
-                <span>{choice.fit_label}</span>
+                <span className="ui-pill"><span className={`ui-dot ${choice.fit_tone === 'green' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{choice.fit_label}</span>
                 <h3>{choice.label}</h3>
                 <p>{choice.upside}</p>
                 <small>{choice.tradeoff}</small>

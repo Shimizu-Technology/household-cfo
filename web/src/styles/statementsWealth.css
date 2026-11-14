@@ -138,3 +138,4 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .challenge-personal-expor
 .wealth-figures .metric-card > strong { letter-spacing: normal; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) > header > div { min-width: 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) > header > button { flex: 0 0 auto; white-space: nowrap; }
+body #root :is(.choice-card, .decision-card) .ui-pill { background: transparent; color: var(--muted); padding-inline: 0; }
