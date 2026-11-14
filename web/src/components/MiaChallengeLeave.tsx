@@ -26,13 +26,13 @@ export function MiaChallengeLeave({ card, onDone, onConfirmed }: { card: Challen
     } catch (failure) { if (mounted.current) setError(participantErrorMessage(failure, 'We couldn’t confirm your choice. Try again; it won’t send twice.')) }
     finally { if (mounted.current) setBusy(false) }
   }
-  return <section className="mia-daily-card mia-action-card mia-leave-card" aria-label="Talk with your coach" aria-busy={busy}>
+  return <section className="mia-daily-card mia-action-card mia-leave-card ui-card" aria-label="Talk with your coach" aria-busy={busy}>
     <h3>Would you like your coach to know?</h3>
     <p>Your coach can talk with you about stepping away. Your challenge and saved record stay as they are until then.</p>
     {error && <p role="alert">{error}</p>}
-    <div className="mia-daily-actions">
-      {intents.map(intent => <button key={intent} type="button" className="mia-daily-save" disabled={busy} onClick={() => void act(intent)}>Tell my coach I’d like to {intent}</button>)}
-      <button type="button" className="mia-daily-dismiss" disabled={busy} onClick={() => void act()}>Not now</button>
+    <div className="mia-daily-actions ui-actions ui-actions--long">
+      {intents.map((intent, index) => <button key={intent} type="button" className={`ui-btn ${index === 0 ? 'mia-daily-save ui-btn--primary' : 'ui-btn--tonal'}`} disabled={busy} onClick={() => void act(intent)}>Tell my coach I’d like to {intent}</button>)}
+      <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={() => void act()}>Not now</button>
     </div>
     <p className="mia-daily-footnote">Only your choice is shared. Your private chat stays private.</p>
   </section>

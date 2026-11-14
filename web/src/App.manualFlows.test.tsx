@@ -51,11 +51,31 @@ function stackProps(drafts: TransactionDraft[], overrides: Record<string, unknow
 }
 
 describe('transaction review cards', () => {
+  it('opens the remaining chat purchases only after a deliberate disclosure tap', () => {
+    const props = stackProps([draft(), draft({ id: 221, merchant: 'Payless' })], { compact: true, collapsed: true })
+    render(<TransactionDraftReviewStack {...props} />)
+    expect(screen.getByRole('button', { name: "Confirm McDonald's $25 on Oct 4" })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Confirm Payless $25 on Oct 4' })).toBeNull()
+    expect(props.onConfirm).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '1 more purchase to check' }))
+    expect(screen.getByRole('button', { name: 'Confirm Payless $25 on Oct 4' })).toBeTruthy()
+    expect(props.onConfirm).not.toHaveBeenCalled()
+  })
+
+  it('collapses a finished purchase to its result while keeping its existing recovery action', () => {
+    const props = stackProps([draft({ status: 'confirmed' })])
+    const { container } = render(<TransactionDraftReviewStack {...props} />)
+    expect(container.querySelector('.transaction-draft-card')?.classList.contains('is-finished')).toBe(true)
+    expect(screen.queryByText('Purchase details')).toBeNull()
+    expect(container.querySelector('.terminal')?.textContent).toContain('Confirmed. Actuals were updated.')
+    fireEvent.click(screen.getByRole('button', { name: /Undo to edit/ }))
+    expect(props.onReopen).toHaveBeenCalledOnce()
+  })
   it.each([true, false])('uses the compact headline and plain decisions in both review stacks (compact=%s)', (compact) => {
     const props = stackProps([draft({ amount: 25, amount_cents: 2500 })], { compact })
     const { container } = render(<TransactionDraftReviewStack {...props} />)
     expect(container.querySelector('.mia-change-headline .mia-change-figure')?.textContent).toBe('$25')
-    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
+    expect(container.querySelector('.purchase-review-detail')?.textContent).toContain('Category: Dining out')
     expect(screen.getByText("McDonald's", { exact: true })).toBeTruthy()
     expect(container.textContent).not.toMatch(/Actuals do not change|Confirm only if|split, and category/)
     fireEvent.click(screen.getByRole('button', { name: "Confirm McDonald's $25 on Oct 4" }))
@@ -71,10 +91,10 @@ describe('transaction review cards', () => {
       stack_label: 'Everyday spending', amount: 12.5, amount_cents: 1250, notes: null, confidence: null }))
     const props = stackProps([draft({ splits })], { compact })
     const { container, rerender } = render(<TransactionDraftReviewStack {...props} />)
-    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('CategoryDining out')
-    expect(container.querySelector('.mia-change-lines')?.textContent).not.toContain('2 categories')
+    expect(container.querySelector('.purchase-review-detail')?.textContent).toContain('Category: Dining out')
+    expect(container.querySelector('.purchase-review-detail')?.textContent).not.toContain('2 categories')
     rerender(<TransactionDraftReviewStack {...props} drafts={[draft({ splits: [splits[0], { ...splits[1], budget_category_id: 8, category_name: 'Groceries' }] })]} />)
-    expect(container.querySelector('.mia-change-lines')?.textContent).toContain('Category2 categories')
+    expect(container.querySelector('.purchase-review-detail')?.textContent).toContain('Category: 2 categories')
   })
 
   it('shows a newly drafted purchase even when an earlier queue page and filter were open', async () => {

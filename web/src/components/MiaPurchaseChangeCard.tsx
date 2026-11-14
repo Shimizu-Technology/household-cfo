@@ -1,3 +1,4 @@
+import { miaReviewResult } from '../lib/miaReviewResult'
 import { useEffect, useRef, useState } from 'react'
 import type { MiaActionDraft } from '../api'
 import './MiaDailyCheckIn.css'
@@ -36,15 +37,21 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
   const locked = disabled || action !== null
   const applying = action === `apply-mia-action:${draft.id}`
   const canceling = action === `cancel-mia-action:${draft.id}`
+  const title = change.mode === 'choose' ? 'Which purchase do you mean?' : change.void ? `Take ${change.merchant} out of your spending?` : `Change your ${change.merchant} purchase?`
+
+  if (draft.status !== 'pending' && draft.status !== 'partially_applied') return <section className="mia-daily-card ui-card is-finished" aria-label={change.mode === 'choose' ? 'Which purchase' : title}>
+    <h3 ref={heading} tabIndex={-1}>{title}</h3>
+    <p className="mia-review-result" role="status">{miaReviewResult(draft)}</p>
+  </section>
 
   if (change.mode === 'choose') {
     return (
-      <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card" aria-label="Which purchase" aria-busy={choosing !== null}>
+      <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card ui-card" aria-label="Which purchase" aria-busy={choosing !== null}>
         <h3 ref={heading} tabIndex={-1}>Which purchase do you mean?</h3>
         <ul className="mia-purchase-options">
           {change.options.map((option) => (
             <li key={option.index}>
-              <button type="button" className="secondary-button" disabled={locked || choosing !== null} onClick={async () => {
+              <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={locked || choosing !== null} onClick={async () => {
                 setChoosing(option.index); setError('')
                 const ok = await onChoose(draft, option.index)
                 if (!ok) setError('I couldn’t open that one. Please try again. Nothing changed.')
@@ -55,16 +62,15 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
         </ul>
         {error && <p role="alert">{error}</p>}
         <p className="mia-daily-footnote">Nothing has changed yet.</p>
-        <div className="mia-daily-actions">
-          <button type="button" className="mia-daily-dismiss" disabled={locked} onClick={() => onCancel(draft)}>{canceling ? 'Closing…' : 'Not now'}</button>
+        <div className="mia-daily-actions ui-actions">
+          <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={locked} onClick={() => onCancel(draft)}>{canceling ? 'Closing…' : 'Not now'}</button>
         </div>
       </section>
     )
   }
 
-  const title = change.void ? `Take ${change.merchant} out of your spending?` : `Change your ${change.merchant} purchase?`
   return (
-    <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card" aria-label={title} aria-busy={applying}>
+    <section ref={card} className="mia-daily-card mia-action-card mia-purchase-card ui-card" aria-label={title} aria-busy={applying}>
       <h3 ref={heading} tabIndex={-1}>{title}</h3>
       <p className="mia-purchase-which">{change.date_label}{change.void ? ` · ${change.amount}` : ''}</p>
       {change.rows.length > 0 && (
@@ -81,9 +87,9 @@ export function MiaPurchaseChangeCard({ draft, action, disabled, onApply, onCanc
         </div>
       )}
       {draft.stale && <p className="mia-action-stale-note" role="status">That purchase changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
-      <div className="mia-daily-actions">
-        <button type="button" className="mia-daily-save" disabled={locked || Boolean(draft.stale)} onClick={() => onApply(draft)}>{applying ? 'Saving…' : change.void ? 'Yes, take it out' : 'Yes, change it'}</button>
-        <button type="button" className="mia-daily-dismiss" disabled={locked} onClick={() => onCancel(draft)}>{canceling ? 'Closing…' : 'Not now'}</button>
+      <div className="mia-daily-actions ui-actions">
+        <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={locked || Boolean(draft.stale)} onClick={() => onApply(draft)}>{applying ? 'Saving…' : change.void ? 'Yes, take it out' : 'Yes, change it'}</button>
+        <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={locked} onClick={() => onCancel(draft)}>{canceling ? 'Closing…' : 'Not now'}</button>
       </div>
       <p className="mia-daily-footnote">Nothing changes until you tap Yes. {change.note}</p>
     </section>

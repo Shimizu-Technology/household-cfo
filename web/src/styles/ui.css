@@ -1,6 +1,6 @@
 /* Shared Look A primitives. Loaded after legacy app styles; scoped control
    selectors also win over lazy component styles, regardless of chunk order. */
-.ui-card,
+.ui-card.ui-card,
 .ui-answer {
   min-width: 0;
   padding: 18px;
@@ -235,6 +235,17 @@ body :is(#root, [role='dialog'], [role='alertdialog']) details[open] > summary::
 .ui-disclosure { border-top: 1px solid var(--rule); }
 .ui-disclosure > summary { font-weight: var(--weight-medium); }
 .ui-disclosure > :not(summary) { margin-block: 8px 16px; }
+
+/* Shared decision row. Long approved action names may need a full first row
+   on phones; the short purchase decisions always remain side by side. */
+.ui-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ui-actions > :is(button, a) { flex: 0 1 auto; min-width: 0; }
+.ui-actions.ui-actions--compact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--compact > .ui-btn { width: 100%; padding-inline: 8px; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--tight > .ui-btn { padding-inline: 8px; }
+@media (max-width: 620px) {
+  .ui-actions--long > :first-child { flex-basis: 100%; }
+}
 
 /* One focus treatment, including programmatically focused notices and portals.
    Noninteractive route headings keep their intentional outline exemption. */

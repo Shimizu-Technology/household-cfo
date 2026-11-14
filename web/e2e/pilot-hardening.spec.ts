@@ -24,6 +24,37 @@ async function answerConfirm(page: Page, answer: 'accept' | 'dismiss', ...expect
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const longMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+async function r6MiaShot(page: Page, label: string, card?: Locator) {
+  const directory = process.env.HCFO_R6_P4_SHOTS
+  if (!directory) return
+  await page.evaluate(() => document.fonts.ready)
+  if (card) await card.scrollIntoViewIfNeeded()
+  const prefix = `${directory}/${test.info().project.name}-${label}`
+  await page.screenshot({ path: `${prefix}.png` })
+  if (card) {
+    const viewport = page.viewportSize()!
+    const box = await card.boundingBox()
+    // Keep the real viewport above. A separate card-only inspection expands
+    // height so overflow ancestors and the composer cannot clip its evidence.
+    await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.ceil(box!.height + 360)) })
+    await card.scrollIntoViewIfNeeded()
+    await card.screenshot({ path: `${prefix}-card.png`, style: '.chat-scroll-bottom-button { visibility: hidden !important; }' })
+    await page.setViewportSize(viewport)
+    const lastAction = card.getByRole('button').last()
+    if (await lastAction.count()) await lastAction.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: `${prefix}-actions.png` })
+  }
+}
+
+async function r6MiaFrames(page: Page, label: string, target: Locator) {
+  const directory = process.env.HCFO_R6_P4_SHOTS
+  if (!directory) return
+  for (const time of [0, 50, 100, 200]) {
+    await target.evaluate((node, at) => node.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = at }), time)
+    await page.screenshot({ path: `${directory}/${test.info().project.name}-${label}-${time}ms.png` })
+  }
+}
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
@@ -2528,7 +2559,7 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
 
   await (await chatHeaderAction(page, 'Prompts')).click()
   await expect(chatAssistPanel(page)).toContainText('Changes always need your review.')
-  const example = page.getByRole('button', { name: 'Update my income', exact: true })
+  const example = chatAssistPanel(page).getByRole('button', { name: 'Update my income', exact: true })
   await example.click()
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await expect(composer).toHaveValue('Help me update my household income sources and schedules.')
@@ -3025,8 +3056,9 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
       return Boolean(latest?.textContent?.includes('October dining out') && box && box.top >= area.top - 2 && box.top < area.top + 40 && area.bottom - box.top >= 60)
     }), { timeout: 15_000 }).toBe(true)
     if (process.env.HCFO_SHOTS) await page.screenshot({ path: `${process.env.HCFO_SHOTS}/f13-${viewport.width}x${viewport.height}.png` })
-    // Review has one destination and a separate band, whether its cards are in view or below.
+    // Review stays in the thread; it does not occupy a pinned composer band.
     await expect(page.locator('.chat-history-navigation .chat-pending-line')).toBeVisible()
+    await expect(page.locator('.chat-card .chat-history-navigation .chat-pending-line')).toHaveCount(1)
     const overlap = await page.evaluate(() => {
       const shortcut = document.querySelector('.chat-history-navigation .chat-pending-line')
       if (!shortcut) return { overlaps: false }
@@ -3036,7 +3068,7 @@ for (const viewport of [{ width: 1366, height: 900 }, { width: 390, height: 844 
       const area = document.querySelector('.chat-card')!.getBoundingClientRect()
       // Only the part of an element that is visible inside the scrolling card counts.
       const hits = (other: DOMRect) => { const bottom = Math.min(other.bottom, area.bottom); return other.width > 0 && bottom > other.top && !(other.right <= box.left || other.left >= box.right || bottom <= box.top || other.top >= box.bottom) }
-      const controls = [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => hits(control.getBoundingClientRect()))
+      const controls = [...document.querySelectorAll('.chat-card button, .chat-card a, .chat-card summary')].some((control) => control !== shortcut && hits(control.getBoundingClientRect()))
       return { overlaps: controls || Boolean(reply && hits(reply)) }
     })
     expect(overlap.overlaps).toBe(false)
@@ -3563,7 +3595,7 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
   expect(clearedMetrics.overflowY).toBe('hidden')
 })
 
-test('Ask Mia preserves one request ID through a network failure and reload so retry cannot duplicate the turn', async ({ page }) => {
+test('BOG UI Ask Mia preserves one request ID through a network failure and reload so retry cannot duplicate the turn', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   const requestIds: string[] = []
   let attempt = 0
@@ -3594,6 +3626,7 @@ test('Ask Mia preserves one request ID through a network failure and reload so r
   await expect(composer).toHaveValue('What should I focus on?')
   await expect(composer).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
+  await r6MiaShot(page, 'failed-send')
 
   await page.reload()
   const restoredComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
@@ -4683,7 +4716,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(more).toBeFocused()
   await (await chatHeaderAction(page, 'Prompts')).click()
 
-  await page.getByRole('button', { name: 'Update my income', exact: true }).click()
+  await chatAssistPanel(page).getByRole('button', { name: 'Update my income', exact: true }).click()
   await expect(suggestedQuestion).toBeHidden()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('Help me update my household income sources and schedules.')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
@@ -5208,7 +5241,7 @@ test('confirmed import history does not project the same draft into budget impac
   await page.goto('/?pilot_e2e_role=participant#Statements')
 
   const card = page.locator('.transaction-draft-card').filter({ hasText: confirmedDraft.merchant })
-  await expect(card).toContainText('Receipt')
+  await expect(card.getByText('Purchase details', { exact: true })).toHaveCount(0)
   await expect(card).toContainText('Confirmed. Actuals were updated.')
   await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
 })
@@ -8741,6 +8774,7 @@ for (const setupComplete of [false, true]) {
     const files = Array.from({ length: 5 }, (_, index) => ({ name: `QA-statement-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') }))
     await fileInput.setInputFiles(files)
     await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+    await r6MiaShot(page, `attachments-${setupComplete ? 'established' : 'setup'}`)
     await expect(page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })).toHaveCount(1)
     const geometry = await page.locator('.mia-chat-shell').evaluate((shell) => {
       const box = shell.getBoundingClientRect()
@@ -9082,11 +9116,14 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   // Only a few questions are asked here; the rest wait on the Statements screen.
   await expect(card.getByRole('listitem')).toHaveCount(3)
   await expect(card.getByRole('button', { name: 'and 7 more — review them' })).toBeVisible()
+  await r6MiaShot(page, 'statement-pending', card)
   const sizes = await card.getByRole('button').evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().height)))
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   await card.getByRole('button', { name: 'Approve these 100' }).click()
   await expect(card.getByText('Approved.')).toBeVisible()
+  await r6MiaShot(page, 'statement-finished', card)
+  await card.locator('.mia-statement-result > summary').click()
   await expect(card.getByText(/18 purchases, \$2,249\.65, now count in your spending\./)).toBeVisible()
   expect(saved).toMatchObject({ revision_id: 88, input: { paged: true } })
   expect((saved as { input: { lines: unknown[] } }).input.lines).toHaveLength(100)
@@ -10112,8 +10149,9 @@ test('BOG UI baseline revoked refresh clears private snapshots and controls',asy
 
 async function assertBaselineFits(dialog: ReturnType<Page['getByRole']>) {const size = await dialog.evaluate((root) => ({scroll:root.scrollWidth,client:root.clientWidth,width:root.getBoundingClientRect().width,offenders:[...root.querySelectorAll('*')].filter((node)=>node.getClientRects().length && (node.getBoundingClientRect().right > root.getBoundingClientRect().right-parseFloat(getComputedStyle(root).paddingRight)+1 || node.scrollWidth > node.clientWidth+1)).map((node)=>({tag:node.tagName,text:node.textContent?.slice(0,60),width:node.getBoundingClientRect().width,right:node.getBoundingClientRect().right,scroll:node.scrollWidth,client:node.clientWidth,padding:getComputedStyle(node).padding})).slice(-12)}));expect(size.scroll,JSON.stringify(size)).toBeLessThanOrEqual(size.client+1)}
 
-async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean;active?:boolean;holdSecondApprove?:boolean}={}) {
-  const {home}=await openSavingsHome(page)
+async function openDaily(page:Page,options:{known?:boolean;source?:boolean;uncertain?:boolean;many?:boolean;active?:boolean;holdSecondApprove?:boolean;checkpoint?:boolean}={}) {
+  const {home,current}=await openSavingsHome(page)
+  if (options.checkpoint) current().timeline = { checkpoints_due: [30], days: [] }
   let context={...structuredClone(dailyContext),cohort_id:41,enrollment_id:1};let revoked=false
   const purchases:DailyPurchase[]=options.known?[{id:200,current_version_id:400,lock_version:1,current_version:{...dailyVersion,link_kind:options.source?'existing_transaction':'manual_new'}}]:[]
   const drafts:DailyPurchaseDraft[]=[];const reflections:DailyReflection[]=[];const checkpointDrafts:DailyCheckpointDraft[]=[];const checkpoints:DailyCheckpoint[]=[]
@@ -12253,7 +12291,7 @@ for (const role of ['participant', 'coach', 'admin']) {
   })
 }
 
-test('Ask Mia starters fill the composer without sending and stay out of first-session setup', async ({ page }) => {
+test('BOG UI Ask Mia starters fill the composer without sending and stay out of first-session setup', async ({ page }) => {
   const sends: string[] = []
   await page.route('http://api.test/api/v1/mia/messages**', (route) => {
     if (route.request().method() === 'POST') sends.push(route.request().url())
@@ -12263,6 +12301,7 @@ test('Ask Mia starters fill the composer without sending and stay out of first-s
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: { ...ready, mia: { ...ready.mia, messages: [], oldest_message_id: null, older_message_count: 0, historical_message_count: 0 } } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await r6MiaShot(page, 'empty')
   await page.getByRole('group', { name: 'Ways to start' }).getByRole('button', { name: 'Update a debt', exact: true }).click()
   await expect(composer).toHaveValue('Help me update one of my household debts.')
   await expect(page.getByRole('heading', { name: 'Håfa adai, I’m Mia.', exact: true })).toBeVisible()
@@ -12925,10 +12964,12 @@ test('BOG UI mobile Ask Mia anchors the sent message above typing and never retu
   await expect(page.locator('.message-row.assistant').last()).toContainText('Ross ($600)')
   await expect.poll(sentAtTop).toBe('anchored')
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(1)
-  await expect(page.locator('.is-new-reply')).toHaveCSS('animation-duration', '0.15s')
+  await expect(page.locator('.is-new-reply .message')).toHaveCSS('animation-duration', '0.2s')
+  await r6MiaFrames(page, 'message-arrival', page.locator('.is-new-reply .message'))
   await expect(page.locator('.message-row.user').last()).toHaveCSS('animation-name', 'none')
   await page.emulateMedia({ reducedMotion: 'reduce' })
-  await expect(page.locator('.is-new-reply')).toHaveCSS('animation-name', 'none')
+  await expect(page.locator('.is-new-reply .message')).toHaveCSS('animation-name', 'mia-result-appear')
+  await expect(page.locator('.is-new-reply .message')).toHaveCSS('transform', 'none')
   await page.locator('.chat-card').dispatchEvent('wheel', { deltaY: -400 })
   await page.locator('.chat-card').evaluate(card => { card.scrollTop = 0; card.dispatchEvent(new Event('scroll')) })
   await page.getByRole('button', { name: 'Scroll to latest Mia message' }).click()
@@ -12993,8 +13034,10 @@ test('BOG UI mobile Ask Mia empty history offers a compact review link and gives
   if (viewport.width <= 620) {
     const height = await page.locator('.chat-card').evaluate(card => card.clientHeight)
     const footerHeight = await page.locator('.mia-footer').evaluate(footer => footer.getBoundingClientRect().height)
-    // Keep the existing budget for other chrome, plus the newly required footer.
-    expect(height).toBeGreaterThan(viewport.height - 270 - footerHeight)
+    const startersHeight = await page.getByRole('group', { name: 'Ways to start' }).evaluate(group => group.getBoundingClientRect().height)
+    // The chosen design moves its 44px starter row out of history. Account for
+    // that row explicitly while retaining the existing budget for other chrome.
+    expect(height).toBeGreaterThan(viewport.height - 270 - footerHeight - startersHeight)
     const clearance = await page.evaluate(() => ({ about: document.querySelector('.mia-disclaimer-toggle')!.getBoundingClientRect().bottom, bar: document.querySelector('.tabs-shell')!.getBoundingClientRect().top }))
     expect(clearance.about).toBeLessThanOrEqual(clearance.bar)
     await page.locator('.chat-more-button').click()
@@ -13016,7 +13059,7 @@ test('BOG UI mobile Ask Mia empty history offers a compact review link and gives
 })
 
 
-test('mobile Ask Mia structured review figures match Review and short threads open without a spacer gap', async ({ page }) => {
+test('BOG UI mobile Ask Mia structured review figures match Review and short threads open without a spacer gap', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.mia.messages = [
     { id: 9101, role: 'user', author: 'You', content: 'Move $60 to repairs for November.', attachments: [] },
@@ -13036,11 +13079,18 @@ test('mobile Ask Mia structured review figures match Review and short threads op
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const card = page.getByRole('article', { name: draft.title, exact: true })
   await expect(card.locator('.mia-change-figure')).toHaveText('$60')
+  await r6MiaShot(page, 'action-draft', card)
   await expect.poll(() => page.locator('.chat-turn-spacer').evaluate(spacer => spacer.getBoundingClientRect().height)).toBe(0)
   expect(await page.locator('.chat-card').evaluate(history => {
     const bounds = history.getBoundingClientRect()
-    const first = [...history.querySelectorAll('.message-row, .mia-action-draft-card')].find(item => item.getBoundingClientRect().bottom > bounds.top)
-    return Math.abs(first!.getBoundingClientRect().top - bounds.top)
+    const messages = [...history.querySelectorAll('.message-row')]
+    const first = messages[0].getBoundingClientRect()
+    const last = messages.at(-1)!.getBoundingClientRect()
+    // The starter row now lives outside history. At 320×568 this exchange
+    // exceeds the remaining thread height, so entry keeps the newest reply
+    // at its existing 12px anchor instead of treating it as a short thread.
+    const anchor = last.bottom - first.top <= history.clientHeight ? first : last
+    return Math.abs(anchor.top - bounds.top)
   })).toBeLessThanOrEqual(24)
   await card.getByText('See details', { exact: true }).click()
   await expect(card.locator('.mia-change-lines')).toContainText('Dining out$250 → $190')
@@ -13053,15 +13103,13 @@ test('mobile Ask Mia structured review figures match Review and short threads op
   const apply = (await card.getByRole('button', { name: 'Apply change', exact: true }).boundingBox())!
   const later = (await card.getByRole('button', { name: 'Not now', exact: true }).boundingBox())!
   const change = (await card.getByRole('button', { name: 'Change', exact: true }).boundingBox())!
-  if (page.viewportSize()!.width > 620) {
-    expect(Math.abs(apply.y - later.y)).toBeLessThan(2)
-    expect(change.x - later.x - later.width).toBeLessThanOrEqual(16)
-  } else {
-    expect(later.y).toBeGreaterThan(apply.y)
-    expect(Math.abs(later.y - change.y)).toBeLessThan(2)
-  }
+  expect(Math.abs(apply.y - later.y)).toBeLessThan(2)
+  expect(Math.abs(apply.y - change.y)).toBeLessThan(2)
+  expect(change.x).toBeGreaterThanOrEqual(apply.x + apply.width)
+  expect(later.x - change.x - change.width).toBeLessThanOrEqual(16)
+  expect(later.x).toBeGreaterThanOrEqual(change.x + change.width)
   const reviewLink = page.getByRole('button', { name: /changes? to review|purchases? to review/ }).last()
-  expect(await reviewLink.evaluate(link => link.closest('.chat-card'))).toBeNull()
+  expect(await reviewLink.evaluate(link => Boolean(link.closest('.chat-card')))).toBe(true)
   await reviewLink.click()
   await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('article', { name: draft.title, exact: true }).locator('.mia-change-figure')).toHaveText('$60')
@@ -13498,7 +13546,7 @@ test('BOG UI a goal card does not hide a separate daily report fallback', async 
   await expect(page.getByRole('region',{name:'Your check-in',exact:true})).toBeVisible()
 })
 
-test('mobile Ask Mia setup card updates a row in place and applies on one card', async ({ page }) => {
+test('BOG UI mobile Ask Mia setup card updates a row in place and applies on one card', async ({ page }) => {
   const base = realWorkspaceData(false)
   const row = (key: string, label: string, extra: Record<string, unknown> = {}) => ({ key, label, kind: 'money', status: 'missing', value_text: null, total_cents: null, parts: [], note: null, ...extra })
   const cardDraft = (fixedCents: number, rentCents: number) => ({
@@ -13537,6 +13585,8 @@ test('mobile Ask Mia setup card updates a row in place and applies on one card',
   await expect(card.getByText('$20 a week')).toBeVisible()
   await expect(card.getByText('$20 a week')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+  await r6MiaShot(page, 'setup', card)
   await card.getByRole('button', { name: /^Change Rent/ }).click()
   await card.getByRole('textbox').fill('1600')
   await card.getByRole('button', { name: 'Save', exact: true }).click()
@@ -14044,6 +14094,7 @@ test('BOG UI leave card waits for a tap, survives reload and confirms the chosen
   await expect(region).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   expect(calls).toEqual([])
+  await r6MiaShot(page, 'leave', region)
   await page.reload()
   await openSection(page, 'Ask Mia')
   await expect(region).toBeVisible()
@@ -14419,4 +14470,185 @@ test('BOG UI shell More exit holds the backdrop at its finished opacity', async 
     expect(sample.dim).toBe(1)
     if (index) expect(sample.root).toBeLessThanOrEqual(samples[index - 1].root)
   }
+})
+
+// Round 6: contact actions use only the newest care reply's own instruction.
+for (const [content, call, text] of [
+  ['Please call or text 988 now.', true, true],
+  ['Please call 988 now.', true, false],
+  ['You can text 988 now.', false, true],
+  ['Your balance is $988. Call your coach when you are ready.', false, false],
+] as const) {
+  test(`BOG UI Mia care contacts match this reply and survive reload: ${content}`, async ({ page }) => {
+    const workspace = realWorkspaceData(true)
+    const reply = { id: 99002, role: 'assistant', author: 'Mia', content, care_active: true, care_hold: true }
+    const state = { ...workspace, mia: { ...workspace.mia, messages: [reply], care_active: true, care_hold: true } }
+    await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: state }))
+    await page.route('http://api.test/api/v1/mia/messages**', route => route.request().method() === 'GET'
+      ? route.fulfill({ json: { messages: [reply], care_active: true, care_hold: true, oldest_message_id: reply.id, older_message_count: 0 } }) : route.fallback())
+    await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+    const assertContacts = async () => {
+      await expect(page.locator('.chat-card')).toContainText(content)
+      await expect(page.getByRole('link', { name: 'Call 988', exact: true })).toHaveCount(call ? 1 : 0)
+      await expect(page.getByRole('link', { name: 'Text 988', exact: true })).toHaveCount(text ? 1 : 0)
+      if (call) await expect(page.getByRole('link', { name: 'Call 988' })).toHaveAttribute('href', 'tel:988')
+      if (text) await expect(page.getByRole('link', { name: 'Text 988' })).toHaveAttribute('href', 'sms:988')
+      await expect(page.locator('.mia-care-actions a')).toHaveCount(Number(call) + Number(text))
+      await expect(page.getByRole('group', { name: 'Ways to start' })).toHaveCount(0)
+      await expect(page.locator('.chat-pending-line')).toHaveCount(0)
+    }
+    await assertContacts()
+    if (call && text) {
+      await page.getByRole('link', { name: 'Call 988' }).focus()
+      await page.keyboard.press('Tab')
+      await expect(page.getByRole('link', { name: 'Text 988' })).toBeFocused()
+    }
+    await page.reload()
+    await assertContacts()
+    if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-care-${Number(call)}${Number(text)}.png` })
+  })
+}
+
+test('BOG UI Mia ordinary replies never acquire care contacts from a number', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const reply = { id: 99003, role: 'assistant', author: 'Mia', content: 'You have $988 left. Call or text 988 is a number in this example.', safety_reply: false }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, mia: { ...workspace.mia, messages: [reply] } } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.locator('.chat-card')).toContainText('$988 left')
+  await expect(page.locator('.mia-care-actions')).toHaveCount(0)
+})
+
+test('BOG UI Mia compact purchase decisions, composer focus and completion preserve the thread', async ({ page }) => {
+  if (test.info().project.name === 'desktop-chrome') await page.setViewportSize({ width: 1440, height: 900 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  workspace.budget.annual_plan.pending_transaction_drafts = [workspace.budget.annual_plan.pending_transaction_drafts[0]]
+  workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: 1, returned_count: 1, limit: 500, truncated: false }
+  workspace.mia.messages = [
+    { id: 99101, role: 'user', author: 'You', content: 'I bought groceries.' },
+    { id: 99102, role: 'assistant', author: 'Mia', content: 'Check this purchase before it counts.' },
+  ]
+  let confirms = 0
+  const draft = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/confirm`, route => {
+    confirms++
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.budget.annual_plan.pending_transaction_drafts_meta.total_count = 0
+    workspace.budget.annual_plan.pending_transaction_drafts_meta.returned_count = 0
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.transaction-draft-card')
+  await expect(card).toBeVisible()
+  await card.scrollIntoViewIfNeeded()
+  const decisions = card.locator('.transaction-draft-actions > button')
+  const rows = await decisions.evaluateAll(buttons => buttons.map(button => Math.round(button.getBoundingClientRect().top)))
+  expect(new Set(rows).size).toBe(1)
+  expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+  expect(confirms).toBe(0)
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('An unsent thought')
+  if (page.viewportSize()!.width <= 620) await expect(page.locator('.app')).toHaveAttribute('data-text-entry-focus', '')
+  await expect(composer).toBeInViewport()
+  if (page.viewportSize()!.width <= 620) await expect(page.locator('.tabs-shell')).toBeHidden()
+  await expect(page.getByRole('group', { name: 'Ways to start' })).toBeVisible()
+  if (page.viewportSize()!.width <= 620) {
+    const original = page.viewportSize()!
+    await page.setViewportSize({ width: original.width, height: 430 })
+    await expect(composer).toBeInViewport()
+    await expect(page.locator('.message-row.assistant').last()).toBeInViewport()
+    await expect(page.locator('.tabs-shell')).toBeHidden()
+    await r6MiaShot(page, 'keyboard-viewport')
+    await page.setViewportSize(original)
+  }
+  // Measure the deliberate review tap after its target is in view. Moving
+  // from a multiline composer to an offscreen card is a separate interaction.
+  await decisions.first().focus()
+  await decisions.first().scrollIntoViewIfNeeded()
+  const position = await page.locator('.message-row.assistant').last().boundingBox()
+  if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-purchase-before.png` })
+  await decisions.first().click()
+  await expect(card).toHaveCount(0)
+  await expect(page.locator('.chat-card [data-review-result]')).toContainText('Confirmed')
+  await r6MiaFrames(page, 'card-completion', page.locator('.chat-card [data-review-result]'))
+  expect(confirms).toBe(1)
+  await expect(composer).toHaveValue('An unsent thought')
+  const after = await page.locator('.message-row.assistant').last().boundingBox()
+  expect(Math.abs(after!.y - position!.y)).toBeLessThanOrEqual(1)
+  if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-purchase-finished.png` })
+  await page.reload()
+  await expect(card).toHaveCount(0)
+  expect(confirms).toBe(1)
+})
+
+test('BOG UI Mia savings review cards retain their consent and long action names without overflow', async ({ page }) => {
+  await openDaily(page, { active: true })
+  const base = { status: 'pending', lock_version: 0, enrollment_id: 1, message_id: 99201, state: {} }
+  const cards = [
+    { ...base, id: 99211, kind: 'goal', input: { target_cents: 50000, expected_plan_version_id: null } },
+    { ...base, id: 99212, kind: 'savings', input: { kind: 'contribution', amount_cents: 5000, signed_cents: 5000, effective_on: '2026-09-28', counted: false, approval_state: 'unreviewed_input', new_money_confirmation_required: true } },
+    { ...base, id: 99213, kind: 'leave', input: { intents: ['leave', 'pause'] } },
+  ]
+  let mutations = 0
+  await page.route('http://api.test/api/v1/savings_challenge/chat_cards', route => route.fulfill({ json: { records: cards, actor_scope: baselineScope, cohort_id: 41, enrollment_id: 1 } }))
+  await page.route(/http:\/\/api\.test\/api\/v1\/savings_challenge\/chat_cards\/\d+$/, route => { mutations++; return route.abort() })
+  await page.reload()
+  await openSection(page, 'Ask Mia')
+  for (const [name, label] of [['Your challenge goal', 'goal'], ['Savings to check', 'savings'], ['Talk with your coach', 'leave']] as const) {
+    const card = page.getByRole('region', { name, exact: true })
+    await expect(card).toBeVisible()
+    expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+    await r6MiaShot(page, label, card)
+  }
+  const savings = page.getByRole('region', { name: 'Savings to check', exact: true })
+  await expect(savings.getByRole('button', { name: 'Yes, add $50' })).toBeDisabled()
+  await savings.getByRole('checkbox').check()
+  await expect(savings.getByRole('button', { name: 'Yes, add $50' })).toBeEnabled()
+  expect(mutations).toBe(0)
+})
+
+test('BOG UI Mia joining stays a reviewed action in the shared card', async ({ page }) => {
+  await openSavingsHome(page, { enrolled: false })
+  await openSection(page, 'Ask Mia')
+  await page.route('http://api.test/api/v1/mia/messages', route => route.request().method() === 'POST'
+    ? route.fulfill({ json: { user_message: { id: 99301, role: 'user', author: 'You', content: 'I would like to join' }, assistant_message: { id: 99302, role: 'assistant', author: 'Mia', content: 'Check the joining details below.' }, challenge_join: true } }) : route.fallback())
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('I would like to join')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  const card = page.getByRole('region', { name: 'Join the challenge', exact: true })
+  await expect(card.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
+  expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+  await r6MiaShot(page, 'join', card)
+})
+
+test('BOG UI Mia purchase-change review keeps its full before-and-after and a deliberate tap', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const change = {
+    ...miaBudgetDraft, id: 99401, draft_type: 'purchase_change', title: 'Change this purchase?',
+    purchase_change: { mode: 'confirm', merchant: 'Target', date_label: 'Tue, Nov 10', amount: '$46', void: false,
+      rows: [{ label: 'Amount', before: '$46', after: '$64' }, { label: 'Category', before: 'Shopping', after: 'Groceries' }],
+      effects: ['Groceries, November: $228 spent of your $300 plan, $72 left (was $210 spent).'], note: 'The old entry stays in your history.', options: [] },
+  }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, budget: { ...workspace.budget, annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: [change] } } } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.getByRole('region', { name: 'Change your Target purchase?', exact: true })
+  await expect(card).toContainText('$72 left')
+  await expect(card.getByRole('button', { name: 'Yes, change it' })).toBeEnabled()
+  expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
+  await r6MiaShot(page, 'purchase-change', card)
+})
+
+test('BOG UI Mia checkpoint offer and review share the compact card with explicit approval', async ({ page }) => {
+  const { calls } = await openDaily(page, { active: true, checkpoint: true })
+  const card = page.getByRole('region', { name: 'Day 30 review', exact: true })
+  await expect(card).toBeVisible()
+  await r6MiaShot(page, 'checkpoint-offer', card)
+  await card.getByRole('button', { name: 'Look at Day 30', exact: true }).click()
+  await expect(card.getByRole('button', { name: 'Approve Day 30', exact: true })).toBeDisabled()
+  expect(calls.map(call => call.action)).toEqual(['checkpoint_stage'])
+  await r6MiaShot(page, 'checkpoint-review', card)
+  await card.getByRole('checkbox', { name: /I checked the dates/ }).check()
+  await expect(card.getByRole('button', { name: 'Approve Day 30', exact: true })).toBeEnabled()
+  expect(calls.map(call => call.action)).toEqual(['checkpoint_stage'])
 })

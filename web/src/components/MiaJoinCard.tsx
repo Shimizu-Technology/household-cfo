@@ -3,6 +3,7 @@ import { ApiRequestError, enrollSavingsChallenge, fetchSavingsChallenge } from '
 import { formatRange } from '../lib/plainDates'
 import { participantErrorMessage } from '../lib/participantErrorMessage'
 import type { SavingsChallenge } from '../lib/savingsChallenge'
+import { MiaCardResult } from './MiaCardResult'
 import './MiaDailyCheckIn.css'
 import './MiaJoinCard.css'
 
@@ -78,7 +79,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
 
   if (joined) {
-    return <section className="mia-daily-card mia-action-card mia-join-card ui-card is-saved" aria-label="You joined the challenge"><h3 ref={heading} tabIndex={-1}>You’re in. Welcome to the challenge.</h3><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" onClick={onDone}>Done</button></section>
+    return <section className="mia-daily-card ui-card is-saved mia-card-result" aria-label="You joined the challenge"><MiaCardResult title="You’re in. Welcome to the challenge." headingRef={heading} onDone={onDone}><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p></MiaCardResult></section>
   }
   if (alreadyIn) return null
   if (loadFailed) {

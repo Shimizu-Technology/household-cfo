@@ -14,6 +14,12 @@ const draft = (change: MiaPurchaseChangeData, over: Partial<MiaActionDraft> = {}
 beforeEach(() => vi.resetAllMocks())
 afterEach(cleanup)
 
+it('removes a finished purchase change’s financial actions immediately without claiming spending stayed unchanged', () => {
+  render(<MiaPurchaseChangeCard draft={draft(confirm, { status: 'applied' })} action={null} disabled={false} onApply={vi.fn()} onCancel={vi.fn()} onChoose={vi.fn()} />)
+  expect(screen.getByRole('status').textContent).toBe('Applied')
+  expect(screen.queryAllByRole('button')).toHaveLength(0)
+})
+
 it('shows what changes and how Budget moves, and changes nothing until Yes', () => {
   const onApply = vi.fn()
   render(<MiaPurchaseChangeCard draft={draft(confirm)} action={null} disabled={false} onApply={onApply} onCancel={vi.fn()} onChoose={vi.fn()} />)

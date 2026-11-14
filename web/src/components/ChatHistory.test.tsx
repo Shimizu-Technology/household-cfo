@@ -73,6 +73,56 @@ it('omits starting points when none are offered', () => {
   expect(screen.queryByRole('group', { name: 'Ways to start' })).toBeNull()
 })
 
+it('keeps starter chips directly before the composer boundary for empty and populated history', () => {
+  const props = { ...baseProps, starterPrompts: [{ label: 'Update a debt', message: 'Update debt' }], onChoosePrompt: vi.fn() }
+  const { rerender } = render(<ChatHistory {...props} />)
+  const check = () => {
+    const chips = screen.getByRole('group', { name: 'Ways to start' })
+    expect(chips.previousElementSibling?.className).toBe('chat-card-wrap')
+    expect(chips.closest('.chat-card')).toBeNull()
+  }
+  check()
+  rerender(<ChatHistory {...props} messages={[{ role: 'assistant', author: 'Mia', content: 'Hello.' }]} totalMessageCount={1} />)
+  check()
+})
+
+it.each([
+  ['Call or text 988.', true, true],
+  ['Call 988.', true, false],
+  ['Text 988.', false, true],
+  ['You can call your coach. Your balance is $988.', false, false],
+])('offers only the contact actions this care reply says: %s', (content, call, text) => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', safety_reply: true, content }]} totalMessageCount={1} />)
+  expect(screen.queryByRole('link', { name: 'Call 988' })?.getAttribute('href') ?? null).toBe(call ? 'tel:988' : null)
+  expect(screen.queryByRole('link', { name: 'Text 988' })?.getAttribute('href') ?? null).toBe(text ? 'sms:988' : null)
+})
+
+it('never makes contact actions for an ordinary reply, even if it says call or text 988', () => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content: 'Call or text 988 costs nothing; your balance is $988.' }]} totalMessageCount={1} />)
+  expect(screen.queryAllByRole('link')).toHaveLength(0)
+})
+
+it('keeps care actions with the newest assistant reply after a reload during active care', async () => {
+  render(<ChatHistory {...baseProps} careActive messages={[
+    { role: 'assistant', author: 'Mia', content: 'Call 988.', safety_reply: true },
+    { role: 'assistant', author: 'Mia', content: 'You can text 988.' },
+    { role: 'user', author: 'You', content: 'Thank you.' },
+  ]} totalMessageCount={3} />)
+  expect(screen.queryByRole('link', { name: 'Call 988' })).toBeNull()
+  const text = screen.getByRole('link', { name: 'Text 988' })
+  text.focus()
+  expect(document.activeElement).toBe(text)
+  expect(text.closest('.message')?.textContent).toContain('You can text 988.')
+})
+
+it('marks a newly sent message for motion only when the caller says it arrived while looking', () => {
+  const messages = [{ client_id: 'sent-now', role: 'user' as const, author: 'You', content: 'A new message' }]
+  const { rerender } = render(<ChatHistory {...baseProps} messages={messages} totalMessageCount={1} freshUserMessageId="sent-now" />)
+  expect(document.querySelector('.is-new-reply')?.textContent).toContain('A new message')
+  rerender(<ChatHistory {...baseProps} messages={messages} totalMessageCount={1} />)
+  expect(document.querySelector('.is-new-reply')).toBeNull()
+})
+
 const twoMessages = [
   { role: 'user' as const, author: 'You', content: 'spent 40 at shell' },
   { role: 'assistant' as const, author: 'Mia', content: 'Here is what I found.' },
@@ -95,7 +145,7 @@ it('uses the same review wording and destination in a thread and keeps Latest in
   const link = screen.getByRole('button', { name: '3 changes to review' })
   fireEvent.click(link)
   expect(onOpenReview).toHaveBeenCalledOnce()
-  expect(link.closest('.chat-card')).toBeNull()
+  expect(link.closest('.chat-card')).toBe(document.querySelector('.chat-card'))
   fireEvent.click(screen.getByRole('button', { name: 'Scroll to latest Mia message' }))
   expect(onScrollLatest).toHaveBeenCalledOnce()
 })
