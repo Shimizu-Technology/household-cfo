@@ -503,6 +503,7 @@ body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
 .mia-composer-notices { flex: 0 0 auto; max-height: 28dvh; overflow-y: auto; }
 .mia-composer-notices:empty { display: none; }
 .mia-composer-notices p { margin: 0; padding: 4px 0; }
+.mia-chat-shell .mia-composer-notices :is(.chat-error, .voice-status) { max-height: none; overflow: visible; }
 .chat-review-queue .ui-card { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
 .mia-review-item { min-width: 0; }
 .transaction-draft-actions > :is(.chat-error, p.transaction-draft-disabled-reason) { grid-column: 1 / -1; flex-basis: 100%; }
