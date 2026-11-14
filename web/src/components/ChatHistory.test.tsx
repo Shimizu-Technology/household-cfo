@@ -78,7 +78,7 @@ it('keeps starter chips directly before the composer boundary for empty and popu
   const { rerender } = render(<ChatHistory {...props} />)
   const check = () => {
     const chips = screen.getByRole('group', { name: 'Ways to start' })
-    expect(chips.previousElementSibling?.className).toBe('chat-card-wrap')
+    expect(chips.closest('.chat-latest-space')?.previousElementSibling?.className).toBe('chat-card-wrap')
     expect(chips.closest('.chat-card')).toBeNull()
   }
   check()
@@ -89,7 +89,7 @@ it('keeps starter chips directly before the composer boundary for empty and popu
 it.each([
   ['Call or text 988.', true, true],
   ['Call 988.', true, false],
-  ['Text 988.', false, true],
+  ['Text 988.', true, true],
   ['You can call your coach. Your balance is $988.', false, false],
 ])('offers only the contact actions this care reply says: %s', (content, call, text) => {
   render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', safety_reply: true, content }]} totalMessageCount={1} />)
@@ -108,7 +108,7 @@ it('keeps care actions with the newest assistant reply after a reload during act
     { role: 'assistant', author: 'Mia', content: 'You can text 988.' },
     { role: 'user', author: 'You', content: 'Thank you.' },
   ]} totalMessageCount={3} />)
-  expect(screen.queryByRole('link', { name: 'Call 988' })).toBeNull()
+  expect(screen.getByRole('link', { name: 'Call 988' }).closest('.message')?.textContent).toContain('You can text 988.')
   const text = screen.getByRole('link', { name: 'Text 988' })
   text.focus()
   expect(document.activeElement).toBe(text)
@@ -141,7 +141,7 @@ it('keeps pending review cards after the conversation in one group', () => {
 it('uses the same review wording and destination in a thread and keeps Latest independent', () => {
   const onOpenReview = vi.fn()
   const onScrollLatest = vi.fn()
-  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={3} onOpenReview={onOpenReview} onScrollLatest={onScrollLatest} reviewContent={<p>Transactions to review</p>} />)
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} showScrollButton reviewCount={3} onOpenReview={onOpenReview} onScrollLatest={onScrollLatest} />)
   const link = screen.getByRole('button', { name: '3 changes to review' })
   fireEvent.click(link)
   expect(onOpenReview).toHaveBeenCalledOnce()
@@ -192,4 +192,29 @@ it('labels comparison values in participant words without Scenario only', () => 
   }]} />)
   expect(screen.getByRole('note', { name: 'For comparison · nothing saved' })).toBeTruthy()
   expect(screen.queryByText('Scenario only · not saved')).toBeNull()
+})
+
+// Care replies may narrate a referral without the exact words “call 988”.
+it.each(['reach out to 988', 'dial 988', 'call the 988 Suicide & Crisis Lifeline', 'call **988**', 'contact 988', '988 is available'])('keeps care contact available for %s', content => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content, care_hold: true }]} totalMessageCount={1} />)
+  expect(screen.getByRole('link', { name: 'Call 988' }).getAttribute('href')).toBe('tel:988')
+  expect(screen.queryByRole('link', { name: 'Text 988' })).toBeNull()
+})
+it('does not add contacts to a care reply without 988', () => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content: 'Your coach is here for you.', care_active: true }]} totalMessageCount={1} />)
+  expect(screen.queryAllByRole('link')).toHaveLength(0)
+})
+it('omits a duplicate review shortcut when those cards already appear in the thread', () => {
+  render(<ChatHistory {...baseProps} messages={twoMessages} totalMessageCount={2} reviewCount={2} pendingPurchaseCount={2} onOpenReview={vi.fn()} reviewContent={<p>Two purchase cards</p>} />)
+  expect(screen.queryByRole('button', { name: '2 purchases to review' })).toBeNull()
+})
+
+it('keeps a purchase shortcut when unrelated saved cards are shown in an otherwise empty thread', () => {
+  render(<ChatHistory {...baseProps} reviewCount={2} pendingPurchaseCount={2} onOpenReview={vi.fn()} emptyReviewContent={<p>A saved check-in</p>} reviewCardsVisible={false} />)
+  expect(screen.getByRole('button', { name: '2 purchases to review' })).toBeTruthy()
+})
+
+it.each(['Text to **988**.', 'Texting 988 is available.'])('offers texting when a care reply speaks of %s', content => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content, safety_reply: true }]} totalMessageCount={1} />)
+  expect(screen.getByRole('link', { name: 'Text 988' }).getAttribute('href')).toBe('sms:988')
 })

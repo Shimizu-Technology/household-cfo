@@ -1,3 +1,4 @@
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useRef, useState } from 'react'
 import { ApiRequestError, enrollSavingsChallenge, fetchSavingsChallenge } from '../api'
 import { formatRange } from '../lib/plainDates'
@@ -18,6 +19,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   const [lateAcceptance, setLateAcceptance] = useState(false)
   const [busy, setBusy] = useState(false)
   const [joined, setJoined] = useState(false)
+  const liveResult = useLiveMiaResult(joined)
   const [error, setError] = useState('')
   const [attempt, setAttempt] = useState(0)
   // The offer is being fetched again after it changed: nothing on the old one can be accepted meanwhile.
@@ -79,7 +81,7 @@ export function MiaJoinCard({ onJoined, onDone }: Props) {
   }
 
   if (joined) {
-    return <section className="mia-daily-card ui-card is-saved mia-card-result" aria-label="You joined the challenge"><MiaCardResult title="You’re in. Welcome to the challenge." headingRef={heading} onDone={onDone}><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p></MiaCardResult></section>
+    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="You joined the challenge"><MiaCardResult title="You’re in. Welcome to the challenge." headingRef={heading} onDone={onDone}><p role="status">Tell me when you set money aside, or ask me to help you choose a comfortable goal.</p></MiaCardResult></section>
   }
   if (alreadyIn) return null
   if (loadFailed) {

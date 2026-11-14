@@ -32,6 +32,3 @@
 @media (min-width: 601px) {
   .mia-statement-actions { grid-template-columns: repeat(auto-fit, minmax(10rem, max-content)); }
 }
-
-/* While a card waits for an answer, the floating "Latest" pill moves to the top of the chat so it never covers the buttons. */
-.mia-chat-shell:has(.mia-statement-card:not(.is-approved)) .chat-scroll-bottom-button { top: 12px; bottom: auto; }

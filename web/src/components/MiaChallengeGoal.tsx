@@ -1,3 +1,4 @@
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useState } from 'react'
 import { MiaCardResult } from './MiaCardResult'
 import { updateChallengeChatCard } from '../api'
@@ -10,6 +11,7 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
   const target = 'target_cents' in card.input ? card.input.target_cents : 0
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const liveResult = useLiveMiaResult(saved)
   const [editing, setEditing] = useState(false)
   const [amount, setAmount] = useState(savingsInputDollars(target))
   const [error, setError] = useState('')
@@ -28,7 +30,7 @@ export function MiaChallengeGoal({ card, onDone, onChangeAmount }: { card: Chall
     catch (failure) { setError(participantErrorMessage(failure, 'We couldn’t confirm your choice. Try again; it won’t save twice.')) }
     finally { setBusy(false) }
   }
-  if (saved) return <section className="mia-daily-card ui-card is-saved mia-card-result" aria-label="Your challenge goal"><MiaCardResult title={`Goal saved: ${savingsTargetDollars(target)}`} onDone={onDone}><p role="status">This is now your goal for the whole 90 days. You can see it in Savings.</p></MiaCardResult></section>
+  if (saved) return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Your challenge goal"><MiaCardResult title={`Goal saved: ${savingsTargetDollars(target)}`} onDone={onDone}><p role="status">This is now your goal for the whole 90 days. You can see it in Savings.</p></MiaCardResult></section>
   return <section className="mia-daily-card ui-card" aria-label="Your challenge goal" aria-busy={busy}>
     <h3>{savingsTargetDollars(target)} over your 90 days?</h3>
     {'weekly_cents' in card.input && card.input.weekly_cents != null && <p>{savingsTargetDollars(card.input.weekly_cents)} a week × 90 days ÷ 7 = {savingsTargetDollars(target)}, rounded to the nearest cent. Confirm this total or change it below.</p>}

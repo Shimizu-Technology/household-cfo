@@ -448,14 +448,16 @@
 .empty-chat-starters::-webkit-scrollbar { display: none; }
 .mia-chat-shell .empty-chat-starters .ui-chip { flex: 0 0 auto; width: auto; white-space: nowrap; border-radius: var(--radius-pill); }
 .chat-card .chat-history-navigation { padding: 0; }
-.mia-review-result { flex: 0 0 auto; margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-sm); animation: mia-result-appear var(--duration-exit) ease-out; }
+.mia-review-result { flex: 0 0 auto; margin: 0; padding: 8px 0; color: var(--muted); font-size: var(--text-sm); }
 .chat-history-navigation .chat-pending-line { color: var(--muted); }
-.chat-card-wrap .chat-scroll-bottom-button,
-.mia-chat-shell:has(.mia-daily-card:not(.is-saved)) .chat-scroll-bottom-button,
-.mia-chat-shell:has(.mia-statement-card:not(.is-approved)) .chat-scroll-bottom-button {
-  position: absolute;
-  inset: auto 8px 8px auto;
-  z-index: 2;
+.mia-chat-shell .chat-latest-space { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex: 0 0 auto; min-height: 0; }
+.mia-chat-shell .chat-latest-space:empty { display: none; }
+.mia-chat-shell .chat-latest-space > .empty-chat-starters { flex: 1; min-width: 0; }
+.mia-chat-shell .chat-latest-space:has(> button) { min-height: 48px; padding-block: 2px; }
+.mia-chat-shell .chat-latest-space .chat-scroll-bottom-button {
+  position: static;
+  inset: auto;
+  flex: 0 0 44px;
   width: 44px;
   height: 44px;
   min-height: 44px;
@@ -466,7 +468,7 @@
   box-shadow: none;
 }
 .chat-scroll-bottom-button svg { width: 20px; height: 20px; }
-/* The floating shortcut never changes the thread width or its reading anchor. */
+/* Latest owns space between the scroll area and composer. */
 .is-chat-page .mia-chat-shell .ask-row {
   position: relative;
   display: grid;
@@ -496,6 +498,14 @@
 .mia-care-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .mia-chat-shell .message .mia-care-actions a { color: var(--brand-strong); }
 
+body #root .mia-chat-shell .ask-row:focus-within { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
+body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
+.mia-composer-notices { flex: 0 0 auto; max-height: 28dvh; overflow-y: auto; }
+.mia-composer-notices:empty { display: none; }
+.mia-composer-notices p { margin: 0; padding: 4px 0; }
+.chat-review-queue .ui-card { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
+.mia-review-item { min-width: 0; }
+.transaction-draft-actions > :is(.chat-error, p.transaction-draft-disabled-reason) { grid-column: 1 / -1; flex-basis: 100%; }
 /* Review content uses the shared card and action primitives. Inside, only
    rows and rules: no nested paper surfaces. */
 .ui-card:is(.transaction-draft-card, .mia-action-draft-card, .setup-card) { display: block; width: 100%; margin: 0; }
@@ -538,16 +548,17 @@
 .mia-read-only-answer .mia-answer-lead,
 .mia-read-only-answer :is(.mia-answer-section-heading h4, .mia-answer-scenario h4) { color: var(--ink); font-family: var(--font-body); font-size: var(--text-md); font-weight: 600; }
 .mia-read-only-answer .mia-answer-section-heading > span { background: var(--brand-soft); color: var(--brand-strong); font: 600 var(--text-md)/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-.ui-card.ui-card.is-finished,
-.ui-card.ui-card.is-saved,
-.ui-card.ui-card.is-approved { padding-block: 8px; border: 0; border-radius: 0; background: transparent; }
+.ui-card:is(.is-finished, .is-saved, .is-approved) { padding-block: 8px; border: 0; border-radius: 0; background: transparent; }
 .transaction-draft-card.is-finished .terminal { margin: 0; align-items: center; flex-wrap: nowrap; }
 .transaction-draft-card .terminal > span,
 .mia-action-draft-card .terminal > span { padding: 0; border: 0; background: transparent; color: var(--muted); font-size: var(--text-xs); font-weight: 400; }
 .ui-card .setup-card-actions { position: static; display: flex; gap: 8px; margin: 12px 0 0; padding: 0; border: 0; background: transparent; }
 .ui-card .setup-card-actions :is(.setup-card-apply, .setup-card-secondary) { position: static; display: flex; width: auto; margin: 0; padding: 0; border: 0; background: transparent; }
 .ui-card .setup-card-actions .mia-action-draft-actions { margin: 0; }
-.ui-card.mia-card-result { display: flex; align-items: flex-start; gap: 8px; padding-inline: 0; }
+.ui-card.mia-card-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; padding-inline: 0; }
+.mia-card-result > h3 { grid-column: 1; grid-row: 1; margin: 0; min-width: 0; color: var(--muted); font: 600 var(--text-sm)/1.4 var(--font-body); }
+.mia-card-result > .mia-daily-dismiss { grid-column: 2; grid-row: 1; }
+.mia-card-result > :is(details, [role="alert"]) { grid-column: 1 / -1; }
 .mia-card-result > details { flex: 1; min-width: 0; border: 0; }
 .mia-card-result > details h3 { display: inline; margin: 0; font-size: var(--text-sm); color: var(--muted); }
 .mia-statement-result { border: 0; }
@@ -555,9 +566,8 @@
 /* Keep the anchor row's layout box still while its visible contents arrive. */
 .message-row.is-new-reply > :is(.message, .message-avatar) { animation: mia-reply-appear 200ms var(--ease-out) both; }
 @keyframes mia-reply-appear { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-.ui-card.is-finished .terminal,
-.ui-card.is-saved,
-.ui-card.is-approved { animation: mia-result-appear var(--duration-exit) ease-out; }
+/* Finished history has no mount animation. */
+.ui-card.is-live-result { animation: mia-result-appear var(--duration-exit) ease-out; }
 @keyframes mia-result-appear { from { opacity: 0; } to { opacity: 1; } }
 @media (min-width: 1024px) {
   .is-chat-page .mia-layout { justify-content: center; }
@@ -578,6 +588,12 @@
 @media (prefers-reduced-motion: reduce) {
   /* Opt these opacity-only states out of App.css's legacy motion shutdown. */
   .message-row.is-new-reply > :is(.message, .message-avatar),
-  .ui-card:is(.is-finished, .is-saved, .is-approved),
-  .mia-review-result { animation: mia-result-appear 200ms ease-out both !important; }
+  .ui-card.is-live-result { animation: mia-result-appear 200ms ease-out both !important; }
 }
+
+.transaction-draft-card.is-finished .terminal > [data-review-result] { flex: 1; min-width: 0; }
+.transaction-draft-card.is-finished .terminal strong { display: block; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+.transaction-draft-card.is-finished .terminal { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.transaction-draft-card.is-finished .terminal [data-review-result] { display: block; }
+.transaction-draft-card.is-finished .terminal > button { width: auto; max-width: 120px; }

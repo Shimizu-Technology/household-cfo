@@ -1,3 +1,5 @@
+import { MiaReviewError } from './MiaReviewError'
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { miaReviewResult } from '../lib/miaReviewResult'
 import { useEffect, useId, useRef, useState } from 'react'
 import type { MiaActionDraft, MiaSetupCardEdit, MiaSetupCardPart, MiaSetupCardRow } from '../api'
@@ -47,6 +49,7 @@ function focusRowWhenReady(card: HTMLElement | null, key: string, tries = 12) {
 }
 
 export function MiaSetupCard({
+  error,
   draft,
   isRealWorkspace,
   action,
@@ -55,6 +58,7 @@ export function MiaSetupCard({
   onCancel,
   onEdit,
 }: {
+  error?: string
   draft: MiaActionDraft
   isRealWorkspace: boolean
   action: string | null
@@ -63,6 +67,7 @@ export function MiaSetupCard({
   onCancel: (draft: MiaActionDraft) => void
   onEdit: (draft: MiaActionDraft, edit: MiaSetupCardEdit) => Promise<boolean>
 }) {
+  const liveResult = useLiveMiaResult(draft.status !== 'pending' && draft.status !== 'partially_applied')
   const card = draft.setup_card
   const headingId = useId()
   const [editing, setEditing] = useState<Editing | null>(null)
@@ -185,7 +190,7 @@ export function MiaSetupCard({
     )
   }
 
-  if (draft.status !== 'pending' && draft.status !== 'partially_applied') return <article ref={cardRef} className="setup-card ui-card is-finished" aria-labelledby={headingId}>
+  if (draft.status !== 'pending' && draft.status !== 'partially_applied') return <article ref={cardRef} className={`setup-card ui-card is-finished${liveResult}`} aria-labelledby={headingId}>
     <h4 id={headingId} tabIndex={-1}>{card.title}</h4><p className="mia-review-result" role="status">{miaReviewResult(draft)}</p>
   </article>
 
@@ -210,6 +215,7 @@ export function MiaSetupCard({
       )}
       {draft.stale && <p className="mia-action-stale-note" role="status">Your numbers changed after this card was made, so it can’t be applied. Nothing was changed.</p>}
       <p className="setup-card-promise">Nothing saves until you tap Apply.</p>
+      <MiaReviewError message={error} />
       {confirmingCancel && hasAnswers
         ? (
           <>

@@ -8,8 +8,9 @@ export function MiaCardResult({ title, children, onDone, headingRef }: {
   headingRef?: RefObject<HTMLHeadingElement | null>
 }) {
   return <>
+    <h3 ref={headingRef} tabIndex={-1}>{title}</h3>
     <details className="ui-disclosure">
-      <summary><h3 ref={headingRef} tabIndex={-1}>{title}</h3></summary>
+      <summary>See details</summary>
       <div>{children}</div>
     </details>
     <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" onClick={onDone}>Done</button>

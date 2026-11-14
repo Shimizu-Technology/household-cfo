@@ -153,7 +153,7 @@ export function transactionDraftBudgetImpacts(
 
     const row = plan.rows.find((candidate) => candidate.id === categoryId)
     const cell = row?.months[monthIndex]
-    if (!row || !cell) {
+    if (!row || !cell || cell.allocation_missing === true) {
       return {
         categoryId,
         categoryName: allocation.categoryName || 'Unknown category',
@@ -167,7 +167,7 @@ export function transactionDraftBudgetImpacts(
     }
 
     const otherPending = otherPendingAmounts.get(categoryId) ?? 0
-    const projectedIfApproved = addMoney(cell.actual, otherPending, allocation.amount)
+    const projectedIfApproved = addMoney(cell.actual, allocation.amount)
     return {
       categoryId,
       categoryName: row.name,

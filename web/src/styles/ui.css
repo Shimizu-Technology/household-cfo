@@ -1,6 +1,6 @@
 /* Shared Look A primitives. Loaded after legacy app styles; scoped control
    selectors also win over lazy component styles, regardless of chunk order. */
-.ui-card.ui-card,
+.ui-card,
 .ui-answer {
   min-width: 0;
   padding: 18px;

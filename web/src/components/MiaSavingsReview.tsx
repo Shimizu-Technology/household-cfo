@@ -1,3 +1,4 @@
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useRef, useState } from 'react'
 import { MiaCardResult } from './MiaCardResult'
 import { updateChallengeChatCard } from '../api'
@@ -33,6 +34,7 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   const [busy, setBusy] = useState(false)
   const section = useRef<HTMLElement>(null)
   const [saved, setSaved] = useState(false)
+  const liveResult = useLiveMiaResult(saved)
   const [newMoney, setNewMoney] = useState(false)
   const [error, setError] = useState('')
   const amount = savingsPlainDollars(intake.amount_cents)
@@ -63,7 +65,7 @@ export function MiaSavingsReview({ intake, today, onReview, card, onApproved, on
   }
 
   if (saved) {
-    return <section className="mia-daily-card ui-card is-saved mia-card-result" aria-label="Savings saved"><MiaCardResult title={withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`} onDone={() => onApproved?.()}><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p></MiaCardResult></section>
+    return <section className={`mia-daily-card ui-card is-saved mia-card-result${liveResult}`} aria-label="Savings saved"><MiaCardResult title={withdrawal ? `${amount} taken out` : original ? `Fixed: now ${amount}` : `${amount} added`} onDone={() => onApproved?.()}><p role="status">{withdrawal ? 'Saved. Your total is up to date.' : 'Saved to your challenge. Your total is up to date.'}</p></MiaCardResult></section>
   }
 
   if (inPlace) {

@@ -33,6 +33,7 @@ type ChatHistoryProps = {
   reviewContent?: ReactNode
   pendingPurchaseCount?: number
   onOpenReview?: () => void
+  reviewCardsVisible?: boolean
   reviewCount?: number
   onSetupHelp?: () => void
   onOpenMoneyInput?: (destination: 'profile' | 'budget' | 'debt' | 'accounts') => void
@@ -66,6 +67,7 @@ export function ChatHistory({
   careActive = false,
   keepReviewGap = false,
   threadNotice,
+  reviewCardsVisible,
   reviewCount = 0,
   pendingPurchaseCount = 0,
   onOpenReview,
@@ -80,12 +82,13 @@ export function ChatHistory({
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
   const { initial: assistantInitial, displayName, greeting, intro: defaultIntro } = assistantGreeting(assistantName)
   const shownReviewContent = totalMessageCount === 0 && onOpenReview ? emptyReviewContent : reviewContent
+  const countedCardsVisible = reviewCardsVisible ?? Boolean(shownReviewContent)
   const newestAssistantIndex = messages.findLastIndex(message => message.role === 'assistant')
   return (
     <>
     <div className="chat-card-wrap">
       <article className="chat-card" ref={chatCardRef} aria-label={`${assistantName} conversation history`} aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
-        {totalMessageCount === 0 && reviewCount > 0 && onOpenReview && (
+        {totalMessageCount === 0 && !countedCardsVisible && reviewCount > 0 && onOpenReview && (
           <button type="button" className="chat-pending-line" onClick={onOpenReview}>
             {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
           </button>
@@ -164,7 +167,7 @@ export function ChatHistory({
         {shownReviewContent && <div className="chat-review-queue">{shownReviewContent}</div>}
         {keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
         {threadNotice}
-        {totalMessageCount > 0 && reviewCount > 0 && onOpenReview && (
+        {totalMessageCount > 0 && !countedCardsVisible && reviewCount > 0 && onOpenReview && (
         <div className="chat-history-navigation">
           {reviewCount > 0 && onOpenReview && <button type="button" className="chat-pending-line" onClick={onOpenReview}>
             {pendingPurchaseCount === reviewCount ? `${reviewCount} ${reviewCount === 1 ? 'purchase' : 'purchases'} to review` : `${reviewCount} ${reviewCount === 1 ? 'change' : 'changes'} to review`} <span aria-hidden="true">→</span>
@@ -173,13 +176,15 @@ export function ChatHistory({
         )}
         {!keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
       </article>
+    </div>
+    <div className="chat-latest-space">
+    {onChoosePrompt && starterPrompts.length > 0 && <div className="empty-chat-starters" role="group" aria-label="Ways to start">
+      {starterPrompts.map(prompt => <button className="ui-chip" key={prompt.label} type="button" onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>)}
+    </div>}
       {showScrollButton && <button type="button" className="chat-scroll-bottom-button ui-btn ui-btn--tonal" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
         <ScrollDownIcon /><span className="sr-only">Latest</span>
       </button>}
     </div>
-    {onChoosePrompt && starterPrompts.length > 0 && <div className="empty-chat-starters" role="group" aria-label="Ways to start">
-      {starterPrompts.map(prompt => <button className="ui-chip" key={prompt.label} type="button" onClick={() => onChoosePrompt(prompt.message)}>{prompt.label}</button>)}
-    </div>}
     </>
   )
 }
@@ -188,8 +193,9 @@ export function ChatHistory({
 // episode alone cannot invent an instruction, and an ordinary reply gets none.
 function careContactActions(content: string) {
   const actions: { href: string; label: string }[] = []
-  if (/\bcall\s+(?:(?:or|and)\s+text\s+)?988\b/i.test(content)) actions.push({ href: 'tel:988', label: 'Call 988' })
-  if (/\btext\s+(?:(?:or|and)\s+call\s+)?988\b/i.test(content)) actions.push({ href: 'sms:988', label: 'Text 988' })
+  const plain = content.replace(/[*_~]/g, '')
+  if (/(?<![\d$])\b988\b/.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
+  if (/\btext(?:ing)?\s+(?:(?:or|and)\s+call\s+)?(?:to\s+|the\s+)?988\b/i.test(plain)) actions.push({ href: 'sms:988', label: 'Text 988' })
   return actions
 }
 

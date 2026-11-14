@@ -60,7 +60,7 @@
 
 /* The floating "Latest" pill moves to the top of the chat while a card waits
    to be saved, so it never covers the card's Save button. */
-.mia-chat-shell:has(.mia-daily-card:not(.is-saved)) .chat-scroll-bottom-button { top: 12px; bottom: auto; }
+
 
 @media (hover: hover) and (pointer: fine) {
   .mia-daily-chip:hover:not(:disabled) { background: var(--surface-card); }

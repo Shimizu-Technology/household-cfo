@@ -1,3 +1,5 @@
+import { MiaReviewError } from './components/MiaReviewError'
+import { useLiveMiaResult } from './lib/useLiveMiaResult'
 import { miaReviewResult } from './lib/miaReviewResult'
 import { focusSkipTarget } from './lib/focusSkipTarget'
 import { MiaSetupCard } from './components/MiaSetupCard'
@@ -1041,6 +1043,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     : dataBudgetStale ? null : data?.budget
   const usesSelectedBudgetContext = activeSection === 'Budget' || activeSection === 'Ask Mia' || activeSection === 'My Money'
   const reviewBudget = usesSelectedBudgetContext ? budgetForView : homeBudget
+  const [completedPurchases, setCompletedPurchases] = useState<{ scope: string; drafts: TransactionDraft[] }>({ scope: '', drafts: [] })
+  const [reviewErrors, setReviewErrors] = useState<Record<string, string>>({})
+  function rememberPurchase(draft: TransactionDraft, status: TransactionDraft['status']) {
+    const scope = budgetViewScopeRef.current
+    setCompletedPurchases(current => ({ scope, drafts: [...(current.scope === scope ? current.drafts.filter(item => item.id !== draft.id) : []), { ...draft, status }] }))
+  }
   const pendingTransactionDrafts = reviewBudget?.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
   const plaidActivityRefreshKey = pendingPlaidDrafts
@@ -2014,6 +2022,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   function prepareMiaUpdate(prompt: string) {
+    if (question.trim() || pendingMiaAttachments.length > 0) {
+      setMiaError('Your message and files are waiting here. Send or clear them before choosing another prompt.')
+      requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+      return
+    }
     setQuestion(prompt)
     setMiaError(null)
     setVoiceNotice(null)
@@ -2919,6 +2932,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`apply-mia-action:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: '' }))
     setBudgetError(null)
     setMiaError(null)
     const selection = itemIds?.slice().sort((left, right) => left - right)
@@ -2944,8 +2958,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'apply')
       const message = participantErrorMessage(caught, `${assistantName} action draft could not be applied.`)
+      setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
       setBudgetError(message)
-      setMiaError(message)
+      // The error is announced beside this card’s action.
       // The server marks a card out of date when the saved numbers moved on.
       // Reload so the card shows that instead of staying a live pending card.
       if (caught instanceof ApiRequestError && caught.code === 'stale_review') {
@@ -2990,6 +3005,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   async function handleEditMiaSetupCard(draft: MiaActionDraft, edit: MiaSetupCardEdit) {
     if (!isRealWorkspace || budgetYearLoading) return false
     if (!beginBudgetAction(`edit-setup-card:${draft.id}`)) return false
+    setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: '' }))
     setBudgetError(null)
     setMiaError(null)
     try {
@@ -2998,8 +3014,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return true
     } catch (caught) {
       const message = participantErrorMessage(caught, 'That change didn’t save. Please try again.')
+      setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
       setBudgetError(message)
-      setMiaError(message)
+      // The error is announced beside this card’s action.
       return false
     } finally {
       endBudgetAction()
@@ -3010,6 +3027,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   async function handleChoosePurchaseForChange(draft: MiaActionDraft, option: number) {
     if (!isRealWorkspace || budgetYearLoading) return false
     if (!beginBudgetAction(`choose-purchase:${draft.id}`)) return false
+    setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: '' }))
     setBudgetError(null)
     setMiaError(null)
     try {
@@ -3020,8 +3038,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return true
     } catch (caught) {
       const message = participantErrorMessage(caught, 'I couldn’t open that purchase. Nothing changed.')
+      setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
       setBudgetError(message)
-      setMiaError(message)
+      // The error is announced beside this card’s action.
       return false
     } finally {
       endBudgetAction()
@@ -3033,6 +3052,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`cancel-mia-action:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: '' }))
     setBudgetError(null)
     setMiaError(null)
     const signature = `cancel-mia-action:${draft.id}`
@@ -3051,8 +3071,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       trackPilotWorkflowFailure('mia_budget_review', 'cancel')
       const message = participantErrorMessage(caught, `${assistantName} action draft could not be canceled.`)
+      setReviewErrors(current => ({ ...current, [`mia:${draft.id}`]: message }))
       setBudgetError(message)
-      setMiaError(message)
+      // The error is announced beside this card’s action.
     } finally {
       endBudgetAction()
       if (reviewChatPositionRef.current) recoverReviewFocus()
@@ -3089,6 +3110,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`update-draft:${draft.id}`)) throw budgetActionBusyError()
+    setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -3104,6 +3126,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
+      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       setBudgetError(message)
       setDocumentsError(message)
       throw new Error(message, { cause: caught })
@@ -3126,10 +3149,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       reviewChatPositionRef.current = null
       const active = document.activeElement
       const focusMoved = active && active !== document.body && active !== previousAction
-      // The stack hands keyboard focus to the next purchase in its layout
-      // effect. That automatic handoff must not cancel position recovery.
-      const nextPurchase = active instanceof HTMLElement && active.matches('.transaction-draft-stack [data-review-confirm]') && position?.chat.contains(active)
-      if (focusMoved && !nextPurchase) return
+      const focusedResult = active instanceof HTMLElement && active.matches('[data-review-result]') && position?.chat.contains(active)
+      if (focusMoved && !focusedResult) return
       if (position && position.scope === budgetViewScopeRef.current && activeSectionRef.current === 'Ask Mia' && chatCardRef.current === position.chat) {
         const { chat, top, windowTop } = position
         const spacer = chat.querySelector<HTMLElement>('.chat-turn-spacer')
@@ -3141,23 +3162,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         window.scrollTo({ top: windowTop, behavior: 'auto' })
       }
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
-      const result = document.querySelector<HTMLElement>('[data-review-result]')
+      const target = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
+        ?? document.querySelector<HTMLElement>('[data-review-result]')
         ?? document.querySelector<HTMLElement>('[data-page-heading]')
-      if (focusMoved) {
-        const bounds = active!.getBoundingClientRect()
-        const view = position!.chat.getBoundingClientRect()
-        // When a very tall card shrinks, keep its result in view and focus
-        // that result rather than an offscreen next-card action.
-        if (bounds.bottom <= view.top || bounds.top >= view.bottom) result?.focus({ preventScroll: true })
-        return
-      }
-      const target = restoredDraftId !== undefined
-        ? restoredRow?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)')
-          ?? restoredRow?.querySelector<HTMLElement>('button:not(:disabled)')
-          ?? result
-        : document.querySelector<HTMLElement>('.transaction-draft-stack [data-review-confirm]:not(:disabled)')
-          ?? document.querySelector<HTMLElement>('.transaction-draft-stack [role="status"]')
-          ?? result
+        ?? composerRef.current
       target?.focus({ preventScroll: activeSectionRef.current === 'Ask Mia' })
     }))
   }
@@ -3182,12 +3190,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`confirm-draft:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
     try {
       const signature = `transaction:confirm:${draft.id}`
       const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      rememberPurchase(draft, 'confirmed')
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
@@ -3205,8 +3215,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       trackPilotWorkflowFailure('transaction_review', 'confirm')
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
-      setBudgetError(message)
-      setDocumentsError(message)
+      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
+      // The card keeps the error next to the action that failed.
+      throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
       recoverReviewFocus()
@@ -3218,12 +3229,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`ignore-draft:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
     try {
       const signature = `transaction:ignore:${draft.id}`
       const workspace = await ignoreTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      rememberPurchase(draft, 'ignored')
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
       void refreshSpendingReport(selectedBudgetPeriodRef.current)
@@ -3238,8 +3251,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       trackPilotWorkflowFailure('transaction_review', 'ignore')
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
-      setBudgetError(message)
-      setDocumentsError(message)
+      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
+      // The card keeps the error next to the action that failed.
+      throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
       recoverReviewFocus()
@@ -3300,12 +3314,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isRealWorkspace) return
 
     if (!beginBudgetAction(`match-draft:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
     try {
       const signature = `transaction:match:${draft.id}:${matchId ?? 'best'}`
       const workspace = await matchTransactionDraft(draft.id, matchId, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      rememberPurchase(draft, 'matched')
       setData({ type: 'financial_mutation', update: workspace })
       await restoreSelectedBudgetPlan(workspace.budget)
       void refreshSpendingReport(selectedBudgetPeriodRef.current)
@@ -3317,8 +3333,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
-      setBudgetError(message)
-      setDocumentsError(message)
+      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
+      // The card keeps the error next to the action that failed.
+      throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
       recoverReviewFocus()
@@ -3334,6 +3351,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!confirmed) return
 
     if (!beginBudgetAction(`reopen-draft:${draft.id}`)) return
+    setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
     try {
@@ -3353,8 +3371,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be reopened.')
-      setBudgetError(message)
-      setDocumentsError(message)
+      setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
+      // The card keeps the error next to the action that failed.
+      throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
       recoverReviewFocus(draft.id, previousAction)
@@ -4049,11 +4068,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               starterPrompts={MIA_UPDATE_PROMPTS}
               onChoosePrompt={prompt => {
                 if (!switchSection('Ask Mia', { focusHeading: false })) return
-                if (question.trim() || pendingMiaAttachments.length > 0) {
-                  setMiaError('Your message and files are waiting here. Send or clear them before choosing another prompt.')
-                  requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
-                  return
-                }
                 prepareMiaUpdate(prompt)
               }}
               onReviewTransactions={() => switchSection('Review')}
@@ -4171,10 +4185,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   onChoosePrompt={prepareMiaUpdate}
                   threadNotice={<>
                     {transactionNotice && <p data-review-result tabIndex={-1} role="status" className="mia-review-result">{transactionNotice}</p>}
-                    {(() => { const shownBudgetError = !budgetYearLoading && budgetError ? budgetError : null; return <>{shownBudgetError && <p className="chat-error" role="alert">{shownBudgetError}</p>}{miaError && miaError !== shownBudgetError && <p className="chat-error" role="alert">{miaError}</p>}</> })()}
-                    {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
-                    {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
-                    {miaLoading && miaWaitLong && <p className="mia-wait-status" role="status">Still working on your request. Your approved numbers change only after you review and apply.</p>}
                   </>}
                   freshReplyId={freshMiaReplyId}
                   freshUserMessageId={freshUserMessageId}
@@ -4208,6 +4218,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   onReviewImportId={openDocumentReview}
                   onOpenReview={() => switchSection('Review')}
                   pendingPurchaseCount={safetyHold ? 0 : pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
+                  reviewCardsVisible={currentMessages.length > 0 && !safetyHold}
                   reviewCount={safetyHold ? 0 : pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
@@ -4215,6 +4226,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {statementCards}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
+                        errors={reviewErrors}
                         drafts={pendingMiaActionDrafts}
                         isRealWorkspace={Boolean(isRealWorkspace)}
                         action={chatDraftAction}
@@ -4228,9 +4240,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                       />
                     )}
 
-                    {pendingTransactionDrafts.length > 0 && (
+                    {(pendingTransactionDrafts.length > 0 || completedPurchases.scope === budgetViewScopeRef.current && completedPurchases.drafts.length > 0) && (
                       <TransactionDraftReviewStack
                         drafts={pendingTransactionDrafts}
+                        errors={reviewErrors}
+                        completedDrafts={completedPurchases.scope === budgetViewScopeRef.current ? completedPurchases.drafts : []}
                         draftActionsDisabled={budgetYearLoading}
                         isRealWorkspace={Boolean(isRealWorkspace)}
                         action={chatDraftAction}
@@ -4264,6 +4278,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     />
                   </div>
                 )}
+              <div className="mia-composer-notices">
+                {miaError && <p className="chat-error" role="alert">{miaError}{miaRetryRequestRef.current && <button type="button" className="ui-btn ui-btn--text" disabled={miaLoading} onClick={() => void handleAskMia(question)}>Try again</button>}</p>}
+                {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
+                {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
+                {miaLoading && miaWaitLong && <p className="mia-wait-status" role="status">Still working on your request. Your approved numbers change only after you review and apply.</p>}
+              </div>
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
                 <input
                   type="file"
@@ -4316,7 +4336,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     ref={composerRef}
                   />
                   {miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT && (
-                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
+                    <span id="mia-composer-count" className={`composer-character-count${question.length >= MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role={miaCharactersRemaining < 0 ? 'alert' : 'status'} aria-live={miaCharactersRemaining < 0 ? 'assertive' : 'polite'}>
                       {miaCharactersRemaining < 0
                         ? `Remove ${Math.abs(miaCharactersRemaining).toLocaleString()} ${miaCharactersRemaining === -1 ? 'character' : 'characters'} to send.`
                         : `${miaCharactersRemaining.toLocaleString()} ${miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining`}
@@ -4378,6 +4398,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
+                        errors={reviewErrors}
+                        completedDrafts={completedPurchases.scope === budgetViewScopeRef.current ? completedPurchases.drafts : []}
                     isRealWorkspace
                     compact
                     action={chatDraftAction}
@@ -4400,6 +4422,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 {pendingMiaActionDrafts.length > 0 && <section aria-label="Household changes to review">
                   <h3>Changes to review</h3>
                   <MiaActionDraftReviewStack
+                        errors={reviewErrors}
                     drafts={pendingMiaActionDrafts}
                     isRealWorkspace
                     compact
@@ -7200,6 +7223,7 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
 
 export function MiaActionDraftReviewStack({
   drafts,
+  errors = {},
   isRealWorkspace,
   action,
   compact = false,
@@ -7213,6 +7237,7 @@ export function MiaActionDraftReviewStack({
   onAskFresh,
 }: {
   drafts: MiaActionDraft[]
+  errors?: Record<string, string>
   isRealWorkspace: boolean
   action: string | null
   compact?: boolean
@@ -7228,13 +7253,14 @@ export function MiaActionDraftReviewStack({
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
-      {drafts.map((draft) => draft.purchase_change && onChoosePurchase ? (
-        <MiaPurchaseChangeCard key={draft.id} draft={draft} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onChoose={onChoosePurchase} />
+      {drafts.map((draft) => <div key={draft.id} className="mia-review-item">{draft.purchase_change && onChoosePurchase ? (
+        <MiaPurchaseChangeCard error={errors[`mia:${draft.id}`]} key={draft.id} draft={draft} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onChoose={onChoosePurchase} />
       ) : draft.setup_card && onEditSetupCard ? (
-        <MiaSetupCard key={draft.id} draft={draft} isRealWorkspace={isRealWorkspace} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onEdit={onEditSetupCard} />
+        <MiaSetupCard error={errors[`mia:${draft.id}`]} key={draft.id} draft={draft} isRealWorkspace={isRealWorkspace} action={action} disabled={draftActionsDisabled} onApply={onApply} onCancel={onCancel} onEdit={onEditSetupCard} />
       ) : (
         <MiaActionDraftReviewCard
-          key={miaActionDraftRenderKey(draft)}
+          key={draft.status === 'partially_applied' ? miaActionDraftRenderKey(draft) : draft.id}
+          error={errors[`mia:${draft.id}`]}
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
@@ -7244,13 +7270,14 @@ export function MiaActionDraftReviewStack({
           onEditManually={onEditManually}
           onAskFresh={onAskFresh}
         />
-      ))}
+      )}</div>)}
     </div>
   )
 }
 
 function MiaActionDraftReviewCard({
   draft,
+  error,
   isRealWorkspace,
   action,
   draftActionsDisabled,
@@ -7260,6 +7287,7 @@ function MiaActionDraftReviewCard({
   onAskFresh,
 }: {
   draft: MiaActionDraft
+  error?: string
   isRealWorkspace: boolean
   action: string | null
   draftActionsDisabled: boolean
@@ -7270,6 +7298,7 @@ function MiaActionDraftReviewCard({
 }) {
   const { assistantName } = useBrand()
   const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
+  const liveResult = useLiveMiaResult(!isPending)
   // The saved numbers moved on after Mia drafted this: it can no longer be applied.
   const isStale = isPending && Boolean(draft.stale)
   // An out-of-date plan still lists the steps that were already applied.
@@ -7343,7 +7372,7 @@ function MiaActionDraftReviewCard({
     : `Apply ${selectedIds.size} selected`
 
   return (
-    <article aria-label={draft.title} className={`mia-action-draft-card ui-card${isStale ? ' is-stale' : ''}${isPending ? '' : ' is-finished'}`}>
+    <article aria-label={draft.title} className={`mia-action-draft-card ui-card${isStale ? ' is-stale' : ''}${isPending ? '' : ' is-finished'}${liveResult}`}>
       {isPending && <div className="mia-action-draft-main">
         <p className="mia-change-sentence" id={sentenceId}>{draft.summary || draft.title}</p>
         {draft.headline && !isStale && <div className="mia-change-headline"><strong className="mia-change-figure">{formatReviewMoney(draft.headline.amount_cents)}</strong><span>{draft.headline.label}</span></div>}
@@ -7356,6 +7385,7 @@ function MiaActionDraftReviewCard({
         )}
 
       </div>}
+      <MiaReviewError message={error} />
       {isStale ? (
         <div className="mia-action-draft-actions ui-actions ui-actions--tight">
           {onAskFresh && (
@@ -7633,7 +7663,9 @@ export function ManualTransactionCapture({
 }
 
 export function TransactionDraftReviewStack({
-  drafts,
+  drafts: pendingDrafts,
+  completedDrafts = [],
+  errors = {},
   isRealWorkspace,
   action,
   compact = false,
@@ -7656,6 +7688,8 @@ export function TransactionDraftReviewStack({
   description,
 }: {
   drafts: TransactionDraft[]
+  completedDrafts?: TransactionDraft[]
+  errors?: Record<string, string>
   isRealWorkspace: boolean
   action: string | null
   compact?: boolean
@@ -7680,7 +7714,15 @@ export function TransactionDraftReviewStack({
 }) {
   const resolvedTitle = title ?? transactionReviewStackTitle()
   const [expanded, setExpanded] = useState(false)
+  const [editingIds, setEditingIds] = useState<Set<number>>(() => new Set())
   const folded = collapsed && !expanded
+  const [order, setOrder] = useState<number[]>(() => pendingDrafts.map(draft => draft.id))
+  const combined = new Map(completedDrafts.map(draft => [draft.id, draft]))
+  pendingDrafts.forEach(draft => combined.set(draft.id, draft))
+  const addedIds = pendingDrafts.filter(draft => !order.includes(draft.id)).map(draft => draft.id)
+  const nextOrder = [...addedIds, ...order].filter(id => combined.has(id))
+  if (nextOrder.join() !== order.join()) setOrder(nextOrder)
+  const drafts = nextOrder.flatMap(id => combined.get(id) ?? [])
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
@@ -7734,10 +7776,8 @@ export function TransactionDraftReviewStack({
     // Do not steal focus if the participant already moved elsewhere.
     const active = document.activeElement
     if (active && active !== document.body && !reviewStackRef.current?.contains(active)) return
-    const nextId = previous.slice(previous.indexOf(removed) + 1).find((id) => pendingIds.includes(id)) ?? pendingIds[0]
-    const row = nextId ? reviewStackRef.current?.querySelector<HTMLElement>(`[data-review-item="${nextId}"]`) : null
-    const next = row?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)') ?? row?.querySelector<HTMLElement>('button:not(:disabled)')
-    ;(next ?? reviewStatusRef.current)?.focus({ preventScroll: collapsed })
+    const result = reviewStackRef.current?.querySelector<HTMLElement>(`[data-review-item="${removed}"] [data-review-result]`)
+    ;(result ?? reviewStatusRef.current)?.focus({ preventScroll: collapsed })
   }, [action, collapsed, drafts])
 
   function toggleDraftSelection(draftId: number, selected: boolean) {
@@ -7813,9 +7853,10 @@ export function TransactionDraftReviewStack({
             />
             <span>Select this page</span>
           </label>
+          {editingIds.size > 0 && <p>Save or cancel your purchase edits before confirming a group.</p>}
           {selectedDrafts.length > 0 && <>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || editingIds.size > 0 || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -7831,7 +7872,7 @@ export function TransactionDraftReviewStack({
           )}
 
           <details><summary>More bulk options</summary>
-            <button type="button" disabled={anyActionBusy || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>
+            <button type="button" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>
             <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ''}</button>
           </details>
           </>}
@@ -7843,9 +7884,11 @@ export function TransactionDraftReviewStack({
           <strong>No transaction reviews match that search.</strong>
           <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
         </div>
-      ) : (folded ? visibleDrafts.slice(0, 1) : visibleDrafts).map((draft) => (
+      ) : (folded ? [...visibleDrafts.filter(draft => draft.status !== 'pending' || draft.id === visiblePendingDrafts[0]?.id || editingIds.has(draft.id)), ...drafts.filter(draft => editingIds.has(draft.id) && !visibleDrafts.some(visible => visible.id === draft.id))] : [...visibleDrafts, ...drafts.filter(draft => editingIds.has(draft.id) && !visibleDrafts.some(visible => visible.id === draft.id))]).map((draft) => (
         <TransactionDraftReviewCard
-          key={transactionDraftRenderKey(draft)}
+          key={draft.id}
+          error={errors[`purchase:${draft.id}`]}
+          onEditingChange={(editing) => setEditingIds(current => { const next = new Set(current); if (editing) next.add(draft.id); else next.delete(draft.id); return next })}
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
@@ -7863,7 +7906,7 @@ export function TransactionDraftReviewStack({
         />
       ))}
 
-      {collapsed && visibleDrafts.length > 1 && <button type="button" className="chat-pending-line" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? 'Show fewer purchases' : `${filteredDrafts.length - 1} more ${filteredDrafts.length === 2 ? 'purchase' : 'purchases'} to check`} <span aria-hidden="true">›</span></button>}
+      {collapsed && filteredPendingDrafts.length > 1 && <button type="button" className="chat-pending-line" aria-expanded={expanded} onClick={() => { if (!expanded || editingIds.size === 0) setExpanded(value => !value) }}>{expanded ? 'Show fewer purchases' : `${filteredPendingDrafts.length - 1} more ${filteredPendingDrafts.length === 2 ? 'purchase' : 'purchases'} to check`} <span aria-hidden="true">›</span></button>}
 
       {filteredDrafts.length > pageSize && !folded && (
         <nav className="transaction-draft-pagination" aria-label="Transaction review pages">
@@ -7894,6 +7937,8 @@ type EditableDraftSplit = {
 
 function TransactionDraftReviewCard({
   draft,
+  error,
+  onEditingChange,
   isRealWorkspace,
   action,
   draftActionsDisabled,
@@ -7909,6 +7954,8 @@ function TransactionDraftReviewCard({
   onSelectedChange,
 }: {
   draft: TransactionDraft
+  error?: string
+  onEditingChange: (editing: boolean) => void
   isRealWorkspace: boolean
   action: string | null
   draftActionsDisabled: boolean
@@ -7925,16 +7972,33 @@ function TransactionDraftReviewCard({
 }) {
   const { assistantName } = useBrand()
   const [editing, setEditing] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const [slotHeight, setSlotHeight] = useState<number>()
+  const [resultTop, setResultTop] = useState<number>()
+  function keepSlot() {
+    const card = cardRef.current
+    if (!card || draft.status !== 'pending') return
+    setSlotHeight(card.getBoundingClientRect().height)
+    const actions = card.querySelector<HTMLElement>('.transaction-draft-actions')
+    if (actions) setResultTop(Math.max(0, actions.getBoundingClientRect().top - card.getBoundingClientRect().top - 8))
+  }
   const [merchant, setMerchant] = useState(draft.merchant)
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [removedSplitIds, setRemovedSplitIds] = useState<number[]>([])
+  const [actionError, setActionError] = useState<string | null>(null)
+  async function runAction(perform: () => void) {
+    setActionError(null)
+    keepSlot()
+    try { await perform() } catch (failure) { setActionError(participantErrorMessage(failure, 'This purchase could not be saved. Try again.')) }
+  }
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const allowsNewCategory = draft.source_type === 'manual_chat' && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
+  const liveResult = useLiveMiaResult(!isPending)
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
   const splitTotal = sumMoney(splits.map((split) => Number(split.amount || 0)))
   const targetAmount = Number(amount || 0)
@@ -7971,7 +8035,7 @@ function TransactionDraftReviewCard({
   } satisfies TransactionDraft : draft
   const budgetImpacts = plan ? transactionDraftBudgetImpacts(plan, impactDraft) : []
   const knownImpacts = budgetImpacts.filter(impact => impact.remainingIfApproved !== null)
-  const effect = isPending && knownImpacts.length > 0 ? knownImpacts.map(impact => {
+  const effect = isPending && !editing && knownImpacts.length > 0 ? knownImpacts.map(impact => {
     const remaining = impact.remainingIfApproved!
     return remaining < 0
       ? `${formatReviewMoney(Math.round(Math.abs(remaining) * 100))} over in ${impact.categoryName} after this`
@@ -7990,11 +8054,13 @@ function TransactionDraftReviewCard({
   function beginEditing() {
     resetEditorFromDraft()
     setEditing(true)
+    onEditingChange(true)
   }
 
   function closeEditing() {
     resetEditorFromDraft()
     setEditing(false)
+    onEditingChange(false)
   }
 
   function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
@@ -8047,13 +8113,14 @@ function TransactionDraftReviewCard({
         })),
       })
       setEditing(false)
+      onEditingChange(false)
     } catch (caught) {
       setEditError(participantErrorMessage(caught, 'Transaction draft could not be updated.'))
     }
   }
 
   return (
-    <div data-review-item={draft.id} className={`transaction-draft-card ui-card${selected ? ' is-selected' : ''}${isPending ? '' : ' is-finished'}`}>
+    <div ref={cardRef} style={!isPending && slotHeight ? { minHeight: slotHeight } : undefined} data-review-item={draft.id} className={`transaction-draft-card ui-card${selected ? ' is-selected' : ''}${isPending ? '' : ' is-finished'}${liveResult}`}>
       {isPending && selectionEnabled && (
         <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
           <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
@@ -8081,7 +8148,7 @@ function TransactionDraftReviewCard({
               <div key={match.id}>
                 <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {formatReviewMoney(Math.round((match.transaction.amount) * 100))}</span>
                 {onMatch && (
-                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
+                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || editing || action === `match-draft:${draft.id}`} onClick={() => void runAction(() => onMatch(draft, match.id))}>
                     {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
                   </button>
                 )}
@@ -8162,19 +8229,22 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions ui-actions ui-actions--compact">
+          <MiaReviewError message={error || actionError} />
+          {editing && <p className="transaction-draft-disabled-reason">Save or cancel your edit before confirming this purchase.</p>}
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this purchase.</span>}
-          <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => void runAction(() => onConfirm(draft))}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           {onUpdate && <button type="button" className="secondary-button ui-btn ui-btn--tonal" aria-label={`${editing ? 'Close edit' : 'Change'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Change'}</button>}
-          <button type="button" className="secondary-button ui-btn ui-btn--text" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+          <button type="button" className="secondary-button ui-btn ui-btn--text" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => void runAction(() => onIgnore(draft))}>
             {action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'}
           </button>
         </div>
       ) : (
-        <div className="transaction-draft-actions terminal">
-          <span><strong>{draft.merchant}</strong> · {transactionDraftTerminalCopy(draft.status)}</span>
-          <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={() => onReopen(draft)}>
+        <div className="transaction-draft-actions terminal" style={resultTop ? { paddingTop: resultTop } : undefined}>
+          <MiaReviewError message={error || actionError} />
+          <span data-review-result tabIndex={-1}><strong title={draft.merchant}>{draft.merchant}</strong>{formatReviewMoney(moneyCents(exactMoneyNumber(draft.amount, draft.amount_cents)))} · {formatShortDate(draft.occurred_on)} · {transactionDraftTerminalCopy(draft.status)}</span>
+          <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={() => void runAction(() => onReopen(draft))}>
             {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
           </button>
         </div>
@@ -8232,7 +8302,7 @@ function TransactionDraftBudgetImpactPanel({
                   <strong>{impact.categoryName}</strong>
                   <span>{formatReviewMoney(Math.round((impact.draftAmount) * 100))} in this draft</span>
                 </div>
-                <p>Choose a budget category to see what this would leave—or put over plan.</p>
+                <p>{impact.categoryId === null ? 'Choose a budget category to see what this would leave—or put over plan.' : 'The plan for this category is not known yet.'}</p>
               </article>
             )
           }
@@ -8282,18 +8352,6 @@ function transactionDraftReopenLabel(status: TransactionDraft['status']) {
   if (status === 'matched') return 'Undo match'
   if (status === 'ignored') return 'Restore draft'
   return 'Undo to edit'
-}
-
-function transactionDraftRenderKey(draft: TransactionDraft) {
-  return [
-    draft.id,
-    draft.status,
-    draft.occurred_on,
-    draft.merchant,
-    draft.amount_cents ?? draft.amount,
-    (draft.splits ?? []).map((split) => `${split.id}:${split.amount_cents}:${split.budget_category_id}`).join(','),
-    (draft.matches ?? []).map((match) => `${match.id}:${match.status}`).join(','),
-  ].join('|')
 }
 
 function editableAmountForDraft(draft: TransactionDraft) {

@@ -1,3 +1,4 @@
+import { useLiveMiaResult } from '../lib/useLiveMiaResult'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
@@ -102,6 +103,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     importId, revisionId: documentImport.metadata.source_accounting_revision_id!, onChanged: onSaved,
     refreshKey: `${documentImport.updated_at}:${JSON.stringify(documentImport.statement_review ?? null)}:${saves}`,
   })
+  const liveResult = useLiveMiaResult(state.finished, Boolean(state.data))
   const { data, error, review, plan, categories, names, needBasis, counts, mutation, coverage, savingLines, unsavedAnswer } = state
   // Nothing is answered from lines that are being read again; the buttons come back as soon as the new read arrives.
   const busy = state.busy || state.refreshing || waiting
@@ -157,7 +159,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
   }
 
   if (approved) {
-    return <section className="mia-statement-card is-approved ui-card" data-import-id={importId} aria-label={`Statement: ${title}`}>
+    return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
       <details className="ui-disclosure mia-statement-result">
         <summary><h3>{title}</h3> <strong>Approved.</strong></summary>
         <p role="status">{countedSentence(plan)}</p>
