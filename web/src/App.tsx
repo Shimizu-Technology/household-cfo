@@ -5608,7 +5608,7 @@ function DocumentImportHistory({
         <div className="document-history-controls" aria-label="Import history filters">
           <label className="document-history-search">
             <span className="sr-only">Search imports</span>
-            <input value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
+            <input className="ui-field" value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
           </label>
           <label>
             <span className="sr-only">Filter by status</span>
@@ -6156,6 +6156,7 @@ export function DocumentImportItemEditor({
         <label className="document-field wide">
           <span>Label</span>
           <input
+            className="ui-field"
             value={draft.label}
             disabled={fieldsDisabled}
             onChange={(event) => updateDraft({ label: event.currentTarget.value })}
