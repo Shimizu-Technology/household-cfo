@@ -143,3 +143,21 @@ body #root .document-upload-card:focus-within label { outline: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :is(.document-preview-sheet, .document-text-preview) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal th { background: var(--surface-ground); color: var(--muted); }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :is(th, td) { border-color: var(--rule); }
+/* Match Budget's divided figures strip, including its readable-row fallback. */
+.activity-preview .month-plan-values { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.activity-preview .plan-value { display: flex; flex-direction: column; padding: 0 12px; }
+.activity-preview .plan-value:first-child { padding-inline-start: 0; }
+.activity-preview .plan-value + .plan-value { border-inline-start: 1px solid var(--rule); }
+.activity-preview .plan-value strong { margin-top: auto; padding-top: 12px; font-size: var(--text-lg); }
+.activity-preview .plan-value strong.is-empty { white-space: normal; font-size: var(--text-xs); }
+.activity-preview .month-plan-values:has(:is(.is-empty, .value-long, .value-xlong)) { grid-template-columns: minmax(0, 1fr); }
+.activity-preview .month-plan-values:has(:is(.is-empty, .value-long, .value-xlong)) .plan-value { padding: 12px 0; border: 0; border-top: 1px solid var(--rule); }
+@container review-layout (max-width: 350px) { .activity-preview .plan-value strong { font-size: var(--text-md); } }
+/* Preserve the shared safe-area border after applying the paper edge. */
+@media (max-width: 620px) {
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .document-preview-modal) { border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; }
+}
+.document-review-panel .document-apply-bar { position: static; bottom: auto; margin: 0; padding: 16px 0; border-top: 1px solid var(--rule); background: transparent; }
+body #root .document-review-panel .statement-summary-line h5 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body #root .document-review-panel .statement-link { text-decoration: none; color: var(--brand-strong); }
+.document-review-panel .statement-ready li, .document-review-panel .statement-table tr { height: 56px; }
