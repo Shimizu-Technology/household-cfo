@@ -4891,13 +4891,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
-          <div className="lever-row ui-card wealth-figures">
+          {data.optionality.levers.length > 0 && <div className="lever-row ui-card wealth-figures">
             {data.optionality.levers.map((lever) => (
               <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />
             ))}
-          </div>
+          </div>}
 
-          <div className="choice-grid ui-card ui-rows">
+          {data.optionality.choices.length > 0 && <div className="choice-grid ui-card ui-rows">
             {data.optionality.choices.map((choice) => (
               <article className={`choice-card ui-row ${choice.fit_tone}`} key={choice.label}>
                 <span className="ui-pill"><span className={`ui-dot ${choice.fit_tone === 'green' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{choice.fit_label}</span>
@@ -4906,7 +4906,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 <small>{choice.tradeoff}</small>
               </article>
             ))}
-          </div>
+          </div>}
         </section>
       )}
 

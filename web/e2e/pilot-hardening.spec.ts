@@ -15942,3 +15942,15 @@ test('BOG UI P8b extracted-value editing stays local and approval clears phone n
     expect(action!.y + action!.height).toBeLessThan(tabs!.y)
   }
 })
+
+test('BOG UI P8b unavailable optionality keeps the reason without empty figures or zero money', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const reason = 'Complete the missing debt details first.'
+  const missing = { ...workspace, workspace: { ...workspace.workspace, debt_portfolio: { ...workspace.workspace.debt_portfolio, minimum_payment_known: false } }, optionality: { ...workspace.optionality, available: false, unavailable_reason: reason, current_runway_months: null, monthly_gap: null, levers: [], choices: [] } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: missing }))
+  await page.goto('/?pilot_e2e_role=participant#Optionality')
+  const screen = page.locator('.optionality-screen')
+  await expect(screen).toContainText(reason)
+  await expect(screen.locator('.ui-card')).toHaveCount(0)
+  await expect(screen).not.toContainText('$0')
+})
