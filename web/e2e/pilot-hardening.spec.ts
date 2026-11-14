@@ -16315,3 +16315,44 @@ test('BOG UI P8a optional card dismissal returns to its pointer opener in My Mon
   await expect(dialog).toHaveCount(0)
   await expect(opener).toBeFocused()
 })
+
+test('BOG UI P8a delayed review focus cannot consume a later purchase result', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFrame = window.requestAnimationFrame.bind(window)
+    const held: FrameRequestCallback[] = []
+    let schedulingRecovery = false
+    let heldId = 0
+    const controls = window as typeof window & { heldReviewFrames: () => number; releaseReviewFrames: () => void }
+    controls.heldReviewFrames = () => held.length
+    controls.releaseReviewFrames = () => { for (const frame of held.splice(0)) frame(performance.now()) }
+    window.requestAnimationFrame = callback => {
+      if (schedulingRecovery) { held.push(callback); return --heldId }
+      if (new Error().stack?.includes('recoverReviewFocus')) return nativeFrame(time => {
+        schedulingRecovery = true
+        try { callback(time) } finally { schedulingRecovery = false }
+      })
+      return nativeFrame(callback)
+    }
+  })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const drafts = [0, 1].map(index => ({ ...template, id: 99880 + index, merchant: `Delayed focus shop ${index + 1}` }))
+  workspace.budget.annual_plan.pending_transaction_drafts = drafts
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    const id = Number(route.request().url().split('/').at(-2))
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const heldCount = () => page.evaluate(() => (window as typeof window & { heldReviewFrames: () => number }).heldReviewFrames())
+  for (const [index, draft] of drafts.entries()) {
+    const row = page.locator(`[data-review-item="${draft.id}"]`)
+    await row.locator('[data-review-confirm]').click()
+    await expect(row.locator('[data-review-result]')).toBeFocused()
+    await expect.poll(heldCount).toBe(index + 1)
+  }
+  await page.evaluate(() => (window as typeof window & { releaseReviewFrames: () => void }).releaseReviewFrames())
+  await expect(page.locator('[data-review-item="99881"] [data-review-result]')).toBeFocused()
+})

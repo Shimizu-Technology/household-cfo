@@ -3153,9 +3153,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   function recoverReviewFocus(restoredDraftId?: number, previousAction?: Element | null) {
+    const position = reviewChatPositionRef.current
     requestAnimationFrame(() => requestAnimationFrame(() => {
-      if (budgetActionRef.current) return
-      const position = reviewChatPositionRef.current
+      // An earlier action must not consume a later action's scroll/focus owner.
+      if (budgetActionRef.current || reviewChatPositionRef.current !== position) return
+      if (position && !position.chat.isConnected) return
       reviewChatPositionRef.current = null
       const active = document.activeElement
       const focusMoved = active && active !== document.body && active !== previousAction
