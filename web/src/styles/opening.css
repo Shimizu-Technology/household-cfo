@@ -1,47 +1,16 @@
-/*
- * Program, sign-in, and recovery states share the opening panel's size and
- * type so a slow start, a failure, and a retry all look like one place.
- */
-.brand-bootstrap-panel,
-.auth-state-panel,
-.app.auth-state > .auth-panel {
-  width: min(29rem, 100%);
-  gap: var(--space-3);
-  padding: clamp(1.25rem, 4vw, 2rem);
-  box-shadow: none;
-}
-
-.brand-bootstrap-mark {
-  display: none;
-}
-
-.brand-bootstrap-panel > h1,
-.auth-state-panel > h1 {
-  font-family: var(--font-body);
-  font-size: var(--text-2xl);
-  font-weight: var(--weight-bold);
-  line-height: 1.35;
-  letter-spacing: -0.02em;
-}
-
-.brand-bootstrap-panel > .eyebrow,
-.auth-state-panel > .eyebrow {
-  color: var(--muted);
-}
-
-/* Signed-out welcome: centered, with a headline sized for a first impression rather than a poster. */
-.app.auth-state {
-  grid-template-columns: minmax(0, 29rem);
-  justify-content: center;
-}
-
-.auth-panel > h1 {
-  margin-block: var(--space-2);
-  font-size: var(--text-2xl);
-  line-height: 1.08;
-  letter-spacing: -0.02em;
-}
-
-.auth-panel > p:not(.eyebrow) {
-  max-width: 52ch;
-}
+/* Public opening, access and recovery share one paper card on cream. */
+.public-state,
+.app.public-state { box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 29rem); align-content: center; justify-content: center; gap: var(--space-6); width: 100%; max-width: none; min-height: 100svh; margin: 0; padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); background: var(--surface-ground); }
+.public-state-brand { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-3); min-width: 0; color: var(--ink); font: var(--weight-semibold) 26px/1.15 var(--font-display); font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.public-state-brand .shell-brand-logo { max-width: min(180px, 60vw); max-height: 44px; }
+.public-state :is(.brand-bootstrap-panel, .auth-state-panel, .auth-panel) { box-sizing: border-box; display: grid; gap: var(--space-4); width: 100%; min-width: 0; padding: clamp(20px, 4vw, 32px); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); box-shadow: none; }
+.public-state :is(.brand-bootstrap-panel, .auth-state-panel, .auth-panel) > * { margin: 0; }
+.public-state :is(.brand-bootstrap-panel, .auth-state-panel, .auth-panel) > h1 { font: var(--weight-semibold) 32px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
+.public-state :is(.brand-bootstrap-panel, .auth-state-panel, .auth-panel) > p { color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+.public-state .auth-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.public-state > .brand-footer { margin: 0; padding: 0; }
+.public-state .account-sign-out { display: grid; gap: var(--space-2); }
+@media (max-width: 620px) { .public-state .auth-actions { flex-direction: column; align-items: stretch; } .public-state :is(.auth-actions button, .auth-state-panel > button, .brand-bootstrap-panel > button) { width: 100%; } }
+/* A group nested in this public card remains a group of rows, not another card. */
+.public-state .auth-panel > .auth-actions + .auth-actions { margin-top: 0; }
+.public-state-brand .workspace-opening-brand { flex-basis: 100%; color: var(--muted); font: var(--weight-medium) var(--text-xs)/1.5 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }

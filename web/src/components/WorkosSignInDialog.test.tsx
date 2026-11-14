@@ -19,6 +19,11 @@ async function startEmail() {
   await waitFor(() => expect(screen.getByRole('textbox', { name: 'Sign-in code' })).toHaveProperty('disabled', false), { timeout: 3000 })
 }
 
+it('marks the email form private so dismissal never captures an exit copy', () => {
+  render(<WorkosSignInDialog {...props} />)
+  expect(screen.getByRole('dialog').getAttribute('data-dialog-private')).toBe('true')
+})
+
 it('uses a named modal and offers Google only after a verified enabled option', async () => {
   const view = render(<WorkosSignInDialog {...props} />)
   expect(screen.getByRole('dialog', { name: 'Welcome back' })).toHaveProperty('getAttribute')

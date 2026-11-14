@@ -64,10 +64,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/components/PlaidConnections.css\",\"shadow\",[],\".plaid-activity-tabs button.is-active\",\"box-shadow: var(--shadow-sm)\"]",
   // Existing component-owned shadow; outside W7 stylesheet ownership: .evidence-dialog.
   "[\"src/components/SavingsEvidenceDialog.css\",\"shadow\",[],\".evidence-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .workos-sign-in-dialog.
-  "[\"src/components/WorkosSignInDialog.css\",\"shadow\",[],\".workos-sign-in-dialog\",\"box-shadow: var(--shadow-overlay)\"]",
-  // Existing component-owned shadow; outside W7 stylesheet ownership: .workspace-opening-panel.
-  "[\"src/components/WorkspaceOpening.css\",\"shadow\",[],\".workspace-opening-panel\",\"box-shadow: var(--shadow-md)\"]",
   // Intentional floating surface or focus ring: .chat-more-menu.
   "[\"src/styles/mia.css\",\"shadow\",[],\".chat-more-menu\",\"box-shadow: var(--shadow-md)\"]",
   // Intentional floating surface or focus ring: .brand-bootstrap-mark, .shell-mia-mark, .tabs :where(button, a).active.
@@ -78,6 +74,6 @@ export const cssPolicyAllowlist = new Set([
   "[\"src/App.css\",\"side-border\",[],\".document-preview-spinner\",\"border: 2px solid rgba(123, 74, 88, 0.18)\"]",
   // Existing component-owned side-border; outside W7 stylesheet ownership: .evidence-legs.
   "[\"src/components/SavingsEvidenceDialog.css\",\"side-border\",[],\".evidence-legs\",\"border-left: 2px solid var(--line,#cad6d2)\"]",
-  // Existing component-owned side-border; outside W7 stylesheet ownership: .opening-progress-indicator.
-  "[\"src/components/WorkspaceOpening.css\",\"side-border\",[],\".opening-progress-indicator\",\"border: 2px solid currentColor\"]",
+  // Decorative static product drawing: the phone bezel, never a content/status edge.
+  "[\"src/components/AuthLanding.css\",\"side-border\",[],\".auth-landing-phone\",\"border: 8px solid var(--ink)\"]",
 ])

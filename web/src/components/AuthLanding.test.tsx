@@ -48,7 +48,7 @@ describe('AuthLanding', () => {
 
     expect(screen.getByRole('heading', { name: 'Håfa adai, welcome in.' })).toBeTruthy()
     expect(screen.getByText('A money space built for our island community.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Sign in' })).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Support' }).getAttribute('href')).toBe('https://example.test/support')
     expect(screen.getByRole('link', { name: 'Privacy' })).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Terms' })).toBeTruthy()
@@ -65,4 +65,29 @@ describe('AuthLanding', () => {
 it('links the public privacy notice when the program has not supplied its own policy URL', () => {
   render(<BrandContext.Provider value={{ ...context, brand: NEUTRAL_BRAND }}><AuthLanding /></BrandContext.Provider>)
   expect(screen.getByRole('link', { name: 'Privacy' }).getAttribute('href')).toBe('/privacy.html')
+})
+
+it('uses the brand fallback heading and the same greeting as chat without showing decorative money to assistive technology', () => {
+  const view = render(<BrandContext.Provider value={{ ...context, assistantName: 'Mia', brand: { ...brand, welcome_heading: '' } }}><AuthLanding /></BrandContext.Provider>)
+  expect(screen.getByRole('heading', { level: 1, name: 'Welcome to Island Money Lab.' })).toBeTruthy()
+  expect(screen.getByText('Håfa adai, I’m Mia.')).toBeTruthy()
+  expect(screen.getByText('No judgment, no jargon. Tell me what’s going on with your money.')).toBeTruthy()
+  const drawing = view.container.querySelector('.auth-landing-phone')!
+  expect(drawing.getAttribute('aria-hidden')).toBe('true')
+  expect(drawing.querySelectorAll('button, a, input')).toHaveLength(0)
+  expect(screen.queryByText(/Lanya chelu|Run your home like|I have an invitation/)).toBeNull()
+})
+it('retains a full 120-character brand headline and the plain greeting for another assistant', () => {
+  const heading = 'A'.repeat(120)
+  render(<BrandContext.Provider value={{ ...context, brand: { ...brand, welcome_heading: heading } }}><AuthLanding /></BrandContext.Provider>)
+  expect(screen.getByRole('heading', { level: 1, name: heading })).toBeTruthy()
+  expect(screen.getByText('Hi, I’m Auntie Mel.')).toBeTruthy()
+  expect(screen.getByText(/I’ll prepare anything that changes your numbers for you to review first/)).toBeTruthy()
+})
+
+it('leaves the assistant greeting out when a signed-out visitor only has the placeholder assistant name', () => {
+  const view = render(<BrandContext.Provider value={{ ...context, assistantName: 'your assistant' }}><AuthLanding /></BrandContext.Provider>)
+  expect(view.container.querySelector('.auth-landing-greeting')).toBeNull()
+  expect(screen.queryByText(/I’m your assistant/)).toBeNull()
+  expect(view.container.querySelector('.auth-landing-phone')).toBeTruthy()
 })

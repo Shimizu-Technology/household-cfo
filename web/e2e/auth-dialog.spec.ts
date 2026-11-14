@@ -63,6 +63,8 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     await page.getByLabel('Email address', { exact: true }).fill(challenge.email)
     await page.getByRole('button', { name: 'Close', exact: true }).click()
     await expect(dialog).toHaveCount(0)
+    expect(await page.locator('[data-dialog-exit-copy]').count()).toBe(0)
+    expect(await page.locator('input[type="email"]').count()).toBe(0)
     await expect(trigger).toBeFocused()
   })
   test('desktop Google uses a separate window and cancellation leaves email sign-in available', async ({ page, context }) => {
@@ -91,6 +93,25 @@ test.describe('Auth recovery in-app sign-in dialog', () => {
     await expect(page.getByRole('button', { name: 'Continue with email' })).toBeEnabled()
     await expect(page.getByRole('status')).toContainText('Stopped waiting')
   })
+  test('desktop Google keeps its same-tab fallback when the popup is blocked', async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-chrome', 'Desktop popup fallback; phones already use same-tab navigation.')
+    await page.addInitScript(() => { window.open = () => null })
+    let login: Record<string, unknown> | undefined
+    const origin = new URL(testInfo.project.use.baseURL!).origin
+    await page.route('**/api/auth/login', route => {
+      login = route.request().postDataJSON()
+      return route.fulfill({ json: { authorization_url: `https://api.workos.com/user_management/authorize?client_id=${clientId}&state=${'s'.repeat(43)}&redirect_uri=${encodeURIComponent(`${origin}/api/auth/callback`)}` } })
+    })
+    await page.route('https://api.workos.com/user_management/authorize**', route => route.fulfill({ contentType: 'text/html', body: '<h1>Fictional Google account chooser</h1>' }))
+    await page.goto('/browser-session-qa.html')
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.getByRole('button', { name: 'Continue with Google', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Fictional Google account chooser' })).toBeVisible()
+    expect(login).toMatchObject({ authentication_method: 'google' })
+    expect(login).not.toHaveProperty('popup')
+    await page.screenshot({ path: testInfo.outputPath('popup-blocked-same-tab-fallback.png') })
+  })
+
 })
 
 test.describe('Auth recovery Google completion and browser isolation', () => {

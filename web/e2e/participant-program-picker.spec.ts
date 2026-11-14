@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 const current = { id: 104, name: 'Fictional current program with a deliberately long descriptive name for phone layouts', status: 'active' }
 const programs = Array.from({ length: 104 }, (_, index) => index === 103 ? current : ({ id: index + 1, name: `Fictional program ${index + 1}`, status: 'completed' }))
 
-test('BOG UI participant program picker preserves current selection and pages all native choices without overflow', async ({ page }, testInfo) => {
+test('BOG UI participant program picker preserves current selection and pages all row choices without overflow', async ({ page }, testInfo) => {
   const reads: number[] = []
   await page.route('**/api/v1/participant_programs**', async route => {
     const cursor = Number(new URL(route.request().url()).searchParams.get('cursor') ?? 0)
@@ -12,23 +12,24 @@ test('BOG UI participant program picker preserves current selection and pages al
     await route.fulfill({ json: { actor_id: 7, current_cohort_id: current.id, current_program: current, selection_unavailable: false, programs: rows, next_cursor: rows.at(-1)!.id < 104 ? rows.at(-1)!.id : null } })
   })
   await page.goto('/program-picker-qa.html')
-  const select = page.getByRole('combobox', { name: 'Switch participant program' })
-  await expect(select).toHaveValue('104')
+  const select = page.getByRole('group', { name: 'Switch participant program' })
+  await expect(select.getByRole('button', { name: `${current.name} Active` })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByText('No explicit program choice yet.')).toBeVisible()
-  await expect(select.locator('option')).toHaveCount(52)
+  await expect(select.getByRole('button')).toHaveCount(51)
   await page.getByRole('button', { name: 'Load more programs' }).click()
-  await expect(select.locator('option')).toHaveCount(102)
+  await expect(select.getByRole('button')).toHaveCount(101)
   await page.getByRole('button', { name: 'Load more programs' }).click()
-  await expect(select.locator('option')).toHaveCount(105)
+  await expect(select.getByRole('button')).toHaveCount(104)
   expect(reads).toEqual([0, 50, 100])
   await expect(page.getByRole('button', { name: 'Load more programs' })).toHaveCount(0)
-  await select.focus()
-  await expect(select).toBeFocused()
-  await select.selectOption('103')
+  const choice = select.getByRole('button', { name: 'Fictional program 103 Completed' })
+  await choice.focus()
+  await expect(choice).toBeFocused()
+  await choice.press('Enter')
   await expect(page.getByText('Explicit program choice: 103')).toBeVisible()
   const layout = await page.evaluate(() => ({ width: window.innerWidth, scrollWidth: document.documentElement.scrollWidth, overflowing: [...document.querySelectorAll('main *')].filter(element => element.getBoundingClientRect().right > window.innerWidth).map(element => ({ tag: element.tagName, width: element.getBoundingClientRect().width })) }))
   expect(layout.scrollWidth, JSON.stringify(layout)).toBeLessThanOrEqual(layout.width)
-  const bounds = await select.boundingBox()
+  const bounds = await choice.boundingBox()
   expect(bounds!.height).toBeGreaterThanOrEqual(44)
   await page.screenshot({ path: testInfo.outputPath('synthetic-program-picker.png'), fullPage: true })
 })

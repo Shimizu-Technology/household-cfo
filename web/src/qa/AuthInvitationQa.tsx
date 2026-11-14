@@ -3,8 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { AuthProvider } from '../contexts/AuthContext'
 import { useAuthContext } from '../contexts/authContextValue'
 import { captureAuthInvitation } from '../lib/authInvitation'
+import '../styles/tokens.css'
 import '../index.css'
-import '../App.css'
+import '../appStyles'
+import '../styles/opening.css'
 // Exercise production capture on its allowed login path, then retain this
 // fixture entry so a development dependency reload cannot load production Root.
 const fixtureUrl = new URL(window.location.href)

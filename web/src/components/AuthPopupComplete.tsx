@@ -15,5 +15,5 @@ export function AuthPopupComplete({ error }: { error?: string | null }) {
   }, [error])
   return <AuthAccessPanel title={error ? 'Sign-in could not finish.' : 'Return to your workspace'}
     copy={error ?? 'Your sign-in window is ready. Return to Household CFO to finish checking your program access.'}
-    footer={<a className="button" href="/">Return to Household CFO</a>} />
+    footerHasPrimaryAction footer={<a className="button button--primary ui-btn" href="/">Return to Household CFO</a>} />
 }

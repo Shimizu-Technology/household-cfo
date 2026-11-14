@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ParticipantProgramPicker } from '../components/ParticipantProgramPicker'
+import '../styles/tokens.css'
 import '../index.css'
-import '../App.css'
+import '../appStyles'
+import '../styles/opening.css'
 
 export function Harness() {
   const [chosen, setChosen] = useState<number>()

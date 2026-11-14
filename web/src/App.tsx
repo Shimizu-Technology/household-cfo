@@ -208,9 +208,10 @@ import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
 import { BrandRuntimeProvider } from './contexts/BrandContext'
 import { NEUTRAL_BRAND, useBrand } from './contexts/brandContextValue'
-import { brandByline, brandHeaderByline } from './lib/brandByline'
+import { brandHeaderByline } from './lib/brandByline'
 import { shortAssistantName } from './lib/assistantName'
 import { BrandFooter, BrandLogo, BrandWordmark } from './components/BrandChrome'
+import { PublicBrandMark } from './components/PublicBrandMark'
 import { AuthLanding } from './components/AuthLanding'
 import { BrandDocument } from './components/BrandDocument'
 import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
@@ -5049,17 +5050,15 @@ function ClearChatConfirmDialog({
 }
 
 function AccessDenied({ message, onSignOut, onRetry }: { message: string; onSignOut?: () => Promise<void>; onRetry: () => Promise<void> }) {
-  const { brand } = useBrand()
   return (
-    <main className="app loading-state auth-state">
-      <section className="hero-panel auth-panel">
-        <BrandLogo brand={brand} />
-        <p className="eyebrow">{brandByline(brand)}</p>
+    <main className="app loading-state auth-state public-state">
+      <PublicBrandMark />
+      <section className="hero-panel auth-panel ui-card">
         <h1>This account cannot open this program.</h1>
         <p>{message}</p>
         <div className="auth-actions">
-          <button type="button" onClick={() => void onRetry().catch(() => undefined)}>Check access again</button>
-          <button type="button" onClick={() => window.location.reload()}>Reload page</button>
+          <button type="button" className="ui-btn ui-btn--primary" onClick={() => void onRetry().catch(() => undefined)}>Check access again</button>
+          <button type="button" className="ui-btn ui-btn--tonal" onClick={() => window.location.reload()}>Reload page</button>
           <SignOutButton onSignOut={onSignOut} />
         </div>
       </section>
