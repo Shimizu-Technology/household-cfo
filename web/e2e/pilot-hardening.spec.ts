@@ -16193,7 +16193,14 @@ test('BOG UI P8b fix1 setup help topic rows have one divider', async ({ page }) 
 })
 
 test('BOG UI P8a keeps topic pills on phones and separates saved profile values from editing', async ({ page }) => {
-  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/workspace/setup', route => {
+    expect(route.request().postDataJSON().workspace).toEqual({ primary_goal: 'An intentional household goal.' })
+    workspace.workspace.setup_values.primary_goal = 'An intentional household goal.'
+    workspace.profile.household.primary_goal = 'An intentional household goal.'
+    return route.fulfill({ json: workspace })
+  })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   const topics = page.getByRole('navigation', { name: 'My Money topics' })
   await expect(topics).toBeVisible()
@@ -16221,7 +16228,7 @@ test('BOG UI P8a keeps topic pills on phones and separates saved profile values 
   await page.getByRole('button', { name: 'Save details', exact: true }).focus()
   await page.keyboard.press('Enter')
   await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
-
+  await expect(page.locator('.profile-saved-value').last()).toHaveText('An intentional household goal.')
 })
 
 
@@ -16229,6 +16236,7 @@ test('BOG UI P8a money edit row supports keyboard review and intentional save', 
   const workspace = realWorkspaceData(true)
   const goal = { id: 83, label: 'Family trip', goal_type: 'travel', target_amount: 4000, current_amount: null, target_on: null, priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
   workspace.workspace.goals = [goal]
+  workspace.workspace.goal_portfolio = { ...workspace.workspace.goal_portfolio, active_count: 1, target_total: 4000, target_known_count: 1, unknown_progress_goal_ids: [83] }
   let saves = 0
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.route('http://api.test/api/v1/goals/83', route => {
