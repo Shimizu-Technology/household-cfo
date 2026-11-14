@@ -5508,8 +5508,11 @@ h3 {
     flex: 1 1 130px;
   }
 
+  /* The type dropdown takes the card's whole second row so its longest option fits beside the
+     arrow; Remove moves up beside the file name. */
   .attachment-kind-picker {
-    flex: 1 1 180px;
+    order: 1;
+    flex: 1 1 100%;
   }
 
   .attachment-kind-picker select {
@@ -6783,7 +6786,8 @@ h3 {
 }
 
 .attachment-kind-picker select {
-  width: min(210px, 48vw);
+  /* "Bank or card statement" needs about 190px of text room at the control's 16px, plus the arrow. */
+  width: min(100%, 250px);
   min-height: 34px;
   border: 1px solid rgba(123, 74, 88, 0.16);
   border-radius: var(--radius-sm);
@@ -6843,6 +6847,11 @@ h3 {
   min-width: 0;
   color: inherit;
   font: inherit; font-weight: var(--weight-semibold);
+}
+
+/* The file name is a button: without this it shows the browser's grey button fill inside the card. */
+.attachment-preview-button {
+  background: none;
 }
 
 .attachment-preview-button img,
@@ -6916,6 +6925,8 @@ h3 {
 .message-attachment-card.is-image {
   display: block;
   width: min(230px, 64vw);
+  /* No padding: the photo and its caption fill the card, which rounds their outer corners. */
+  padding: 0;
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-lg);
@@ -6928,7 +6939,7 @@ h3 {
   width: 100%;
   height: auto;
   max-height: 230px;
-  border-radius: inherit;
+  border-radius: 0;
   object-fit: cover;
 }
 
@@ -9024,6 +9035,8 @@ h3 {
   gap: 8px;
   min-width: 210px;
 }
+/* The stack names are long ("Sinking Fund — Unexpected"): give the control the whole cell. */
+.annual-category-cell-editor select { width: 100%; }
 
 .annual-category-cell-editor input,
 .annual-category-cell-editor select {

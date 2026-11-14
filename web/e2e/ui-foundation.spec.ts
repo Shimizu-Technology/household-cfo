@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { expectSelectsLeaveRoomForArrow } from './helpers/selectArrowRoom'
 
 // BOG UI prefix also includes the foundation on the project's tablet/WebKit
 // filters, so every browser matrix actually exercises this shared CSS.
@@ -95,6 +96,45 @@ test.describe('BOG UI design foundation', () => {
     expect(await check.evaluate(node => getComputedStyle(node).appearance)).toBe('auto')
     await check.check()
     await expect(check).toBeChecked()
+  })
+})
+
+test.describe('BOG UI dropdown arrow check', () => {
+  // The check guards every test in pilot-hardening, so it is tested here against known cases.
+  const probe = async (page: import('@playwright/test').Page, selects: string) => {
+    await page.goto('/ui-foundation-qa.html')
+    await expect(page.getByRole('heading', { name: 'The shared foundation' })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
+    await page.evaluate(markup => {
+      document.getElementById('arrow-probe')?.remove()
+      const box = document.createElement('div')
+      box.id = 'arrow-probe'
+      box.style.cssText = 'width:300px;padding:0'
+      box.innerHTML = markup
+      document.querySelector('#root')!.append(box)
+    }, selects)
+  }
+
+  test('passes a select sized to its content and a long value in a select that fills its container', async ({ page }) => {
+    await probe(page, '<select aria-label="Sized to content"><option>May</option><option>September</option></select><select aria-label="Fills its container" style="width:100%"><option>A purchase with a very long name that cannot possibly fit in three hundred pixels</option></select>')
+    await expectSelectsLeaveRoomForArrow(page, '#arrow-probe')
+  })
+
+  test('fails a squeezed select whose text fits at 10px but not at its own font size', async ({ page }) => {
+    // "Bank or card statement" is about 100px wide at 10px sans-serif and about 190px at the control's 16px.
+    await probe(page, '<select aria-label="Squeezed" style="width:180px"><option>Bank or card statement</option></select>')
+    await expect(expectSelectsLeaveRoomForArrow(page, '#arrow-probe')).rejects.toThrow(/Squeezed/)
+  })
+
+  test('fails a select that gives the arrow less than 38px', async ({ page }) => {
+    await probe(page, '<select aria-label="No arrow room" style="padding-inline-end:12px"><option>May</option></select>')
+    await expect(expectSelectsLeaveRoomForArrow(page, '#arrow-probe')).rejects.toThrow(/No arrow room: 12px/)
+  })
+
+  test('ignores selects that are in the layout but cannot be seen', async ({ page }) => {
+    const squeezed = 'style="width:120px;{hide}"><option>Bank or card statement</option></select>'
+    await probe(page, ['visibility:hidden', 'opacity:0'].map(hide => `<select aria-label="Hidden" ${squeezed.replace('{hide}', hide)}`).join(''))
+    await expectSelectsLeaveRoomForArrow(page, '#arrow-probe')
   })
 })
 

@@ -233,6 +233,8 @@
 }
 .message-row.user .message :is(p, li, span, a, strong) { color: inherit; }
 .message-row.user .message p { color: var(--brand-on-primary); }
+/* A sent photo's caption sits on paper, so it takes ink, not the bubble's light text. */
+.message-row.user .message .message-attachment-card.is-image span { color: var(--ink); }
 .message-row > .message > strong:first-child {
   position: absolute;
   width: 1px;
