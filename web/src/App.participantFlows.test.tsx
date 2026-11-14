@@ -195,11 +195,11 @@ it('keeps a deliberate amount focus when the income opener frame runs later', ()
   try {
     render(<IncomeSourceManager sources={[]} action={null} error={null} onSave={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: 'Add income source' }))
-    const amount = screen.getByRole('spinbutton', { name: 'Starting amount', exact: true })
+    const amount = screen.getByRole('spinbutton', { name: 'Starting amount' })
     amount.focus()
     act(() => { for (const frame of frames.splice(0)) frame(0) })
     expect(document.activeElement).toBe(amount)
     fireEvent.change(amount, { target: { value: '200' } })
-    expect((screen.getByRole('textbox', { name: 'Name', exact: true }) as HTMLInputElement).value).toBe('')
+    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('')
   } finally { raf.mockRestore() }
 })
