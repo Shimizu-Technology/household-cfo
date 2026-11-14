@@ -5480,7 +5480,7 @@ function DocumentImportWorkspace({
             <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. {assistantName} drafts values only after upload.</p>
             <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
           </div>
-          <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
+          <a className="ui-btn ui-btn--text" href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
         </div>
         <div className="document-upload-grid">{documentUploadCards.filter(card => card.kind !== 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
         {(onReviewBaseline || onReturnToStart) && <div className="document-other-links">
@@ -5532,7 +5532,7 @@ export function DocumentUploadCard({
         <p>{card.helper}</p>
         <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
-        <strong className="ui-btn ui-btn--primary">{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
+        <strong className={`ui-btn ${card.kind === 'statement' ? 'ui-btn--primary' : 'ui-btn--tonal'}`}>{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
       </label>
       {retryFile && !uploading && (
         <div className="form-stack document-upload-recovery">
