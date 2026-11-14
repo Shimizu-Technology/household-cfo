@@ -1,5 +1,5 @@
 /* Shared primitives, with layout measured after the sidebar takes its space. */
-.statements-screen, .wealth-screen, .cfo-screen, .optionality-screen { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); max-width: 760px; width: 100%; margin-inline: auto; }
+.statements-screen, .wealth-screen, .cfo-screen, .optionality-screen { container-type: inline-size; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-5); max-width: 760px; width: 100%; margin-inline: 0; }
 .statements-screen { max-width: 1180px; }
 :is(.statements-screen, .wealth-screen, .cfo-screen, .optionality-screen) .screen-heading h2 { font: var(--weight-semibold) 32px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 :is(.statements-screen, .wealth-screen, .cfo-screen, .optionality-screen) :is(h3, h4, h5) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
@@ -21,7 +21,7 @@ body #root .document-history-card .document-status { padding: 0; background: tra
 .document-history-card .document-status.green::before { background: var(--positive); }
 .document-history-card .document-status:is(.gold, .red)::before { background: var(--accent-warm); }
 .document-history-card .document-status.blue::before { background: var(--brand); }
-.document-history-card::after { content: '›'; position: absolute; inset-inline-end: 4px; top: 14px; color: var(--muted); }
+.document-history-card > .ui-row__chevron { position: absolute; inset-inline-end: 4px; top: 14px; color: var(--muted); }
 body #root .document-history-card.active { background: var(--brand-soft); }
 .document-history-heading { padding-bottom: var(--space-3); }
 .document-history-search-options { margin-bottom: var(--space-3); }
@@ -36,9 +36,9 @@ body #root .document-history-card.active { background: var(--brand-soft); }
 .document-import-guide a { color: var(--brand-strong); text-decoration: none; }
 .document-import-workspace .upload-card { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; padding-inline: 0; }
 @container (min-width: 850px) {
-  .document-review-layout { grid-template-columns: minmax(0, 1fr) minmax(260px, .48fr); align-items: start; }
-  .document-review-layout > .document-history { grid-column: 2; grid-row: 1; }
-  .document-review-layout > .document-review-panel { grid-column: 1; grid-row: 1; }
+  .document-review-layout { grid-template-columns: minmax(260px, .48fr) minmax(0, 1fr); align-items: start; }
+  .document-review-layout > .document-history { grid-column: 1; grid-row: 1; }
+  .document-review-layout > .document-review-panel { grid-column: 2; grid-row: 1; }
 }
 .wealth-figures.metric-row, .wealth-figures.lever-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .wealth-figures .metric-card { padding: 16px 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; min-width: 0; }
@@ -71,9 +71,9 @@ body #root .decision-card > strong { display: block; font: var(--weight-semibold
 .module-unavailable-notice { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); color: var(--ink); box-shadow: none; }
 .module-unavailable-notice:focus { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
 /* Privacy and dismissal owners stay unchanged. */
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; border-radius: var(--radius-lg); }
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) :is(h3, h4, legend) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; border-radius: var(--radius-lg); }
+body :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) :is(h3, h4, legend) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-consent, .pilot-guide-power-path, .baseline-limit, .baseline-approved, .baseline-preview, .evidence-contribution, .evidence-recovery, .evidence-proposal) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; background: transparent; color: var(--ink); box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) fieldset { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .baseline-totals { display: block; }
@@ -92,10 +92,10 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .setup-help-topics button
 .activity-preview .category-pressure-row { padding: 16px 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
 .activity-preview .budget-progress-pending { background: var(--data-planned); background-image: none; }
 .activity-preview .activity-preview-actions { display: flex; flex-wrap: wrap; gap: 12px; }
-@media (max-width: 620px) {
-  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+@media (max-width: 640px) {
+  body :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .baseline-overlay, .evidence-overlay { padding: 0; align-items: end; }
-  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) { width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); padding: 18px 18px max(18px, env(safe-area-inset-bottom)); box-sizing: border-box; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) { width: 100%; padding: 18px 18px max(18px, env(safe-area-inset-bottom)); box-sizing: border-box; }
 }
 /* Supersede the older participant-flow layout loaded by the workspace chunk. */
 body #root .statements-screen .document-upload-card.ui-card { border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; background: var(--surface-card); }
@@ -110,7 +110,7 @@ body #root .statements-screen .document-upload-secondary .document-upload-card {
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal h3 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 @container (min-width: 850px) {
-  body #root .statements-screen .document-review-layout:has(> .document-review-panel) { grid-template-columns: minmax(0, 1fr) minmax(260px, .48fr); }
+  body #root .statements-screen .document-review-layout:has(> .document-review-panel) { grid-template-columns: minmax(260px, .48fr) minmax(0, 1fr); }
   .document-review-layout:not(:has(> .document-review-panel)) > .document-history { grid-column: 1 / -1; }
 }
 .activity-preview :is(.plan-value, .category-pressure-values > div) { border: 0; border-radius: 0; background: transparent; padding: 12px 0; }
@@ -119,13 +119,13 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal h
 .activity-preview :is(.plan-value span, .category-pressure-values dt) { font-size: var(--text-xs); color: var(--muted); }
 .activity-preview :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 .document-review-panel .statement-notice { padding: 12px 0; border: 0; border-block: 1px solid var(--rule); border-radius: 0; background: transparent; }
-.document-review-panel .statement-line { min-height: 56px; }
+.document-review-panel .statement-line { min-min-height: 56px; }
 .document-review-panel .statement-link { text-decoration: none; color: var(--brand-strong); }
 .document-review-panel :is(.statement-line-name, .statement-line-amount) { font-weight: var(--weight-semibold); }
 .document-review-panel .document-processing-state { border: 0; border-block: 1px solid var(--rule); border-radius: 0; padding: 16px 0; background: transparent; color: var(--ink); }
 body #root .document-import-workspace .document-other-links .text-button { text-decoration: none; }
 /* Currency remains one readable line; descriptive missing values can wrap. */
-.wealth-figures .metric-card > strong { font-size: clamp(20px, 3cqi, 26px); white-space: nowrap; }
+.wealth-figures .metric-card > strong { font-size: var(--text-xl); white-space: nowrap; }
 .wealth-figures .metric-card > strong.metric-value-unknown { white-space: normal; }
 body #root .decision-card > strong, .activity-preview .plan-value strong { white-space: nowrap; }
 .participant-help { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
@@ -138,7 +138,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .challenge-personal-expor
 .wealth-figures .metric-card > strong { letter-spacing: normal; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) > header > div { min-width: 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) > header > button { flex: 0 0 auto; white-space: nowrap; }
-body #root :is(.choice-card, .decision-card) .ui-pill { background: transparent; color: var(--muted); padding-inline: 0; }
+body #root :is(.choice-card, .decision-card) .ui-pill { background: transparent; color: var(--muted); padding: 4px 10px; max-width: 100%; white-space: normal; }
 body #root .document-upload-card:focus-within label { outline: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :is(.document-preview-sheet, .document-text-preview) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal th { background: var(--surface-ground); color: var(--muted); }
@@ -154,10 +154,39 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :
 .activity-preview .month-plan-values:has(:is(.is-empty, .value-long, .value-xlong)) .plan-value { padding: 12px 0; border: 0; border-top: 1px solid var(--rule); }
 @container review-layout (max-width: 350px) { .activity-preview .plan-value strong { font-size: var(--text-md); } }
 /* Preserve the shared safe-area border after applying the paper edge. */
-@media (max-width: 620px) {
-  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .document-preview-modal) { border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; }
+@media (max-width: 640px) {
+  body :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .document-preview-modal) { border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; }
 }
 .document-review-panel .document-apply-bar { position: static; bottom: auto; margin: 0; padding: 16px 0; border-top: 1px solid var(--rule); background: transparent; }
 body #root .document-review-panel .statement-summary-line h5 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body #root .document-review-panel .statement-link { text-decoration: none; color: var(--brand-strong); }
-.document-review-panel .statement-ready li, .document-review-panel .statement-table tr { height: 56px; }
+.document-review-panel .statement-ready li, .document-review-panel .statement-table tr { min-height: 56px; }
+
+/* The figures use a stable body size; long values get the full readable width. */
+.wealth-figures:has(.metric-value-xlong) { grid-template-columns: minmax(0, 1fr); }
+.wealth-figures:has(.metric-value-xlong) .metric-card { padding: 16px 0; border: 0; }
+.wealth-figures:has(.metric-value-xlong) .metric-card + .metric-card { border-top: 1px solid var(--rule); }
+body #root .document-history-card.active { border-radius: var(--radius-md); outline: 2px solid var(--brand); outline-offset: -2px; }
+body #root .document-history-card > small, body #root .document-upload-card label > small { font-weight: var(--weight-regular); color: var(--muted); }
+body #root .statements-screen .document-upload-primary { width: 100%; max-width: none; }
+.document-pending-review { background: var(--surface-card); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 18px; margin-bottom: var(--space-3); }
+body #root .document-review-panel .document-review-header,
+body #root .document-review-panel .document-transaction-drafts { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
+.document-review-header .document-file-options { border-top: 1px solid var(--rule); }
+.document-review-panel .document-review-coverage { border: 0; }
+.review-layout .activity-preview { grid-column: 1 / -1; }
+body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header :is(h2, h3) { font: var(--weight-regular) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog']) :is(.pilot-privacy-note, .pilot-guide-dialog footer, .pilot-feedback-success) { border: 1px solid var(--rule); background: var(--surface-ground); color: var(--muted); }
+body :is(#root, [role='dialog']) .setup-help-topics button.ui-row { border-top: 0; }
+@media (forced-colors: active) {
+  body #root .document-history-card[aria-current='true'] { outline: 2px solid Highlight; outline-offset: -2px; border-radius: var(--radius-md); }
+}
+
+.document-preview-header > .document-preview-actions { grid-column: 1 / -1; grid-row: 2; }
+.document-preview-header > .document-preview-close { grid-column: 2; grid-row: 1; }
+@media (max-width: 640px) {
+  body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal { border-bottom: env(safe-area-inset-bottom, 0px) solid transparent; border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+}
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header :is(h2, h3) { font-weight: var(--weight-regular); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .daily-dialog .daily-close { width: auto; height: auto; min-height: 44px; padding: 10px 16px; font-size: var(--text-sm); }

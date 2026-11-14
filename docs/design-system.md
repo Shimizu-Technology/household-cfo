@@ -4,7 +4,7 @@ Household CFO uses Look A: cream ground, paper cards, plum derived from the coac
 
 ## Styles and cascade
 
-`main.tsx` loads `styles/tokens.css`, `index.css`, then `appStyles.ts`. The latter loads `App.css`, `shell.css`, `cards.css`, `home.css`, `mia.css`, `charts.css`, `budgetReview.css`, `motion.css`, then **`ui.css`**. New shared primitives belong in `ui.css`, not the legacy `App.css`. `opening.css` follows at entry. `dialogViewportBase.css` supplies shared entry/exit motion and viewport variables; the workspace’s `dialogViewport.css` adds keyboard-aware sizing after component styles.
+`main.tsx` loads `styles/tokens.css`, `index.css`, then `appStyles.ts`. The latter loads `App.css`, `shell.css`, `cards.css`, `home.css`, `mia.css`, `charts.css`, `budgetReview.css`, `statementsWealth.css`, `motion.css`, then **`ui.css`**. New shared primitives belong in `ui.css`, not the legacy `App.css`. `opening.css` follows at entry. `dialogViewportBase.css` supplies shared entry/exit motion and viewport variables; the workspace’s `dialogViewport.css` adds keyboard-aware sizing after component styles.
 
 Component CSS may arrive later in a lazy chunk. Shared control rules deliberately use `body :is(#root, [role='dialog'], [role='alertdialog'])` so their visual contract wins over component classes, including portals. They preserve existing component dimensions. Do not compete with them by adding a more specific screen rule. `.ui-brand` recomputes the semantic aliases for locally scoped brand previews; production `BrandDocument` writes the root variables.
 

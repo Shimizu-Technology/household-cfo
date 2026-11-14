@@ -1,4 +1,5 @@
 import {useState} from 'react'
+import {useDialogViewport} from '../../src/lib/useDialogViewport'
 import {createRoot} from 'react-dom/client'
 import {SavingsChallengeHome} from '../../src/components/SavingsChallengeHome'
 import {savingsFixture} from '../../src/test/savingsFixtures'
@@ -9,6 +10,7 @@ import type {EvidenceMutation} from '../../src/lib/savingsEvidence'
 import '../../src/styles/tokens.css'
 import '../../src/index.css'
 import '../../src/appStyles'
+import '../../src/dialogViewport.css'
 const scenario=new URLSearchParams(location.search).get('case');let interrupted=false,statusBusy=false,denied=false,count=0
 let current=evidencePage();const journal=new Map<string,EvidenceMutation>()
 if(scenario==='history'){current={...current,entry_is_current:false,entry:{...current.entry,evidence_status:'stale'},head:{id:30,current_version_id:31,lock_version:2},current_version:evidenceVersion(),records:[evidenceVersion()]}}
@@ -41,7 +43,7 @@ window.fetch=async(input,options)=>{
  if((scenario==='lost'||scenario==='busy')&&!interrupted){interrupted=true;throw new TypeError('Synthetic interrupted response after commit')}
  return response(result)
 }
-export function Fixture(){const[open,setOpen]=useState(false);const[changes,setChanges]=useState(0);const[calls,setCalls]=useState(0);const[scope,setScope]=useState(baselineScope)
+export function Fixture(){useDialogViewport();const[open,setOpen]=useState(false);const[changes,setChanges]=useState(0);const[calls,setCalls]=useState(0);const[scope,setScope]=useState(baselineScope)
  return <main style={{padding:16,maxWidth:900,margin:'auto'}}><p>Fictional local component fixture. No real statements, authentication or money movement.</p><h1>Savings evidence preview</h1><p>Reported savings stays $50.00.</p><button onClick={()=>setOpen(true)}>Review fictional savings evidence</button><button onClick={()=>{denied=true;setOpen(true)}}>Revoke fictional private access</button><button onClick={()=>{setScope({user_id:902,household_id:78});setOpen(true)}}>Switch fictional actor</button>{scenario==='history'&&<SavingsChallengeHome participantScope={baselineScope} onAskMia={()=>undefined} onReviewStatements={()=>undefined} onReviewEvidence={()=>setOpen(true)}/>}<output aria-label="Synthetic mutation count">{calls}</output><output aria-label="Synthetic completed changes">{changes}</output>{open&&<SavingsEvidenceDialog actorScope={scope} entryVersionId={11} onClose={()=>{setOpen(false);setCalls(count)}} onChanged={()=>{setChanges(value=>value+1);setCalls(count)}}/>}</main>
 }
 const root=createRoot(document.getElementById('root')!);root.render(<Fixture/>);if(import.meta.hot)import.meta.hot.dispose(()=>root.unmount())

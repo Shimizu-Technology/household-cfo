@@ -195,8 +195,8 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
           <div><span className="document-status blue">Private preview</span><h3>{title}</h3><p>{description} · Every source read rechecks your access.</p></div>
           <div className="document-preview-actions">
             {source && <button className="ui-btn ui-btn--tonal" type="button" disabled={loading || operation !== null} onClick={() => void readContent(true)}>{operation === 'download' ? 'Downloading' : 'Download source'}</button>}
-            <button className="ui-btn ui-btn--text" type="button" onClick={requestClose}>Close</button>
           </div>
+          <button className="document-preview-close ui-btn ui-btn--tonal" type="button" onClick={requestClose}>Close</button>
         </header>
         <div className="document-preview-body">
           {loading && <div className="document-preview-state" role="status">Checking private source access…</div>}

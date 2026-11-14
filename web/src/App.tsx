@@ -4828,7 +4828,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
           <div className="metric-row ui-card wealth-figures">
             <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.net_worth === null ? 'Complete your account and debt balances to see this figure.' : undefined} />
-            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.liquid_net_worth === null ? 'Complete your account and debt balances to see this figure.' : undefined} />
+            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.liquid_net_worth === null ? data.workspace.debt_portfolio?.mode === 'summary' ? 'This figure needs each debt listed separately.' : 'Complete your account and debt balances to see this figure.' : undefined} />
             <Metric
               className="wealth-explainer-metric"
               label={monthlySurplusAvailable != null && monthlySurplusAvailable < 0 ? 'Short of the plan this month' : 'Left to give a job this month'}
@@ -4865,7 +4865,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             {data.cfoFilter.decisions.map((decision) => (
               <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
                 <div>
-                  <span className="ui-pill"><span className={`ui-dot ${decision.recommendation.toLowerCase() === 'approve' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{decision.recommendation}</span>
+                  <span className="ui-pill"><span className={`ui-dot ${decision.recommendation.toLowerCase() === 'optional' ? 'ui-dot--neutral' : decision.recommendation.toLowerCase() === 'approve' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
                 <strong>{!debtMinimumsKnown ? 'Not available' : formatReviewMoney(Math.round((decision.amount) * 100))}</strong>
@@ -4900,7 +4900,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           {data.optionality.choices.length > 0 && <div className="choice-grid ui-card ui-rows">
             {data.optionality.choices.map((choice) => (
               <article className={`choice-card ui-row ${choice.fit_tone}`} key={choice.label}>
-                <span className="ui-pill"><span className={`ui-dot ${choice.fit_tone === 'green' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{choice.fit_label}</span>
+                <span className="ui-pill"><span className={`ui-dot ${choice.fit_label === 'Optional' ? 'ui-dot--neutral' : choice.fit_tone === 'green' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{choice.fit_label}</span>
                 <h3>{choice.label}</h3>
                 <p>{choice.upside}</p>
                 <small>{choice.tradeoff}</small>
@@ -5400,7 +5400,6 @@ function DocumentImportWorkspace({
   onOpenSource: (documentImport: FinancialDocumentImport) => void
 }) {
   const { assistantName } = useBrand()
-  const pendingCount = imports.filter(documentNeedsReview).length
 
   if (!isRealWorkspace) {
     return (
@@ -5428,13 +5427,12 @@ function DocumentImportWorkspace({
 
   return (
     <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
-        <div className="document-workspace-heading"><h3>{pendingCount > 0 ? `${pendingCount} ${pendingCount === 1 ? 'upload needs' : 'uploads need'} review` : uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3></div>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
       {uploadBlocked && <p className="document-alert" role="status">{uploadBlocked}</p>}
-      <div className="document-upload-primary">{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <div className="document-upload-primary">{!imports.some(documentNeedsReview) && <h3>{uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3>}{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
 
       <div className="document-review-layout">
         <DocumentImportHistory
@@ -5579,7 +5577,7 @@ function DocumentImportHistory({
           documentImport.items.map((item) => `${item.label} ${item.evidence ?? ''} ${item.amount ?? ''} ${item.balance ?? ''} ${item.payment ?? ''}`).join(' '),
           documentImport.transaction_drafts.map((draft) => `${draft.merchant} ${draft.summary ?? ''}`).join(' '),
           documentKindLabel(documentImport.document_kind),
-          uploadStatusLabel(documentImport),
+          documentImport.context_paused_by_restart ? 'Earlier file Previous financial picture view only' : uploadStatusLabel(documentImport),
           importPeriodLabel(documentImport),
         ].join(' ').toLowerCase().includes(query)
       })
@@ -5603,6 +5601,7 @@ function DocumentImportHistory({
         <h4>Your uploads</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
       </div>
+      {imports.some(documentNeedsReview) && <button type="button" className="document-pending-review ui-row" onClick={() => onSelectImport(imports.find(documentNeedsReview)!.id)}><span className="ui-dot ui-dot--attention" aria-hidden="true" />{imports.filter(documentNeedsReview).length} {imports.filter(documentNeedsReview).length === 1 ? 'upload needs' : 'uploads need'} review</button>}
       {imports.length > 0 && (
         <details className="document-history-search-options"><summary>Find an upload</summary>
         <div className="document-history-controls" aria-label="Import history filters">
@@ -5664,16 +5663,14 @@ function DocumentImportHistory({
               <button
                 type="button"
                 key={documentImport.id}
-                aria-label={documentImportDisplayName(documentImport)}
-                aria-describedby={`upload-status-${documentImport.id}`}
+                aria-current={selectedImportId === documentImport.id ? 'true' : undefined}
                 className={`document-history-card ui-row ${selectedImportId === documentImport.id ? 'active' : ''}`}
                 onClick={() => onSelectImport(documentImport.id)}
               >
-                <span id={`upload-status-${documentImport.id}`} className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{documentImport.context_paused_by_restart ? 'Paused' : uploadStatusLabel(documentImport)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
-                {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
-                <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
-                <small>{importPeriodLabel(documentImport)}</small>
+                <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}{documentImport.context_paused_by_restart && ' · Previous financial picture · view only'}</small>
+                <span className={`document-status ${documentImport.context_paused_by_restart ? 'neutral' : documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{documentImport.context_paused_by_restart ? 'Earlier file' : uploadStatusLabel(documentImport)}</span>
+                <span className="ui-row__chevron" aria-hidden="true">›</span>
               </button>
             ))}
           </div>
@@ -5785,7 +5782,7 @@ export function DocumentReviewPanel({
       : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
   const fileHeader = (
-        <div className="document-review-header">
+        <div className="document-review-header ui-card">
           <div>
             <h4>Review details</h4>
             <p>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
@@ -5862,7 +5859,7 @@ export function DocumentReviewPanel({
       {sourceMode === 'typed' && fileHeader}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
-        <section className="document-transaction-drafts activity-screen" aria-label="Purchases from this upload">
+        <section className="document-transaction-drafts activity-screen ui-card" aria-label="Purchases from this upload">
           {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
           <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement line review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved.`}</p>
           <TransactionDraftReviewStack
