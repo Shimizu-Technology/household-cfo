@@ -8842,6 +8842,8 @@ for (const setupComplete of [false, true]) {
     await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
     await r6MiaShot(page, `attachments-${setupComplete ? 'established' : 'setup'}`)
+    // The file name is a plain button in the card (no browser-grey fill).
+    expect(await page.locator('.attachment-preview-button').first().evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
     await expect(page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })).toHaveCount(1)
     const geometry = await page.locator('.mia-chat-shell').evaluate((shell) => {
       const box = shell.getBoundingClientRect()
@@ -11422,6 +11424,28 @@ test('BOG UI participant navigation remains available with one Home load and no 
   await expect(page.locator('.document-history')).toBeVisible()
   await expect.poll(() => imports).toBe(1)
   expect(workspaceReads).toBe(1)
+})
+
+test('BOG UI a sent photo keeps a readable caption inside the bubble', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const caption = page.locator('.message-row.user .message-attachment-card.is-image span').first()
+  await caption.scrollIntoViewIfNeeded()
+  await expect(caption).toHaveText('Receipt screenshot')
+  const contrast = await caption.evaluate((node) => {
+    const channels = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+    const luminance = (value: string) => {
+      const [red, green, blue] = channels(value).map((channel) => {
+        const share = channel / 255
+        return share <= 0.03928 ? share / 12.92 : ((share + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+    const style = getComputedStyle(node)
+    const [light, dark] = [luminance(style.color), luminance(style.backgroundColor)].sort((first, second) => second - first)
+    return (light + 0.05) / (dark + 0.05)
+  })
+  expect(contrast).toBeGreaterThanOrEqual(4.5)
 })
 
 test('BOG UI compact savings chat preserves room for five files and the complete guidance disclosure', async ({ page }) => {

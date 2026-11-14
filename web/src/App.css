@@ -5508,8 +5508,11 @@ h3 {
     flex: 1 1 130px;
   }
 
+  /* The type dropdown takes the card's whole second row so its longest option fits beside the
+     arrow; Remove moves up beside the file name. */
   .attachment-kind-picker {
-    flex: 1 1 180px;
+    order: 1;
+    flex: 1 1 100%;
   }
 
   .attachment-kind-picker select {
@@ -6846,6 +6849,11 @@ h3 {
   font: inherit; font-weight: var(--weight-semibold);
 }
 
+/* The file name is a button: without this it shows the browser's grey button fill inside the card. */
+.attachment-preview-button {
+  background: none;
+}
+
 .attachment-preview-button img,
 .message-attachment-card img {
   width: 42px;
@@ -6917,6 +6925,8 @@ h3 {
 .message-attachment-card.is-image {
   display: block;
   width: min(230px, 64vw);
+  /* No padding: the photo and its caption fill the card, which rounds their outer corners. */
+  padding: 0;
   overflow: hidden;
   border: 0;
   border-radius: var(--radius-lg);
@@ -6929,7 +6939,7 @@ h3 {
   width: 100%;
   height: auto;
   max-height: 230px;
-  border-radius: inherit;
+  border-radius: 0;
   object-fit: cover;
 }
 
