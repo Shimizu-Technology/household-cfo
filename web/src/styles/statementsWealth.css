@@ -135,3 +135,4 @@ body #root .decision-card > strong, .activity-preview .plan-value strong { white
 body :is(#root, [role='dialog'], [role='alertdialog']) .evidence-dialog [role='alert'] { color: var(--color-danger); background: transparent; border-radius: 0; padding: 12px 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .evidence-legs { border-inline-start: 1px solid var(--rule); color: var(--muted); }
 body :is(#root, [role='dialog'], [role='alertdialog']) .challenge-personal-export label.ui-check { display: flex; align-items: start; }
+.wealth-figures .metric-card > strong { letter-spacing: normal; }
