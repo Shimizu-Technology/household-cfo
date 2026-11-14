@@ -200,6 +200,10 @@ it.each(['reach out to 988', 'dial 988', 'call the 988 Suicide & Crisis Lifeline
   expect(screen.getByRole('link', { name: 'Call 988' }).getAttribute('href')).toBe('tel:988')
   expect(screen.queryByRole('link', { name: 'Text 988' })).toBeNull()
 })
+it.each(['Your balance is 988 dollars. Call your coach when you are ready.', 'That leaves 988.50 this month.', 'You set aside 988,000 cents.', 'Your balance is $988.'])('does not read an amount of money as a referral in a care reply: %s', content => {
+  render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content, care_hold: true }]} totalMessageCount={1} />)
+  expect(screen.queryAllByRole('link')).toHaveLength(0)
+})
 it('does not add contacts to a care reply without 988', () => {
   render(<ChatHistory {...baseProps} messages={[{ role: 'assistant', author: 'Mia', content: 'Your coach is here for you.', care_active: true }]} totalMessageCount={1} />)
   expect(screen.queryAllByRole('link')).toHaveLength(0)

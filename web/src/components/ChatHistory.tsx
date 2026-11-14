@@ -194,8 +194,10 @@ export function ChatHistory({
 function careContactActions(content: string) {
   const actions: { href: string; label: string }[] = []
   const plain = content.replace(/[*_~]/g, '')
+  // A care reply can word the referral many ways ("reach out to 988", "988 is available"), so
+  // the number itself is enough, unless it is plainly an amount of money.
   // No lookbehind: Safari before 16.4 cannot parse one, and the whole chat would fail to load.
-  if (/(?:^|[^\d$])\b988\b/.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
+  if (/(?:^|[^\d$])\b988\b(?!\s*(?:dollars?|bucks|usd|cents)\b|[.,]\d)/i.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
   if (/\btext(?:ing)?\s+(?:(?:or|and)\s+call\s+)?(?:to\s+|the\s+)?988\b/i.test(plain)) actions.push({ href: 'sms:988', label: 'Text 988' })
   return actions
 }
