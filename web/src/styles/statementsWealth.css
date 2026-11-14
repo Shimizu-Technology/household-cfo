@@ -78,7 +78,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-conse
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) fieldset { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .baseline-totals { display: block; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .baseline-totals > div { border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 12px 0; }
-body :is(#root, [role='dialog'], [role='alertdialog']) .setup-help-topics { display: grid; gap: 0; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .setup-help-topics { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .setup-help-topics button { justify-content: space-between; text-align: start; min-height: 56px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: transparent; color: var(--ink); }
 .daily-record-page { min-width: 0; padding-block: 16px; border-top: 1px solid var(--rule); }
 .daily-record-page > h3 { font-size: var(--text-md); font-weight: var(--weight-semibold); }

@@ -5680,8 +5680,8 @@ function DocumentImportHistory({
           {filteredImports.length > pageSize && <div className="document-history-pagination" aria-label="Import history pagination">
             <span>{filteredImports.length === 0 ? '0 shown' : `${safePage * pageSize + 1}-${Math.min((safePage + 1) * pageSize, filteredImports.length)} of ${filteredImports.length}`}</span>
             <div>
-              <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
-              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
+              <button className="ui-btn ui-btn--tonal" type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
+              <button className="ui-btn ui-btn--tonal" type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
             </div>
           </div>}
         </>
@@ -5920,11 +5920,11 @@ export function DocumentReviewPanel({
           <span>{fullyApplied ? `Saving a correction updates your household numbers immediately.` : reviewable ? 'Approve only values you recognize.' : 'This upload is not ready for review.'}</span>
         </div>
         {fullyApplied ? (
-          <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+          <button className="ui-btn ui-btn--tonal" type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
             {appliedDetailsOpen ? 'Collapse details' : 'Edit saved values'}
           </button>
         ) : (
-          <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
+          <button className="ui-btn ui-btn--primary" type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
             {actionForImport('apply') ? 'Applying' : 'Apply selected'}
           </button>
         )}
@@ -6129,7 +6129,7 @@ export function DocumentImportItemEditor({
         </label>
         <button
           type="button"
-          className="document-ignore-button"
+          className="document-ignore-button ui-btn ui-btn--text"
           disabled={selectionDisabled || editing}
           onClick={() => onUpdate({ ignored: !item.ignored, selected: false })}
         >
@@ -6143,7 +6143,7 @@ export function DocumentImportItemEditor({
             {editing ? (
               <>
                 <button type="button" className="secondary-button" disabled={saving} onClick={cancelEditing}>Cancel</button>
-                <button type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
+                <button className="ui-btn ui-btn--primary" type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
               </>
             ) : (
               <button type="button" className="secondary-button" disabled={saving} onClick={beginEditing}>{applied ? 'Correct value' : 'Edit value'}</button>

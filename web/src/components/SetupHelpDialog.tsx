@@ -128,8 +128,8 @@ export function SetupHelpDialog(props: Props) {
     <header><div><h2 id="setup-help-title">Fix my setup</h2></div><button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>Close</button></header>
     <div className="pilot-dialog-body">
       <section className="setup-help-section"><h3>Correct something I entered</h3><p>Open the right record or ask Mia to prepare a correction. Check the change before applying it.</p>
-        <div className="setup-help-topics">{moneyTopics.map(topic => <button type="button" className="secondary-button" key={topic.id} disabled={busy} onClick={() => go(topic.id)}>{topic.label}</button>)}</div>
-        <button type="button" className="button button--primary" disabled={busy} onClick={() => go()}>Talk through a correction with Mia</button>
+        <div className="setup-help-topics">{moneyTopics.map(topic => <button type="button" className="secondary-button ui-row" key={topic.id} disabled={busy} onClick={() => go(topic.id)}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">{topic.label}</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>)}</div>
+        <button type="button" className="button button--secondary" disabled={busy} onClick={() => go()}>Talk through a correction with Mia</button>
       </section>
       {error && <p role="alert" className="document-alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}

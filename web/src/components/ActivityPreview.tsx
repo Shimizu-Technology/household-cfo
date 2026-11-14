@@ -49,7 +49,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
       />
 
       <div className="activity-preview-actions">
-        <button type="button" onClick={onOpenBudget}>Open the monthly plan</button>
+        <button className="ui-btn ui-btn--primary" type="button" onClick={onOpenBudget}>Open the monthly plan</button>
         <button type="button" className="secondary-button" onClick={onAskMia}>Ask {assistantName} about a spending decision</button>
       </div>
     </article>
