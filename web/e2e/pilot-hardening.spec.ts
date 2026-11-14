@@ -10765,7 +10765,9 @@ test(`BOG UI feedback reveals the focused field after content reflows inside a f
   await assertDialogVisibleHeight(dialog)
   const geometry = () => field.evaluate(el => {
     const control = el.getBoundingClientRect(), body = el.closest<HTMLElement>('.pilot-dialog-body')!, panel = body.getBoundingClientRect()
-    return { contained: control.top >= panel.top && control.bottom <= panel.bottom, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight, controlHeight: control.height, active: document.activeElement === el, activeTag: document.activeElement?.tagName, activeText: document.activeElement?.textContent?.slice(0, 50), viewportScale: window.visualViewport?.scale }
+    // Native scrolling rounds to CSS pixels; shared 16px/1.4 fields can end
+    // at a fractional boundary (for example 0.17px beyond the rounded body).
+    return { contained: control.top >= panel.top - 1 && control.bottom <= panel.bottom + 1, top: control.top, bottom: control.bottom, bodyTop: panel.top, bodyBottom: panel.bottom, scrollTop: body.scrollTop, clientHeight: body.clientHeight, controlHeight: control.height, active: document.activeElement === el, activeTag: document.activeElement?.tagName, activeText: document.activeElement?.textContent?.slice(0, 50), viewportScale: window.visualViewport?.scale }
   })
   const samples: Awaited<ReturnType<typeof geometry>>[] = []
   try {
