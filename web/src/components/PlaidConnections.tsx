@@ -106,6 +106,7 @@ type Props = {
   householdId?: number | null
   onDraftsCreated: () => Promise<void> | void
   variant?: 'connections' | 'activity'
+  hideEmptyActivity?: boolean
   refreshKey?: string
   reviewYear?: number
   onOpenBudget?: () => void
@@ -137,7 +138,7 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
   not_spending: 'Not counted as spending',
 }
 
-export function PlaidConnections({ userId, householdId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
+export function PlaidConnections({ userId, householdId, onDraftsCreated, variant = 'connections', hideEmptyActivity = false, refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
   const { brand, assistantName } = useBrand()
   const onDraftsCreatedRef = useRef(onDraftsCreated)
   const [oauthSession] = useState(() => readPlaidOAuthSession(userId, undefined, Date.now(), { financialGeneration: getApiFinancialGeneration(), householdId }))
@@ -650,13 +651,17 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
     )
   }
 
+  if (hideEmptyActivity && !error && !notice && (overview ? activeItems.length === 0 : busy === 'loading')) return null
+
+  const ActivityHeading = hideEmptyActivity ? 'h3' : 'h2'
+  const ActivitySubheading = hideEmptyActivity ? 'h4' : 'h3'
   return (
     <section className="panel plaid-workspace plaid-activity" aria-labelledby="bank-activity-heading">
       {plaidLinkLauncher}
       {resumeDialog}
       <div className="plaid-heading">
         <div>
-          <h2 id="bank-activity-heading">{overview && !overview.configured ? 'Without a bank connection' : 'Bank activity'}</h2>
+          <ActivityHeading id="bank-activity-heading">{overview && !overview.configured ? 'Without a bank connection' : 'Bank activity'}</ActivityHeading>
           <p>{overview && !overview.configured ? `Tell ${assistantName} about a purchase or add it above. Nothing counts as spent until you confirm it.` : `Purchases from a connected bank appear here. Nothing counts as spent until you confirm it.`}</p>
         </div>
       </div>
@@ -725,7 +730,7 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
 
           <div className="plaid-review">
             <div className="row-between">
-              <div><span className="group-label">{activityViews.find((view) => view.id === activityView)?.label}</span><h3>{activityTotal} transaction{activityTotal === 1 ? '' : 's'}</h3></div>
+              <div><span className="group-label">{activityViews.find((view) => view.id === activityView)?.label}</span><ActivitySubheading>{activityTotal} transaction{activityTotal === 1 ? '' : 's'}</ActivitySubheading></div>
               {stageable.length > 0 && <span>{stageable.length} still preparing for review</span>}
             </div>
             <div className="plaid-transaction-list">

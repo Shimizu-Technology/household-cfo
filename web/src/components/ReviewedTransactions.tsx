@@ -82,13 +82,14 @@ export function IgnoredTransactionList({
 /** Review-page list of this month's confirmed and ignored transactions, each one reversible. */
 export function ReviewedTransactionsPanel({
   report,
+  includeAllConfirmed = false,
   action,
   disabled = false,
   errors = {},
   onReopen,
-}: ReopenProps & { report: SpendingReport | null }) {
+}: ReopenProps & { report: SpendingReport | null; includeAllConfirmed?: boolean }) {
   if (!report) return null
-  const confirmed = report.transactions.filter((transaction) => transaction.transaction_draft_id)
+  const confirmed = includeAllConfirmed ? report.transactions : report.transactions.filter((transaction) => transaction.transaction_draft_id)
   const ignored = report.ignored_drafts ?? []
   if (confirmed.length === 0 && ignored.length === 0) return null
 
