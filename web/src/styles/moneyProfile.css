@@ -49,7 +49,7 @@ body #root .money-screen .money-edit-row, body #root .annual-income-planner .mon
 /* Keep private dialog lifetime and close handlers unchanged. */
 body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); color: var(--ink); box-shadow: none; }
 body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) h2 { font: var(--weight-semibold) 28px/1.15 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body [data-dialog-panel][role='dialog']:is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body :is(.optional-debt-dialog, .household-privacy-dialog) :is(article, .debt-proposal, .debt-comparison, .debt-term-summary) { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding-inline: 0; box-shadow: none; }
 @media (max-width: 620px) {
   body .financial-restart-overlay { align-items: end; padding: 0; }
