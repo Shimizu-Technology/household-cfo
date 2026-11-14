@@ -16356,3 +16356,40 @@ test('BOG UI P8a delayed review focus cannot consume a later purchase result', a
   await page.evaluate(() => (window as typeof window & { releaseReviewFrames: () => void }).releaseReviewFrames())
   await expect(page.locator('[data-review-item="99881"] [data-review-result]')).toBeFocused()
 })
+
+test('BOG UI P8a purchase result focus survives an early recovery frame and pointer activation', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFrame = window.requestAnimationFrame.bind(window)
+    let immediateId = 0
+    const controls = window as typeof window & { suppressReviewPointerFocus?: boolean }
+    document.addEventListener('mousedown', event => {
+      if (controls.suppressReviewPointerFocus && event.target instanceof Element && event.target.closest('[data-review-confirm]')) event.preventDefault()
+    })
+    // Deliver recovery before React can commit. Other animation frames stay native.
+    window.requestAnimationFrame = callback => {
+      if (new Error().stack?.includes('recoverReviewFocus')) { callback(performance.now()); return --immediateId }
+      return nativeFrame(callback)
+    }
+  })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const drafts = [0, 1, 2].map(index => ({ ...template, id: 99890 + index, merchant: `Commit focus shop ${index + 1}` }))
+  workspace.budget.annual_plan.pending_transaction_drafts = drafts
+  const confirmed: number[] = []
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    const id = Number(route.request().url().split('/').at(-2))
+    confirmed.push(id)
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  for (const [index, draft] of drafts.slice(0, 2).entries()) {
+    if (index === 1) await page.evaluate(() => { (window as typeof window & { suppressReviewPointerFocus?: boolean }).suppressReviewPointerFocus = true })
+    const row = page.locator(`[data-review-item="${draft.id}"]`)
+    await row.locator('[data-review-confirm]').click()
+    await expect(row.locator('[data-review-result]')).toBeFocused()
+  }
+  expect(confirmed).toEqual(drafts.slice(0, 2).map(draft => draft.id))
+})

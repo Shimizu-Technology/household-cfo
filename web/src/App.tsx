@@ -3174,7 +3174,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         window.scrollTo({ top: windowTop, behavior: 'auto' })
       }
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
-      const target = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
+      const restoredResult = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
+      // React may commit after this frame. Let the row's layout effect focus
+      // its result instead of moving to the heading while the row is pending.
+      if (restoredRow && !restoredResult && !previousAction) return
+      const target = restoredResult
         ?? (focusedResult && active instanceof HTMLElement ? active : null)
         // A restored row can be hidden by paging/filtering; its result notice is still inert.
         ?? (previousAction ? document.querySelector<HTMLElement>('[data-review-result][role="status"]') : null)
@@ -8039,7 +8043,9 @@ function TransactionDraftReviewCard({
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [removedSplitIds, setRemovedSplitIds] = useState<number[]>([])
   const [actionError, setActionError] = useState<string | null>(null)
-  async function runAction(perform: () => void) {
+  async function runAction(perform: () => void, trigger?: HTMLButtonElement) {
+    // Safari pointer activation does not always focus its button.
+    trigger?.focus({ preventScroll: true })
     setActionError(null)
     keepSlot()
     try { await perform() } catch (failure) { setActionError(participantErrorMessage(failure, 'This purchase could not be saved. Try again.')) }
@@ -8200,7 +8206,7 @@ function TransactionDraftReviewCard({
               <div key={match.id}>
                 <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {formatReviewMoney(Math.round((match.transaction.amount) * 100))}</span>
                 {onMatch && (
-                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || editing || action === `match-draft:${draft.id}`} onClick={() => void runAction(() => onMatch(draft, match.id))}>
+                  <button type="button" className="secondary-button" aria-label={`${action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'} ${itemName} to ${match.transaction.merchant}`} disabled={actionsDisabled || editing || action === `match-draft:${draft.id}`} onClick={event => void runAction(() => onMatch(draft, match.id), event.currentTarget)}>
                     {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
                   </button>
                 )}
@@ -8284,11 +8290,11 @@ function TransactionDraftReviewCard({
           <MiaReviewError message={error || actionError} />
           {editing && <p className="transaction-draft-disabled-reason">Save or cancel your edit before confirming this purchase.</p>}
           {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this purchase.</span>}
-          <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => void runAction(() => onConfirm(draft))}>
+          <button type="button" className="ui-btn ui-btn--primary" data-review-confirm aria-label={`${action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'} ${itemName}`} aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || editing || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={event => void runAction(() => onConfirm(draft), event.currentTarget)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           {onUpdate && <button type="button" className="secondary-button ui-btn ui-btn--tonal" aria-label={`${editing ? 'Close edit' : 'Change'} ${itemName}`} disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Change'}</button>}
-          <button type="button" className="secondary-button ui-btn ui-btn--text" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => void runAction(() => onIgnore(draft))}>
+          <button type="button" className="secondary-button ui-btn ui-btn--text" aria-label={`${action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'} ${itemName}`} disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={event => void runAction(() => onIgnore(draft), event.currentTarget)}>
             {action === `ignore-draft:${draft.id}` ? 'Dismissing' : 'Not now'}
           </button>
         </div>
@@ -8296,7 +8302,7 @@ function TransactionDraftReviewCard({
         <div className="transaction-draft-actions terminal" style={resultTop ? { paddingTop: resultTop } : undefined}>
           <MiaReviewError message={error || actionError} />
           <span data-review-result tabIndex={-1}><strong title={draft.merchant}>{draft.merchant}</strong>{formatReviewMoney(moneyCents(exactMoneyNumber(draft.amount, draft.amount_cents)))} · {formatShortDate(draft.occurred_on)} · {transactionDraftTerminalCopy(draft.status)}</span>
-          <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={() => void runAction(() => onReopen(draft))}>
+          <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={event => void runAction(() => onReopen(draft), event.currentTarget)}>
             {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
           </button>
         </div>
