@@ -16423,6 +16423,8 @@ for (const complete of [false, true]) test(`BOG UI P8a fix1 My Money setup help 
   const opener = page.locator('.money-setup-help')
   await expect(opener).toBeVisible()
   await expect(opener.locator('i')).toHaveClass(complete ? /ui-dot--neutral/ : /ui-dot--attention/)
+  // A quiet row on paper, the same surface as the cards below it, not a filled button.
+  expect(await opener.evaluate(node => getComputedStyle(node).backgroundColor)).toBe(await page.locator('.money-screen .ui-card').first().evaluate(node => getComputedStyle(node).backgroundColor))
   await opener.click()
   const dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
   await expect(dialog).toBeVisible()

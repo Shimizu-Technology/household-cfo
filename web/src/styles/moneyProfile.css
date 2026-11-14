@@ -7,6 +7,8 @@
 .money-screen .money-topics > button { flex: 0 0 auto; white-space: nowrap; border-radius: var(--radius-pill); }
 .money-topic-content { min-width: 0; display: grid; gap: var(--space-4); }
 .money-screen .money-setup-help { width: 100%; text-align: start; justify-content: space-between; }
+/* The row is on the page at every visit, so it is a quiet row on paper, not a filled button. */
+body #root .money-screen .money-setup-help.ui-row { padding: 10px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); color: var(--ink); }
 .money-screen :is(.income-source-manager, .debt-manager, .goal-manager, .account-manager), .profile-screen .setup-form { display: flex; flex-direction: column; gap: var(--space-4); }
 .money-screen :is(.income-source-manager-card, .income-source-card, .income-schedule-row, .account-row, .goal-row, .debt-row) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; padding: var(--space-3) 0; min-width: 0; }
 .money-screen :is(.account-form, .goal-form, .debt-form, .income-source-form, .income-schedule-form, .debt-tracking, .account-bank-review, .debt-empty, .account-empty, .goal-empty) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; padding: var(--space-4) 0 0; }
