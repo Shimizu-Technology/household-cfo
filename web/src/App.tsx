@@ -4826,9 +4826,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           />
           <MonthPlanLine answer={data.dashboard.month_answer} />
 
-          <div className="metric-row">
-            <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} />
-            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} />
+          <div className="metric-row ui-card wealth-figures">
+            <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.net_worth === null ? 'Complete your account and debt balances to see this figure.' : undefined} />
+            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? formatReviewMoney(Math.round(data.wealth.summary.liquid_net_worth * 100)) : 'Not available'} detail={!debtBalanceKnown || data.wealth.summary.liquid_net_worth === null ? 'Complete your account and debt balances to see this figure.' : undefined} />
             <Metric
               className="wealth-explainer-metric"
               label={monthlySurplusAvailable != null && monthlySurplusAvailable < 0 ? 'Short of the plan this month' : 'Left to give a job this month'}
@@ -4837,13 +4837,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             />
           </div>
 
-          <div className="milestone-list">
+          <div className="milestone-list ui-card ui-rows">
             {data.wealth.milestones.map((milestone) => (
-              <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
-                <div className="milestone-heading"><h3>{milestone.label}</h3>{milestoneStatusLabels[milestone.status] && <b className={`milestone-status ${milestone.status}`}>{milestoneStatusLabels[milestone.status]}</b>}</div>
+              <article className={`milestone-card ui-row ${milestone.status}`} key={milestone.label}>
+                <div className="milestone-heading"><h3>{milestone.label}</h3>{milestoneStatusLabels[milestone.status] && <b className={`milestone-status ui-pill ${milestone.status}`}>{milestoneStatusLabels[milestone.status]}</b>}</div>
                 {milestone.kind === 'progress' && milestone.target > 0 && (
-                  <div className="progress-track">
-                    <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
+                  <div className="progress-track ui-track" aria-hidden="true">
+                    <span className="ui-track__fill" style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
                   </div>
                 )}
                 <p>{milestoneSummary(milestone)}</p>
@@ -4861,9 +4861,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.cfoFilter.prompt}
           />
 
-          <div className="decision-list">
+          <div className="decision-list ui-card ui-rows">
             {data.cfoFilter.decisions.map((decision) => (
-              <article className={`decision-card ${decision.recommendation.toLowerCase()}`} key={decision.item}>
+              <article className={`decision-card ui-row ${decision.recommendation.toLowerCase()}`} key={decision.item}>
                 <div>
                   <span>{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
@@ -4874,7 +4874,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             ))}
           </div>
 
-          <article className="panel priority-card">
+          <article className="panel priority-card ui-card">
             <h3>Priority stack</h3>
             <ol>
               {data.cfoFilter.priority_stack.map((item) => <li key={item}>{item}</li>)}
@@ -4891,15 +4891,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
-          <div className="lever-row">
+          <div className="lever-row ui-card wealth-figures">
             {data.optionality.levers.map((lever) => (
               <Metric key={lever.label} label={lever.label} value={formatReviewMoney(Math.round((lever.amount) * 100))} />
             ))}
           </div>
 
-          <div className="choice-grid">
+          <div className="choice-grid ui-card ui-rows">
             {data.optionality.choices.map((choice) => (
-              <article className={`choice-card ${choice.fit_tone}`} key={choice.label}>
+              <article className={`choice-card ui-row ${choice.fit_tone}`} key={choice.label}>
                 <span>{choice.fit_label}</span>
                 <h3>{choice.label}</h3>
                 <p>{choice.upside}</p>
@@ -5309,7 +5309,7 @@ function PilotGuideDialog({ onClose, savingsChallenge = false }: { onClose: () =
 function milestoneProgressWidth(current: number, target: number) {
   if (target <= 0) return current > 0 ? '100%' : '0%'
 
-  return `${Math.min((current / target) * 100, 100)}%`
+  return `${Math.max(0, Math.min((current / target) * 100, 100))}%`
 }
 
 // Status is said in words, not only by color.
@@ -5404,7 +5404,7 @@ function DocumentImportWorkspace({
 
   if (!isRealWorkspace) {
     return (
-      <section ref={sectionRef} className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
+      <section ref={sectionRef} className="panel document-import-workspace demo-document-imports ui-card" aria-label="Document uploads preview">
         <div className="document-workspace-heading">
           <div>
             <h3>Upload review is enabled in signed-in real workspaces.</h3>
@@ -5513,7 +5513,7 @@ export function DocumentUploadCard({
   const inputId = `document-upload-${card.kind}`
 
   return (
-    <article className="document-upload-card">
+    <article className="document-upload-card ui-card">
       <input
         id={inputId}
         className="sr-only"
@@ -5598,7 +5598,7 @@ function DocumentImportHistory({
   const visibleImports = filteredImports.slice(safePage * pageSize, safePage * pageSize + pageSize)
 
   return (
-    <aside className="document-history" aria-label="Document import history">
+    <aside className="document-history ui-card" aria-label="Document import history">
       <div className="document-history-heading">
         <h4>Your uploads</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
@@ -5664,10 +5664,12 @@ function DocumentImportHistory({
               <button
                 type="button"
                 key={documentImport.id}
-                className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
+                aria-label={documentImportDisplayName(documentImport)}
+                aria-describedby={`upload-status-${documentImport.id}`}
+                className={`document-history-card ui-row ${selectedImportId === documentImport.id ? 'active' : ''}`}
                 onClick={() => onSelectImport(documentImport.id)}
               >
-                <span className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{uploadStatusLabel(documentImport)}</span>
+                <span id={`upload-status-${documentImport.id}`} className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{uploadStatusLabel(documentImport)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
                 {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
                 <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
@@ -5860,7 +5862,7 @@ export function DocumentReviewPanel({
       {sourceMode === 'typed' && fileHeader}
       {sourceMode === 'unsupported' && <p className="document-alert error" role="alert">This file was read by a newer version of the app. Refresh the page, or contact support if this keeps happening. Nothing has been marked reviewed.</p>}
       {fallbackDrafts.length > 0 && (
-        <section className="document-transaction-drafts" aria-label="Purchases from this upload">
+        <section className="document-transaction-drafts activity-screen" aria-label="Purchases from this upload">
           {sourceMode === 'typed' && <p>Expenses that aren’t tied to a statement line stay here. Confirming one updates your spending; it doesn’t approve the statement.</p>}
           <p className="document-review-coverage" role="status">{sourceMode === 'typed' ? `${fallbackCoverage.pending} loaded expense reviews remaining · ${fallbackCoverage.resolved} resolved. Statement line review remains separate.` : `${coverage.pending} transaction review${coverage.pending === 1 ? '' : 's'} remaining · ${coverage.resolved} resolved.`}</p>
           <TransactionDraftReviewStack
