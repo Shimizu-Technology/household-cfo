@@ -7144,7 +7144,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <h3>Choose the amount of detail that works for your household.</h3>
           <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
         </div>
-        
+
       </div>
 
       <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
@@ -7157,7 +7157,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
           <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
-        <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
+        <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" className="ui-btn ui-btn--tonal" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>
 
       <div className="debt-summary" aria-label="Canonical debt totals">
