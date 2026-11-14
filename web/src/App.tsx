@@ -4068,7 +4068,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       {activeSection === 'Home' && data.workspace.experience_mode !== 'savings_challenge' && (
         <>
           {unavailableModuleNotice && (
-            <div className="module-unavailable-notice" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
+            <div className="module-unavailable-notice ui-card" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
               <div><strong>That tool is not included right now.</strong><p>{unavailableModuleNotice.message}</p></div>
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
@@ -5532,7 +5532,7 @@ export function DocumentUploadCard({
         <p>{card.helper}</p>
         <small>{card.formats}</small>
         <small>{card.sizeGuidance}</small>
-        <strong>{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
+        <strong className="ui-btn ui-btn--primary">{uploading ? 'Uploading' : disabled ? 'Unavailable right now' : 'Choose file'}</strong>
       </label>
       {retryFile && !uploading && (
         <div className="form-stack document-upload-recovery">
