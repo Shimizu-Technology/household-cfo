@@ -999,12 +999,15 @@ module HouseholdFinance
       end
     end
 
+    # When the amount cannot be calculated the row carries amount_known: false, so a
+    # client shows words instead of the placeholder 0.
     def decisions
       unless setup_status.complete?
         return [ "Non-essential purchase", "Extra debt payment", "Runway transfer" ].map do |item|
           {
             item: item,
             amount: 0,
+            amount_known: false,
             recommendation: "Wait",
             reason: "Finish and confirm the household starting picture before Mia recommends a money decision."
           }
@@ -1016,6 +1019,7 @@ module HouseholdFinance
           {
             item: item,
             amount: 0,
+            amount_known: false,
             recommendation: "Wait",
             reason: "Enter every required monthly debt minimum, or confirm a $0 household summary, before Mia calculates available cash."
           }
@@ -1024,7 +1028,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:liquid_assets_known)
         return [ "Non-essential purchase", "Extra debt payment", "Runway transfer" ].map do |item|
-          { item: item, amount: 0, recommendation: "Wait", reason: readiness_unavailable_reason }
+          { item: item, amount: 0, amount_known: false, recommendation: "Wait", reason: readiness_unavailable_reason }
         end
       end
 

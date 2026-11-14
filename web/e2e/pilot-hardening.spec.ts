@@ -16161,6 +16161,23 @@ test('BOG UI P8b fix1 status pills fit phones and Optional has a neutral dot', a
 })
 
 
+test('BOG UI CFO Filter says Not available when an amount cannot be calculated', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.cfoFilter.decisions = [
+    { item: 'Non-essential purchase', amount: 0, amount_known: false, recommendation: 'Wait', reason: 'Add at least one liquid account and enter every active liquid balance before using runway or safe-to-spend guidance.' },
+    { item: 'Extra debt payment', amount: 0, recommendation: 'Wait', reason: 'No debt entered yet. Add debts before Mia can prioritize payoff.' },
+  ] as typeof workspace.cfoFilter.decisions
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#CFO%20Filter')
+  const amounts = page.locator('.cfo-screen .decision-card > strong')
+  await expect(amounts).toHaveCount(2)
+  // The server's placeholder 0 is never shown as money.
+  await expect(amounts.nth(0)).toHaveText('Not available')
+  await expect(page.locator('.cfo-screen .decision-card').nth(0)).not.toContainText('$0')
+  // A calculated zero is still a figure.
+  await expect(amounts.nth(1)).toHaveText(/^\$0(\.00)?$/)
+})
+
 test('BOG UI P8b fix1 setup help topic rows have one divider', async ({ page }) => {
   await mockSetupHelpBrowser(page, { selfEligible: true })
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')

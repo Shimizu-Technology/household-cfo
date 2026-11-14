@@ -4868,7 +4868,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   <span className="ui-pill"><span className={`ui-dot ${decision.recommendation.toLowerCase() === 'optional' ? 'ui-dot--neutral' : decision.recommendation.toLowerCase() === 'approve' ? 'ui-dot--good' : 'ui-dot--attention'}`} aria-hidden="true" />{decision.recommendation}</span>
                   <h3>{decision.item}</h3>
                 </div>
-                <strong>{!debtMinimumsKnown ? 'Not available' : formatReviewMoney(Math.round((decision.amount) * 100))}</strong>
+                {!debtMinimumsKnown || decision.amount_known === false ? <strong className="decision-amount-unknown">Not available</strong> : <strong>{formatReviewMoney(Math.round((decision.amount) * 100))}</strong>}
                 <p>{data.workspace.debt_portfolio?.balance_known === true && data.workspace.debt_portfolio.minimum_payment_known === true && data.workspace.debt_portfolio.total_balance === 0 && data.workspace.debt_portfolio.monthly_minimum === 0 && decision.reason.startsWith('No debt entered yet.') ? 'Your debt-free household baseline is confirmed. There is no debt payoff to prioritize.' : decision.reason}</p>
               </article>
             ))}

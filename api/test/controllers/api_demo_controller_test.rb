@@ -132,6 +132,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "amount" => demo_facts.fetch(:safe_to_spend), "recommendation" => "Pause" }, decisions.fetch("Non-essential purchase").slice("amount", "recommendation"))
     assert_equal({ "amount" => 0, "recommendation" => "Wait" }, decisions.fetch("Extra debt payment").slice("amount", "recommendation"))
     assert_equal({ "amount" => demo_facts.fetch(:baseline_surplus), "recommendation" => "Approve" }, decisions.fetch("Runway transfer").slice("amount", "recommendation"))
+    assert(decisions.values.none? { |decision| decision["amount_known"] == false })
   end
 
   test "mia messages returns demo conversation" do
