@@ -4582,7 +4582,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             </ProfileDisclosure>}
             {moneyTopic === 'debt' && (
               <>
-                {isSavingsExperience && <article className="panel money-scope-note ui-card"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and minimums used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={() => setOptionalDebtOpen(true)}>Open optional card review</Button>}</article>}
+                {isSavingsExperience && <article className="panel money-scope-note ui-card"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and minimums used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setOptionalDebtOpen(true) }}>Open optional card review</Button>}</article>}
                 {isRealWorkspace ? <DebtManager
                       sectionRef={debtManagerRef}
                       key={`${data.workspace.debt_portfolio?.mode}:${data.workspace.debt_portfolio?.total_balance}:${data.workspace.debt_portfolio?.monthly_minimum}:${data.workspace.debt_portfolio?.balance_known}:${data.workspace.debt_portfolio?.minimum_payment_known}:${data.workspace.debt_portfolio?.active_count}:${data.workspace.debt_portfolio?.archived_count}`}

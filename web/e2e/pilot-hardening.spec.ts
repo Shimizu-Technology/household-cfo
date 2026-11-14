@@ -16297,3 +16297,21 @@ test('BOG UI P8a spending rows open their exact category editor without writes',
   await expect(name).toHaveValue(category.name)
   expect(writes).toEqual([])
 })
+
+
+test('BOG UI P8a optional card dismissal returns to its pointer opener in My Money', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  const workspace = { ...base, workspace: { ...base.workspace, experience_mode: 'savings_challenge' } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/savings_challenge/debt**', route => route.fulfill({ status: 503, json: { error: 'Card terms are unavailable in this fictional focus check.' } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Debt')
+  const opener = page.getByRole('button', { name: 'Open optional card review', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Card & debt review', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toHaveAttribute('data-dialog-private', 'true')
+  await dialog.getByRole('button', { name: 'Close card review', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
