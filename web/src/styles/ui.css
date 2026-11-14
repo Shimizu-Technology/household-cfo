@@ -292,3 +292,8 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep.ui-btn--
   body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep:not(:disabled, [aria-disabled='true']):hover { background: color-mix(in srgb, var(--on-brand-deep) 10%, var(--brand-deep)); color: var(--on-brand-deep); }
   body :is(#root, [role='dialog'], [role='alertdialog']) .ui-btn--on-deep.ui-btn--primary:not(:disabled, [aria-disabled='true']):hover { background: var(--on-brand-deep-muted); color: var(--brand-deep); }
 }
+
+/* A period's native month picker and year read as one pill between step arrows. */
+.ui-period { display: inline-flex; align-items: center; gap: 4px; min-width: 0; padding-inline-end: 14px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface-card); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .ui-period select { width: auto; min-width: 0; border: 0; border-radius: var(--radius-pill); background-color: transparent; }
+.ui-period > strong { font-size: var(--text-md); font-weight: var(--weight-medium); font-variant-numeric: tabular-nums lining-nums; }
