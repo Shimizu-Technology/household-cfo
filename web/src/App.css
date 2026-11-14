@@ -6783,8 +6783,8 @@ h3 {
 }
 
 .attachment-kind-picker select {
-  /* Wide enough at 320px for "Bank or card statement" beside the arrow. */
-  width: min(210px, 52vw);
+  /* "Bank or card statement" needs about 190px of text room at the control's 16px, plus the arrow. */
+  width: min(100%, 250px);
   min-height: 34px;
   border: 1px solid rgba(123, 74, 88, 0.16);
   border-radius: var(--radius-sm);
