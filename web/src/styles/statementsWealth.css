@@ -140,3 +140,6 @@ body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .ev
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) > header > button { flex: 0 0 auto; white-space: nowrap; }
 body #root :is(.choice-card, .decision-card) .ui-pill { background: transparent; color: var(--muted); padding-inline: 0; }
 body #root .document-upload-card:focus-within label { outline: none; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :is(.document-preview-sheet, .document-text-preview) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal th { background: var(--surface-ground); color: var(--muted); }
+body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal :is(th, td) { border-color: var(--rule); }

@@ -194,15 +194,15 @@ export function DocumentSourcePreview({ documentImport, title, description, onCl
         <header className="document-preview-header">
           <div><span className="document-status blue">Private preview</span><h3>{title}</h3><p>{description} · Every source read rechecks your access.</p></div>
           <div className="document-preview-actions">
-            {source && <button type="button" disabled={loading || operation !== null} onClick={() => void readContent(true)}>{operation === 'download' ? 'Downloading' : 'Download source'}</button>}
-            <button type="button" onClick={requestClose}>Close</button>
+            {source && <button className="ui-btn ui-btn--tonal" type="button" disabled={loading || operation !== null} onClick={() => void readContent(true)}>{operation === 'download' ? 'Downloading' : 'Download source'}</button>}
+            <button className="ui-btn ui-btn--text" type="button" onClick={requestClose}>Close</button>
           </div>
         </header>
         <div className="document-preview-body">
           {loading && <div className="document-preview-state" role="status">Checking private source access…</div>}
-          {error && <div className="document-preview-state error" role="alert"><p>{error}</p><button type="button" onClick={() => void recheckAccess()}>Retry private preview</button></div>}
+          {error && <div className="document-preview-state error" role="alert"><p>{error}</p><button className="ui-btn ui-btn--primary" type="button" onClick={() => void recheckAccess()}>Retry private preview</button></div>}
           {source && !loading && !error && <>
-            {isPdf && <div className="document-preview-state document-pdf-handoff"><h4>Open this PDF in a separate browser tab</h4><p>The PDF opens after a fresh authenticated read. Keyboard focus and Close controls stay available here.</p><button type="button" disabled={operation !== null} onClick={() => void readContent(false)}>{operation === 'pdf' ? 'Opening PDF' : 'Open PDF in new tab'}</button></div>}
+            {isPdf && <div className="document-preview-state document-pdf-handoff"><h4>Open this PDF in a separate browser tab</h4><p>The PDF opens after a fresh authenticated read. Keyboard focus and Close controls stay available here.</p><button className="ui-btn ui-btn--primary" type="button" disabled={operation !== null} onClick={() => void readContent(false)}>{operation === 'pdf' ? 'Opening PDF' : 'Open PDF in new tab'}</button></div>}
             {imageUrl && <img src={imageUrl} alt={filename} />}
             {preview?.type === 'spreadsheet' && <SpreadsheetSourcePreview preview={preview} />}
             {preview?.type === 'text' && <div className="document-text-preview"><pre>{preview.text || 'No text could be shown for this document.'}</pre></div>}
