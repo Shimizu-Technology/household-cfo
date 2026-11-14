@@ -241,7 +241,7 @@ export function IncomeSourceManager({
   const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
 
   return (
-    <section ref={sectionRef} className="panel income-source-manager" aria-labelledby="income-source-manager-title">
+    <section ref={sectionRef} className="panel income-source-manager ui-card" aria-labelledby="income-source-manager-title">
       <div className="income-source-manager-heading">
         <div>
           <h3 id="income-source-manager-title">Your income</h3>
@@ -279,13 +279,13 @@ export function IncomeSourceManager({
                 key={source.id}
                 tabIndex={-1}
               >
-                <div className="income-source-manager-card-heading">
-                  <div>
+                <button type="button" className="income-source-manager-card-heading ui-row" aria-label={`Edit ${source.label}`} disabled={ended || incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
+                  <span className="ui-row__body">
                     <span>{titleize(source.source_type)}</span>
                     <strong>{source.label}</strong>
-                  </div>
+                  </span>
                   <b>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
-                </div>
+                </button>
                 <dl>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
                   <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
@@ -315,7 +315,6 @@ export function IncomeSourceManager({
                       <details className="income-advanced">
                         <summary aria-label={`More options for ${source.label}`}>More options</summary>
                         <div className="income-source-advanced-actions">
-                      <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
                       <button type="button" className="secondary-button" aria-label={`End ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
                         </div>
                       </details>

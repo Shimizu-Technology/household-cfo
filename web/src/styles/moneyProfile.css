@@ -1,0 +1,74 @@
+/* Money and Profile own their columns; surfaces and controls use ui primitives. */
+.money-screen, .profile-screen { container: money-profile / inline-size; grid-template-columns: minmax(0, 1fr); align-content: start; gap: var(--space-4); max-width: 760px; }
+.money-screen > .screen-heading, .profile-screen > .screen-heading { padding: 0; }
+.money-screen .screen-heading h2, .profile-screen .screen-heading h2 { font: var(--weight-semibold) 32px/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+.money-screen :is(h3, h4), .profile-screen h3 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; color: var(--ink); border: 0; padding: 0; }
+.money-screen .money-topics { display: flex; gap: var(--space-2); overflow-x: auto; max-width: 100%; padding: var(--space-1); margin: calc(-1 * var(--space-1)); scrollbar-width: thin; }
+.money-screen .money-topics > button { flex: 0 0 auto; white-space: nowrap; }
+.money-topic-content { min-width: 0; display: grid; gap: var(--space-4); }
+.money-screen .money-setup-help { width: 100%; text-align: start; justify-content: space-between; }
+.money-screen :is(.income-source-manager, .debt-manager, .goal-manager, .account-manager), .profile-screen .setup-form { display: flex; flex-direction: column; gap: var(--space-4); }
+.money-screen :is(.income-source-manager-card, .income-source-card, .income-schedule-row, .account-row, .goal-row, .debt-row) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; padding: var(--space-3) 0; min-width: 0; }
+.money-screen :is(.account-form, .goal-form, .debt-form, .income-source-form, .income-schedule-form, .debt-tracking, .account-bank-review, .debt-empty, .account-empty, .goal-empty) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; padding: var(--space-4) 0 0; }
+.money-screen :is(.account-summary, .goal-summary, .debt-summary) { background: transparent; border: 0; border-radius: 0; display: grid; grid-template-columns: 1fr; gap: var(--space-2); padding: 0; }
+.money-screen :is(.account-summary, .goal-summary, .debt-summary) > span { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); padding-block: var(--space-2); min-width: 0; }
+.money-screen :is(.account-summary, .goal-summary, .debt-summary) strong { font-size: var(--text-md); font-weight: var(--weight-semibold); text-align: end; overflow-wrap: anywhere; }
+.money-screen :is(.account-row, .goal-row, .debt-row) { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+body #root .money-screen .money-edit-row { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; gap: var(--space-3); width: 100%; background: transparent; border: 0; border-radius: 0; padding: var(--space-2) 0; text-align: start; }
+.money-edit-row > span { display: grid; min-width: 0; gap: var(--space-1); overflow-wrap: anywhere; }
+.money-edit-row > span:nth-of-type(2) { text-align: end; }
+.money-edit-row strong { font-weight: var(--weight-semibold); }
+.money-edit-row span span, .money-edit-row small, .money-edit-label { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.money-screen :is(.account-row-actions, .debt-row-actions, .goal-row-actions) { margin-inline-start: auto; }
+.money-screen :is(.account-manager-heading, .goal-manager-heading, .debt-manager-heading) { display: contents; }
+.money-screen :is(.account-manager-heading, .goal-manager-heading, .debt-manager-heading) > button { order: 2; align-self: start; }
+.money-screen :is(.debt-form-actions, .income-source-form-actions, .income-schedule-form-actions), .profile-screen .setup-form-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: flex-end; }
+.money-screen :is(.income-source-manager-list, .income-source-list) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.money-screen .income-source-manager-card > dl { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-block: var(--space-3); }
+.money-screen .income-source-manager-card :is(dt, dd) { font-size: var(--text-xs); margin: 0; }
+.money-screen :is(.income-source-manager-card-heading, .income-source-manager-heading) { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; }
+.money-screen .profile-disclosure > .panel, .profile-screen .profile-disclosure > .panel { border: 0; border-radius: 0; background: transparent; padding: var(--space-4) 0 0; box-shadow: none; }
+.profile-screen .setup-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.profile-screen .setup-field-grid { grid-template-columns: minmax(0, 1fr); }
+.profile-screen .setup-field { min-width: 0; }
+.profile-screen .is-viewing .setup-field { border-top: 1px solid var(--rule); padding-block: var(--space-3); gap: var(--space-2); }
+.profile-saved-value { color: var(--ink); font-weight: var(--weight-regular); white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-screen .is-viewing .setup-field > small { margin: 0; }
+.profile-screen .setup-form-actions { margin-top: var(--space-3); }
+.money-screen .text-button, .profile-screen .text-button { text-decoration: none; }
+@container money-profile (min-width: 500px) {
+  .profile-screen .is-viewing .setup-field { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: baseline; }
+  .profile-screen .is-viewing .setup-field > small { grid-column: 2; }
+  .money-screen :is(.account-form-grid, .goal-form-grid, .debt-form-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container money-profile (max-width: 360px) {
+  body #root .money-screen .money-edit-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .money-edit-row > span:nth-of-type(2) { grid-column: 2; text-align: start; }
+  .money-edit-row > .money-edit-label { grid-column: 3; grid-row: 1 / 3; }
+}
+/* Keep private dialog lifetime and close handlers unchanged. */
+body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); color: var(--ink); box-shadow: none; }
+body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) h2 { font: var(--weight-semibold) 28px/1.15 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body :is(.optional-debt-dialog, .household-privacy-dialog) :is(article, .debt-proposal, .debt-comparison, .debt-term-summary) { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding-inline: 0; box-shadow: none; }
+@media (max-width: 620px) {
+  body .financial-restart-overlay { align-items: end; padding: 0; }
+  body .financial-restart-dialog { border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
+}
+.money-screen :is(.account-summary, .debt-summary, .goal-summary) > span { border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: transparent; }
+.money-screen .debt-tracking fieldset > label { border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: transparent; }
+body #root .money-screen :is(.account-manager-heading, .goal-manager-heading, .debt-manager-heading) > button { color: var(--brand-strong); background: var(--brand-soft); }
+body #root .money-screen .income-source-manager-card-heading.ui-row { width: 100%; border: 0; border-radius: 0; background: transparent; padding: 0; display: flex; flex-wrap: nowrap; text-align: start; }
+.money-screen .income-source-manager-card-heading b { font-weight: var(--weight-semibold); font-size: var(--text-sm); overflow-wrap: anywhere; text-align: end; }
+.money-screen .income-source-manager-card-heading > .ui-row__body { display: grid; gap: var(--space-1); }
+.money-screen .income-source-manager-card-heading > .ui-row__body > span { font-size: var(--text-xs); color: var(--muted); }
+.profile-screen .mia-memory-panel, .workspace-collaborators .workspace-collaborator, .mia-memory-panel :is(.mia-memory-item, .mia-memory-editor, .mia-memory-preference) { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; box-shadow: none; }
+body .workspace-collaborators h3 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body :is(.workspace-collaborators, .use-app-as) a, body .use-app-as-leave { color: var(--brand-strong); text-decoration: none; overflow-wrap: anywhere; }
+body .use-app-as-row { border-bottom: 1px solid var(--rule); border-radius: 0; min-height: 56px; }
+.money-screen .income-schedule-preview { border: 0; border-top: 1px solid var(--rule); background: transparent; border-radius: 0; }
+.money-screen .money-record-list li { min-height: 56px; }
+.money-screen .money-record-list li > div:first-child > strong::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-inline-end: var(--space-2); }
+.money-screen .money-topics > button { border-radius: var(--radius-pill); }
+.money-screen :is(.account-manager, .goal-manager, .debt-manager) > .ui-btn--tonal { align-self: start; }
+.profile-screen .mia-memory-heading h2 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
