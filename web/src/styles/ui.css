@@ -150,7 +150,10 @@ body :is(#root, [role='dialog'], [role='alertdialog']) :is(select, input[type='n
   font: var(--weight-regular) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums;
   caret-color: var(--brand);
 }
-body :is(#root, [role='dialog'], [role='alertdialog']) select {
+/* `:not([multiple])` matters: the shared rule above carries the weight of `input[type='number']`,
+   so a bare `select` here loses its end padding to that rule's `padding` shorthand and the text
+   runs under the arrow. This selector weighs the same and comes later. */
+body :is(#root, [role='dialog'], [role='alertdialog']) select:not([multiple]) {
   appearance: none;
   padding-inline-end: 38px;
   background-image: var(--select-chevron);
@@ -264,7 +267,7 @@ body #root :is(h1, h2, h3)[data-page-heading][tabindex='-1']:focus { outline: no
   body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio']) { appearance: auto; forced-color-adjust: auto; }
   body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio'])::before,
   body :is(#root, [role='dialog'], [role='alertdialog']) :is(input[type='checkbox'], input[type='radio'])::after { content: none; }
-  body :is(#root, [role='dialog'], [role='alertdialog']) select { appearance: auto; background-image: none; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) select:not([multiple]) { appearance: auto; padding-inline-end: 12px; background-image: none; }
   body :is(#root, [role='dialog'], [role='alertdialog']) details > summary::after { background: CanvasText; }
 }
 

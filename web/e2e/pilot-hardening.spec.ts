@@ -11,6 +11,7 @@ import { guamTodayIso } from '../src/lib/householdDate'
 import { participantReviewFixture } from './sourceReviewFixtures'
 import type { SourceReview, SourceReviewFilter } from '../src/lib/sourceReview'
 import type { BrandConfig, CoachWorkspaceSettings, WorkspaceBrandConfiguration, WorkspaceBrandVersion, WorkspaceCollaborator } from '../src/api'
+import { expectSelectsLeaveRoomForArrow } from './helpers/selectArrowRoom'
 
 // The app asks in its own dialog instead of the browser prompt: answer it by clicking.
 // "accept" presses the confirming action; "dismiss" presses the cancelling one.
@@ -1557,6 +1558,10 @@ test.beforeEach(async ({ page }) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify(messages))
   }, chatMessages(100))
 })
+
+// Leon found a month dropdown's arrow covering its text on his phone (2026-11-14); the cause was
+// app-wide. Every test in this file now ends by checking the dropdowns on screen.
+test.afterEach(async ({ page }) => { await expectSelectsLeaveRoomForArrow(page) })
 
 test('BOG UI household release-pinned participant branding replaces the public hostname brand without mobile overflow', async ({ page }) => {
   const publicConfig = {

@@ -176,4 +176,3 @@ body #root .activity-screen .transaction-draft-actions > .ui-btn--text { width: 
   .budget-screen .annual-budget-panel.is-plan-unknown > .budget-rail { grid-column: 1; }
 }
 /* The native select's chevron needs its own space inside the period pill. */
-body #root .budget-screen .budget-view-controls .ui-period select { padding-inline-end: 38px; }

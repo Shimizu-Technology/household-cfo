@@ -6783,7 +6783,8 @@ h3 {
 }
 
 .attachment-kind-picker select {
-  width: min(210px, 48vw);
+  /* Wide enough at 320px for "Bank or card statement" beside the arrow. */
+  width: min(210px, 52vw);
   min-height: 34px;
   border: 1px solid rgba(123, 74, 88, 0.16);
   border-radius: var(--radius-sm);
@@ -9024,6 +9025,8 @@ h3 {
   gap: 8px;
   min-width: 210px;
 }
+/* The stack names are long ("Sinking Fund — Unexpected"): give the control the whole cell. */
+.annual-category-cell-editor select { width: 100%; }
 
 .annual-category-cell-editor input,
 .annual-category-cell-editor select {
