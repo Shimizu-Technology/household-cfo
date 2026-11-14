@@ -136,6 +136,18 @@ it('P5 figure 3 reconciles all four groups to confirmed spending including archi
   expect(group.textContent).not.toContain('Unused archived')
 })
 
+it('an archived category keeps its spending in the group but not its old allocation', () => {
+  const active = { ...position, id: 1, stackKey: 'discretionary' as const, planned: 100, actual: 20 }
+  const archived = { ...position, id: 9, name: 'Archived meals', stackKey: 'discretionary' as const, active: false, planned: 200, actual: 17.42 }
+  const group = render(<ExpenseStackOverview positions={[active, archived]} />).container.querySelector('.stack-discretionary')!
+  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('$100 planned')
+  expect(group.textContent).toContain('$37.42 spent')
+  expect(group.textContent).toContain('$62.58 left in this group.')
+  expect(group.textContent).not.toContain('$262.58')
+  expect(group.textContent).toContain('$17.42 spent · archived')
+  expect(group.textContent).not.toContain('$200')
+})
+
 it('P5 figure 5 uses the strict cost-group and approval rules across months', () => {
   const answer = { money_in_cents: 20000, planned_out_cents: null, plan_left_cents: null } as NonNullable<ComponentProps<typeof BudgetPlanStrip>['answer']>
   const twoMonths = { ...plan, months: [...plan.months, { ...plan.months[0], id: 42, label: 'Dec', starts_on: '2026-12-01', ends_on: '2026-12-31' }], monthly_income: { 41: 200, 42: 200 }, rows: plan.rows.map(row => ({ ...row, months: [...row.months, { ...row.months[0], period_id: 42 }] })), annual_outlook: { ...plan.annual_outlook, months: [...plan.annual_outlook.months, { ...plan.annual_outlook.months[0], period_id: 42 }] } }

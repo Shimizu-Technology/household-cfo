@@ -15638,7 +15638,8 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
   await page.route('http://api.test/api/v1/spending_report**', async route => {
     calls += 1
     if (calls > 1) await new Promise<void>(resolve => { releaseRefresh = resolve })
-    await route.fulfill({ json: p5Report(route) })
+    // The held refresh returns a different total, so a stale or dropped response is visible.
+    await route.fulfill({ json: p5Report(route, calls > 1 ? 55.25 : 43.10) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
   const total = page.getByRole('region', { name: 'Confirmed spending this month' })
@@ -15650,7 +15651,7 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
   await expect(total.getByText('Current confirmed market')).toBeVisible()
   releaseRefresh!()
-  await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
+  await expect(total.locator('.review-confirmed-total')).toHaveText('$55.25')
   await expect(total.locator('details')).toHaveAttribute('open', '')
   await expect(total.getByText('Current confirmed market')).toBeVisible()
 })
@@ -15670,7 +15671,11 @@ test('BOG UI P5 figure 4 quiet success overtakes initial loading and rejects its
   await expect(total).toContainText('Loading report')
   await p5Edit(page)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
+  // Wait until the page has received every stale failure before asserting it was ignored.
+  const staleFailures = Promise.all(releaseInitial.map(() => page.waitForResponse(response => response.url().includes('/api/v1/spending_report') && response.status() === 503)))
   releaseInitial.forEach(resolve => resolve())
+  await staleFailures
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await expect(total.getByRole('alert')).toHaveCount(0)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
 })

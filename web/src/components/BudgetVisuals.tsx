@@ -92,7 +92,9 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual > 0))
-    return { stackKey, label: stackLabels[stackKey], positions: stackPositions, totals: budgetPositionTotals(stackPositions) }
+    // Money spent in an archived category still counts in its group; its old allocation is no longer part of the plan.
+    const totals = { ...budgetPositionTotals(stackPositions), planned: budgetPositionTotals(stackPositions.filter(position => position.active)).planned }
+    return { stackKey, label: stackLabels[stackKey], positions: stackPositions, totals }
   })
 
   return (
@@ -114,7 +116,7 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
                 <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
-              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
             </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
