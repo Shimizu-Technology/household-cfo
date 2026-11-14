@@ -7910,12 +7910,14 @@ export function TransactionDraftReviewStack({
         </div>
       )}
 
-      {visibleDrafts.length === 0 && drafts.length > 0 ? (
+      {visibleDrafts.length === 0 && drafts.length > 0 && (
         <div className="transaction-draft-empty-filter">
           <strong>No transaction reviews match that search.</strong>
           <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
         </div>
-      ) : [...shownDrafts, ...drafts.filter(draft => editingIds.has(draft.id) && !shownDrafts.some(visible => visible.id === draft.id))].map((draft) => (
+      )}
+      {/* A purchase being edited stays mounted even when the search hides everything else. */}
+      {[...(visibleDrafts.length === 0 ? [] : shownDrafts), ...drafts.filter(draft => editingIds.has(draft.id) && (visibleDrafts.length === 0 || !shownDrafts.some(visible => visible.id === draft.id)))].map((draft) => (
         <TransactionDraftReviewCard
           key={draft.id}
           error={errors[`purchase:${draft.id}`]}

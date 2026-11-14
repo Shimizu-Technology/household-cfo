@@ -39,6 +39,18 @@ it('folding and a newly arriving purchase keep an open second editor mounted', (
   rerender(<TransactionDraftReviewStack {...props} drafts={[purchase(4), ...drafts]} />)
   expect((screen.getByLabelText('Merchant') as HTMLInputElement).value).toBe('My unsaved shop')
 })
+it('an unmatched search keeps an open purchase editor and its unsaved text', () => {
+  render(<TransactionDraftReviewStack {...props} drafts={[1, 2, 3, 4, 5, 6].map(id => purchase(id))} collapsed={false} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Change Shop 2 $25 on Oct 4' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'My unsaved shop' } })
+  fireEvent.change(screen.getByLabelText('Search transaction reviews'), { target: { value: 'nothing matches this' } })
+  expect(screen.getByText('No transaction reviews match that search.')).toBeTruthy()
+  expect((screen.getByLabelText('Merchant') as HTMLInputElement).value).toBe('My unsaved shop')
+  expect(screen.queryByRole('button', { name: 'Confirm Shop 1 $25 on Oct 4' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+  expect((screen.getByLabelText('Merchant') as HTMLInputElement).value).toBe('My unsaved shop')
+  expect(screen.getByRole('button', { name: 'Confirm Shop 1 $25 on Oct 4' })).toBeTruthy()
+})
 it('completion focuses its own inert result rather than another money action', () => {
   const { rerender } = render(<TransactionDraftReviewStack {...props} collapsed={false} />)
   screen.getByRole('button', { name: 'Confirm Shop 1 $25 on Oct 4' }).focus()
