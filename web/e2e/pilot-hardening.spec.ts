@@ -15886,3 +15886,15 @@ test('BOG UI P8b Statements keeps upload and history on paper with no review fra
   await expect(page.getByText('No documents yet', { exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
+
+test('BOG UI P8b earlier statement history says paused and stays read only', async ({ page }) => {
+  const source = { id: 7100, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional earlier statement.csv', content_type: 'text/csv', byte_size: 100, metadata: {}, items: [], transaction_drafts: [], attempts: [], details_included: true, context_paused_by_restart: true, source_available: false }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [source] } }))
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const row = page.getByRole('button', { name: source.filename, exact: true })
+  await expect(row).toHaveAccessibleDescription('Paused')
+  await expect(row).toContainText('Previous financial picture · view only')
+  await expect(page.getByRole('region', { name: 'Fresh document review' })).toBeVisible()
+  await expect(page.locator('.document-review-panel').getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0)
+})

@@ -5669,7 +5669,7 @@ function DocumentImportHistory({
                 className={`document-history-card ui-row ${selectedImportId === documentImport.id ? 'active' : ''}`}
                 onClick={() => onSelectImport(documentImport.id)}
               >
-                <span id={`upload-status-${documentImport.id}`} className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{uploadStatusLabel(documentImport)}</span>
+                <span id={`upload-status-${documentImport.id}`} className={`document-status ${documentImport.statement_review && !documentNeedsReview(documentImport) ? 'green' : importStatusTone(documentImport.status)}`}>{documentImport.context_paused_by_restart ? 'Paused' : uploadStatusLabel(documentImport)}</span>
                 <strong>{documentImportDisplayName(documentImport)}</strong>
                 {documentImport.context_paused_by_restart && <small>Previous financial picture · view only</small>}
                 <small>{documentKindLabel(documentImport.document_kind)} · {formatFileSize(documentImport.byte_size)}</small>
