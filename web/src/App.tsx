@@ -269,9 +269,15 @@ function miaChatAnchorTop(chatCard: HTMLElement, sentTurn = false, updateSpacer 
   const spacer = chatCard.querySelector<HTMLElement>('.chat-turn-spacer')
   // Only a newly sent turn needs extra room. Opening a short thread or tapping
   // Latest must not leave an artificial gap between messages and review cards.
-  if (spacer && updateSpacer) spacer.style.height = sentTurn && target && last && !chatCard.querySelector('.chat-review-queue:not(:empty)')
-    ? `${Math.max(0, chatCard.clientHeight - (last.getBoundingClientRect().bottom - target.getBoundingClientRect().top) - 24)}px`
-    : '0px'
+  if (spacer && updateSpacer) {
+    spacer.style.height = '0px'
+    if (sentTurn && target) {
+      // A compact review queue may not fill the space below a new message.
+      // Add only the room needed to reach its anchor, after the review cards.
+      const top = Math.max(0, target.getBoundingClientRect().top - chatCard.getBoundingClientRect().top + chatCard.scrollTop - 12)
+      spacer.style.height = `${Math.max(0, Math.ceil(top + chatCard.clientHeight - chatCard.scrollHeight))}px`
+    }
+  }
   if (!sentTurn || !target) {
     const first = rows.at(0)
     const shortThread = !first || !last || last.getBoundingClientRect().bottom - first.getBoundingClientRect().top <= chatCard.clientHeight
@@ -3163,6 +3169,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
       const target = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
         ?? (focusedResult && active instanceof HTMLElement ? active : null)
+        // A restored row can be hidden by paging/filtering; its result notice is still inert.
+        ?? (previousAction ? document.querySelector<HTMLElement>('[data-review-result][role="status"]') : null)
         ?? document.querySelector<HTMLElement>('[data-page-heading]')
         ?? composerRef.current
       target?.focus({ preventScroll: activeSectionRef.current === 'Ask Mia' })
