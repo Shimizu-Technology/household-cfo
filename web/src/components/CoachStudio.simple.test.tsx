@@ -10,7 +10,7 @@ const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn()
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
 vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({onDirtyChange}:{onDirtyChange:(dirty:boolean)=>void}){useLayoutEffect(()=>{if(auth.initialAdvancedDirty)onDirtyChange(true)},[onDirtyChange]);return <p>History editor</p>}}))
-vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:({onPreviewAnswers}:{onPreviewAnswers:(answers:unknown[],revision:number)=>void})=> <><p>Review saved answers and groups</p><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'New revision sample'}],2)}>Return newer sample</button><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'Matching sample'}],1)}>Return matching sample</button></>}))
+vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:({onPreviewAnswers,autoPreview}:{onPreviewAnswers:(answers:unknown[],revision:number)=>void;autoPreview?:boolean})=> <><p>Review saved answers and groups</p><output aria-label="Starts a preview">{String(Boolean(autoPreview))}</output><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'New revision sample'}],2)}>Return newer sample</button><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'Matching sample'}],1)}>Return matching sample</button></>}))
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
 const steps=()=>screen.getByRole('navigation',{name:'Coaching steps'})
 const current=()=>steps().querySelector('[aria-current=page]')?.textContent
@@ -38,6 +38,10 @@ it('creates the assistant then makes describe and preview reachable',async()=>{
  expect(screen.getByRole('button',{name:'2 · Teaching'})).toBeTruthy()
  await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
  await screen.findByText('Review saved answers and groups')
+ // The button says it previews, so it starts one; opening the step from its tab does not.
+ expect(screen.getByLabelText('Starts a preview').textContent).toBe('true')
+ fireEvent.click(screen.getByRole('button',{name:'1 · Your coach’s voice'}));fireEvent.click(screen.getByRole('button',{name:'3 · Preview and go live'}))
+ expect(screen.getByLabelText('Starts a preview').textContent).toBe('false')
 })
 it('opens History in place and comes back to Coaching, asking first when changes are unsaved',async()=>{
  const dirty=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);auth.initialAdvancedDirty=true

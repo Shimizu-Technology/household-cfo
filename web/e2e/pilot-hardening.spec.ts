@@ -14501,6 +14501,18 @@ test('Admin UI Coaching never previews on load, on typing, or on a step change; 
   await expect(page.locator('.coach-authoring-rail')).toContainText('Start by deciding whether this is a need or a want')
 })
 
+test('Admin UI Coaching voice-step Preview answers starts the preview it names', async ({ page }) => {
+  const previews: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && /\/api\/v1\/admin\/personas\/\d+\/preview$/.test(new URL(request.url()).pathname)) previews.push(request.url()) })
+  await page.goto('/admin/coaching?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await expect(page.getByRole('heading', { name: 'Describe your assistant', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
+  expect(previews).toEqual([])
+  await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Hear your assistant, then go live', exact: true })).toBeVisible()
+  await expect.poll(() => previews.length).toBe(2)
+})
+
 test('Admin UI phone text entry hides only the floating bar and More consumes its own touch dismissal', async ({ page }) => {
   test.skip((page.viewportSize()?.width ?? 0) > 620, 'phone bar behavior')
   await page.goto('/admin/people?pilot_e2e_role=coach')
