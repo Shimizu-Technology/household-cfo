@@ -16220,6 +16220,7 @@ test('BOG UI P8a keeps topic pills on phones and separates saved profile values 
   }
   await expect(page.getByRole('button', { name: 'Fix my setup', exact: true })).toBeVisible()
   await openSection(page, 'My Profile')
+  await expect(page.locator('.profile-screen [data-page-heading]')).toBeFocused()
   await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
   await expect(page.locator('.setup-form').getByRole('textbox')).toHaveCount(0)
   await page.getByRole('button', { name: 'Edit profile' }).focus()
