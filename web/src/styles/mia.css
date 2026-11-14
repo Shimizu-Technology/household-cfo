@@ -533,7 +533,11 @@
 .transaction-draft-card :is(.transaction-draft-splits > article, .transaction-draft-impact, .transaction-draft-impact-row, .transaction-match-suggestions > div),
 .mia-action-draft-card :is(.mia-action-item, .mia-action-impact, .mia-setup-coverage),
 .mia-statement-card .mia-statement-notice,
-.mia-read-only-answer :is(.mia-answer-sections > li, .mia-answer-scenario) { padding-inline: 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; }
+.mia-read-only-answer :is(.mia-answer-sections section, .mia-answer-scenario) { padding-inline: 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; box-shadow: none; }
+.mia-read-only-answer .mia-answer-basis { color: var(--muted); font-size: var(--text-xs); font-weight: 500; }
+.mia-read-only-answer .mia-answer-lead,
+.mia-read-only-answer :is(.mia-answer-section-heading h4, .mia-answer-scenario h4) { color: var(--ink); font-family: var(--font-body); font-size: var(--text-md); font-weight: 600; }
+.mia-read-only-answer .mia-answer-section-heading > span { background: var(--brand-soft); color: var(--brand-strong); font: 600 var(--text-md)/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 .ui-card.ui-card.is-finished,
 .ui-card.ui-card.is-saved,
 .ui-card.ui-card.is-approved { padding-block: 8px; border: 0; border-radius: 0; background: transparent; }

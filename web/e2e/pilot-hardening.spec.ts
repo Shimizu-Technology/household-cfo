@@ -2429,7 +2429,7 @@ test('Mia preserves accessible financial lists and emphasis instead of flattenin
   await expect(answer.locator('li strong')).toHaveText(['$300.25', '$80.50'])
 })
 
-test('mobile Ask Mia renders ordered read-only answers and isolates scenario values', async ({ page }) => {
+test('BOG UI mobile Ask Mia renders ordered read-only answers and isolates scenario values', async ({ page }) => {
   const lead = 'Protect the required minimums before directing extra money to debt.'
   await page.addInitScript(({ leadText }) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview:picture:0', JSON.stringify([{
@@ -2464,6 +2464,11 @@ test('mobile Ask Mia renders ordered read-only answers and isolates scenario val
   const answer = page.locator('.message.assistant')
   const structured = answer.getByRole('group', { name: 'Mia read-only answer' })
   await expect(structured).toBeVisible()
+  for (const section of await structured.locator('.mia-answer-sections section, .mia-answer-scenario').all()) {
+    await expect(section).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+    await expect(section).toHaveCSS('border-radius', '0px')
+  }
+  await r6MiaShot(page, 'read-only-answer', answer)
   await expect(structured.getByText('Answer basis')).toHaveCount(0)
   await expect(structured.getByText('Your saved numbers and the amount you asked about')).toBeVisible()
   await expect(structured.getByText(lead, { exact: true })).toHaveCount(1)
