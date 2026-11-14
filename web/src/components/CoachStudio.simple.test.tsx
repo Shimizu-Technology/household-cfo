@@ -10,7 +10,7 @@ const api=vi.hoisted(()=>({createAdminPersona:vi.fn(),fetchAdminPersonas:vi.fn()
 vi.mock('../api',()=>api)
 vi.mock('../contexts/authContextValue',()=>({useAuthContext:()=>({activeCoachWorkspaceId:auth.workspaceId,selectCoachWorkspace:vi.fn()})}))
 vi.mock('./CoachStudioAdvanced',()=>({CoachStudioAdvanced:function Advanced({onDirtyChange}:{onDirtyChange:(dirty:boolean)=>void}){useLayoutEffect(()=>{if(auth.initialAdvancedDirty)onDirtyChange(true)},[onDirtyChange]);return <p>History editor</p>}}))
-vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:()=> <p>Review saved answers and groups</p>}))
+vi.mock('./CoachContentLibrary',()=>({CoachContentLibrary:()=>null}));vi.mock('./PersonaSetupChat',()=>({PersonaSetupChat:()=> <p>Describe with transcripts</p>}));vi.mock('./CoachGoLive',()=>({CoachGoLive:({onPreviewAnswers}:{onPreviewAnswers:(answers:unknown[],revision:number)=>void})=> <><p>Review saved answers and groups</p><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'New revision sample'}],2)}>Return newer sample</button><button onClick={()=>onPreviewAnswers([{question:'A question',answer:'Matching sample'}],1)}>Return matching sample</button></>}))
 const user={id:902,coach_workspaces:[{id:1,name:'Practice coaching'},{id:2,name:'Second program'}]} as CurrentUser
 const steps=()=>screen.getByRole('navigation',{name:'Coaching steps'})
 const current=()=>steps().querySelector('[aria-current=page]')?.textContent
@@ -83,4 +83,18 @@ it('records steps in browser history and follows Back and Forward',async()=>{
  await waitFor(()=>expect(current()).toBe('1 · Your coach’s voice'))
  await act(async()=>{window.history.forward();await new Promise(resolve=>setTimeout(resolve,30))})
  await waitFor(()=>expect(current()).toBe('3 · Preview and go live'))
+})
+
+it('never presents a fetched newer-revision sample beside the older saved voice rules', async () => {
+ api.fetchAdminPersonas.mockResolvedValue([{id:8,status:'draft'}])
+ api.fetchAdminPersona.mockResolvedValue({id:8,name:'Mia',draft_revision:1,permissions:{edit:true,publish:true},draft:{identity:{assistant_name:'Mia'},voice:{tone_traits:['Gentle'],energy:'Calm',accountability_style:'Kind',language_style:['Plain']},coaching:{do:[],do_not:[]}}})
+ render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()} />)
+ await screen.findByText('Describe with transcripts')
+ fireEvent.click(within(steps()).getByRole('button',{name:/Preview and go live/}))
+ fireEvent.click(screen.getByRole('button',{name:'Return newer sample'}))
+ const rail = document.querySelector('.coach-authoring-rail')!
+ expect(rail.textContent).not.toContain('New revision sample')
+ expect(rail.textContent).toContain('A sample appears after a preview.')
+ fireEvent.click(screen.getByRole('button',{name:'Return matching sample'}))
+ expect(rail.textContent).toContain('Matching sample')
 })

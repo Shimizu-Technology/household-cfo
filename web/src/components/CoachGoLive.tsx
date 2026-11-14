@@ -27,7 +27,7 @@ function previewFailureNotice(error: unknown): string {
   if ((error instanceof Error && error.name === 'ApiDeadlineError') || status === 408 || status === 429 || (typeof status === 'number' && status >= 500)) return previewUnavailableNotice
   return 'The preview could not finish. Reopen your assistant and try again.'
 }
-export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false, active = true, canOpenChallenge = false, onPreviewAnswers }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean; active?: boolean; canOpenChallenge?: boolean; onPreviewAnswers?: (answers: PreviewAnswer[]) => void }) {
+export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEditVoice, autoPreview = false, active = true, canOpenChallenge = false, onPreviewAnswers }: { persona: AdminPersonaDetail; cohorts: AdminPersonaAssignableCohort[]; lifecycle: CoachWorkspaceMutationLifecycle; onPersonaChange: (persona: AdminPersonaDetail) => void; onEditVoice?: () => void; autoPreview?: boolean; active?: boolean; canOpenChallenge?: boolean; onPreviewAnswers?: (answers: PreviewAnswer[], revision: AdminPersonaDetail['draft_revision']) => void }) {
   const [checks, setChecks] = useState<AdminPersonaEvaluationResult[]>([])
   const [answers, setAnswers] = useState<PreviewAnswer[]>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
@@ -90,7 +90,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
             throw new Error('Your voice or safety checks changed. Preview again before reviewing it.')
           }
           ensureVoiceReviewable(ready)
-          setAnswers(cached.answers); onPreviewAnswers?.(cached.answers); setChecks(cached.checks); setReadiness(ready)
+          setAnswers(cached.answers); onPreviewAnswers?.(cached.answers, source.draft_revision); setChecks(cached.checks); setReadiness(ready)
         } else {
           for (const question of samples) {
             if (!current()) return
@@ -101,7 +101,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
             if (lastEvidence && lastEvidence.candidate_digest !== result.behavioral_preview_evidence.candidate_digest) throw new Error('Your voice changed. Preview again before reviewing it.')
             lastEvidence = result.behavioral_preview_evidence
             results.push({ question, answer: result.behavioral_preview_evidence.output, phraseNotice: result.preview?.phrase_notice, safeReply: result.behavioral_preview_evidence.source !== 'live_model', notice: result.preview?.notice })
-            setAnswers([...results]); onPreviewAnswers?.([...results])
+            setAnswers([...results]); onPreviewAnswers?.([...results], source.draft_revision)
           }
           setStatus('Checking safety…')
           let run = (await runAdminPersonaEvaluation(persona.id, `${requestId.current}:checks`)).evaluation_run

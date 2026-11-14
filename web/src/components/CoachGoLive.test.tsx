@@ -352,3 +352,22 @@ it.each([persona, published])('does not begin any preview or group review when o
  expect(api.fetchAdminPersona).not.toHaveBeenCalled()
  expect(settingsApi.reviewCoachSettings).not.toHaveBeenCalled()
 })
+
+it('labels fresh and cached preview answers with the fetched revision rather than the parent revision', async () => {
+ const callback = vi.fn()
+ const source = {...persona, draft_revision: 2}
+ api.fetchAdminPersona.mockResolvedValue(source)
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready, candidate: {...ready.candidate, draft_revision: 2}})
+ function PreviewHarness({active = true}: {active?: boolean}) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} onPreviewAnswers={callback} active={active} /> }
+ const view = render(<PreviewHarness />)
+ await review()
+ expect(callback).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({answer: 'Take one small step.'})]), 2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ callback.mockClear()
+ view.rerender(<PreviewHarness active={false} />)
+ view.rerender(<PreviewHarness />)
+ fireEvent.click(await screen.findByRole('button', {name: 'Preview answers'}))
+ await waitFor(() => expect(callback).toHaveBeenCalled())
+ expect(callback).toHaveBeenLastCalledWith(expect.any(Array), 2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
