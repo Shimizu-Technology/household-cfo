@@ -10,7 +10,7 @@ test('Coach Studio names an accepted participant sign-in blocker before approval
   if (info.project.name === 'desktop-chrome') await page.setViewportSize({ width: 1366, height: 900 })
   await page.goto(`${live}/admin/coaching?pilot_e2e_role=admin&pilot_e2e_live_api=true`)
   await page.getByLabel('Program', { exact: true }).selectOption(workspace!)
-  await page.getByRole('navigation', { name: 'Coaching steps' }).getByRole('button', { name: /^2 · Preview and go live/ }).click()
+  await page.getByRole('navigation', { name: 'Coaching steps' }).getByRole('button', { name: /^3 · Preview and go live/ }).click()
   await expect(page.getByRole('alert').filter({ hasText: 'Maria Santos del Rosario Household Participant needs to finish setting up their sign-in' })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByRole('button', { name: 'Approve and go live', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Review changes', exact: true })).toBeEnabled()

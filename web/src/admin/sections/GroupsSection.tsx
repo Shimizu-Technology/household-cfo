@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createAdminCohort, fetchAdminPersonaAssignableCohorts, updateAdminCohort } from '../../api'
 import type { AdminCohort, AdminCohortStatus, AdminPersonaAssignableCohort, CurrentUser } from '../../api'
@@ -34,14 +35,14 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} onDirtyChange={onDirtyChange} />
   return <section className="admin-section" aria-busy={loading}>
     <header className="admin-section-head">
-      <div><h2 data-page-heading tabIndex={-1}>Groups</h2><p>Each group has its own dates, tools and challenge.</p></div>
+      <div><h2 data-page-heading tabIndex={-1}>Groups</h2><AdminScope currentUser={currentUser} /><p>Each group has its own dates, tools and challenge.</p></div>
       <Button onClick={() => setCreating(true)} disabled={loading}>New group</Button>
     </header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
     {archivedCount > 0 && <label className="admin-inline-check"><input type="checkbox" checked={showArchived} onChange={event => setShowArchived(event.target.checked)} /><span>Show archived groups ({archivedCount})</span></label>}
     {loading ? <p role="status" className="admin-muted">Opening your groups…</p>
       : visibleGroups.length === 0 ? <div className="admin-empty"><p>No groups yet. A group is a set of people you coach together.</p><Button onClick={() => setCreating(true)}>Create your first group</Button></div>
-      : wide ? <div className="admin-table-wrap"><table className="admin-table">
+      : wide ? <div className="ui-card admin-table-wrap"><table className="admin-table">
         <thead><tr><th scope="col">Group</th><th scope="col">Status</th><th scope="col">Dates</th><th scope="col">Joined</th><th scope="col">Challenge</th></tr></thead>
         <tbody>{visibleGroups.map(group => <tr key={group.id}>
           <th scope="row"><button type="button" className="admin-row-link" onClick={() => setOpenId(group.id)}><strong>{group.name}</strong></button></th>
@@ -49,7 +50,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
           <td>{joinedCount(people, group.id)}{group.savings_challenge?.enabled ? ` of ${group.savings_challenge.capacity}` : ''}</td><td>{challengeWords(group)}</td>
         </tr>)}</tbody>
       </table></div>
-      : <ul className="admin-list">{visibleGroups.map(group => <li key={group.id}><button type="button" className="admin-list-row" onClick={() => setOpenId(group.id)}>
+      : <ul className="ui-card ui-rows admin-list">{visibleGroups.map(group => <li key={group.id}><button type="button" className="admin-list-row" onClick={() => setOpenId(group.id)}>
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}

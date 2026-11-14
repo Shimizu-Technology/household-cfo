@@ -13,7 +13,7 @@ export function BankHealth() {
   return <div className="admin-bank">
     <p className="admin-muted">Only the status of each connection is shown, never balances or transactions.</p>
     <p className="admin-bank-summary"><span><strong>{health.summary.connected}</strong> connected</span> · <span><strong>{health.summary.healthy}</strong> working</span> · <span className={health.summary.attention_required > 0 ? 'is-attention' : ''}><strong>{health.summary.attention_required}</strong> need attention</span></p>
-    {health.items.length === 0 ? <p className="admin-muted">No bank connections yet.</p> : <ul className="admin-list">{health.items.map(item => <li key={item.id} className="admin-bank-row">
+    {health.items.length === 0 ? <p className="admin-muted">No bank connections yet.</p> : <ul className="ui-card ui-rows admin-list">{health.items.map(item => <li key={item.id} className="admin-bank-row">
       <strong>{item.institution_name}</strong>
       <span>{item.household.name} · {item.account_count} {item.account_count === 1 ? 'account' : 'accounts'}</span>
       <span className="admin-list-meta"><span className={`admin-pill ${item.health.state === 'healthy' ? 'is-joined' : ['stale', 'action_required', 'error'].includes(item.health.state) ? 'is-bounced' : 'is-invited'}`}>{item.health.label}</span> {item.health.message}</span>

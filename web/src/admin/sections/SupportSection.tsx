@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchAdminPilotFeedback, fetchAdminPilotFeedbackReport, fetchAdminPilotFeedbackScreenshotUrl, updateAdminPilotFeedbackStatus } from '../../api'
 import type { AdminPilotFeedbackDetail, AdminPilotFeedbackScreenshotUrl, AdminPilotFeedbackSummary, CurrentUser, PilotFeedbackStatus } from '../../api'
@@ -71,7 +72,7 @@ export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
   const loading = setups === null || problems === null
 
   return <section className="admin-section" aria-busy={loading}>
-    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Support</h2><p>Help people have asked for, newest first.</p></div></header>
+    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Support</h2><AdminScope currentUser={currentUser} /><p>Help people have asked for, newest first.</p></div></header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void load()}>Try again</Button></p>}
     <div className="admin-chips" role="group" aria-label="Show requests that are">
       {([['open', 'Needs a look'], ['done', 'Done'], ['all', 'Everything']] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={show === value} onClick={() => setShow(value)}><strong>{counts[value]}</strong> {label}</button>)}
@@ -79,7 +80,7 @@ export function SupportSection({ currentUser }: { currentUser: CurrentUser }) {
     {currentUser.is_admin && activeCoachWorkspaceId === null && <p className="admin-muted">Choose a program at the top to see its setup requests.</p>}
     {loading ? <p role="status" className="admin-muted">Opening your requests…</p>
       : shown.length === 0 ? <div className="admin-empty"><p>{show === 'open' ? 'Nothing needs a look right now.' : 'Nothing here yet.'}</p></div>
-      : <ul className="admin-list">{shown.map(item => <li key={item.key}><button type="button" className="admin-list-row" onClick={() => setOpenKey(item.key)}>
+      : <ul className="ui-card ui-rows admin-list">{shown.map(item => <li key={item.key}><button type="button" className="admin-list-row" onClick={() => setOpenKey(item.key)}>
         <strong>{item.title}</strong><span className="admin-need">{item.summary}</span>
         <span className="admin-list-meta"><span className={`admin-pill ${item.open ? 'is-invited' : 'is-joined'}`}>{item.statusWords}</span> · {lastActiveWords(item.at)}</span>
       </button></li>)}</ul>}

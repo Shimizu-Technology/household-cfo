@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { StrictMode, useState } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { AdminPersonaDetail } from '../api'
 import { CoachGoLive } from './CoachGoLive'
@@ -234,6 +234,7 @@ it('W23 returns to Go live without repeating paid answers and refreshes group se
  const view=render(<Active active/>);await review()
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
  view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/}))
  await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
  await screen.findByText('Review before going live')
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
@@ -247,7 +248,8 @@ it('W23 refuses reused preview if the saved evidence changed while away',async()
  const view=render(<Active active/>);await review()
  view.rerender(<Active active={false}/>);
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:{...ready.behavioral_preview_evidence,digest:'changed'}})
- view.rerender(<Active active/>);await screen.findByRole('alert')
+ view.rerender(<Active active/>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/}));await screen.findByRole('alert')
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
  expect(screen.queryByRole('button',{name:'Approve and go live'})).toBeNull()
 })
@@ -256,7 +258,8 @@ it('W23 refuses a previously previewed phrase after audience review rejects it',
  function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
  const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,phrase_audience_reviews:[{...ready.phrase_audience_reviews[0],review_state:'rejected'}]})
- view.rerender(<Active active/>);expect((await screen.findByRole('alert')).textContent).toContain('rejected for this audience')
+ view.rerender(<Active active/>);
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/}));expect((await screen.findByRole('alert')).textContent).toContain('rejected for this audience')
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2);expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })
 
@@ -287,6 +290,8 @@ it('returning after publication clears success and reviews current settings', as
  api.fetchAdminPersona.mockResolvedValue(published)
  view.rerender(<Active active={false} />)
  view.rerender(<Active active />)
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/})).toHaveProperty('disabled',false))
+ fireEvent.click(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/}))
  await screen.findByText('Review before going live')
  expect(screen.queryByRole('heading',{name:'Your program is live'})).toBeNull()
  expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2)
@@ -331,9 +336,38 @@ it('keeps safe reply labels and phrase notices when returning to a cached previe
  api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready,behavioral_preview_evidence:evidence})
  function Active({active}:{active:boolean}){const lifecycle=useCoachWorkspaceMutationLifecycle(1);return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={active}/>}
  const view=render(<Active active/>);await review();view.rerender(<Active active={false}/>);view.rerender(<Active active/>)
+ await waitFor(()=>expect(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:/^(Preview answers|Review changes)$/}))
  await waitFor(()=>expect(settingsApi.reviewCoachSettings).toHaveBeenCalledTimes(2))
  expect(screen.getAllByText('Safe reply participants would receive')).toHaveLength(2)
  expect(screen.getAllByText(phrase)).toHaveLength(2)
  expect(screen.getAllByText(notice)).toHaveLength(2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+})
+
+it.each([persona, published])('does not begin any preview or group review when opened without the coach action (%s)', async value => {
+ function Opened() { const lifecycle=useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={value} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} /> }
+ render(<Opened />)
+ await act(async () => undefined)
+ expect(api.previewAdminPersona).not.toHaveBeenCalled()
+ expect(api.fetchAdminPersona).not.toHaveBeenCalled()
+ expect(settingsApi.reviewCoachSettings).not.toHaveBeenCalled()
+})
+
+it('labels fresh and cached preview answers with the fetched revision rather than the parent revision', async () => {
+ const callback = vi.fn()
+ const source = {...persona, draft_revision: 2}
+ api.fetchAdminPersona.mockResolvedValue(source)
+ api.fetchAdminPersonaReleaseReadiness.mockResolvedValue({...ready, candidate: {...ready.candidate, draft_revision: 2}})
+ function PreviewHarness({active = true}: {active?: boolean}) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} onPreviewAnswers={callback} active={active} /> }
+ const view = render(<PreviewHarness />)
+ await review()
+ expect(callback).toHaveBeenLastCalledWith(expect.arrayContaining([expect.objectContaining({answer: 'Take one small step.'})]), 2)
+ expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
+ callback.mockClear()
+ view.rerender(<PreviewHarness active={false} />)
+ view.rerender(<PreviewHarness />)
+ fireEvent.click(await screen.findByRole('button', {name: 'Preview answers'}))
+ await waitFor(() => expect(callback).toHaveBeenCalled())
+ expect(callback).toHaveBeenLastCalledWith(expect.any(Array), 2)
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2)
 })

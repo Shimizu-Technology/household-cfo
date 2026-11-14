@@ -7,20 +7,20 @@ import { CoachStudioAdvanced, type CoachFormProposal } from './CoachStudioAdvanc
 import { CoachTeachingWorkspace } from './CoachTeaching'
 import { PersonaSetupChat } from './PersonaSetupChat'
 import { ProgramCreatedNotice } from './ProgramCreatedNotice'
-import { CoachGoLive } from './CoachGoLive'
+import { CoachGoLive, type PreviewAnswer } from './CoachGoLive'
 import { useCoachWorkspaceMutationLifecycle, useWorkspaceMutationInFlight } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 import { confirmDiscard } from '../lib/confirmAction'
 import { adminPath, navigateTo } from '../lib/appRoutes'
 import { GroupTools } from '../admin/sections/GroupTools'
 
-// Coaching is two steps: describe your coach, then preview and go live. History sits at the end.
+// Voice, teaching and preview share one saved persona; history sits at the end.
 type Area = 'assistant' | 'live'
 type Task = 'voice' | 'teaching'
 
 type ProposedState = CoachFormProposal
 
-const AREA_LABELS: Record<Area, string> = { assistant: '1 · Your coach’s voice', live: '2 · Preview and go live' }
+const AREA_LABELS: Record<Area, string> = { assistant: '1 · Your coach’s voice', live: '3 · Preview and go live' }
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId } = useAuthContext()
@@ -58,6 +58,7 @@ function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced, on
   const [task, updateTask] = useState<Task>(() => readUrlTask() ?? readView(viewKey).task)
   useEffect(() => { try { window.sessionStorage.setItem(viewKey, JSON.stringify({ area, task })) } catch { /* Optional UI preference. */ } }, [viewKey, area, task])
   const [persona, setPersona] = useState<AdminPersonaDetail | null>(null)
+  const [sample, setSample] = useState<{ revision: number | null | undefined; answers: PreviewAnswer[] } | null>(null)
   const [cohorts, setCohorts] = useState<AdminPersonaAssignableCohort[]>([])
   const [name, setName] = useState('Mia')
   const [loading, setLoading] = useState(true)
@@ -119,7 +120,6 @@ function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced, on
     updateArea(nextArea); updateTask(nextTask)
   }
   function setArea(next: Area) { navigate(next) }
-  function setTask(next: Task) { navigate(area, next) }
   useEffect(() => {
     writeView(area, task, true)
     const follow = () => {
@@ -165,24 +165,34 @@ function StudioProgram({ currentUser, workspaceId, onDirtyChange, onAdvanced, on
   }
 
   return <><ProgramCreatedNotice userId={currentUser.id} workspaceId={workspaceId}/><section className="screen-grid coach-studio-screen coach-simple" aria-busy={loading || busy}>
-    <header className="coach-simple-heading"><div><h2 data-page-heading tabIndex={-1}>Coaching</h2><p>The voice and teaching your people hear in this program.</p></div></header>
+    <header className="coach-simple-heading"><div><h2 data-page-heading tabIndex={-1}>Coaching</h2>{workspace && <p className="admin-page-scope">{workspace.name}</p>}<p>The voice and teaching your people hear in this program.</p></div></header>
     <nav className="coach-studio-section-tabs" aria-label="Coaching steps">
-      {(['assistant', 'live'] as const).map(id => <button type="button" key={id} aria-current={area === id ? 'page' : undefined} disabled={busy || lifecycle.pending} onClick={() => leave(() => setArea(id))}>{AREA_LABELS[id]}</button>)}
+      <button type="button" aria-current={area === 'assistant' && task === 'voice' ? 'page' : undefined} disabled={busy || lifecycle.pending} onClick={() => leave(() => navigate('assistant', 'voice'))}>{AREA_LABELS.assistant}</button>
+      <button type="button" aria-current={area === 'assistant' && task === 'teaching' ? 'page' : undefined} disabled={busy || lifecycle.pending || !persona} onClick={() => leave(() => navigate('assistant', 'teaching'))}>2 · Teaching</button>
+      <button type="button" aria-current={area === 'live' ? 'page' : undefined} disabled={busy || lifecycle.pending} onClick={() => leave(() => setArea('live'))}>{AREA_LABELS.live}</button>
     </nav>
     {error && <p role="alert">{error} <Button variant="secondary" onClick={() => setAttempt((value) => value + 1)}>Try again</Button></p>}
+    <div className="coach-authoring-main">
     {workspaceId === null ? <article className="panel"><h3>Choose a program</h3><p>Your coach’s voice belongs to a program. Choose one at the top of the page, or start one in Settings.</p><Button variant="secondary" onClick={() => navigateTo(adminPath('settings'))}>Open Settings</Button></article>
       : loading ? <p role="status">Opening your coaching…</p>
       : area === 'assistant' ? <>
         <h3 className="sr-only" ref={assistantHeading} tabIndex={-1}>Your coach’s voice</h3>
-        {persona && <nav className="admin-chips coach-simple-tasks" aria-label="Voice or teaching">{([['voice', 'Voice'], ['teaching', 'Teaching']] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={task === id} disabled={busy || lifecycle.pending} onClick={() => leave(() => setTask(id))}>{label}</button>)}</nav>}
+
         {task === 'teaching' ? <CoachTeachingWorkspace persona={persona} currentUser={currentUser} lifecycle={lifecycle} onDirtyChange={trackDirty} onPersonaChange={setPersona} onPreview={() => { setPreviewOnOpen(true); setArea('live') }} />
         : !persona ? <article className="panel"><h3>What is your assistant called?</h3><p>You can change its voice and name later.</p><label>Assistant name<input disabled={busy || lifecycle.pending} value={name} maxLength={80} onChange={(event) => { setName(event.target.value); trackDirty(true) }} /></label><Button disabled={busy || !name.trim()} onClick={() => void create()}>Describe this assistant</Button>{busy && <p role="status">Creating your assistant…</p>}</article>
         : !persona.permissions.edit ? <p>Your assistant is available for review. Ask a program owner or editor to change its voice.</p>
-        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => setArea('live')}>Preview answers</Button></>}
+        : <><PersonaSetupChat persona={persona} disabled={busy} manualDirty={false} mutationLifecycle={lifecycle} onDirtyChange={trackDirty} saveAndPreview onPersonaChange={(next) => { setPersona(next); setPreviewOnOpen(true); setArea('live') }} onReviewInForm={(state, _path, draftRevision) => leave(() => onAdvanced({ ...state, personaId: persona.id, workspaceId, draftRevision }))} /><Button variant="secondary" disabled={dirty || lifecycle.pending} onClick={() => { setPreviewOnOpen(true); setArea('live') }}>Preview answers</Button></>}
       </> : !persona ? <article className="panel"><h3>Describe your coach first</h3><p>Your saved tools and look go live together with your coach’s voice.</p><Button onClick={() => setArea('assistant')}>Describe your coach</Button></article> : null}
-    {persona && <div hidden={area !== 'live'}><CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => navigate('assistant', 'voice')} autoPreview={previewOnOpen} canOpenChallenge={currentUser.is_admin || workspace?.membership_role === 'owner'} active={area === 'live'} /></div>}
-    {workspaceId !== null && <div className="coach-history-link"><h3>Group tools</h3><p>Choose what each group can open, and go back to an earlier choice.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(onTools)}>Open group tools</Button></div>}
-    <div className="coach-history-link"><h3>History</h3><p>Earlier versions of your coach’s voice, the teaching library, group updates and your program’s look.</p><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open history</Button></div>
+    {persona && <div hidden={area !== 'live'}><CoachGoLive key={`${persona.id}:${persona.draft_revision}`} persona={persona} cohorts={cohorts} lifecycle={lifecycle} onPersonaChange={setPersona} onEditVoice={() => navigate('assistant', 'voice')} autoPreview={previewOnOpen} onPreviewAnswers={(answers, revision) => setSample({ revision, answers })} canOpenChallenge={currentUser.is_admin || workspace?.membership_role === 'owner'} active={area === 'live'} /></div>}
+    </div>
+    {persona && <aside className="coach-authoring-rail">
+      <section className="ui-card"><h3 className="ui-section">How {persona.draft?.identity.assistant_name ?? persona.name} sounds so far</h3>
+        {sample && sample.revision === persona.draft_revision && sample.answers.length > 0 ? sample.answers.map(answer => <div className="coach-sample" key={answer.question}><p className="coach-sample-question">{answer.question}</p>{answer.safeReply && <p className="ui-label">Safe reply participants would receive</p>}<p>{answer.answer}</p>{answer.notice && <p className="ui-label">{answer.notice}</p>}{answer.phraseNotice && <p className="ui-label">{answer.phraseNotice}</p>}</div>) : <p className="admin-muted">A sample appears after a preview.</p>}
+      </section>
+      <VoiceRules persona={persona} />
+    </aside>}
+    {workspaceId !== null && <div className="coach-history-link"><h3>Group tools</h3><p>Choose what each group can open, and go back to an earlier choice.</p><Button variant="ghost" disabled={busy || lifecycle.pending} onClick={() => leave(onTools)}>Open group tools</Button></div>}
+    <div className="coach-history-link"><h3>History</h3><p>Earlier versions of your coach’s voice, the teaching library, group updates and your program’s look.</p><Button variant="ghost" disabled={busy || lifecycle.pending} onClick={() => leave(() => onAdvanced())}>Open history</Button></div>
   </section></>
 }
 
@@ -207,4 +217,15 @@ function writeView(area: Area, task: Task, replace = false) {
   url.searchParams.set('coach_area', area); url.searchParams.set('coach_task', task)
   if (replace) window.history.replaceState({...window.history.state, appHistoryPosition: historyPosition()}, '', url)
   else if (!unchanged) pushHistoryEntry({...window.history.state}, url)
+}
+
+function VoiceRules({ persona }: { persona: AdminPersonaDetail }) {
+  const configuration = persona.draft ?? persona.published_version?.config
+  const voice = configuration?.voice
+  const rules = voice ? [...voice.tone_traits, voice.energy, voice.accountability_style, ...voice.language_style, ...(configuration?.coaching.do ?? [])].filter(Boolean) : []
+  const avoid = configuration?.coaching.do_not ?? []
+  return <section className="ui-card"><h3 className="ui-section">Voice rules</h3>{rules.length || avoid.length ? <>
+    <ul className="ui-rows">{[...new Set(rules)].map(rule => <li className="ui-row" key={rule}><span className="ui-dot ui-dot--good" aria-hidden="true" /><span className="ui-row__body">{rule}</span></li>)}</ul>
+    {avoid.length > 0 && <><h4 className="ui-section">Do not</h4><ul className="ui-rows">{[...new Set(avoid)].map(rule => <li className="ui-row" key={rule}><span className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body">{rule}</span></li>)}</ul></>}
+  </> : <p className="admin-muted">Your saved voice rules appear here.</p>}</section>
 }

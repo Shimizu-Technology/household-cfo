@@ -80,14 +80,36 @@ function brandRuntime(config = legacyBrandConfig) {
   return { source: 'cohort_release', mode: 'versioned', version_id: 12, digest: 'brand-digest', available: true, config }
 }
 
+async function adminProgramPicker(page: Page) {
+  await expect(page.locator('.admin-app')).toBeVisible()
+  const picker = page.getByRole('combobox', { name: 'Program', exact: true })
+  if (!(await picker.count()) && await page.locator('.admin-app').count()) {
+    if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+  }
+  return picker
+}
+async function closeAdminProgramPicker(page: Page) {
+  const sheet = page.getByRole('dialog', { name: 'More', exact: true })
+  if (await sheet.count()) await sheet.getByRole('button', { name: 'Close menu', exact: true }).click()
+}
+async function selectAdminProgram(page: Page, value: string) {
+  await (await adminProgramPicker(page)).selectOption(value)
+}
+async function expectAdminProgramValue(page: Page, value: string) {
+  await expect(await adminProgramPicker(page)).toHaveValue(value)
+  await closeAdminProgramPicker(page)
+}
+
 async function openCoachAdvanced(page: Page) {
+  await closeAdminProgramPicker(page)
   await page.locator('.coach-studio-screen').first().waitFor()
   if (await page.locator('.coach-simple').isVisible()) {
     await page.getByRole('button', { name: 'Open history', exact: true }).click()
   }
 }
 
-// The Admin side: a sidebar from 1024px, a section menu below it.
+// The Admin side: a sidebar from 1024px, the first four sections and More below it.
 async function openAdminSection(page: Page, label: string) {
   if (!(await page.locator('.admin-app').count())) {
     // From the household app, the Admin switch: in the header on a wide screen, in Account on a phone.
@@ -98,19 +120,25 @@ async function openAdminSection(page: Page, label: string) {
     await expect(page.locator('.admin-app')).toBeVisible()
   }
   if (new URL(page.url()).pathname === `/admin/${label.toLowerCase()}`) return
-  const sidebar = page.getByRole('navigation', { name: 'Admin' })
+  // Dismiss a typed-text keyboard before using the phone bar; the draft stays in place.
+  if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
+  const sidebar = page.getByRole('navigation', { name: 'Admin', exact: true })
   const pattern = new RegExp(`^${label}`)
   if (await sidebar.isVisible()) await sidebar.getByRole('link', { name: pattern }).click()
   else {
-    await page.locator('.admin-section-menu > summary').click()
-    await page.locator('.admin-section-menu nav').getByRole('link', { name: pattern }).click()
+    const primary = page.getByRole('navigation', { name: 'Admin sections' }).getByRole('link', { name: pattern })
+    if (await primary.count()) await primary.click()
+    else { await page.getByRole('button', { name: 'More', exact: true }).click(); await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('link', { name: pattern }).click() }
   }
 }
 
 async function openSection(page: Page, name: string, simpleCoach = false) {
   if (name !== 'Admin' && name !== 'Coach Studio' && await page.locator('.admin-app').count()) {
     // Back to the household app from the Admin side.
-    await page.locator('.admin-home-link').filter({ visible: true }).first().click()
+    // Inert exit copies may remain painted for 150ms; only the live link is actionable.
+    const home = page.getByRole('link', { name: 'My household', exact: true })
+    if (!(await home.count())) await page.getByRole('button', { name: 'More', exact: true }).click()
+    await home.click()
     await expect(page.locator('.tabs-shell')).toBeVisible()
   }
   if (name === 'Admin' || name === 'Coach Studio') {
@@ -192,6 +220,15 @@ async function selectBudgetEditMonth(page: Page, index: number) {
 }
 
 async function openAccountHelp(page: Page) {
+  if (await page.locator('.admin-app').count() && (page.viewportSize()?.width ?? 0) < 1024) {
+    if (!(await page.getByRole('dialog', { name: 'Account and help', exact: true }).count())) {
+      if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
+      await page.getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+    }
+    await expect(page.getByRole('dialog', { name: 'Account and help', exact: true }).locator('.shell-account-panel')).toBeVisible()
+    return
+  }
   const account = page.getByLabel('Account and help', { exact: true })
   if (!(await account.isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
     await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
@@ -5471,12 +5508,12 @@ test('Coach Studio waits for its initial library before opening a create form', 
   await create.click()
   await page.locator('.coach-create-form').getByLabel('Assistant name').fill('A ready creation form')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('2')
+  await selectAdminProgram(page, '2')
   await answerConfirm(page, 'dismiss')
-  await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   await expect(page.locator('.coach-create-form').getByLabel('Assistant name')).toHaveValue('A ready creation form')
   listGate = new Promise<void>((resolve) => { releaseList = resolve })
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('2')
+  await selectAdminProgram(page, '2')
   await answerConfirm(page, 'accept')
   await expect(page.locator('.coach-studio-screen').first()).toBeVisible()
   await expect(page.locator('.coach-create-form')).toHaveCount(0)
@@ -5591,8 +5628,8 @@ test('Coach Studio simple voice review keeps the palette, privacy and proposal s
     return reply.top >= bounds.top - 1 && reply.bottom <= bounds.bottom + 1
   })
   expect(restoredReplyVisible).toBe(true)
-  const palette = await page.locator('.persona-setup-turn .is-coach').evaluate(el => ({ actual: getComputedStyle(el).backgroundColor, expected: getComputedStyle(document.documentElement).getPropertyValue('--emerald-soft').trim() }))
-  expect(palette.actual).toBe('rgb(241, 226, 227)')
+  const palette = await page.locator('.persona-setup-turn .is-coach').evaluate(el => { const probe = document.createElement('span'); probe.style.backgroundColor = 'var(--brand)'; document.body.append(probe); const brand = getComputedStyle(probe).backgroundColor; probe.remove(); return { actual: getComputedStyle(el).backgroundColor, brand, expected: getComputedStyle(document.documentElement).getPropertyValue('--emerald-soft').trim() } })
+  expect(palette.actual).toBe(palette.brand)
   expect(palette.expected).toBe('#f1e2e3')
   await areas.getByRole('button', { name: /Preview and go live/ }).click()
   await expect(page.getByRole('heading', { name: 'History', exact: true })).toHaveCount(1)
@@ -5859,24 +5896,23 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
 
-  const workspacePicker = page.getByRole('combobox', { name: 'Program', exact: true })
-  await expect(workspacePicker).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   expect(requestedWorkspaceIds).toContain('1')
 
   await page.getByLabel('Note for your team').fill('Unsaved workspace-specific note')
-  await workspacePicker.selectOption('2')
+  await selectAdminProgram(page, '2')
   await answerConfirm(page, 'dismiss')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
-  await expect(workspacePicker).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   await expect(page.getByLabel('Note for your team')).toHaveValue('Unsaved workspace-specific note')
 
-  await workspacePicker.selectOption('2')
+  await selectAdminProgram(page, '2')
   await answerConfirm(page, 'accept')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
-  await expect(workspacePicker).toHaveValue('2')
+  await expectAdminProgramValue(page, '2')
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
   await expect.poll(() => requestedWorkspaceIds.includes('2')).toBe(true)
   expect(await page.evaluate(() => ({
@@ -5886,13 +5922,13 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
 
   await openSection(page, 'Home')
   await openSection(page, 'Coach Studio')
-  await expect(workspacePicker).toHaveValue('2')
+  await expectAdminProgramValue(page, '2')
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
 
-  await workspacePicker.selectOption('1')
+  await selectAdminProgram(page, '1')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
-  await expect(workspacePicker).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   expect(await page.evaluate(() => ({
     scrollX: window.scrollX,
@@ -5901,18 +5937,19 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
 
   await openSection(page, 'Home')
   await openSection(page, 'Coach Studio')
-  await expect(workspacePicker).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await page.getByLabel('Note for your team').fill('Saved after returning to the owner workspace')
   await page.getByRole('button', { name: 'Save draft' }).click()
   await expect.poll(() => saveStarted).toBe(true)
-  await expect(workspacePicker).toHaveValue('1')
+  await expectAdminProgramValue(page, '1')
   releaseSave?.()
   await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible()
-  await expect(workspacePicker).toBeEnabled()
+  await expect(await adminProgramPicker(page)).toBeEnabled()
+  await closeAdminProgramPicker(page)
   expect(mutationWorkspaceIds).toEqual(['1'])
 
-  await workspacePicker.selectOption('2')
+  await selectAdminProgram(page, '2')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
@@ -5943,8 +5980,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Voice versions/ }).click()
 
-  const workspacePicker = page.getByRole('combobox', { name: 'Program', exact: true })
-  await expect(workspacePicker).toHaveValue('platform')
+  await expectAdminProgramValue(page, 'platform')
   expect(requestedWorkspaceIds).toContain('')
   const createAssistant = page.getByRole('button', { name: 'Create', exact: true, includeHidden: true })
   await expect(createAssistant).toBeDisabled()
@@ -5957,12 +5993,12 @@ test('Coach Studio platform administrator deliberately switches between global a
   await expect(page.locator('.coach-content-owner')).toContainText('Platform library')
   await expect(page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Your teaching' }) }).getByLabel('Owner')).toHaveCount(0)
 
-  await workspacePicker.selectOption('1')
-  await expect(workspacePicker).toHaveValue('1')
+  await selectAdminProgram(page, '1')
+  await expectAdminProgramValue(page, '1')
   await expect.poll(() => requestedWorkspaceIds.includes('1')).toBe(true)
 
-  await workspacePicker.selectOption('platform')
-  await expect(workspacePicker).toHaveValue('platform')
+  await selectAdminProgram(page, 'platform')
+  await expectAdminProgramValue(page, 'platform')
   await expect.poll(() => requestedWorkspaceIds.filter((id) => id === '').length).toBeGreaterThan(1)
 
   await openSection(page, 'Admin')
@@ -6012,7 +6048,7 @@ test('Coach Studio content controls follow independent editor and reviewer permi
   await expect(itemPanel.getByLabel('Draft wording')).toBeEnabled()
   await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
 
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('2')
+  await selectAdminProgram(page, '2')
   await openCoachAdvanced(page)
   await page.getByRole('tab', { name: /Teaching library/ }).click()
   await showLibraryArea(page, 'Private sources')
@@ -7433,6 +7469,23 @@ test('Admin UI every section fits the screen and calls a group a group', async (
     await expect(page.locator('.admin-content [data-page-heading]').first()).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${section} fits`).toBe(true)
     expect(await page.locator('.admin-content').innerText(), `${section} wording`).not.toMatch(/cohort/i)
+  }
+})
+
+test('Admin UI People wraps the full group name without extra table tab stops or widening the page', async ({ page }) => {
+  const name = 'A very long household coaching group for families across the entire island and their extended households'
+  const person = { ...pilotAdminUser, cohorts: pilotAdminUser.cohorts.map(item => ({ ...item, cohort: { ...item.cohort, name } })) }
+  await page.route('http://api.test/api/v1/admin/users', route => route.fulfill({ json: { users: [person] } }))
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/admin/people?pilot_e2e_role=admin')
+    const group = page.locator('.admin-group-name').first()
+    await expect(group).toHaveText(name)
+    await expect(page.locator('.admin-table [tabindex]:not(button):not(a):not(input):not(select)')).toHaveCount(0)
+    await expect(group).toHaveCSS('white-space', 'normal')
+    expect(await group.evaluate(node => node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    if (width === 1440) expect(await group.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getClientRects().length })).toBeLessThanOrEqual(2)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   }
 })
 
@@ -9975,7 +10028,7 @@ test('BOG UI budget year response cannot cross a coach workspace switch or repla
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true&pilot_e2e_live_api=true#Budget')
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
   await openSection(page, 'Coach Studio')
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('2')
+  await selectAdminProgram(page, '2')
   await openSection(page, 'Budget')
   await expect(page.getByRole('button', { name: 'Next year', exact: true })).toBeEnabled()
   await page.getByRole('button', { name: 'Next year', exact: true }).click()
@@ -10451,11 +10504,14 @@ for (const role of ['participant', 'coach', 'admin']) {
   test(`BOG UI account help stays stable across navigation for ${role}`, async ({ page }) => {
     await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
     await page.goto(`/?pilot_e2e_role=${role}#${role === 'participant' ? 'Home' : 'Coach%20Studio'}`)
-    const account = page.locator('.shell-account-menu > summary')
+    if (role !== 'participant') await expect(page.locator('.admin-app')).toBeVisible()
+    const sheetAccount = role !== 'participant' && (page.viewportSize()?.width ?? 0) < 1024
+    if (sheetAccount) await openAccountHelp(page)
+    const account = sheetAccount ? page.getByRole('dialog', { name: 'Account and help', exact: true }).locator('.shell-account-menu > summary') : page.locator('.shell-account-menu > summary')
     await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
     const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
-    await account.click()
+    if (!sheetAccount) await account.click()
     const identity = page.locator('.shell-account-panel .shell-account-identity')
     await expect(identity).toBeVisible()
     expect(await identity.evaluate(node => getComputedStyle(node).justifyItems)).toBe('center')
@@ -10464,8 +10520,10 @@ for (const role of ['participant', 'coach', 'admin']) {
       expect(size!.width).toBeLessThanOrEqual(24)
       expect(size!.height).toBeLessThanOrEqual(24)
     }
-    await account.press('Escape')
-    await expect(account).toBeFocused()
+    if (sheetAccount) {
+      await page.getByRole('dialog', { name: 'Account and help', exact: true }).getByRole('button', { name: 'Close menu', exact: true }).click()
+      await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+    } else { await account.press('Escape'); await expect(account).toBeFocused() }
     if (role === 'participant') {
       await openSection(page, 'Ask Mia')
       await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
@@ -10482,6 +10540,7 @@ for (const role of ['participant', 'coach', 'admin']) {
       if (role === 'admin') await openSection(page, 'Admin')
       else await page.getByRole('button', { name: /Your coach’s voice/ }).click()
     }
+    if (sheetAccount) await openAccountHelp(page)
     expect(Math.abs(await account.evaluate(node => node.getBoundingClientRect().right) - homeRight)).toBeLessThanOrEqual(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1)
   })
@@ -12210,8 +12269,8 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await expect.poll(() => reached).toBe(true)
   await help.getByRole('button', { name: 'Close', exact: true }).click()
   await openSection(page, 'Coach Studio')
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('2')
-  await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveValue('2')
+  await selectAdminProgram(page, '2')
+  await expectAdminProgramValue(page, '2')
   await openSection(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
   await expect(help.getByRole('button', { name: 'Review starting setup again', exact: true })).toBeEnabled()
@@ -12226,8 +12285,8 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await review.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(review).toHaveCount(0)
   await openSection(page, 'Coach Studio')
-  await page.getByRole('combobox', { name: 'Program', exact: true }).selectOption('1')
-  await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveValue('1')
+  await selectAdminProgram(page, '1')
+  await expectAdminProgramValue(page, '1')
   await openSection(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
   await help.getByRole('button', { name: 'Review starting setup again', exact: true }).click()
@@ -12393,9 +12452,10 @@ test('BOG UI Coaching uses the Admin side with compact program controls and no p
   await expect(page.getByRole('navigation', { name: /participant sections/ })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Coaching', exact: true })).toBeVisible()
   await expect(page.getByText('Your coaching workspace.', { exact: true })).toHaveCount(0)
-  const select = page.getByLabel('Program', { exact: true }).first()
+  const select = await adminProgramPicker(page)
   await expect(select).toBeVisible()
   expect((await select.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+  await closeAdminProgramPicker(page)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -12521,7 +12581,8 @@ for (const role of ['coach', 'admin'] as const) {
     await page.getByRole('button', { name: 'Guide', exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText('Start with Today')
     await page.keyboard.press('Escape')
-    await expect(page.locator('.shell-account-menu > summary')).toBeFocused()
+    if ((page.viewportSize()?.width ?? 0) < 1024) await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused()
+    else await expect(page.locator('.shell-account-menu > summary')).toBeFocused()
     expect(financeReads).toEqual([])
   })
 }
@@ -13529,7 +13590,7 @@ test('BOG UI one message immediately shows separate purchase and savings reviews
 test('Coach Studio phrase frequency stays readable and reachable by touch', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
   await page.getByRole('navigation', { name: 'Coaching steps' }).getByRole('button', { name: /Your coach’s voice/ }).click()
-  await page.getByRole('button', { name: 'Teaching', exact: true }).click()
+  await page.getByRole('button', { name: '2 · Teaching', exact: true }).click()
   await page.getByText('Add a phrase in your own words', { exact: true }).click()
   await page.getByLabel('Phrase', { exact: true }).fill('First, protect the basics.')
   await page.getByLabel('What it means and when to use it (optional)').fill('When someone is unsure which expense to tackle first, start with food, housing and required payments.')
@@ -13608,12 +13669,12 @@ test('BOG UI mobile Ask Mia setup card updates a row in place and applies on one
 // Admin side layout and routes.
 const fits = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)
 
-test('Admin UI shows a sidebar on a wide screen and a section menu on a phone, and never both', async ({ page }) => {
+test('Admin UI shows a sidebar on a wide screen and shared tabs with More below it, and never both', async ({ page }) => {
   await page.goto('/admin/people?pilot_e2e_role=coach')
   await expect(page.locator('.admin-app')).toBeVisible()
   const wide = (page.viewportSize()?.width ?? 0) >= 1024
-  const sidebar = page.getByRole('navigation', { name: 'Admin' })
-  const menu = page.locator('.admin-section-menu > summary')
+  const sidebar = page.getByRole('navigation', { name: 'Admin', exact: true })
+  const menu = page.getByRole('button', { name: 'More', exact: true })
   if (wide) {
     await expect(sidebar).toBeVisible()
     await expect(menu).toBeHidden()
@@ -13622,10 +13683,10 @@ test('Admin UI shows a sidebar on a wide screen and a section menu on a phone, a
   } else {
     await expect(sidebar).toBeHidden()
     await expect(menu).toBeVisible()
-    await expect(menu).toContainText('People')
+    await expect(page.getByRole('navigation', { name: 'Admin sections' }).getByRole('link', { name: /^People/ })).toHaveAttribute('aria-current', 'page')
     expect((await menu.boundingBox())!.height).toBeGreaterThanOrEqual(44)
     await menu.click()
-    await page.locator('.admin-section-menu nav').getByRole('link', { name: /^Settings/ }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('link', { name: /^Settings/ }).click()
   }
   await expect(page).toHaveURL(/\/admin\/settings/)
   expect(await fits(page)).toBe(true)
@@ -14705,4 +14766,254 @@ test('BOG UI Mia finishing a long purchase keeps the thread and its result in vi
  await expect(page.locator('.chat-card [data-review-result]')).toBeInViewport()
  await expect(page.locator('.chat-card :focus')).toBeInViewport()
  if(process.env.HCFO_R6_P4_SHOTS) await page.screenshot({path:`${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-long-purchase-finished.png`})
+})
+
+test('Admin UI Coaching never previews on load, on typing, or on a step change; only the preview action spends a request', async ({ page }) => {
+  const previews: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && /\/api\/v1\/admin\/personas\/\d+\/preview$/.test(new URL(request.url()).pathname)) previews.push(request.url()) })
+  await page.goto('/admin/coaching?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await expect(page.getByRole('heading', { name: 'Describe your assistant', exact: true })).toBeVisible()
+  await expect(page.getByText('A sample appears after a preview.', { exact: true })).toBeVisible()
+  await page.getByLabel('Message Mia', { exact: true }).fill('Keep this unsent coaching draft')
+  await page.waitForTimeout(350)
+  expect(previews).toEqual([])
+  await page.getByLabel('Message Mia', { exact: true }).fill('')
+  await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
+  await page.getByRole('navigation', { name: 'Coaching steps' }).getByRole('button', { name: /Preview and go live/ }).click()
+  await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeVisible()
+  expect(previews).toEqual([])
+  await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+  await expect.poll(() => previews.length).toBe(2)
+  await expect(page.locator('.coach-authoring-rail')).toContainText('Start by deciding whether this is a need or a want')
+})
+
+test('Admin UI Coaching voice-step Preview answers starts the preview it names', async ({ page }) => {
+  const previews: string[] = []
+  page.on('request', request => { if (request.method() === 'POST' && /\/api\/v1\/admin\/personas\/\d+\/preview$/.test(new URL(request.url()).pathname)) previews.push(request.url()) })
+  await page.goto('/admin/coaching?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await expect(page.getByRole('heading', { name: 'Describe your assistant', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Preview answers', exact: true })).toBeEnabled()
+  expect(previews).toEqual([])
+  await page.getByRole('button', { name: 'Preview answers', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Hear your assistant, then go live', exact: true })).toBeVisible()
+  await expect.poll(() => previews.length).toBe(2)
+})
+
+test('Admin UI phone text entry hides only the floating bar and More consumes its own touch dismissal', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) > 620, 'phone bar behavior')
+  await page.goto('/admin/people?pilot_e2e_role=coach')
+  const bar = page.locator('.admin-tabs-shell')
+  await expect(bar).toBeVisible()
+  const band = await page.locator('.tabs-ground').boundingBox()
+  const pill = await bar.boundingBox()
+  expect(band?.y).toBeCloseTo(pill!.y - 8, 0)
+  expect(band!.y + band!.height).toBe(page.viewportSize()!.height)
+  await page.getByRole('button', { name: /^Filters/ }).click()
+  await page.getByLabel('Find someone', { exact: true }).focus()
+  await expect(bar).toBeHidden()
+  await page.getByRole('combobox', { name: 'Group', exact: true }).focus()
+  await expect(bar).toBeVisible()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  const more = page.getByRole('dialog', { name: 'More', exact: true })
+  await expect(more).toBeVisible()
+  // A down event must leave the scrim alive until the ensuing click consumes it.
+  await page.locator('.admin-more-surface .tabs-tools-backdrop').dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true })
+  await expect(more).toHaveCount(1)
+  await page.locator('.admin-more-surface .tabs-tools-backdrop').dispatchEvent('click')
+  await expect(more).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'People', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  const handle = await more.locator('.tabs-sheet-grab').boundingBox()
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + 120, { steps: 6 })
+  await page.mouse.up()
+  await expect(page.getByRole('dialog', { name: 'More', exact: true })).toHaveCount(0)
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+  const account = page.getByRole('dialog', { name: 'Account and help', exact: true })
+  await expect(account.getByText('Coach', { exact: true })).toBeVisible()
+  const bounds = await account.boundingBox()
+  expect(bounds!.y).toBeGreaterThanOrEqual(0)
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+  await account.getByRole('button', { name: 'Close menu', exact: true }).click()
+  await expect(account).toHaveCount(0)
+  await openAdminSection(page, 'Groups')
+  await page.getByRole('button', { name: pilotCohort.name }).click()
+  await page.getByRole('button', { name: 'Tools people can use', exact: true }).click()
+  await page.getByLabel('Include Optionality', { exact: true }).focus()
+  await expect(bar).toBeVisible()
+})
+
+for (const count of [7, 4, 2]) {
+  test(`Admin UI ${count} server sections preserve their order across sidebar, tabs and More`, async ({ page }) => {
+    await page.route('http://api.test/api/v1/auth/me', async route => {
+      await route.fulfill({ json: { user: { ...pilotAdminUser, id: 902, clerk_id: 'e2e_coach', role: 'coach', is_admin: false, is_coach: true, is_staff: true, is_participant: true, admin_sections: staffAdminSections.slice(0, count), preview_groups: [], coach_workspaces: [{ id: 1, name: 'Mrs. Mel coaching workspace', slug: 'mrs-mel', membership_role: 'owner', coach_profile: null }], active_coach_workspace: { id: 1 } } } })
+    })
+    await page.goto('/admin/today?pilot_e2e_role=coach&pilot_e2e_live_api=true')
+    const labels = ['Today', 'People', 'Groups', 'Coaching', 'Reports', 'Support', 'Settings'].slice(0, count)
+    const sidebar = page.getByRole('navigation', { name: 'Admin', exact: true })
+    if ((page.viewportSize()?.width ?? 0) >= 1024) {
+      await expect(sidebar).toBeVisible()
+      await expect(sidebar.locator('.admin-sidebar-nav a span')).toHaveText(labels)
+      await sidebar.getByRole('link', { name: 'My household', exact: true }).click()
+    } else {
+      const tabs = page.getByRole('navigation', { name: 'Admin sections', exact: true })
+      await expect(tabs.getByRole('link').locator('span')).toHaveText(labels.slice(0, 4))
+      await page.getByRole('button', { name: 'More', exact: true }).click()
+      const sheet = page.getByRole('dialog', { name: 'More', exact: true })
+      await expect(sheet.locator('a.shell-sidebar-link > span')).toHaveText(labels.slice(4))
+      await sheet.getByRole('link', { name: 'My household', exact: true }).click()
+    }
+    await expect(page).toHaveURL(/\/(?=\?)/)
+    await openAdminSection(page, 'Today')
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  })
+}
+
+// Fix-round acceptance uses the existing synthetic API fixtures; preview transport remains mocked.
+test('Admin UI a sole-program administrator can retain All programs after reload and open household reset', async ({ page }) => {
+  await mockFinancialRestartBrowser(page)
+  await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
+    ...pilotAdminUser, id: 900, clerk_id: 'e2e_admin', role: 'admin', is_admin: true, is_staff: true,
+    admin_sections: staffAdminSections, preview_groups: [], active_coach_workspace: null,
+    coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'platform_admin', coach_profile: null }],
+  } } }))
+  await page.goto('/admin/today?pilot_e2e_role=admin&pilot_e2e_live_api=true')
+  await expectAdminProgramValue(page, 'platform')
+  await selectAdminProgram(page, '1')
+  await expectAdminProgramValue(page, '1')
+  await selectAdminProgram(page, 'platform')
+  await page.reload()
+  await expectAdminProgramValue(page, 'platform')
+  if ((page.viewportSize()?.width ?? 0) >= 1024) await page.getByRole('navigation', { name: 'Admin', exact: true }).getByRole('link', { name: 'My household' }).click()
+  else {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('link', { name: 'My household' }).click()
+  }
+  await openAccountHelp(page)
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })).toBeVisible()
+})
+
+test('Admin UI a coach with one program has no redundant Program control', async ({ page }) => {
+  await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
+    ...pilotAdminUser, id: 902, clerk_id: 'e2e_coach', role: 'coach', is_admin: false, is_coach: true, is_staff: true,
+    admin_sections: staffAdminSections, preview_groups: [], active_coach_workspace: { id: 1 },
+    coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'owner', coach_profile: null }],
+  } } }))
+  await page.goto('/admin/today?pilot_e2e_role=coach&pilot_e2e_live_api=true')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) < 1024) await page.getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveCount(0)
+})
+
+test('Admin UI History highlights the selected tab and the dirty skip link only moves focus', async ({ page }) => {
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await openCoachAdvanced(page)
+  const selected = page.getByRole('tab', { name: /Voice versions/ })
+  const other = page.getByRole('tab', { name: /Teaching library/ })
+  await expect(selected).toHaveAttribute('aria-selected', 'true')
+  expect(await selected.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe(await other.evaluate(node => getComputedStyle(node).backgroundColor))
+  await page.getByRole('button', { name: 'Back to Coaching', exact: true }).click()
+  await page.getByLabel('Message Mia', { exact: true }).fill('An unsaved voice draft')
+  const before = await page.evaluate(() => ({ url: location.href, length: history.length }))
+  const skip = page.getByRole('link', { name: 'Skip to content', exact: true })
+  await skip.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#admin-main')).toBeFocused()
+  expect(await page.evaluate(() => ({ url: location.href, length: history.length }))).toEqual(before)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByLabel('Message Mia', { exact: true })).toHaveValue('An unsaved voice draft')
+})
+
+test('Admin UI Today person action describes the help and check-in without nested controls', async ({ page }) => {
+  await mockDaily(page, [dailyPerson(5, 'Elena Needs', { needs_help: true, setup_help: [{ id: 9, reason: 'upload_problem', status: 'requested' }] })])
+  await page.goto('/admin/today?pilot_e2e_role=admin')
+  const row = page.getByRole('button', { name: 'View help for Elena Needs' })
+  await expect(row).toHaveAccessibleDescription('Asked for help with an upload Joined · Setup done Needs you')
+  await expect(row.locator('button, a, input, select, textarea, [tabindex]')).toHaveCount(0)
+})
+
+test('Admin UI account content stays open when keyboard focus wraps to the sheet close action', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) >= 1024, 'More sheet only below laptop width')
+  await page.goto('/admin/today?pilot_e2e_role=admin')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Account and help', exact: true })
+  const last = sheet.locator('.shell-account-panel button').last()
+  await last.focus()
+  await page.keyboard.press('Tab')
+  await expect(sheet.getByRole('button', { name: 'Close menu', exact: true })).toBeFocused()
+  await expect(sheet.locator('details')).toHaveAttribute('open', '')
+  await expect(sheet.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(sheet.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+})
+
+test('Admin UI single-column empty Coaching, Group tools and denied Today use the available width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.route('http://api.test/api/v1/admin/personas', route => route.fulfill({ json: { personas: [] } }))
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await expect(page.getByLabel('Assistant name')).toBeVisible()
+  const columns = (selector: string) => page.locator(selector).evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)
+  expect(await columns('.coach-simple')).toBe(1)
+  await page.getByRole('button', { name: 'Open group tools', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Group tools', exact: true })).toBeVisible()
+  expect(await columns('.coach-simple')).toBe(1)
+  await page.route(/http:\/\/api\.test\/api\/v1\/challenge_cohorts\/41\/participants\?.*/, route => route.fulfill({ status: 403, json: { error: 'Not your group' } }))
+  await openAdminSection(page, 'Today')
+  await expect(page.getByText(/only in the groups you coach/)).toBeVisible()
+  expect(await columns('.admin-today-section')).toBe(1)
+  const rail = await page.locator('.admin-today-rail').boundingBox()
+  const section = await page.locator('.admin-today-section').boundingBox()
+  expect(rail!.x).toBe(section!.x)
+  expect(rail!.width).toBeGreaterThan(700)
+})
+
+test('Admin UI Challenge day appears only for an open challenge within its 90 days', async ({ page }) => {
+  const date = (offset: number) => new Date(Date.parse(guamTodayIso()) + offset * 86400000).toISOString().slice(0, 10)
+  let state = 'open', start = date(-4)
+  await mockDaily(page, [dailyPerson(5, 'Elena Needs')])
+  await page.route(/http:\/\/api\.test\/api\/v1\/challenge_cohorts\/41\/participants\?.*/, route => route.fulfill({ json: {
+    cohort_id: 41, program_type: 'savings', records: [dailyPerson(5, 'Elena Needs')], counts: { all: 1, needs_help: 0, joined: 1, checked_in: 0 }, total: 1, next_offset: null,
+  } }))
+  await page.route('http://api.test/api/v1/admin/cohorts', route => route.fulfill({ json: { cohorts: [{ ...pilotCohort, starts_on: start, savings_challenge: { state, enabled: true } }] } }))
+  for (const fixture of [{ state: 'open', start: date(-4), day: '5 of 90' }, { state: 'open', start: date(1) }, { state: 'ready', start: date(-4) }, { state: 'paused', start: date(-4) }, { state: 'open', start: date(-90) }]) {
+    state = fixture.state; start = fixture.start
+    await page.goto('/admin/today?pilot_e2e_role=admin')
+    await expect(page.getByRole('heading', { name: 'Your people', exact: true })).toBeVisible()
+    if (fixture.day) await expect(page.locator('.admin-metrics')).toContainText(fixture.day)
+    else { await expect(page.getByText('Challenge day', { exact: true })).toHaveCount(0); await expect(page.locator('.admin-metrics > div')).toHaveCount(3) }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test('Admin UI safe-area padding survives phone, landscape tablet and laptop rules', async ({ page }) => {
+  const css = readFileSync(new URL('../src/admin/AdminShell.css', import.meta.url), 'utf8')
+  // Browsers on this host report zero insets. Resolve a synthetic 40px notch through
+  // the actual stylesheet so each breakpoint and the cascade are still exercised.
+  const notched = css.replaceAll(/env\(safe-area-inset-(?:top|right|bottom|left)\)/g, '40px')
+  for (const width of [390, 768, 900, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/admin/today?pilot_e2e_role=admin')
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    await page.addStyleTag({ content: notched })
+    const padding = await page.locator('.admin-main').evaluate(node => {
+      const style = getComputedStyle(node)
+      return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom) }
+    })
+    expect(padding.left).toBeGreaterThanOrEqual(40)
+    expect(padding.right).toBeGreaterThanOrEqual(40)
+    expect(padding.bottom).toBeGreaterThanOrEqual(40)
+    if (width > 620 && width < 1024) {
+      const tabPadding = await page.locator('.admin-tabs-shell').evaluate(node => {
+        const style = getComputedStyle(node)
+        return [style.paddingTop, style.paddingLeft, style.paddingRight].map(parseFloat)
+      })
+      expect(tabPadding).toEqual([48, 40, 40])
+    }
+  }
 })
