@@ -40,7 +40,10 @@ it('folding and a newly arriving purchase keep an open second editor mounted', (
   expect((screen.getByLabelText('Merchant') as HTMLInputElement).value).toBe('My unsaved shop')
 })
 it('an unmatched search keeps an open purchase editor and its unsaved text', () => {
-  render(<TransactionDraftReviewStack {...props} drafts={[1, 2, 3, 4, 5, 6].map(id => purchase(id))} collapsed={false} />)
+  render(<TransactionDraftReviewStack {...props} drafts={[1, 2, 3, 4, 5, 6].map(id => purchase(id))} collapsed={false} onBulkConfirm={vi.fn()} onBulkIgnore={vi.fn()} />)
+  const groupConfirm = () => ['Confirm selected', /^Confirm categorized/].map(name => screen.getByRole('button', { name, hidden: true }) as HTMLButtonElement)
+  fireEvent.click(screen.getByLabelText('Select this page'))
+  expect(groupConfirm().map(button => button.disabled)).toEqual([false, false])
   fireEvent.click(screen.getByRole('button', { name: 'Change Shop 2 $25 on Oct 4' }))
   fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'My unsaved shop' } })
   fireEvent.change(screen.getByLabelText('Search transaction reviews'), { target: { value: 'nothing matches this' } })
@@ -50,6 +53,9 @@ it('an unmatched search keeps an open purchase editor and its unsaved text', () 
   fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
   expect((screen.getByLabelText('Merchant') as HTMLInputElement).value).toBe('My unsaved shop')
   expect(screen.getByRole('button', { name: 'Confirm Shop 1 $25 on Oct 4' })).toBeTruthy()
+  // The editor is still open, so confirming a group stays off until it is saved or cancelled.
+  expect(groupConfirm().map(button => button.disabled)).toEqual([true, true])
+  expect(screen.getByText('Save or cancel your purchase edits before confirming a group.')).toBeTruthy()
 })
 it('completion focuses its own inert result rather than another money action', () => {
   const { rerender } = render(<TransactionDraftReviewStack {...props} collapsed={false} />)
