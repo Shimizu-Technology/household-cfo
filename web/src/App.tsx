@@ -3162,7 +3162,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
       const target = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
-        ?? document.querySelector<HTMLElement>('[data-review-result]')
+        ?? (focusedResult && active instanceof HTMLElement ? active : null)
         ?? document.querySelector<HTMLElement>('[data-page-heading]')
         ?? composerRef.current
       target?.focus({ preventScroll: activeSectionRef.current === 'Ask Mia' })
@@ -3219,7 +3219,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus()
+      recoverReviewFocus(draft.id)
     }
   }
 
@@ -3255,7 +3255,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus()
+      recoverReviewFocus(draft.id)
     }
   }
 
@@ -3337,7 +3337,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus()
+      recoverReviewFocus(draft.id)
     }
   }
 

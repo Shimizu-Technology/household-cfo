@@ -15092,6 +15092,33 @@ test('BOG UI Mia fix1 repeated tap cannot confirm the next purchase and folding 
   await r6MiaShot(page, 'fix1-kept-edit')
 })
 
+test('BOG UI Mia fix1 a second deliberate purchase keeps focus on its own result', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.mia.messages = [{ id: 99719, role: 'assistant', author: 'Mia', content: 'Check each purchase before it counts.' }]
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const ids = workspace.budget.annual_plan.pending_transaction_drafts.map(draft => draft.id)
+  let confirms = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    confirms++
+    const id = Number(route.request().url().split('/').at(-2))
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(draft => draft.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  for (const id of ids) {
+    const card = page.locator(`.chat-card [data-review-item="${id}"]`)
+    await card.locator('[data-review-confirm]').click()
+    await expect(card.locator('[data-review-result]')).toBeFocused()
+    // Let the outer recovery frames settle too; the old implementation refocused the first result.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(card.locator('[data-review-result]')).toBeFocused()
+    await expect(card.locator('[data-review-result]')).toBeInViewport()
+    await page.keyboard.press('Enter')
+  }
+  expect(confirms).toBe(ids.length)
+})
+
 test('BOG UI Mia fix1 chips preserve text and composer errors stay visible outside busy history', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 430 })
   const workspace = realWorkspaceData(true)
