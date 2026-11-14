@@ -300,14 +300,17 @@ export function AnnualIncomePlanner({
                   <strong>{source.label}</strong>
                 </div>
                   <div className="income-schedule-list">
-                    {source.schedule_entries.map((entry) => (
-                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
-                        <div>
+                    {source.schedule_entries.map((entry) => {
+                      const content = <><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`income-change-${entry.id}-details`}>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'New pay amount'}</strong>
-                          <span>{formatMonthYear(entry.effective_on)} · {formatReviewMoney(Math.round((entry.amount) * 100))}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
                           {entry.retained_after_transition && <small>Confirmed to continue after transition</small>}
                           {entry.active === false && <small>Not counted because this income has not started or has already ended.</small>}
-                        </div>
+                      </span><span id={`income-change-${entry.id}-amount`}>
+                          <strong>{formatMonthYear(entry.effective_on)} · {formatReviewMoney(Math.round((entry.amount) * 100))}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</strong>
+                      </span></>
+                      return (
+                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
+                        {isRealWorkspace ? <button type="button" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} aria-describedby={`income-change-${entry.id}-details income-change-${entry.id}-amount`} disabled={incomeOperationPending || editorBlocked || removingId === entry.id} onClick={(event) => editEntry(source.id, entry, event.currentTarget)}>{content}<span className="money-edit-label">Edit</span></button> : <div className="ui-row money-edit-row">{content}</div>}
                         {isRealWorkspace && (
                           <div>
                             {removingId === entry.id ? (
@@ -320,14 +323,13 @@ export function AnnualIncomePlanner({
                               </>
                             ) : (
                               <>
-                                <button type="button" className="secondary-button" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => editEntry(source.id, entry, event.currentTarget)}>Edit</button>
                                 <button type="button" data-income-entry-action="remove" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
                           </div>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
               </article>
             ))}

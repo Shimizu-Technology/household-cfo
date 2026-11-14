@@ -288,6 +288,7 @@ export function IncomeSourceManager({
                     <strong>{source.label}</strong>
                   </span>
                   <b id={`income-${source.id}-amount`}>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
+                  {!ended && <span className="money-edit-label">Edit</span>}
                 </button>
                 <dl id={`income-${source.id}-details`}>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>

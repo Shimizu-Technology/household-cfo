@@ -16272,3 +16272,20 @@ test('BOG UI P8a first-run fields form a readable column without overlapping tar
     bottom = rect.y + rect.height
   }
 })
+
+
+test('BOG UI P8a spending rows open their exact category editor without writes', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const category = workspace.budget.annual_plan.rows[0]
+  const writes: string[] = []
+  page.on('request', request => { if (['POST', 'PATCH', 'DELETE'].includes(request.method()) && request.url().startsWith('http://api.test/api/v1/')) writes.push(request.url()) })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Spending')
+  await page.getByRole('button', { name: `Edit ${category.name}`, exact: true }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  const name = page.locator(`[data-budget-category-id="${category.id}"] [data-budget-category-action="name"]`)
+  await expect(name).toBeFocused()
+  await expect(name).toHaveValue(category.name)
+  expect(writes).toEqual([])
+})

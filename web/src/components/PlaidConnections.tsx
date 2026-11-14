@@ -624,8 +624,8 @@ export function PlaidConnections({ userId, householdId, onDraftsCreated, variant
                   </div>
                   <div className="plaid-item-actions">
                     {item.context_paused_by_restart && <button type="button" className="primary-button" disabled={Boolean(busy) || item.status === 'disconnecting'} onClick={() => { setError(null); setResumeItem(item) }}>Use new bank activity</button>}
-                    {item.status === 'update_required' && !item.context_paused_by_restart && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
-                    <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.context_paused_by_restart || syncWatch?.itemId === item.id || item.status === 'disconnecting'}>{syncWatch?.itemId === item.id ? 'Syncing…' : 'Sync now'}</button>
+                    {item.status === 'update_required' && !item.context_paused_by_restart && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
+                    <button type="button" className="ui-btn ui-btn--tonal" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.context_paused_by_restart || syncWatch?.itemId === item.id || item.status === 'disconnecting'}>{syncWatch?.itemId === item.id ? 'Syncing…' : 'Sync now'}</button>
                     <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>{item.status === 'disconnecting' ? 'Finish disconnect' : 'Disconnect'}</button>
                   </div>
                   <div className={`plaid-health-strip is-${item.health.state}`} role={item.health.requires_attention ? 'alert' : 'status'}>

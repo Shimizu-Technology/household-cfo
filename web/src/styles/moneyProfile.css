@@ -91,3 +91,17 @@ body .optional-debt-dialog :is(.debt-warning, .debt-notice) { background: transp
 }
 /* Keep the entire confirmation target and its focus ring inside the scroll body. */
 body .financial-restart-dialog .financial-restart-confirm input { scroll-margin-block: var(--space-2); }
+.money-screen .money-topic-heading { display: block; }
+.money-screen .money-topic-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.money-screen .money-topic-actions > .ui-btn--tonal { align-self: start; }
+.money-screen .income-schedule-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+.money-screen .income-schedule-row > div:last-child:not(.ui-row) { justify-self: end; }
+.money-screen .income-schedule-row .money-edit-row small { color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-regular); }
+.money-screen :is(.plaid-item, .plaid-consent, .plaid-empty, .account-observation, .account-observation-error, .debt-archive, .account-observations, .setup-optional-fields) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; color: var(--ink); box-shadow: none; }
+.money-screen .plaid-item, .money-screen .plaid-consent { padding-inline: 0; }
+.money-screen .plaid-item strong { overflow-wrap: anywhere; }
+.profile-screen .mia-memory-paused { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; color: var(--ink); }
+body .optional-debt-dialog details { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
+@container money-profile (max-width: 600px) {
+  .money-screen .plaid-item { grid-template-columns: minmax(0, 1fr); }
+}

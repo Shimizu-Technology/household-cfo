@@ -2042,14 +2042,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
-  function openBudgetMoneyTool(tool: 'category' | 'monthly') {
+  function openBudgetMoneyTool(tool: 'category' | 'monthly', categoryId: number | null = null) {
     if (!switchSection('Budget', { focusHeading: false })) return
     budgetFocusSequenceRef.current += 1
     setBudgetFocusRequest({
       key: budgetFocusSequenceRef.current,
       operationKey: tool === 'category' ? 'budget.category.create' : 'budget.category.update',
       actionType: tool === 'category' ? 'create_category' : 'update_category',
-      categoryId: null,
+      categoryId,
       months: tool === 'category' ? [] : [selectedBudgetMonthIndex + 1],
       incomeScheduleEntryId: null,
       payload: {},
@@ -4502,7 +4502,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             title="Your household money"
             copy={isSavingsExperience ? 'Optional household tools. Your challenge progress and approved savings stay in Savings.' : `See your income, spending, debt, accounts, and goals. Update them here or ask ${assistantName} to prepare a change.`}
           />
-          {isRealWorkspace && !data.workspace.setup_complete && <Button variant="secondary" className="money-setup-help ui-row" onClick={() => setSetupHelpOpen(true)}>Fix my setup</Button>}
+          {isRealWorkspace && !data.workspace.setup_complete && <Button variant="secondary" className="money-setup-help ui-row" onClick={() => setSetupHelpOpen(true)}><i className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">Fix my setup</span></span><svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></Button>}
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.filter(topic => topic.id !== 'statements').map(topic => (
               <button type="button" className="ui-chip" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
@@ -4555,26 +4555,26 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             )}
             {moneyTopic === 'spending' && (
               <article className="panel money-spending ui-card">
-                <div className="money-topic-heading"><div><h3>Your {selectedBudgetMonth?.label ? `${selectedBudgetMonth.label} ` : ''}categories and planned amounts</h3><p>Planned amounts and confirmed spending are separate. Your annual plan keeps future expenses visible.</p></div><Button variant="secondary" disabled={!visibleSections.includes('Budget')} onClick={() => switchSection('Budget')}>Open annual plan</Button></div>
-                <div className="money-topic-actions">
-                  <Button disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('category')}>Add category</Button>
-                  <Button variant="secondary" disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly')}>Edit categories and amounts</Button>
-                </div>
+                <div className="money-topic-heading"><div><h3>Your {selectedBudgetMonth?.label ? `${selectedBudgetMonth.label} ` : ''}categories and planned amounts</h3><p>Planned amounts and confirmed spending are separate. Your annual plan keeps future expenses visible.</p></div><Button variant="secondary" className="ui-row ui-btn--text" disabled={!visibleSections.includes('Budget')} onClick={() => switchSection('Budget')}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">Open annual plan</span></span><svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></Button></div>
                 {activeBudgetPlan?.rows.length ? (
                   <ul className="money-record-list">
                     {activeBudgetPlan.rows.map(row => {
                       const month = row.months[selectedBudgetMonthIndex]
                       return <li key={row.id}>
-                        <div><strong>{row.name}</strong><span>{row.stack_label}</span></div>
-                        <div>
+                        <button type="button" className="ui-row money-edit-row" aria-label={`Edit ${row.name}`} aria-describedby={`money-category-${row.id}-details money-category-${row.id}-amount`} disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly', row.id)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`money-category-${row.id}-details`}><strong>{row.name}</strong><span>{row.stack_label}</span></span>
+                        <span id={`money-category-${row.id}-amount`}>
                           <strong>{month && !month.allocation_missing ? formatReviewMoney(Math.round((month.planned) * 100)) : 'Not available'} planned</strong>
                           <span>{month ? formatReviewMoney(Math.round((month.actual) * 100)) : 'Not available'} confirmed</span>
-                        </div>
+                        </span><span className="money-edit-label">Edit</span></button>
                       </li>
                     })}
                   </ul>
                 ) : <p>No spending categories yet. Add a category to start planning.</p>}
                 {isSavingsExperience && <p className="annual-edit-hint">These are household budget categories. Changes to an approved statement spending baseline require a separate review.</p>}
+                <div className="money-topic-actions">
+                  <Button variant="secondary" className="ui-row ui-btn--text" disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly')}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">Edit categories and amounts</span></span><svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></Button>
+                  <Button variant="secondary" className="ui-btn ui-btn--tonal" disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('category')}>Add category</Button>
+                </div>
               </article>
             )}
             {moneyTopic === 'spending' && isRealWorkspace && setupDraft && <ProfileDisclosure label="Starting household numbers" forceOpen={isProfileEditing}>
