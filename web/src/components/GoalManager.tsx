@@ -183,7 +183,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     </fieldset>{error && <p className="setup-error" role="alert">{error}</p>}<div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancel}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editing === 'new' ? 'Add goal' : 'Save goal'}</button></div></form>}
     {archived.length > 0 && <details className="debt-archive"><summary>Archived goals ({archived.length})</summary><p>Archived goals keep their history but leave active goal totals.</p>{archived.map((goal) => <div className="goal-row" data-goal-id={goal.id} key={goal.id}><div><strong>{goal.label}</strong><span>{goalTypeLabels[goal.goal_type]}</span></div><strong>{displayAmount(goal.current_amount)} / {displayAmount(goal.target_amount)}</strong><button type="button" data-goal-action="restore" className="secondary-button" aria-label={`Restore ${goal.label}`} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); void mutate(`restore:${goal.id}`, (key) => restoreGoal(goal.id, key), `[data-goal-id="${goal.id}"] [data-goal-action="edit"]`) }}>Restore</button></div>)}</details>}
     {error && editing === null && <p className="setup-error" role="alert">{error}</p>}
-    {editing === null && <button className="ui-btn ui-btn--tonal" ref={addButtonRef} type="button" disabled={saving} onClick={(event) => beginCreate(event.currentTarget)}>Add a goal</button>}
+    {editing === null && <button data-manager-add className="ui-btn ui-btn--tonal" ref={addButtonRef} type="button" disabled={saving} onClick={(event) => beginCreate(event.currentTarget)}>Add a goal</button>}
   </article>
 }
 

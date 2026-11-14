@@ -672,9 +672,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   // One money change at a time. The ref closes the gap between a click and the
   // re-render that disables every other review control.
   const budgetActionRef = useRef<string | null>(null)
+  const reviewFocusSequenceRef = useRef(0)
   const reviewChatPositionRef = useRef<{ chat: HTMLElement; top: number; windowTop: number; scope: string } | null>(null)
   const beginBudgetAction = (name: string) => {
     if (budgetActionRef.current) return false
+    reviewFocusSequenceRef.current += 1
     const chat = chatCardRef.current
     reviewChatPositionRef.current = activeSectionRef.current === 'Ask Mia' && chat && /^(confirm-draft|ignore-draft|match-draft|apply-mia-action|cancel-mia-action):/.test(name)
       ? { chat, top: chat.scrollTop, windowTop: window.scrollY, scope: budgetViewScopeRef.current } : null
@@ -2181,20 +2183,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
   function focusDebtManager() {
     const disclosure = debtManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
-    debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+    const target = debtManagerRef.current?.querySelector<HTMLButtonElement>('[data-manager-add]')
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target?.focus({ preventScroll: true })
   }
 
   function focusAccountManager() {
     const disclosure = accountManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
-    accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+    const target = accountManagerRef.current?.querySelector<HTMLButtonElement>('[data-manager-add]')
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target?.focus({ preventScroll: true })
   }
 
   function focusGoalManager() {
     const disclosure = goalManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
-    goalManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    goalManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+    const target = goalManagerRef.current?.querySelector<HTMLButtonElement>('[data-manager-add]')
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target?.focus({ preventScroll: true })
   }
 
   function startManualFirstSession() {
@@ -3152,11 +3157,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     })
   }
 
-  function recoverReviewFocus(restoredDraftId?: number, previousAction?: Element | null) {
+  function recoverReviewFocus(restoredDraftId?: number, previousAction?: Element | null, actionFailed = false) {
     const position = reviewChatPositionRef.current
+    const owner = reviewFocusSequenceRef.current
     requestAnimationFrame(() => requestAnimationFrame(() => {
       // An earlier action must not consume a later action's scroll/focus owner.
-      if (budgetActionRef.current || reviewChatPositionRef.current !== position) return
+      if (budgetActionRef.current || reviewFocusSequenceRef.current !== owner || reviewChatPositionRef.current !== position) return
       if (position && !position.chat.isConnected) return
       reviewChatPositionRef.current = null
       const active = document.activeElement
@@ -3177,7 +3183,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const restoredResult = restoredRow?.querySelector<HTMLElement>('[data-review-result]')
       // React may commit after this frame. Let the row's layout effect focus
       // its result instead of moving to the heading while the row is pending.
-      if (restoredRow && !restoredResult && !previousAction) return
+      if (restoredRow && !restoredResult && !previousAction && !actionFailed) return
       const target = restoredResult
         ?? (focusedResult && active instanceof HTMLElement ? active : null)
         // A restored row can be hidden by paging/filtering; its result notice is still inert.
@@ -3211,6 +3217,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
+    let actionFailed = false
     try {
       const signature = `transaction:confirm:${draft.id}`
       const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature))
@@ -3230,6 +3237,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
+      actionFailed = true
       trackPilotWorkflowFailure('transaction_review', 'confirm')
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
@@ -3238,7 +3246,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus(draft.id)
+      recoverReviewFocus(draft.id, undefined, actionFailed)
     }
   }
 
@@ -3250,6 +3258,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
+    let actionFailed = false
     try {
       const signature = `transaction:ignore:${draft.id}`
       const workspace = await ignoreTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
@@ -3266,6 +3275,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'ignored' })
     } catch (caught) {
+      actionFailed = true
       trackPilotWorkflowFailure('transaction_review', 'ignore')
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
@@ -3274,7 +3284,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus(draft.id)
+      recoverReviewFocus(draft.id, undefined, actionFailed)
     }
   }
 
@@ -3336,6 +3346,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: '' }))
     setBudgetError(null)
     setDocumentsError(null)
+    let actionFailed = false
     try {
       const signature = `transaction:match:${draft.id}:${matchId ?? 'best'}`
       const workspace = await matchTransactionDraft(draft.id, matchId, transactionOperationKeysRef.current.keyFor(signature))
@@ -3350,6 +3361,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         source_type: draft.source_type ?? 'statement',
       })
     } catch (caught) {
+      actionFailed = true
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
@@ -3357,7 +3369,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
-      recoverReviewFocus(draft.id)
+      recoverReviewFocus(draft.id, undefined, actionFailed)
     }
   }
 
@@ -4508,7 +4520,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             title="Your household money"
             copy={isSavingsExperience ? 'Optional household tools. Your challenge progress and approved savings stay in Savings.' : `See your income, spending, debt, accounts, and goals. Update them here or ask ${assistantName} to prepare a change.`}
           />
-          {isRealWorkspace && !data.workspace.setup_complete && <Button variant="secondary" className="money-setup-help ui-row" onClick={() => setSetupHelpOpen(true)}><i className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">Fix my setup</span></span><svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></Button>}
+          {isRealWorkspace && <Button variant="secondary" className="money-setup-help ui-row" onClick={() => setSetupHelpOpen(true)}><i className={`ui-dot ${data.workspace.setup_complete ? 'ui-dot--neutral' : 'ui-dot--attention'}`} aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">Fix my setup</span></span><svg className="ui-row__chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg></Button>}
           <nav className="money-topics" aria-label="My Money topics">
             {moneyTopics.filter(topic => topic.id !== 'statements').map(topic => (
               <button type="button" className="ui-chip" key={topic.id} aria-pressed={moneyTopic === topic.id} aria-controls="money-topic-content" onClick={() => {
@@ -4566,12 +4578,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   <ul className="money-record-list">
                     {activeBudgetPlan.rows.map(row => {
                       const month = row.months[selectedBudgetMonthIndex]
+                      const editable = isRealWorkspace && visibleSections.includes('Budget')
+                      const Row = editable ? 'button' : 'div'
                       return <li key={row.id}>
-                        <button type="button" className="ui-row money-edit-row" aria-label={`Edit ${row.name}`} aria-describedby={`money-category-${row.id}-details money-category-${row.id}-amount`} disabled={!isRealWorkspace || budgetYearLoading || !visibleSections.includes('Budget')} onClick={() => openBudgetMoneyTool('monthly', row.id)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`money-category-${row.id}-details`}><strong>{row.name}</strong><span>{row.stack_label}</span></span>
+                        <Row type={editable ? "button" : undefined} className="ui-row money-edit-row" aria-label={editable ? `Edit ${row.name}` : undefined} aria-describedby={`money-category-${row.id}-details money-category-${row.id}-amount`} disabled={editable ? budgetYearLoading : undefined} onClick={editable ? () => openBudgetMoneyTool('monthly', row.id) : undefined}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`money-category-${row.id}-details`}><strong>{row.name}</strong><span>{row.stack_label}</span></span>
                         <span id={`money-category-${row.id}-amount`}>
                           <strong>{month && !month.allocation_missing ? formatReviewMoney(Math.round((month.planned) * 100)) : 'Not available'} planned</strong>
                           <span>{month ? formatReviewMoney(Math.round((month.actual) * 100)) : 'Not available'} confirmed</span>
-                        </span><span className="money-edit-label">Edit</span></button>
+                        </span>{editable && <span className="money-edit-label">Edit</span>}</Row>
                       </li>
                     })}
                   </ul>
@@ -6818,8 +6832,17 @@ export function WorkspaceSetupForm({
   const { assistantName } = useBrand()
   const savedHeadingRef = useRef<HTMLHeadingElement>(null)
   const wasEditingRef = useRef({ editing, firstSession })
+  const canceledRef = useRef(false)
+  const editProfileRef = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => {
-    if (!wasEditingRef.current.firstSession && wasEditingRef.current.editing && !editing) savedHeadingRef.current?.focus({ preventScroll: true })
+    if (!wasEditingRef.current.firstSession && wasEditingRef.current.editing && !editing) {
+      const active = document.activeElement
+      const form = savedHeadingRef.current?.closest('form')
+      if (active === document.body || (active && form?.contains(active))) {
+        (canceledRef.current ? editProfileRef.current : savedHeadingRef.current)?.focus({ preventScroll: true })
+      }
+      canceledRef.current = false
+    }
     wasEditingRef.current.editing = editing
   }, [editing])
   return (
@@ -6891,11 +6914,11 @@ export function WorkspaceSetupForm({
         {!firstSession && <div className="setup-form-actions">
           {editing ? (
             <>
-              <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
+              <button type="button" className="secondary-button" disabled={saving} onClick={() => { canceledRef.current = true; onCancel() }}>Cancel</button>
               <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : personalOnly ? 'Save details' : 'Save numbers'}</button>
             </>
           ) : (
-            <button type="button" className="ui-btn ui-btn--tonal" onClick={onBeginEdit}>Edit profile</button>
+            <button type="button" className="ui-btn ui-btn--tonal" ref={editProfileRef} onClick={onBeginEdit}>Edit profile</button>
           )}
         </div>}
       {/* After the fields, so keyboard and screen-reader order reach Save last. */}
@@ -7177,8 +7200,8 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       {portfolio.mode === 'individual' && activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No active debts entered yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p><button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'Confirm no debt ($0)'}</button></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
-<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />          <span><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)}</span></span>
-          <span><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></span>
+<button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum</span></span>
+          <span id={`debt-${debt.id}-amount`}><strong>{recordMoney(debt.balance)}</strong></span>
     <span className="money-edit-label">Edit</span></button>
       <div className="debt-row-actions"><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
         </div>)}
@@ -7199,7 +7222,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" aria-label={`Restore ${debt.label}`} disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
       <p className="debt-privacy-note">{brand.product_name} uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
-    {editingId === null && <button className="ui-btn ui-btn--tonal" type="button" onClick={beginCreate}>Add a debt</button>}
+    {editingId === null && <button data-manager-add className="ui-btn ui-btn--tonal" type="button" onClick={beginCreate}>Add a debt</button>}
     </article>
   )
 }

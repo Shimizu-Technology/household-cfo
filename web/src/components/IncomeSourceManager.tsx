@@ -272,6 +272,7 @@ export function IncomeSourceManager({
               && source.starts_on.slice(0, 7) === source.ends_on.slice(0, 7),
             )
             const effectiveTerms = effectiveIncomeTerms(source)
+            const Row = ended ? 'div' : 'button'
             return (
               <article
                 ref={(node) => {
@@ -282,14 +283,14 @@ export function IncomeSourceManager({
                 key={source.id}
                 tabIndex={-1}
               >
-                <button type="button" className="income-source-manager-card-heading ui-row" aria-label={`Edit ${source.label}`} aria-describedby={`income-${source.id}-amount income-${source.id}-details`} disabled={ended || incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
+                <Row type={ended ? undefined : "button"} className="income-source-manager-card-heading ui-row" aria-label={ended ? undefined : `Edit ${source.label}`} aria-describedby={`income-${source.id}-amount income-${source.id}-details`} disabled={ended ? undefined : incomeOperationPending || editorBlocked} onClick={ended ? undefined : (event) => beginEdit(source, event.currentTarget as HTMLButtonElement)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
                   <span className="ui-row__body">
-                    <span>{titleize(source.source_type)}</span>
                     <strong>{source.label}</strong>
+                    <span>{titleize(source.source_type)}</span>
                   </span>
                   <b id={`income-${source.id}-amount`}>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
                   {!ended && <span className="money-edit-label">Edit</span>}
-                </button>
+                </Row>
                 <dl id={`income-${source.id}-details`}>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
                   <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>

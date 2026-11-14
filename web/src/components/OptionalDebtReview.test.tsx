@@ -181,3 +181,17 @@ it('selecting a genuinely different household identity resets unavailable terms 
   fireEvent.change(screen.getByLabelText('Saved household credit card'), { target: { value: '950' } })
   expectRichSupplementalFields()
 })
+
+
+it('keeps partially typed terms when the backdrop is clicked', async () => {
+  const close = vi.fn()
+  const view = render(<OptionalDebtReview actorScope={debtFixtureScope} cohortId={701} onClose={close} api={syntheticDebtApi()} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Add a card' }))
+  fireEvent.change(screen.getByLabelText('How will you review these terms?'), { target: { value: 'manual' } })
+  fireEvent.change(screen.getByLabelText('Card label'), { target: { value: 'Still typing' } })
+  fireEvent.click(view.container.querySelector('.optional-debt-overlay')!)
+  expect(close).not.toHaveBeenCalled()
+  expect((screen.getByLabelText('Card label') as HTMLInputElement).value).toBe('Still typing')
+  fireEvent.click(screen.getByRole('button', { name: 'Close card review' }))
+  expect(close).toHaveBeenCalledOnce()
+})

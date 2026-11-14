@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { setApiFinancialGeneration, setAuthTokenGetter } from '../api'
 import { FinancialRestartDialog } from './FinancialRestartDialog'
@@ -160,4 +160,17 @@ it('keeps empty record disclosure keyboard reachable while confirmation is pendi
   dialog.focus(); fireEvent.keyDown(document, { key: 'Tab' })
   expect(document.activeElement).toBe(screen.getByText('View empty record types'))
   expect(calls.filter(call => call.path.endsWith('/apply'))).toHaveLength(1)
+})
+
+
+it('keeps the pending review and acknowledgment on a backdrop click', async () => {
+  fake()
+  const { onClose } = await open()
+  fireEvent.click(screen.getByLabelText(/I reviewed what starts fresh/))
+  fireEvent.click(document.querySelector('.financial-restart-overlay')!)
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)))
+  expect(calls.filter(call => call.path.endsWith('/cancel'))).toHaveLength(0)
+  expect(onClose).not.toHaveBeenCalled()
+  expect((screen.getByLabelText(/I reviewed what starts fresh/) as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByRole('dialog')).toBeTruthy()
 })

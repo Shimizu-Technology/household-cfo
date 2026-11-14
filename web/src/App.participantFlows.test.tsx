@@ -200,6 +200,33 @@ it('keeps a deliberate amount focus when the income opener frame runs later', ()
     act(() => { for (const frame of frames.splice(0)) frame(0) })
     expect(document.activeElement).toBe(amount)
     fireEvent.change(amount, { target: { value: '200' } })
-    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('')
+    expect((amount as HTMLInputElement).value).toBe('200')
   } finally { raf.mockRestore() }
+})
+
+
+it('beginEdit preserves a deliberate later field focus and preloads the exact source', () => {
+  const frames: FrameRequestCallback[] = []
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    render(<IncomeSourceManager sources={[{ id: 5, label: 'Side business', source_type: 'business', base_amount: 210, base_cadence: 'monthly', schedule_entries: [] }]} action={null} error={null} onSave={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Side business' }))
+    const amount = screen.getByRole('spinbutton', { name: 'Starting amount' })
+    amount.focus()
+    act(() => { for (const frame of frames.splice(0)) frame(0) })
+    expect(document.activeElement).toBe(amount)
+    expect((amount as HTMLInputElement).value).toBe('210')
+    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Side business')
+  } finally { raf.mockRestore() }
+})
+
+for (const mode of ['save', 'outside', 'cancel'] as const) it(`profile ${mode} respects the current focus owner`, () => {
+  const values = { household_name: 'Cruz', primary_goal: 'Save', primary_income: '', fixed_expenses: '', flexible_spend: '', emergency_fund: '', other_assets: '', expected_sinking_fund: '', unexpected_sinking_fund: '', business_income: '', target_runway_months: '', debt_payment: '', credit_card_debt: '' }
+  const form = { values, saving: false, error: null, firstSession: false, personalOnly: true, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
+  const view = render(<><WorkspaceSetupForm {...form} editing /><input aria-label="Memory draft" /></>)
+  screen.getByRole('textbox', { name: /^Primary goal/ }).focus()
+  if (mode === 'outside') screen.getByLabelText('Memory draft').focus()
+  if (mode === 'cancel') fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  view.rerender(<><WorkspaceSetupForm {...form} editing={false} /><input aria-label="Memory draft" /></>)
+  expect(document.activeElement).toBe(mode === 'outside' ? screen.getByLabelText('Memory draft') : mode === 'cancel' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByRole('heading', { name: 'Household details' }))
 })

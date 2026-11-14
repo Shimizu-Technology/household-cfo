@@ -135,7 +135,7 @@ export function FinancialRestartDialog({ scopeKey, blockedReason, onClose, onApp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  return <div className="pilot-dialog-overlay financial-restart-overlay" onClick={event => { if (event.target === event.currentTarget) requestClose() }} data-dialog-surface="true" role="presentation">
+  return <div className="pilot-dialog-overlay financial-restart-overlay" data-dialog-surface="true" role="presentation">
     <section ref={dialogRef} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog financial-restart-dialog" role="dialog" aria-modal="true" aria-labelledby="financial-restart-title" tabIndex={-1}>
       <header><div><h2 id="financial-restart-title">{title}</h2></div>
         <button type="button" className="secondary-button" disabled={busy} onClick={requestClose}>Close</button></header>
