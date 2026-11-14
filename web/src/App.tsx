@@ -6889,7 +6889,7 @@ export function WorkspaceSetupForm({
               <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : personalOnly ? 'Save details' : 'Save numbers'}</button>
             </>
           ) : (
-            <button type="button" onClick={onBeginEdit}>Edit profile</button>
+            <button type="button" className="ui-btn ui-btn--tonal" onClick={onBeginEdit}>Edit profile</button>
           )}
         </div>}
       {/* After the fields, so keyboard and screen-reader order reach Save last. */}

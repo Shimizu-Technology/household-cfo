@@ -16256,3 +16256,19 @@ test('BOG UI P8a money edit row supports keyboard review and intentional save', 
   await expect(page.getByRole('button', { name: 'Edit Family holiday', exact: true })).toBeVisible()
   expect(saves).toBe(1)
 })
+
+
+test('BOG UI P8a first-run fields form a readable column without overlapping targets', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await expect(page.getByRole('heading', { name: 'Start with what you know today.' })).toBeVisible()
+  const fields = await page.locator('.setup-field-grid > .setup-field').all()
+  expect(fields).toHaveLength(5)
+  let bottom = 0
+  for (const field of fields) {
+    const rect = (await field.boundingBox())!
+    expect(rect.width).toBeGreaterThanOrEqual(220)
+    expect(rect.y).toBeGreaterThanOrEqual(bottom - 1)
+    bottom = rect.y + rect.height
+  }
+})

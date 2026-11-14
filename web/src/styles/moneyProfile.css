@@ -76,3 +76,10 @@ body .use-app-as-row { border-bottom: 1px solid var(--rule); border-radius: 0; m
 .money-screen .setup-fieldset, .profile-screen .setup-fieldset { background: transparent; border: 0; border-radius: 0; padding: 0; }
 .profile-screen .mia-memory-form, .profile-screen .mia-memory-private-note { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: var(--space-4) 0; }
 body .optional-debt-dialog .debt-orders > div { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; }
+/* A wide legacy field must span the explicit grid, never create an implicit column. */
+:is(.money-screen, .profile-screen) .setup-field.text-wide { grid-column: 1 / -1; }
+.profile-screen .setup-field-grid > .setup-field { grid-column: 1 / -1; }
+:is(.money-screen, .profile-screen) .setup-field > span:first-child { font-weight: var(--weight-medium); }
+:is(.money-screen, .profile-screen) .setup-field small { font-weight: var(--weight-regular); }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.money-screen, .profile-screen) .money-input-shell input[type='number'] { padding-inline-start: 30px; }
+body :is(#root, [role='dialog'], [role='alertdialog']) .money-screen .percent-input-shell input[type='number'] { padding-inline-end: 30px; }
