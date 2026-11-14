@@ -89,3 +89,5 @@ body .optional-debt-dialog :is(.debt-warning, .debt-notice) { background: transp
   body .household-privacy-backdrop { align-items: end; padding: 0; }
   body :is(.financial-restart-dialog, .household-privacy-dialog) { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
 }
+/* Keep the entire confirmation target and its focus ring inside the scroll body. */
+body .financial-restart-dialog .financial-restart-confirm input { scroll-margin-block: var(--space-2); }
