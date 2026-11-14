@@ -26,6 +26,7 @@ type ChatHistoryProps = {
   onReviewImportId: (documentImportId: number) => void
   freshReplyId?: number | null
   freshUserMessageId?: string | null
+  keepReviewGap?: boolean
   careActive?: boolean
   threadNotice?: ReactNode
   emptyReviewContent?: ReactNode
@@ -63,6 +64,7 @@ export function ChatHistory({
   freshReplyId,
   freshUserMessageId,
   careActive = false,
+  keepReviewGap = false,
   threadNotice,
   reviewCount = 0,
   pendingPurchaseCount = 0,
@@ -160,6 +162,7 @@ export function ChatHistory({
           </div>
         )}
         {shownReviewContent && <div className="chat-review-queue">{shownReviewContent}</div>}
+        {keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
         {threadNotice}
         {totalMessageCount > 0 && reviewCount > 0 && onOpenReview && (
         <div className="chat-history-navigation">
@@ -168,7 +171,7 @@ export function ChatHistory({
           </button>}
         </div>
         )}
-        {totalMessageCount > 0 && <div className="chat-turn-spacer" aria-hidden="true" />}
+        {!keepReviewGap && totalMessageCount > 0 && <div key="turn-spacer" className="chat-turn-spacer" aria-hidden="true" />}
       </article>
       {showScrollButton && <button type="button" className="chat-scroll-bottom-button ui-btn ui-btn--tonal" aria-label={`Scroll to latest ${assistantName} message`} onClick={onScrollLatest}>
         <ScrollDownIcon /><span className="sr-only">Latest</span>

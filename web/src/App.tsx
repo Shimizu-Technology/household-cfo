@@ -670,6 +670,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (reviewChatPositionRef.current) {
       chatScrolledAwayRef.current = true
       chatAnchorModeRef.current = 'review'
+      setKeepReviewGap(true)
     }
     budgetActionRef.current = name
     setBudgetAction(name)
@@ -726,6 +727,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [setupRestart, setSetupRestart] = useState<{ requestId?: number } | null>(null)
   const [staleSetupReview, setStaleSetupReview] = useState<{ requestId: number; reviewId: number } | null>(null)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
+  const [keepReviewGap, setKeepReviewGap] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
   const [voiceNotice, setVoiceNotice] = useState<string | null>(null)
@@ -1617,6 +1619,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     // This explicit navigation takes over from the automatic sent-turn anchor.
     chatScrolledAwayRef.current = false
     chatAnchorModeRef.current = 'latest'
+    setKeepReviewGap(false)
     const spacer = chat.querySelector<HTMLElement>('.chat-turn-spacer')
     if (spacer) spacer.style.height = '0px'
     miaProgrammaticScrollUntilRef.current = performance.now() + 150
@@ -1628,11 +1631,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const newestMessageKey = newestMessage ? String(newestMessage.id ?? newestMessage.client_id ?? `${newestMessage.role}-${currentMessages.length}`) : ''
 
   useEffect(() => {
-    if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'entry' }
-  }, [activeSection])
+    if (activeSection === 'Ask Mia') { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'entry'; setKeepReviewGap(false) }
+  }, [activeSection, chatStorageKey])
 
   useEffect(() => {
-    if (miaLoading) { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'sent' }
+    if (miaLoading) { chatScrolledAwayRef.current = false; chatAnchorModeRef.current = 'sent'; setKeepReviewGap(false) }
   }, [miaLoading])
 
   // After Mia answers an upload, bring the first card for what was just sent into view; the anchor to her message stops following the reply.
@@ -2978,6 +2981,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
     } finally {
       endBudgetAction()
+      if (reviewChatPositionRef.current) recoverReviewFocus()
     }
   }
 
@@ -3050,6 +3054,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       setMiaError(message)
     } finally {
       endBudgetAction()
+      if (reviewChatPositionRef.current) recoverReviewFocus()
     }
   }
 
@@ -3118,12 +3123,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       if (budgetActionRef.current) return
       const position = reviewChatPositionRef.current
       reviewChatPositionRef.current = null
-      if (document.activeElement && document.activeElement !== document.body && document.activeElement !== previousAction) return
+      const active = document.activeElement
+      const focusMoved = active && active !== document.body && active !== previousAction
+      // The stack hands keyboard focus to the next purchase in its layout
+      // effect. That automatic handoff must not cancel position recovery.
+      const nextPurchase = active instanceof HTMLElement && active.matches('.transaction-draft-stack [data-review-confirm]') && position?.chat.contains(active)
+      if (focusMoved && !nextPurchase) return
       if (position && position.scope === budgetViewScopeRef.current && activeSectionRef.current === 'Ask Mia' && chatCardRef.current === position.chat) {
         const { chat, top, windowTop } = position
         const spacer = chat.querySelector<HTMLElement>('.chat-turn-spacer')
-        // A shrinking card must not clamp a reader's scroll position. Reuse the
-        // turn spacer until the next send, Latest tap, or conversation entry.
+        // A shrinking card must not clamp a reader's scroll position. The
+        // spacer sits before the result, keeping that result visible too.
         const missing = top + chat.clientHeight - chat.scrollHeight
         if (spacer && missing > 0) spacer.style.height = `${spacer.offsetHeight + missing}px`
         chat.scrollTop = top
@@ -3132,6 +3142,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const restoredRow = restoredDraftId === undefined ? null : document.querySelector<HTMLElement>(`[data-review-item="${restoredDraftId}"]`)
       const result = document.querySelector<HTMLElement>('[data-review-result]')
         ?? document.querySelector<HTMLElement>('[data-page-heading]')
+      if (focusMoved) {
+        const bounds = active!.getBoundingClientRect()
+        const view = position!.chat.getBoundingClientRect()
+        // When a very tall card shrinks, keep its result in view and focus
+        // that result rather than an offscreen next-card action.
+        if (bounds.bottom <= view.top || bounds.top >= view.bottom) result?.focus({ preventScroll: true })
+        return
+      }
       const target = restoredDraftId !== undefined
         ? restoredRow?.querySelector<HTMLElement>('[data-review-confirm]:not(:disabled)')
           ?? restoredRow?.querySelector<HTMLElement>('button:not(:disabled)')
@@ -4160,6 +4178,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   freshReplyId={freshMiaReplyId}
                   freshUserMessageId={freshUserMessageId}
                   careActive={safetyHold}
+                  keepReviewGap={keepReviewGap}
                   messages={visibleMessages}
                   totalMessageCount={currentMessages.length}
                   hiddenMessageCount={hiddenMessageCount}

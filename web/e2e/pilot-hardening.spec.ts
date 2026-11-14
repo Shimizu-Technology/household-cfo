@@ -14679,3 +14679,25 @@ test('BOG UI Mia opens the remaining purchases without approving a change', asyn
   await expect(cards).toHaveCount(1)
   expect(mutations).toBe(0)
 })
+
+test('BOG UI Mia finishing a long purchase keeps the thread and its result in view',async({page})=>{
+ const workspace=realWorkspaceData(true)
+ workspace.budget.annual_plan.pending_mia_action_drafts=[]
+ workspace.budget.annual_plan.pending_transaction_drafts[0].merchant='Fictional long merchant with the complete name '.repeat(12)
+ workspace.mia.messages=Array.from({length:10},(_,i)=>({id:99600+i,role:i%2?'assistant':'user',author:i%2?'Mia':'You',content:i===9?'Check each purchase before it counts.':'A previous exchange in this household conversation.'}))
+ const draft=workspace.budget.annual_plan.pending_transaction_drafts[0]
+ await page.route('http://api.test/api/v1/workspace',route=>route.fulfill({json:workspace}))
+ await page.route(`http://api.test/api/v1/transaction_drafts/${draft.id}/confirm`,route=>{workspace.budget.annual_plan.pending_transaction_drafts.shift();workspace.budget.annual_plan.pending_transaction_drafts_meta={total_count:1,returned_count:1,limit:500,truncated:false};return route.fulfill({json:{workspace}})})
+ await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+ const confirm=page.locator('.chat-card [data-review-confirm]')
+ await confirm.focus();await confirm.scrollIntoViewIfNeeded()
+ const before=await page.locator('.message-row.assistant').last().boundingBox()
+ await confirm.click()
+ await expect(page.locator('.chat-card .transaction-draft-card')).toHaveCount(1)
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))
+ const after=await page.locator('.message-row.assistant').last().boundingBox()
+ expect(Math.abs(after!.y-before!.y)).toBeLessThanOrEqual(1)
+ await expect(page.locator('.chat-card [data-review-result]')).toBeInViewport()
+ await expect(page.locator('.chat-card :focus')).toBeInViewport()
+ if(process.env.HCFO_R6_P4_SHOTS) await page.screenshot({path:`${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-long-purchase-finished.png`})
+})
