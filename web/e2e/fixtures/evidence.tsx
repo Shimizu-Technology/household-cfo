@@ -6,8 +6,9 @@ import {SavingsEvidenceDialog} from '../../src/components/SavingsEvidenceDialog'
 import {evidenceActor,evidenceCandidate,evidencePage,evidenceVersion} from '../../src/test/evidenceFixtures'
 import {baselineScope} from '../../src/test/baselineFixtures'
 import type {EvidenceMutation} from '../../src/lib/savingsEvidence'
+import '../../src/styles/tokens.css'
 import '../../src/index.css'
-import '../../src/App.css'
+import '../../src/appStyles'
 const scenario=new URLSearchParams(location.search).get('case');let interrupted=false,statusBusy=false,denied=false,count=0
 let current=evidencePage();const journal=new Map<string,EvidenceMutation>()
 if(scenario==='history'){current={...current,entry_is_current:false,entry:{...current.entry,evidence_status:'stale'},head:{id:30,current_version_id:31,lock_version:2},current_version:evidenceVersion(),records:[evidenceVersion()]}}
