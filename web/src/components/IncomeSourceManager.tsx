@@ -279,14 +279,14 @@ export function IncomeSourceManager({
                 key={source.id}
                 tabIndex={-1}
               >
-                <button type="button" className="income-source-manager-card-heading ui-row" aria-label={`Edit ${source.label}`} disabled={ended || incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
+                <button type="button" className="income-source-manager-card-heading ui-row" aria-label={`Edit ${source.label}`} aria-describedby={`income-${source.id}-amount income-${source.id}-details`} disabled={ended || incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
                   <span className="ui-row__body">
                     <span>{titleize(source.source_type)}</span>
                     <strong>{source.label}</strong>
                   </span>
-                  <b>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
+                  <b id={`income-${source.id}-amount`}>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
                 </button>
-                <dl>
+                <dl id={`income-${source.id}-details`}>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
                   <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
                   <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${formatReviewMoney(Math.round((upcoming.amount) * 100))}` : 'None scheduled'}</dd></div>

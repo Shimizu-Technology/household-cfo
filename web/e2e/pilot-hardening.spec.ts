@@ -16199,21 +16199,60 @@ test('BOG UI P8a keeps topic pills on phones and separates saved profile values 
   await expect(topics).toBeVisible()
   await expect(topics.getByRole('button')).toHaveCount(5)
   await expect(page.getByRole('combobox', { name: 'Show:', exact: true })).toHaveCount(0)
+  await topics.getByRole('button', { name: 'Income', exact: true }).focus()
   for (const topic of ['Income', 'Spending', 'Debt', 'Accounts', 'Goals']) {
     const button = topics.getByRole('button', { name: topic, exact: true })
-    await button.focus()
+    await expect(button).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(button).toHaveAttribute('aria-pressed', 'true')
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if (topic !== 'Goals') await page.keyboard.press('Tab')
   }
   await expect(page.getByRole('button', { name: 'Fix my setup', exact: true })).toHaveCount(0)
   await openSection(page, 'My Profile')
   await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
   await expect(page.locator('.setup-form').getByRole('textbox')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Edit profile' }).click()
+  await page.getByRole('button', { name: 'Edit profile' }).focus()
+  await page.keyboard.press('Enter')
   await expect(page.locator('.setup-form')).toHaveClass(/is-editing/)
-  await page.getByLabel('Primary goal').fill('An intentional household goal.')
-  await page.getByRole('button', { name: 'Save details', exact: true }).click()
+  await page.getByLabel('Primary goal').focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('An intentional household goal.')
+  await page.getByRole('button', { name: 'Save details', exact: true }).focus()
+  await page.keyboard.press('Enter')
   await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
 
+})
+
+
+test('BOG UI P8a money edit row supports keyboard review and intentional save', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const goal = { id: 83, label: 'Family trip', goal_type: 'travel', target_amount: 4000, current_amount: null, target_on: null, priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
+  workspace.workspace.goals = [goal]
+  let saves = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/goals/83', route => {
+    expect(route.request().method()).toBe('PATCH')
+    const values = route.request().postDataJSON().goal
+    expect(values.label).toBe('Family holiday')
+    expect(values.current_amount).toBeNull()
+    goal.label = values.label
+    saves++
+    return route.fulfill({ json: { goal } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Goals')
+  const edit = page.getByRole('button', { name: 'Edit Family trip', exact: true })
+  await edit.focus()
+  await page.keyboard.press('Enter')
+  const name = page.getByLabel('Goal name', { exact: true })
+  await name.focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('Family holiday')
+  expect(saves).toBe(0)
+  await page.getByRole('button', { name: 'Save goal', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.goal-form')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Edit Family holiday', exact: true })).toBeVisible()
+  expect(saves).toBe(1)
 })
