@@ -83,3 +83,9 @@ body .optional-debt-dialog .debt-orders > div { background: transparent; border:
 :is(.money-screen, .profile-screen) .setup-field small { font-weight: var(--weight-regular); }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.money-screen, .profile-screen) .money-input-shell input[type='number'] { padding-inline-start: 30px; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .money-screen .percent-input-shell input[type='number'] { padding-inline-end: 30px; }
+body .optional-debt-overlay { background: color-mix(in srgb, var(--ink) 45%, transparent); }
+body .optional-debt-dialog :is(.debt-warning, .debt-notice) { background: transparent; color: var(--ink); border: 0; border-top: 1px solid var(--rule); border-radius: 0; }
+@media (max-width: 620px) {
+  body .household-privacy-backdrop { align-items: end; padding: 0; }
+  body :is(.financial-restart-dialog, .household-privacy-dialog) { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
+}
