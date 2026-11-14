@@ -15657,27 +15657,31 @@ test('BOG UI P5 figure 2 editing another month preserves the current total and o
 })
 
 test('BOG UI P5 figure 4 quiet success overtakes initial loading and rejects its stale failure', async ({ page }) => {
-  let edited = false
-  await p5Workspace(page, false, () => { edited = true })
+  let edits = 0
+  await p5Workspace(page, false, () => { edits += 1 })
   const releaseInitial: (() => void)[] = []
+  let staleDelivered = 0
+  page.on('response', response => { if (response.url().includes('/api/v1/spending_report') && response.status() === 503) staleDelivered += 1 })
   await page.route('http://api.test/api/v1/spending_report**', async route => {
-    if (!edited) {
+    if (edits === 0) {
       await new Promise<void>(resolve => { releaseInitial.push(resolve) })
       await route.fulfill({ status: 503, json: { error: 'Fictional initial failure' } })
-    } else await route.fulfill({ json: p5Report(route) })
+    } else await route.fulfill({ json: p5Report(route, edits === 1 ? 43.10 : 55.25) })
   })
   await page.goto('/?pilot_e2e_role=participant#Review')
   const total = page.getByRole('region', { name: 'Confirmed spending this month' })
   await expect(total).toContainText('Loading report')
   await p5Edit(page)
   await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
-  // Wait until the page has received every stale failure before asserting it was ignored.
-  const staleFailures = Promise.all(releaseInitial.map(() => page.waitForResponse(response => response.url().includes('/api/v1/spending_report') && response.status() === 503)))
+  // Deliver every stale failure, then make the page do one more refresh. That refresh is requested
+  // after the failures arrived, so by the time its new total shows, their handlers have run.
+  const held = releaseInitial.length
+  expect(held).toBeGreaterThan(0)
   releaseInitial.forEach(resolve => resolve())
-  await staleFailures
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect.poll(() => staleDelivered).toBe(held)
+  await p5Edit(page)
+  await expect(total.locator('.review-confirmed-total')).toHaveText('$55.25')
   await expect(total.getByRole('alert')).toHaveCount(0)
-  await expect(total.locator('.review-confirmed-total')).toHaveText('$43.10')
 })
 
 test('BOG UI P5 figure 4 later quiet success clears a quiet error', async ({ page }) => {
