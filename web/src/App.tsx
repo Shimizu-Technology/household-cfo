@@ -6811,10 +6811,10 @@ export function WorkspaceSetupForm({
 }) {
   const { assistantName } = useBrand()
   const savedHeadingRef = useRef<HTMLHeadingElement>(null)
-  const wasEditingRef = useRef(editing)
+  const wasEditingRef = useRef({ editing, firstSession })
   useLayoutEffect(() => {
-    if (wasEditingRef.current && !editing) savedHeadingRef.current?.focus({ preventScroll: true })
-    wasEditingRef.current = editing
+    if (!wasEditingRef.current.firstSession && wasEditingRef.current.editing && !editing) savedHeadingRef.current?.focus({ preventScroll: true })
+    wasEditingRef.current.editing = editing
   }, [editing])
   return (
     // noValidate: the save handler explains problems in plain words instead of
