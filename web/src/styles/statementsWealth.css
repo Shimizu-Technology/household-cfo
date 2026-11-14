@@ -71,9 +71,9 @@ body #root .decision-card > strong { display: block; font: var(--weight-semibold
 .module-unavailable-notice { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); color: var(--ink); box-shadow: none; }
 .module-unavailable-notice:focus { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
 /* Privacy and dismissal owners stay unchanged. */
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog, .document-source-dialog, .reviewed-source-dialog) { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; border-radius: var(--radius-lg); }
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) :is(h3, h4, legend) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog, .document-source-dialog, .reviewed-source-dialog) { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; border-radius: var(--radius-lg); }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) h2 { font: var(--weight-semibold) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) :is(h3, h4, legend) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-consent, .pilot-guide-power-path, .baseline-limit, .baseline-approved, .baseline-preview, .evidence-contribution, .evidence-recovery, .evidence-proposal) { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; background: transparent; color: var(--ink); box-shadow: none; }
 body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) fieldset { border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding: 16px 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .baseline-totals { display: block; }
@@ -93,7 +93,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .setup-help-topics button
 .activity-preview .budget-progress-pending { background: var(--data-planned); background-image: none; }
 .activity-preview .activity-preview-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 @media (max-width: 620px) {
-  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-dialog, .baseline-dialog, .evidence-dialog) { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  body :is(#root, [role='dialog'], [role='alertdialog']) :is(.pilot-feedback-dialog, .pilot-guide-dialog, .setup-help-dialog, .statement-sheet, .baseline-dialog, .evidence-dialog) { border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
   .baseline-overlay, .evidence-overlay { padding: 0; align-items: end; }
   body :is(#root, [role='dialog'], [role='alertdialog']) :is(.baseline-dialog, .evidence-dialog) { width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - 12px); padding: 18px 18px max(18px, env(safe-area-inset-bottom)); box-sizing: border-box; }
 }
