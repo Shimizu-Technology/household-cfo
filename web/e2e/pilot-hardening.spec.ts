@@ -8965,6 +8965,8 @@ test('BOG UI partially reviewed statements keep their remaining coverage visible
   await openChatContext(page)
   await page.getByRole('button', { name: 'Review files', exact: true }).click()
   await expect(page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true })).toBeVisible()
+  // The page keeps a level-three heading above the upload card, so the cards' level-four headings never skip a level.
+  await expect(page.getByRole('heading', { name: 'Upload a statement', level: 3 })).toBeVisible()
   await page.locator('.document-history').getByRole('button', { name: '1 upload needs review', exact: true }).click()
   await expect(page.getByRole('status').filter({ hasText: '2 transaction reviews remaining · 1 resolved.' })).toBeVisible()
   const review = page.locator('.document-review-panel')
@@ -16130,6 +16132,9 @@ for (const kind of ['snapshot', 'daily record', 'source preview', 'evidence'] as
     await expect(close).toHaveClass(/ui-btn--tonal/)
     await expect(close).toHaveCSS('font-size', '14px')
     expect(await close.evaluate(node => { const b = node.getBoundingClientRect(), owner = node.closest('header')!, header = owner.getBoundingClientRect(), css = getComputedStyle(owner); return b.top <= header.top + parseFloat(css.paddingTop) + parseFloat(css.borderTopWidth) + 1 && b.right <= header.right && b.left > header.left + header.width / 2 })).toBe(true)
+    // Only the dialog's own title is serif; a section's first heading stays in the body face.
+    const titleFace = await heading.evaluate(node => getComputedStyle(node).fontFamily)
+    expect(await dialog.locator('section > :is(h3, h4):first-child').evaluateAll((nodes, face) => nodes.every(node => getComputedStyle(node).fontFamily !== face), titleFace)).toBe(true)
     await close.click()
     await expect(dialog).toHaveCount(0)
     await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0)

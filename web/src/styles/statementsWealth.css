@@ -119,7 +119,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal h
 .activity-preview :is(.plan-value span, .category-pressure-values dt) { font-size: var(--text-xs); color: var(--muted); }
 .activity-preview :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 .document-review-panel .statement-notice { padding: 12px 0; border: 0; border-block: 1px solid var(--rule); border-radius: 0; background: transparent; }
-.document-review-panel .statement-line { min-min-height: 56px; }
+.document-review-panel .statement-line { min-height: 56px; }
 .document-review-panel .statement-link { text-decoration: none; color: var(--brand-strong); }
 .document-review-panel :is(.statement-line-name, .statement-line-amount) { font-weight: var(--weight-semibold); }
 .document-review-panel .document-processing-state { border: 0; border-block: 1px solid var(--rule); border-radius: 0; padding: 16px 0; background: transparent; color: var(--ink); }
@@ -169,7 +169,8 @@ body #root .document-review-panel .statement-link { text-decoration: none; color
 body #root .document-history-card.active { border-radius: var(--radius-md); outline: 2px solid var(--brand); outline-offset: -2px; }
 body #root .document-history-card > small, body #root .document-upload-card label > small { font-weight: var(--weight-regular); color: var(--muted); }
 body #root .statements-screen .document-upload-primary { width: 100%; max-width: none; }
-.document-pending-review { background: var(--surface-card); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 18px; margin-bottom: var(--space-3); }
+/* A plain row in the uploads card; the shared row rule supplies everything else. */
+.document-pending-review { margin-bottom: var(--space-3); }
 body #root .document-review-panel .document-review-header,
 body #root .document-review-panel .document-transaction-drafts { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
 .document-review-header .document-file-options { border-top: 1px solid var(--rule); }
@@ -177,6 +178,9 @@ body #root .document-review-panel .document-transaction-drafts { padding: 18px; 
 .review-layout .activity-preview { grid-column: 1 / -1; }
 body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
 body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header :is(h2, h3) { font: var(--weight-regular) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
+/* Only the dialog's own title is serif. The shared title rule also matches a section's first heading,
+   so section headings inside these dialogs are set back to the body face here. */
+body [data-dialog-panel]:is(.baseline-dialog, .evidence-dialog, .daily-dialog) section > :is(h3, h4):first-child { font-family: var(--font-body); }
 body :is(#root, [role='dialog']) :is(.pilot-privacy-note, .pilot-guide-dialog footer, .pilot-feedback-success) { border: 1px solid var(--rule); background: var(--surface-ground); color: var(--muted); }
 body :is(#root, [role='dialog']) .setup-help-topics button.ui-row { border-top: 0; }
 @media (forced-colors: active) {

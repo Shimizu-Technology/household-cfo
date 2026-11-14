@@ -5432,7 +5432,7 @@ function DocumentImportWorkspace({
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
       {uploadBlocked && <p className="document-alert" role="status">{uploadBlocked}</p>}
-      <div className="document-upload-primary">{!imports.some(documentNeedsReview) && <h3>{uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3>}{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
+      <div className="document-upload-primary"><h3>{uploadBlocked ? 'Uploads are not available yet' : 'Upload a statement'}</h3>{documentUploadCards.filter(card => card.kind === 'statement').map(card => <DocumentUploadCard key={card.kind} retentionSlot={`${uploadScope}:${card.kind}`} card={card} uploading={uploadingKind === card.kind} disabled={Boolean(uploadingKind) || Boolean(uploadBlocked)} onUpload={file => onUpload(card.kind, file)} />)}</div>
 
       <div className="document-review-layout">
         <DocumentImportHistory
