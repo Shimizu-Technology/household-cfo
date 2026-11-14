@@ -49,7 +49,7 @@ body #root .document-history-card.active { background: var(--brand-soft); }
 .wealth-figures .metric-value-unknown small { display: block; font: var(--weight-regular) var(--text-xs)/1.5 var(--font-body); }
 .wealth-figures .metric-card > small { color: var(--muted); line-height: 1.5; }
 @container (min-width: 580px) {
-  .wealth-figures.metric-row, .wealth-figures.lever-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .wealth-figures.metric-row, .wealth-figures.lever-row { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
   .wealth-figures .metric-card { padding: 0 16px; }
   .wealth-figures .metric-card:first-child { padding-inline-start: 0; }
   .wealth-figures .metric-card + .metric-card { border-top: 0; border-inline-start: 1px solid var(--rule); }
