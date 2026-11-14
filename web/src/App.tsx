@@ -1216,10 +1216,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }, [assistantName, challengeNotOpen, chatStorageKey, isRealWorkspace, miaLoading])
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
+    // Review always describes its current page month, even after an older purchase edit.
+    if (activeSectionRef.current === 'Review') ({ startsOn, endsOn } = selectedBudgetPeriodRef.current)
     if (!isRealWorkspace || !startsOn || !endsOn) {
       if (!isRealWorkspace) {
         spendingReportRequestRef.current += 1
         setSpendingReport(null)
+        setSpendingReportLoading(false)
+        setSpendingReportError(null)
       }
       return
     }
@@ -1234,13 +1238,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
     try {
       const report = await fetchSpendingReport(startsOn, endsOn)
-      if (requestId === spendingReportRequestRef.current) setSpendingReport(report)
+      if (requestId === spendingReportRequestRef.current) {
+        setSpendingReport(report)
+        setSpendingReportError(null)
+      }
     } catch (caught) {
       if (requestId === spendingReportRequestRef.current) {
         setSpendingReportError(participantErrorMessage(caught, 'Spending report could not be loaded.'))
       }
     } finally {
-      if (!quiet && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
+      if (requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
@@ -1441,14 +1448,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }, [activeSection, isRealWorkspace, refreshMiaMessages])
 
   useEffect(() => {
-    if (!isRealWorkspace || !documentsVisible || !documentStatusSignature) return
+    if (!isRealWorkspace || !documentSummariesVisible || !documentStatusSignature) return
 
     const intervalId = window.setInterval(() => {
       void refreshDocumentImports({ quiet: true })
     }, 3500)
 
     return () => window.clearInterval(intervalId)
-  }, [documentsVisible, documentStatusSignature, isRealWorkspace, refreshDocumentImports])
+  }, [documentSummariesVisible, documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
   useEffect(() => {
     if (!isRealWorkspace || !documentsVisible || !importDraftSignature || miaLoading) return
@@ -1480,30 +1487,18 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   useEffect(() => {
     if (!isRealWorkspace || !spendingVisible || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
 
-    const startsOn = selectedBudgetMonthStartsOn
-    const endsOn = selectedBudgetMonthEndsOn
-    const requestId = ++spendingReportRequestRef.current
     let cancelled = false
-    async function loadSpendingReport() {
-      setSpendingReportLoading(true)
-      setSpendingReportError(null)
-      try {
-        const report = await fetchSpendingReport(startsOn, endsOn)
-        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReport(report)
-      } catch (caught) {
-        if (!cancelled && requestId === spendingReportRequestRef.current) {
-          setSpendingReportError(participantErrorMessage(caught, 'Spending report could not be loaded.'))
-        }
-      } finally {
-        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
-      }
-    }
-
-    void loadSpendingReport()
+    let requestId: number | undefined
+    queueMicrotask(() => {
+      if (cancelled) return
+      void refreshSpendingReport({ startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn, quiet: false })
+      requestId = spendingReportRequestRef.current
+    })
     return () => {
       cancelled = true
+      if (requestId === spendingReportRequestRef.current) spendingReportRequestRef.current += 1
     }
-  }, [spendingVisible, isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
+  }, [spendingVisible, isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn, refreshSpendingReport])
 
   useEffect(() => {
     if (!data || isRealWorkspace) return
@@ -2391,6 +2386,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             spendingReportRequestRef.current === spendingReportRequestAtSend) {
           spendingReportRequestRef.current += 1
           setSpendingReport(response.spending_report)
+          setSpendingReportLoading(false)
+          setSpendingReportError(null)
         }
       }
       void refreshDocumentImports({ quiet: true })
@@ -3316,9 +3313,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
       await refreshStaleTransactionReview(caught)
       const message = participantErrorMessage(caught, `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
-      setBudgetError(message)
-      setDocumentsError(message)
-      setMiaError(message)
+      if (activeSectionRef.current === 'Statements') setDocumentsError(message)
+      else if (activeSectionRef.current === 'Ask Mia') setMiaError(message)
+      else setBudgetError(message)
     } finally {
       endBudgetAction()
       recoverReviewFocus()
@@ -4774,6 +4771,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
+              confirmedFields={data.workspace.setup_status.confirmed_fields}
               monthAnswer={selectedBudgetYear === data.dashboard.action_center.current_year && selectedBudgetMonthIndex === data.dashboard.action_center.current_month_index ? data.dashboard.month_answer : undefined}
               planKnown={!isRealWorkspace || householdPlanKnown(data)}
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
@@ -7754,6 +7752,7 @@ export function TransactionDraftReviewStack({
   emptyTitle?: string
   description?: string
 }) {
+  const Heading = headerBulkAction ? 'h3' : 'h4'
   const resolvedTitle = title ?? transactionReviewStackTitle()
   const [expanded, setExpanded] = useState(false)
   const [editingIds, setEditingIds] = useState<Set<number>>(() => new Set())
@@ -7853,7 +7852,7 @@ export function TransactionDraftReviewStack({
     <div ref={reviewStackRef} className={`transaction-draft-stack participant-review ${compact ? 'compact' : ''}`} onFocusCapture={(event) => { focusedReviewId.current = (event.target as HTMLElement).closest<HTMLElement>('[data-review-item]')?.dataset.reviewItem ?? null }}>
       <div className="transaction-draft-stack-heading">
         <div>
-          <h4 ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? emptyTitle : resolvedTitle}</h4>
+          <Heading ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? emptyTitle : resolvedTitle}</Heading>
           {(description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
@@ -8699,6 +8698,7 @@ export function CategoryEditCell({
 export function AnnualBudgetPlanner({
   plan,
   monthAnswer,
+  confirmedFields = [],
   planKnown = true,
   needsSetup = false,
   onReviewTransactions,
@@ -8730,6 +8730,7 @@ export function AnnualBudgetPlanner({
 }: {
   plan: AnnualBudgetPlan
   monthAnswer?: DashboardData['month_answer']
+  confirmedFields?: string[]
   planKnown?: boolean
   needsSetup?: boolean
   onReviewTransactions: () => void
@@ -8989,7 +8990,7 @@ export function AnnualBudgetPlanner({
   }
 
   return (
-    <article className="panel annual-budget-panel">
+    <article className={`panel annual-budget-panel${!planKnown && !beforePlanStart ? ' is-plan-unknown' : ''}`}>
       <div className="annual-budget-heading">
         <div>
           <h3>Your annual plan</h3>
@@ -9014,7 +9015,7 @@ export function AnnualBudgetPlanner({
         </div>
       </div>
 
-      <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={planKnown && !beforePlanStart} answer={monthAnswer} />
+      <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={!beforePlanStart} confirmedFields={confirmedFields} answer={monthAnswer} />
 
 
 
@@ -9025,15 +9026,16 @@ export function AnnualBudgetPlanner({
       {!beforePlanStart && planKnown && <ExpenseStackOverview key={`${plan.year}:${plan.months[currentMonthIndex]?.id}`} positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
 
       <div className="budget-rail">
-      {!needsSetup && <div className="annual-budget-actions ui-card">
+      {(!needsSetup || plan.pending_transaction_drafts.length > 0 || (plan.pending_mia_action_drafts ?? []).length > 0) && <div className="annual-budget-actions ui-card">
         <div className="budget-status-row"><span>{plan.rows.length} categories</span><span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span></div>
         <div className="budget-primary-actions">
-          {!manualTool && <button type="button" className="ui-row" onClick={onAskMia}><span className="ui-monogram" aria-hidden="true">{Array.from(assistantName)[0]}</span><span className="ui-row__body"><span className="ui-row__title">Ask {assistantName} to update my plan</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
-          {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="ui-row" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{manualTool ? 'Manual tools open' : 'Manage manually'}</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+          {!needsSetup && !manualTool && <button type="button" className="ui-row" onClick={onAskMia}><span className="ui-monogram" aria-hidden="true">{Array.from(assistantName)[0]}</span><span className="ui-row__body"><span className="ui-row__title">Ask {assistantName} to update my plan</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+          {!needsSetup && isRealWorkspace && <button type="button" ref={manualTriggerRef} className="ui-row" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{manualTool ? 'Manual tools open' : 'Manage manually'}</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+          {plan.pending_transaction_drafts.length > 0 && <button type="button" className="ui-row budget-review-link" aria-label="Review" onClick={onReviewTransactions}><span className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review</span><span className="ui-row__detail">Review</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+          {(plan.pending_mia_action_drafts ?? []).length > 0 && <button type="button" className="ui-row budget-mia-review-link" aria-label={`Review in ${assistantName}`} onClick={onAskMia}><span className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you</span><span className="ui-row__detail">Review in {assistantName}</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
         </div>
       </div>}
-      {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
-      {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
+
 
       {(beforePlanStart || planKnown) && <details className="budget-detail-disclosure">
         <summary>

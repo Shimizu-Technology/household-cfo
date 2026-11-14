@@ -34,7 +34,7 @@
 .budget-screen .expense-stack-row .ui-track { margin-block: var(--space-3) var(--space-2); }
 .budget-screen .expense-stack-row .ui-track__fill { background: var(--group-color); }
 .budget-screen .expense-group-meaning { margin: 0; color: var(--muted); font-size: var(--text-xs); font-weight: var(--weight-regular); }
-.budget-screen .expense-group-details > summary { padding: 0 24px 0 42px; }
+body #root .budget-screen .expense-group-details > summary { padding: 0 32px 0 42px; }
 .budget-screen .expense-group-details > summary::after { inset-inline-end: 0; top: 16px; }
 .budget-screen .expense-debt-note { margin: var(--space-2) 0 0 42px; color: var(--muted); font-size: var(--text-xs); }
 .budget-screen .expense-group-categories { margin-inline-start: 42px; }
@@ -48,7 +48,6 @@
 .budget-screen .budget-detail-disclosure > summary strong { font-size: var(--text-md); font-weight: var(--weight-semibold); }
 .budget-screen .budget-detail-disclosure > summary small { display: block; margin-top: var(--space-1); color: var(--muted); font-size: var(--text-xs); }
 .budget-screen .budget-detail-disclosure > summary b { display: block; margin-top: var(--space-2); font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--muted); }
-.budget-screen :is(.budget-review-link, .budget-mia-review-link) { margin: 0; font-size: var(--text-sm); }
 .budget-screen .budget-manual-manager { padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
 .budget-screen .budget-manual-manager-heading { flex-wrap: wrap; }
 .budget-screen .budget-manual-manager :is(h4, .annual-income-planner h3) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
@@ -72,9 +71,6 @@
 .activity-screen .transaction-draft-stack-heading p { color: var(--muted); font-size: var(--text-xs); }
 .activity-screen .transaction-draft-stack-heading > strong { padding: 0; border: 0; background: transparent; font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--muted); }
 .activity-screen .transaction-draft-stack > .transaction-draft-card { padding: var(--space-4) 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
-.activity-screen .transaction-draft-card .transaction-draft-actions { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: var(--space-2); }
-.activity-screen .transaction-draft-card .transaction-draft-actions > button { width: 100%; }
-.activity-screen .transaction-draft-card .transaction-draft-actions > .text-button { padding-inline: 8px; }
 .activity-screen .transaction-draft-bulk-actions { padding: 0 0 var(--space-3); border: 0; background: transparent; font-size: var(--text-xs); }
 .activity-screen .transaction-draft-queue-controls { padding: var(--space-3) 0; }
 .activity-screen .transaction-draft-pagination { flex-wrap: wrap; padding-top: var(--space-3); }
@@ -92,7 +88,7 @@
 .activity-screen .plaid-activity :is(.plaid-empty, .plaid-source-strip, .plaid-activity-summary > article, .plaid-item-card) { border: 0; border-radius: 0; background: transparent; padding-inline: 0; }
 .activity-screen .plaid-activity .plaid-activity-summary { grid-template-columns: minmax(0, 1fr); }
 .review-confirmed-total { margin: var(--space-3) 0; font-size: var(--text-xl); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; overflow-wrap: anywhere; }
-.review-confirmed-list > summary { color: var(--brand-strong); font-size: var(--text-sm); }
+body #root .review-confirmed-list > summary { color: var(--brand-strong); font-size: var(--text-sm); }
 .review-confirmed .reviewed-transactions-panel { margin-top: var(--space-3); padding: var(--space-3) 0 0; border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
 .review-confirmed .reviewed-transaction-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .review-confirmed .reviewed-transaction-row > strong { flex-basis: 100%; }
@@ -121,10 +117,6 @@
   .budget-screen .expense-group-money { text-align: start; max-width: none; }
   .budget-screen .expense-group-money > span { margin-top: var(--space-1); }
 }
-@container review-layout (max-width: 350px) {
-  .activity-screen .transaction-draft-card .transaction-draft-actions { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
-  .activity-screen .transaction-draft-card .transaction-draft-actions > .text-button { grid-column: 1 / -1; justify-self: start; width: auto; }
-}
 /* Legacy status pills addressed every descendant span. The action body is a row. */
 .budget-screen .budget-primary-actions .ui-row span { padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font-size: inherit; font-weight: inherit; }
 .budget-screen .budget-primary-actions .ui-row .ui-monogram { flex-basis: 32px; width: 32px; height: 32px; border: 1px solid var(--brand); border-radius: 50%; background: var(--brand-soft); color: var(--brand-strong); font: var(--weight-semibold) 18px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
@@ -132,11 +124,9 @@
 .budget-screen .budget-primary-actions .ui-row .ui-row__chevron { flex-basis: 16px; color: var(--muted); }
 .budget-screen .annual-budget-actions .budget-status-row span { padding: 0; border: 0; border-radius: 0; background: transparent; }
 body #root .budget-screen .budget-detail-disclosure { padding: 12px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface-card); }
-.budget-screen .budget-detail-disclosure > summary { padding: 0 24px 0 0; }
+body #root .budget-screen .budget-detail-disclosure > summary { padding: 0 32px 0 0; }
 .budget-screen .budget-detail-disclosure > .current-month-activity { background: transparent; padding: var(--space-3) 0 0; }
 .activity-screen .manual-transaction-capture { margin-bottom: 0; }
-.activity-screen .transaction-draft-card .transaction-draft-actions { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
-.activity-screen .transaction-draft-card .transaction-draft-actions > .text-button { grid-column: 1 / -1; justify-self: start; width: auto; }
 .activity-screen .transaction-draft-stack-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .activity-screen .transaction-draft-stack-heading > div { grid-column: 1; grid-row: 1 / 3; }
 .activity-screen .transaction-draft-stack-heading > strong { grid-column: 2; grid-row: 1; text-align: end; }
@@ -156,16 +146,13 @@ body #root .budget-screen .budget-manual-manager { padding: 18px; border: 1px so
 .budget-plan-strip dd { white-space: nowrap; overflow-wrap: normal; }
 @container budget-layout (max-width: 620px) {
   .budget-plan-strip.is-long-money dl { grid-template-columns: minmax(0, 1fr); }
-  .budget-plan-strip.is-long-money dl > div { flex-direction: row; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border: 0; border-top: 1px solid var(--rule); }
+  .budget-plan-strip.is-long-money dl > div { flex-direction: row; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) 0; border: 0; border-top: 1px solid var(--rule); }
   .budget-plan-strip.is-long-money dl > div:first-child { padding-top: 0; border: 0; }
-  .budget-plan-strip.is-long-money dd { margin: 0; padding: 0; }
+  .budget-plan-strip.is-long-money dd { margin: 0 0 0 auto; padding: 0; }
 }
-body #root .activity-screen .transaction-draft-card .transaction-draft-actions { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
-body #root .activity-screen .transaction-draft-card .transaction-draft-actions > .text-button { grid-column: 1 / -1; width: auto; justify-self: start; padding-inline: 0; }
 .activity-screen .transaction-draft-stack-heading > div { display: contents; }
-.activity-screen .transaction-draft-stack-heading h4 { grid-column: 1; grid-row: 1; }
+.activity-screen .transaction-draft-stack-heading :is(h3, h4) { grid-column: 1; grid-row: 1; }
 .activity-screen .transaction-draft-stack-heading p { grid-column: 1 / -1; grid-row: auto; margin: var(--space-2) 0 0; }
-.activity-screen .transaction-draft-stack-heading > strong { grid-column: 2; grid-row: 1; }
 .activity-screen .transaction-draft-stack-heading > .review-header-bulk { grid-column: 1 / -1; grid-row: auto; justify-self: end; }
 /* Bank tools can also live in the narrow rail, independently of viewport width. */
 .activity-screen .plaid-source-strip, .activity-screen .plaid-review-scope { flex-direction: column; align-items: stretch; min-width: 0; }
@@ -174,3 +161,19 @@ body #root .activity-screen .transaction-draft-card .transaction-draft-actions >
 .activity-screen .plaid-activity-summary > article { min-height: 0; padding-block: var(--space-3); border-bottom: 1px solid var(--rule); }
 .activity-screen .plaid-activity-summary > article::after { content: none; }
 .activity-screen .plaid-activity-summary strong { font-size: var(--text-lg); font-weight: var(--weight-semibold); }
+
+/* Size actions to their card, including a narrow laptop rail. */
+.activity-screen .transaction-draft-card { container: review-purchase / inline-size; }
+body #root .activity-screen .transaction-draft-card .transaction-draft-actions { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) auto; gap: var(--space-2); }
+body #root .activity-screen .transaction-draft-actions > button { width: 100%; }
+body #root .activity-screen .transaction-draft-actions > .ui-btn--text { width: auto; padding-inline: 8px; }
+@container review-purchase (max-width: 339px) {
+  body #root .activity-screen .transaction-draft-card .transaction-draft-actions { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+  body #root .activity-screen .transaction-draft-actions > .ui-btn--text { grid-column: 1 / -1; width: auto; justify-self: start; padding-inline: 0; }
+}
+@container budget-layout (min-width: 780px) {
+  .budget-screen .annual-budget-panel.is-plan-unknown { grid-template-columns: minmax(0, 1fr); }
+  .budget-screen .annual-budget-panel.is-plan-unknown > .budget-rail { grid-column: 1; }
+}
+/* The native select's chevron needs its own space inside the period pill. */
+body #root .budget-screen .budget-view-controls .ui-period select { padding-inline-end: 38px; }

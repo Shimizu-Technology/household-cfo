@@ -7,7 +7,7 @@ export function ReviewConfirmedCard({ report, loading, error, children }: { repo
   return <section className="review-confirmed ui-card" aria-label="Confirmed spending this month">
     <h3 className="ui-section">Confirmed this month</h3>
     {report && <p className="ui-label">{report.period_label}</p>}
-    <p className="review-confirmed-total">{loading ? 'Loading report' : !report || error ? 'Not known yet' : formatReviewMoney(Math.round(report.totals.actual * 100))}</p>
+    <p className="review-confirmed-total">{report ? formatReviewMoney(Math.round(report.totals.actual * 100)) : loading ? 'Loading report' : 'Not known yet'}</p>
     {error && <p role="alert" className="setup-error">{error}</p>}
     <details key={`${report?.start_on}:${report?.end_on}`} className="review-confirmed-list"><summary>See all</summary>
       {children}

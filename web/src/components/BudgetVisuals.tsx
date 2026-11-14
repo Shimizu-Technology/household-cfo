@@ -68,14 +68,16 @@ export function MonthPlanSummary({
 }
 
 /** The selected month's plan; pending purchases never reduce the remainder. */
-export function BudgetPlanStrip({ plan, monthIndex, planKnown, answer }: { plan: AnnualBudgetPlan; monthIndex: number; planKnown: boolean; answer?: DashboardData['month_answer'] }) {
+export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields = [], answer }: { plan: AnnualBudgetPlan; monthIndex: number; planKnown: boolean; confirmedFields?: string[]; answer?: DashboardData['month_answer'] }) {
   const month = plan.months[monthIndex]
   const outlook = plan.annual_outlook.months.find(candidate => candidate.period_id === month?.id)
-  const income = answer ? (answer.money_in_cents == null ? null : answer.money_in_cents / 100) : month ? plan.monthly_income[month.id] : null
+  const approved = plan.plan_available !== false
+  const costsKnown = (['fixed_expenses', 'flexible_spend'] as const).every((field, index) => confirmedFields.includes(field) || plan.rows.some(row => row.active && row.stack_key === (index === 0 ? 'non_discretionary' : 'discretionary')))
+  const income = answer ? (answer.money_in_cents == null ? null : answer.money_in_cents / 100) : approved && month ? plan.monthly_income[month.id] : null
   const amountsKnown = plan.rows.every(row => !row.active || (row.months[monthIndex] && !row.months[monthIndex].allocation_missing))
-  const planned = answer ? (answer.planned_out_cents == null ? null : answer.planned_out_cents / 100) : planKnown && amountsKnown && plan.monthly_debt_minimums_known !== false ? outlook?.planned_outflow : null
+  const planned = answer ? (answer.planned_out_cents == null ? null : answer.planned_out_cents / 100) : approved && planKnown && costsKnown && amountsKnown && plan.monthly_debt_minimums_known !== false ? outlook?.planned_outflow : null
   const left = answer ? (answer.plan_left_cents == null ? null : answer.plan_left_cents / 100) : income != null && planned != null ? subtractMoney(income, planned) : null
-  return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value != null && formatReviewMoney(Math.round(Math.abs(value) * 100)).length > 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
+  return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value == null || formatReviewMoney(Math.round(Math.abs(value) * 100)).length >= 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
     <p className="budget-strip-period ui-label">{month && new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month.starts_on}T00:00:00Z`))}</p>
     <dl>
       <div><dt>Money in</dt><dd>{income == null ? 'Not entered' : formatReviewMoney(Math.round(income * 100))}</dd></div>
@@ -89,7 +91,7 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, answer }: { plan:
 export function ExpenseStackOverview({ positions, debtMinimums }: { positions: BudgetPosition[]; debtMinimums?: number | null }) {
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
-    const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
+    const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual > 0))
     return { stackKey, label: stackLabels[stackKey], positions: stackPositions, totals: budgetPositionTotals(stackPositions) }
   })
 
@@ -98,7 +100,7 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
       <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
       <div className="expense-stack-list">
         {groups.map(({ stackKey, label, totals, positions: categories }) => {
-          const known = categories.length > 0 && !categories.some(category => category.id === 0 || category.allocationMissing)
+          const known = categories.some(category => category.id !== 0) && !categories.some(category => category.id !== 0 && category.active && category.allocationMissing)
           const over = known ? subtractMoney(totals.actual, totals.planned) : 0
           const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : 'No confirmed transactions yet'
           const value = known && totals.planned > 0 ? Math.min(100, Math.max(0, totals.actual / totals.planned * 100)) : known && totals.actual > 0 ? 100 : 0

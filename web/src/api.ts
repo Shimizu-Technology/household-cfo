@@ -763,6 +763,7 @@ export type MiaSetupCardData = { title: string; rows: MiaSetupCardRow[]; can_app
 export type MiaSetupCardEdit = { field: string; action_name: 'set' | 'remove' | 'skip' | 'unskip'; part_id?: string; value?: string }
 
 export type AnnualBudgetPlan = {
+  plan_available?: boolean
   year: number
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
