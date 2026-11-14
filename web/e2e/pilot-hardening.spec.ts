@@ -10698,13 +10698,14 @@ test('BOG UI visual viewport reduction keeps feedback above the keyboard and fol
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--dialog-viewport-height'))).toBe('320px')
   await assertDialogVisibleHeight(dialog)
   await expect(dialog.getByLabel('What did you attempt?')).toBeFocused()
-  await expect.poll(() => dialog.getByLabel('What did you attempt?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top && control.bottom <= panel.bottom })).toBe(true)
+  // Native scrollTop rounds fractional 16px/1.4 field bounds (for example, 390.171875 vs 390).
+  await expect.poll(() => dialog.getByLabel('What did you attempt?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top - 1 && control.bottom <= panel.bottom + 1 })).toBe(true)
   await dialog.getByLabel('What happened instead?').fill('Fictional lower field keyboard test')
   await page.evaluate(() => {
     document.documentElement.dataset.testViewportHeight = '260'
     window.visualViewport!.dispatchEvent(new Event('resize'))
   })
-  await expect.poll(() => dialog.getByLabel('What happened instead?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top && control.bottom <= panel.bottom })).toBe(true)
+  await expect.poll(() => dialog.getByLabel('What happened instead?').evaluate(el => { const control = el.getBoundingClientRect(); const panel = el.closest('[role="dialog"]')!.getBoundingClientRect(); return control.top >= panel.top - 1 && control.bottom <= panel.bottom + 1 })).toBe(true)
   await expect(dialog.getByLabel('What happened instead?')).toBeFocused()
   await dialog.getByRole('button', { name: 'Close', exact: true }).focus()
   await expect(dialog.getByRole('heading')).toBeInViewport()
