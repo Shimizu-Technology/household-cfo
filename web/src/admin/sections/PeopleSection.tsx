@@ -111,7 +111,7 @@ export function PeopleSection({ currentUser }: { currentUser: CurrentUser }) {
         </tr></thead>
         <tbody>{visible.map(person => <tr key={person.id}>
           <th scope="row"><button type="button" className="admin-row-link" onClick={() => setOpenId(person.id)}><strong>{nameOf(person)}</strong><small>{person.email}</small></button></th>
-          <td><span className="admin-group-name" tabIndex={0} title={groupNames(person) || undefined}>{groupNames(person) || '—'}</span></td><td>{roleLabel[person.role]}</td>
+          <td><span className="admin-group-name" title={groupNames(person) || undefined}>{groupNames(person) || '—'}</span></td><td>{roleLabel[person.role]}</td>
           <td><StatePill person={person} /></td><td>{lastActiveWords(lastActiveAt(person))}</td><td className="admin-setup-status">{setupWords(person)}</td>
         </tr>)}</tbody>
       </table></div>

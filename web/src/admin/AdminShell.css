@@ -22,8 +22,8 @@
 .admin-denied .auth-panel h1 { font-size: var(--text-2xl); }
 .admin-denied .button, .admin-unavailable .button { text-decoration: none; }
 @media (min-width: 621px) and (max-width: 1023px) {
-  .app.admin-app > .tabs-shell { position: sticky; top: 0; z-index: 45; margin: 0; padding: 8px 24px; }
-  .admin-main { padding: 24px; }
+  .app.admin-app > .tabs-shell { position: sticky; top: 0; z-index: 45; margin: 0; padding: calc(8px + env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 8px max(24px, env(safe-area-inset-left)); }
+  .admin-main { padding: 24px max(24px, env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left)); }
 }
 @media (max-width: 620px) {
   .admin-app[data-field-pointer] > :is(.tabs-shell, .tabs-ground),
@@ -43,7 +43,7 @@
   .admin-sidebar .shell-sidebar-link:active { transform: scale(0.97); }
   .admin-sidebar .shell-account-menu > summary { width: 100%; padding: 4px 8px; border: 0; background: transparent; }
   .admin-sidebar .shell-account-name { font-weight: var(--weight-medium); color: var(--muted); overflow-wrap: anywhere; }
-  .admin-main { width: 100%; max-width: 1260px; margin-inline: auto; padding: 32px 40px 48px; }
+  .admin-main { width: 100%; max-width: 1260px; margin-inline: auto; padding: calc(32px + env(safe-area-inset-top)) max(40px, env(safe-area-inset-right)) calc(48px + env(safe-area-inset-bottom)) max(40px, env(safe-area-inset-left)); }
   .admin-header { min-height: 0; margin: 0; justify-content: end; }
   .admin-header:has(.admin-program-picker) { margin-bottom: 16px; }
   .admin-program-picker { max-width: 280px; }

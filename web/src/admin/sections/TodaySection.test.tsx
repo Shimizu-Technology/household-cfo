@@ -333,3 +333,35 @@ describe('Invite people from Today', () => {
     unregister()
   })
 })
+
+
+describe('the challenge day figure', () => {
+  it.each([
+    ['open', '2026-11-14', '1'],
+    ['open', '2026-08-17', '90'],
+    ['open', '2026-11-15', null],
+    ['open', '2026-08-16', null],
+    ['paused', '2026-11-01', null],
+    ['ready', '2026-11-01', null],
+  ] as const)('shows only a running challenge day: %s starting %s', async (state, start, expected) => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-14T02:00:00Z'))
+    try {
+      api.fetchAdminCohorts.mockResolvedValue([group(2, bog.name, { starts_on: start, savings_challenge: savings(state) })])
+      render(<TodaySection currentUser={staff()} />)
+      await screen.findByText('Pat Needs')
+      const label = screen.queryByText('Challenge day')
+      if (expected) expect(label?.parentElement?.querySelector('dd')?.textContent).toBe(`${expected} of 90`)
+      else expect(label).toBeNull()
+    } finally { vi.useRealTimers() }
+  })
+})
+
+it('describes the help reason, check-in and need state without changing the row action name', async () => {
+  daily.daily.mockResolvedValue(page(2, [row(7, 'Pat Needs', { setup_help: [], help_requests: [{ id: 1 }], enrollment_id: 1, check_in: { completed: true } })]))
+  render(<TodaySection currentUser={staff()} />)
+  const button = await screen.findByRole('button', { name: 'View help for Pat Needs' })
+  const description = document.getElementById(button.getAttribute('aria-describedby')!)!
+  expect(description.textContent).toBe('Asked for challenge helpChecked in today · No target confirmed yetNeeds you')
+  expect(button.querySelector('button, a, input, select, textarea, [tabindex]')).toBeNull()
+})

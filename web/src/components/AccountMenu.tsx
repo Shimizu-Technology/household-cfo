@@ -32,7 +32,8 @@ export function AccountMenu({ children, menuRef, onOpen, onClose, participantLab
     }
   }} onBlur={event => {
     // Let a dialog launched from an account action manage its own focus.
-    if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) event.currentTarget.open = false
+    const boundary = event.currentTarget.closest('.admin-account-sheet')?.closest('[role="dialog"]') ?? event.currentTarget
+    if (event.relatedTarget && !boundary.contains(event.relatedTarget as Node)) event.currentTarget.open = false
   }}>
     <summary aria-label="Account and help"><span className="shell-account-initial" aria-hidden="true">{Array.from(auth.currentUser?.full_name?.trim() || 'A')[0]}</span><span className="shell-account-name">{auth.currentUser?.full_name || 'Account & help'}</span></summary>
     <div className="shell-account-panel">

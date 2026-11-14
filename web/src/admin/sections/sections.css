@@ -197,13 +197,11 @@
 .admin-table { table-layout: fixed; }
 .admin-table th, .admin-table td { padding: 12px 8px; overflow-wrap: anywhere; border-color: var(--rule); font-size: var(--text-xs); }
 .admin-table thead th { background: var(--surface-card); }
-.admin-table th:first-child { width: 28%; }
-.admin-table th:nth-child(2) { width: 18%; }
+.admin-table th:first-child { width: 20%; }
+.admin-table th:nth-child(2) { width: 44%; }
 .admin-row-link { max-width: 100%; overflow-wrap: anywhere; }
 .admin-row-link strong { color: var(--ink); font-weight: var(--weight-semibold); }
-.admin-group-name { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.admin-group-name:focus-visible,
-.admin-people-row:focus-visible .admin-group-name { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+.admin-group-name { display: block; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .admin-setup-status { white-space: nowrap; }
 .admin-filter-fields { display: grid; gap: 12px; }
 .admin-people-filters { min-width: 0; }
@@ -224,10 +222,10 @@
   .admin-daily-filters .admin-field { flex: 1 1 160px; }
 }
 @media (min-width: 1200px) {
-  .admin-today-section { grid-template-columns: minmax(0, 1fr) minmax(240px, 30%); align-items: start; }
+  .admin-today-section:has(> .admin-daily):has(> .admin-today-rail) { grid-template-columns: minmax(0, 1fr) minmax(240px, 30%); align-items: start; }
   .admin-today-section > * { grid-column: 1 / -1; }
-  .admin-today-section > .admin-daily { grid-column: 1; grid-row: span 2; }
-  .admin-today-section > .admin-today-rail { grid-column: 2; }
+  .admin-today-section:has(> .admin-daily) > .admin-daily { grid-column: 1; grid-row: span 2; }
+  .admin-today-section:has(> .admin-daily) > .admin-today-rail { grid-column: 2; }
 }
 
 .admin-today-rail { display: grid; gap: 16px; min-width: 0; }
@@ -249,6 +247,9 @@
 /* These groups already sit inside the disclosure/dialog's shared paper card. */
 .admin-accordion-body .panel, .admin-dialog-body .panel { border: 0; border-radius: 0; background: transparent; padding-inline: 0; box-shadow: none; }
 @media (max-width: 620px) {
+  .admin-metrics:has(> div:nth-child(3):last-child) > div:last-child { grid-column: 1 / -1; border-left: 0; }
   .admin-daily-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(110px, 32%); align-items: end; gap: 8px; }
 }
 .admin-person-row .ui-pill--attention { color: var(--color-warning); }
+
+.admin-today-section:not(:has(> .admin-daily)) > .admin-today-rail { max-width: 860px; width: 100%; }

@@ -50,6 +50,7 @@ function brandRuntime(config = legacyBrandConfig) {
 }
 
 async function adminProgramPicker(page: Page) {
+  await expect(page.locator('.admin-app')).toBeVisible()
   const picker = page.getByRole('combobox', { name: 'Program', exact: true })
   if (!(await picker.count()) && await page.locator('.admin-app').count()) {
     if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
@@ -7433,20 +7434,21 @@ test('Admin UI every section fits the screen and calls a group a group', async (
   }
 })
 
-test('Admin UI People reveals a truncated group name on keyboard focus without widening the page', async ({ page }) => {
+test('Admin UI People wraps the full group name without extra table tab stops or widening the page', async ({ page }) => {
   const name = 'A very long household coaching group for families across the entire island and their extended households'
   const person = { ...pilotAdminUser, cohorts: pilotAdminUser.cohorts.map(item => ({ ...item, cohort: { ...item.cohort, name } })) }
   await page.route('http://api.test/api/v1/admin/users', route => route.fulfill({ json: { users: [person] } }))
-  await page.goto('/admin/people?pilot_e2e_role=admin')
-  const group = page.locator('.admin-group-name').first()
-  await expect(group).toHaveText(name)
-  await expect(group).toHaveCSS('white-space', 'nowrap')
-  await page.keyboard.press('Tab')
-  if ((page.viewportSize()?.width ?? 0) >= 840) await group.focus()
-  else await page.locator('.admin-people-row').first().focus()
-  await expect(group).toHaveCSS('white-space', 'normal')
-  expect(await group.evaluate(node => node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1)).toBe(true)
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/admin/people?pilot_e2e_role=admin')
+    const group = page.locator('.admin-group-name').first()
+    await expect(group).toHaveText(name)
+    await expect(page.locator('.admin-table [tabindex]:not(button):not(a):not(input):not(select)')).toHaveCount(0)
+    await expect(group).toHaveCSS('white-space', 'normal')
+    expect(await group.evaluate(node => node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+    if (width === 1440) expect(await group.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getClientRects().length })).toBeLessThanOrEqual(2)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
 })
 
 test('BOG UI household real review controls keep transaction and Mia changes behind explicit participant actions', async ({ page }) => {
@@ -14571,3 +14573,149 @@ for (const count of [7, 4, 2]) {
     await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
   })
 }
+
+// Fix-round acceptance uses the existing synthetic API fixtures; preview transport remains mocked.
+test('Admin UI a sole-program administrator can retain All programs after reload and open household reset', async ({ page }) => {
+  await mockFinancialRestartBrowser(page)
+  await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
+    ...pilotAdminUser, id: 900, clerk_id: 'e2e_admin', role: 'admin', is_admin: true, is_staff: true,
+    admin_sections: staffAdminSections, preview_groups: [], active_coach_workspace: null,
+    coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'platform_admin', coach_profile: null }],
+  } } }))
+  await page.goto('/admin/today?pilot_e2e_role=admin&pilot_e2e_live_api=true')
+  await expectAdminProgramValue(page, 'platform')
+  await selectAdminProgram(page, '1')
+  await expectAdminProgramValue(page, '1')
+  await selectAdminProgram(page, 'platform')
+  await page.reload()
+  await expectAdminProgramValue(page, 'platform')
+  if ((page.viewportSize()?.width ?? 0) >= 1024) await page.getByRole('navigation', { name: 'Admin', exact: true }).getByRole('link', { name: 'My household' }).click()
+  else {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('link', { name: 'My household' }).click()
+  }
+  await openAccountHelp(page)
+  await page.locator('.shell-account-menu').getByRole('button', { name: 'Reset my test workspace', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Reset my test workspace', exact: true })).toBeVisible()
+})
+
+test('Admin UI a coach with one program has no redundant Program control', async ({ page }) => {
+  await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
+    ...pilotAdminUser, id: 902, clerk_id: 'e2e_coach', role: 'coach', is_admin: false, is_coach: true, is_staff: true,
+    admin_sections: staffAdminSections, preview_groups: [], active_coach_workspace: { id: 1 },
+    coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'owner', coach_profile: null }],
+  } } }))
+  await page.goto('/admin/today?pilot_e2e_role=coach&pilot_e2e_live_api=true')
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+  if ((page.viewportSize()?.width ?? 0) < 1024) await page.getByRole('button', { name: 'More', exact: true }).click()
+  await expect(page.getByRole('combobox', { name: 'Program', exact: true })).toHaveCount(0)
+})
+
+test('Admin UI History highlights the selected tab and the dirty skip link only moves focus', async ({ page }) => {
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await openCoachAdvanced(page)
+  const selected = page.getByRole('tab', { name: /Voice versions/ })
+  const other = page.getByRole('tab', { name: /Teaching library/ })
+  await expect(selected).toHaveAttribute('aria-selected', 'true')
+  expect(await selected.evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe(await other.evaluate(node => getComputedStyle(node).backgroundColor))
+  await page.getByRole('button', { name: 'Back to Coaching', exact: true }).click()
+  await page.getByLabel('Message Mia', { exact: true }).fill('An unsaved voice draft')
+  const before = await page.evaluate(() => ({ url: location.href, length: history.length }))
+  const skip = page.getByRole('link', { name: 'Skip to content', exact: true })
+  await skip.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('#admin-main')).toBeFocused()
+  expect(await page.evaluate(() => ({ url: location.href, length: history.length }))).toEqual(before)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByLabel('Message Mia', { exact: true })).toHaveValue('An unsaved voice draft')
+})
+
+test('Admin UI Today person action describes the help and check-in without nested controls', async ({ page }) => {
+  await mockDaily(page, [dailyPerson(5, 'Elena Needs', { needs_help: true, setup_help: [{ id: 9, reason: 'upload_problem', status: 'requested' }] })])
+  await page.goto('/admin/today?pilot_e2e_role=admin')
+  const row = page.getByRole('button', { name: 'View help for Elena Needs' })
+  await expect(row).toHaveAccessibleDescription('Asked for help with an upload Joined · Setup done Needs you')
+  await expect(row.locator('button, a, input, select, textarea, [tabindex]')).toHaveCount(0)
+})
+
+test('Admin UI account content stays open when keyboard focus wraps to the sheet close action', async ({ page }) => {
+  test.skip((page.viewportSize()?.width ?? 0) >= 1024, 'More sheet only below laptop width')
+  await page.goto('/admin/today?pilot_e2e_role=admin')
+  await page.getByRole('button', { name: 'More', exact: true }).click()
+  await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Account and help', exact: true })
+  const last = sheet.locator('.shell-account-panel button').last()
+  await last.focus()
+  await page.keyboard.press('Tab')
+  await expect(sheet.getByRole('button', { name: 'Close menu', exact: true })).toBeFocused()
+  await expect(sheet.locator('details')).toHaveAttribute('open', '')
+  await expect(sheet.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Shift+Tab')
+  await expect(sheet.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+})
+
+test('Admin UI single-column empty Coaching, Group tools and denied Today use the available width', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.route('http://api.test/api/v1/admin/personas', route => route.fulfill({ json: { personas: [] } }))
+  await page.goto(coachProgramUrl('/admin/coaching'))
+  await expect(page.getByLabel('Assistant name')).toBeVisible()
+  const columns = (selector: string) => page.locator(selector).evaluate(node => getComputedStyle(node).gridTemplateColumns.split(' ').length)
+  expect(await columns('.coach-simple')).toBe(1)
+  await page.getByRole('button', { name: 'Open group tools', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Group tools', exact: true })).toBeVisible()
+  expect(await columns('.coach-simple')).toBe(1)
+  await page.route(/http:\/\/api\.test\/api\/v1\/challenge_cohorts\/41\/participants\?.*/, route => route.fulfill({ status: 403, json: { error: 'Not your group' } }))
+  await openAdminSection(page, 'Today')
+  await expect(page.getByText(/only in the groups you coach/)).toBeVisible()
+  expect(await columns('.admin-today-section')).toBe(1)
+  const rail = await page.locator('.admin-today-rail').boundingBox()
+  const section = await page.locator('.admin-today-section').boundingBox()
+  expect(rail!.x).toBe(section!.x)
+  expect(rail!.width).toBeGreaterThan(700)
+})
+
+test('Admin UI Challenge day appears only for an open challenge within its 90 days', async ({ page }) => {
+  const date = (offset: number) => new Date(Date.parse(guamTodayIso()) + offset * 86400000).toISOString().slice(0, 10)
+  let state = 'open', start = date(-4)
+  await mockDaily(page, [dailyPerson(5, 'Elena Needs')])
+  await page.route(/http:\/\/api\.test\/api\/v1\/challenge_cohorts\/41\/participants\?.*/, route => route.fulfill({ json: {
+    cohort_id: 41, program_type: 'savings', records: [dailyPerson(5, 'Elena Needs')], counts: { all: 1, needs_help: 0, joined: 1, checked_in: 0 }, total: 1, next_offset: null,
+  } }))
+  await page.route('http://api.test/api/v1/admin/cohorts', route => route.fulfill({ json: { cohorts: [{ ...pilotCohort, starts_on: start, savings_challenge: { state, enabled: true } }] } }))
+  for (const fixture of [{ state: 'open', start: date(-4), day: '5 of 90' }, { state: 'open', start: date(1) }, { state: 'ready', start: date(-4) }, { state: 'paused', start: date(-4) }, { state: 'open', start: date(-90) }]) {
+    state = fixture.state; start = fixture.start
+    await page.goto('/admin/today?pilot_e2e_role=admin')
+    await expect(page.getByRole('heading', { name: 'Your people', exact: true })).toBeVisible()
+    if (fixture.day) await expect(page.locator('.admin-metrics')).toContainText(fixture.day)
+    else { await expect(page.getByText('Challenge day', { exact: true })).toHaveCount(0); await expect(page.locator('.admin-metrics > div')).toHaveCount(3) }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  }
+})
+
+test('Admin UI safe-area padding survives phone, landscape tablet and laptop rules', async ({ page }) => {
+  const css = readFileSync(new URL('../src/admin/AdminShell.css', import.meta.url), 'utf8')
+  // Browsers on this host report zero insets. Resolve a synthetic 40px notch through
+  // the actual stylesheet so each breakpoint and the cascade are still exercised.
+  const notched = css.replaceAll(/env\(safe-area-inset-(?:top|right|bottom|left)\)/g, '40px')
+  for (const width of [390, 768, 900, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/admin/today?pilot_e2e_role=admin')
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible()
+    await page.addStyleTag({ content: notched })
+    const padding = await page.locator('.admin-main').evaluate(node => {
+      const style = getComputedStyle(node)
+      return { left: parseFloat(style.paddingLeft), right: parseFloat(style.paddingRight), bottom: parseFloat(style.paddingBottom) }
+    })
+    expect(padding.left).toBeGreaterThanOrEqual(40)
+    expect(padding.right).toBeGreaterThanOrEqual(40)
+    expect(padding.bottom).toBeGreaterThanOrEqual(40)
+    if (width > 620 && width < 1024) {
+      const tabPadding = await page.locator('.admin-tabs-shell').evaluate(node => {
+        const style = getComputedStyle(node)
+        return [style.paddingTop, style.paddingLeft, style.paddingRight].map(parseFloat)
+      })
+      expect(tabPadding).toEqual([48, 40, 40])
+    }
+  }
+})

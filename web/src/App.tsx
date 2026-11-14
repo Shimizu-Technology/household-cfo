@@ -1,3 +1,4 @@
+import { focusSkipTarget } from './lib/focusSkipTarget'
 import { MiaSetupCard } from './components/MiaSetupCard'
 import { historyPosition, pushHistoryEntry } from './lib/browserHistory'
 import { DocumentReadingProgress } from './components/DocumentReadingProgress'
@@ -3955,7 +3956,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
   const workspace = (
     <div className={`app participant-app${activeSection === 'Ask Mia' ? ' is-chat-page' : ''}`}>
-      <a className="shell-skip-link" href="#participant-main" onClick={event => { event.preventDefault(); const main = document.getElementById('participant-main'); if (main) { main.tabIndex = -1; main.addEventListener('blur', () => main.removeAttribute('tabindex'), { once: true }); main.focus() } }}>Skip to content</a>
+      <a className="shell-skip-link" href="#participant-main" onClick={focusSkipTarget}>Skip to content</a>
       <SeoManager section={activeSection} />
       <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
 

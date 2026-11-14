@@ -242,15 +242,43 @@ it('replaces the guard entry when the person leaves, instead of stacking another
   expect(window.history.state?.adminLeaveGuard).toBeUndefined()
 })
 
-it('selects the sole server-provided program without presenting a redundant Program picker', async () => {
+it('keeps All programs available for an administrator with one program without selecting it', async () => {
   const App = await app()
   state.auth.currentUser = user('admin')
   state.auth.activeCoachWorkspaceId = null
+  state.auth.selectCoachWorkspace.mockClear()
   window.history.replaceState({}, '', '/admin/today')
   render(<App />)
-  await waitFor(() => expect(state.auth.selectCoachWorkspace).toHaveBeenCalledWith(5))
-  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'More' }))
+  const picker = screen.getByRole('combobox', { name: 'Program' }) as HTMLSelectElement
+  expect(picker.value).toBe('platform')
+  expect(within(picker).getAllByRole('option').map(option => option.textContent)).toEqual(['All programs', 'Mel program'])
+  expect(state.auth.selectCoachWorkspace).not.toHaveBeenCalled()
+})
+
+it('hides the picker for a coach with one program and leaves selection to auth as on main', async () => {
+  const App = await app()
+  state.auth.selectCoachWorkspace.mockClear()
+  window.history.replaceState({}, '', '/admin/today')
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'More' }))
   expect(screen.queryByLabelText('Program')).toBeNull()
+  expect(state.auth.selectCoachWorkspace).not.toHaveBeenCalled()
+})
+
+it('skips a dirty admin form without navigation, history or a discard prompt', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/coaching')
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit coaching' }))
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  const url = window.location.href
+  const length = window.history.length
+  fireEvent.click(screen.getByRole('link', { name: 'Skip to content' }))
+  expect(document.activeElement).toBe(screen.getByRole('main'))
+  expect(window.location.href).toBe(url)
+  expect(window.history.length).toBe(length)
+  expect(confirm).not.toHaveBeenCalled()
 })
 
 it('unmounts the portal sheet and releases its scroll lock while program access is rechecked', async () => {

@@ -202,7 +202,8 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   const detail = group.detail
   // Calendar dates come from this group's existing start date; no new series or money is read.
   const start = detail?.starts_on
-  const challengeDay = savings && start ? Math.max(0, Math.min(90, Math.round((Date.parse(guamTodayIso()) - Date.parse(start)) / 86_400_000) + 1)) : null
+  const day = start ? Math.round((Date.parse(guamTodayIso()) - Date.parse(start)) / 86_400_000) + 1 : NaN
+  const challengeDay = savings && detail?.savings_challenge?.state === 'open' && day >= 1 && day <= 90 ? day : null
   return <div className="admin-daily">
     <dl className="ui-card admin-metrics">
       <div><dt>Joined</dt><dd>{counts.joined}</dd></div>
@@ -223,11 +224,11 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
     {busy ? <p role="status" className="admin-muted">Loading people…</p>
       : records.length === 0 && !error ? <div className="admin-empty"><p>{search || filter !== 'all' ? (filter === 'needs_help' && !search ? 'No one has asked for help.' : 'No one matches. Try another name or choose Everyone.') : 'No one in this group yet. Invite someone to get started.'}</p>{canInvite && !search && filter === 'all' && <Button onClick={onInvite}>Invite people</Button>}</div>
       : <ul className="ui-card ui-rows admin-list admin-daily-people">{records.map(row => <li key={row.participant.id} className="admin-follow-row">
-        <button type="button" className="ui-row admin-person-row" aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} onClick={() => setOpen(row)}>
+        <button type="button" className="ui-row admin-person-row" aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} aria-describedby={`daily-${group.id}-${row.participant.id}-status`} onClick={() => setOpen(row)}>
           <span aria-hidden="true" className={`ui-dot ${row.needs_help ? 'ui-dot--attention' : row.check_in?.completed ? 'ui-dot--good' : 'ui-dot--neutral'}`} />
           <span className="ui-row__body"><strong className="ui-row__title">{row.participant.name}</strong>
-            <span className={`ui-row__detail${row.needs_help ? ' admin-need' : ''}`}>{dailyNeed(row)}</span>
-            <span className="ui-row__detail">{savings ? savingsStatus(row) : householdStatus(row)}</span></span>
+            <span id={`daily-${group.id}-${row.participant.id}-status`}><span className={`ui-row__detail${row.needs_help ? ' admin-need' : ''}`}>{dailyNeed(row)}</span>
+            <span className="ui-row__detail">{savings ? savingsStatus(row) : householdStatus(row)}</span>{row.needs_help && <span className="sr-only">Needs you</span>}</span></span>
           <span className="ui-row__trailing">{row.needs_help && <span className="ui-pill ui-pill--attention">Needs you</span>}<span className="admin-person-action">{row.needs_help ? 'View help' : 'View person'}</span></span>
           <span className="ui-row__chevron" aria-hidden="true">›</span>
         </button>

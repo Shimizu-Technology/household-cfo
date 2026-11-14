@@ -15,6 +15,7 @@ import { AdminGuideDialog } from './AdminGuideDialog'
 import { AdminSectionContent } from './AdminSectionContent'
 import { useShellSidebar } from '../lib/useShellSidebar'
 import { useShellTextEntryNavigation } from '../lib/textEntry'
+import { focusSkipTarget } from '../lib/focusSkipTarget'
 import { AdminMoreSheet } from './AdminMoreSheet'
 import './AdminShell.css'
 
@@ -62,15 +63,9 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
   }, [accountOpen, sidebar])
   const saving = useWorkspaceMutationInFlight()
   const workspaces = currentUser.coach_workspaces ?? []
-  const showProgram = workspaces.length > 1
+  const showProgram = workspaces.length + Number(currentUser.is_admin) > 1
   const activeWorkspaceId = auth.activeCoachWorkspaceId
   const activeKey = active?.key ?? requested
-  // A single program needs no picker. Resolve it through the auth context so
-  // subsequent sections still come from the server for that program.
-  const onlyWorkspaceId = workspaces.length === 1 ? workspaces[0].id : null
-  useEffect(() => {
-    if (onlyWorkspaceId !== null && activeWorkspaceId === null && !saving) auth.selectCoachWorkspace(onlyWorkspaceId)
-  }, [onlyWorkspaceId, activeWorkspaceId, saving, auth])
 
   // Choosing another section moves focus to its heading, as the household app does for its
   // screens, so a keyboard or screen-reader user lands on the new content. Not on first load.
@@ -149,7 +144,7 @@ export function AdminShell({ currentUser, sections, active, requested, onDirtyCh
 
   return <div ref={shellRef} className="app staff-app admin-app" hidden={hidden} inert={hidden}>
     <SeoManager section="Admin" />
-    <a className="shell-skip-link" href="#admin-main">Skip to content</a>
+    <a className="shell-skip-link" href="#admin-main" onClick={focusSkipTarget}>Skip to content</a>
     <nav className="admin-sidebar shell-sidebar" aria-label="Admin">
       <div className="admin-sidebar-brand"><BrandWordmark brand={brand} /><p className="sidebar-scope" title={scope}>{scope}</p></div>
       <div className="admin-sidebar-nav">{sections.map(section => sectionLink(section))}</div>
