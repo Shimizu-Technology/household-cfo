@@ -5,13 +5,13 @@ import { expect, type Page } from '@playwright/test'
 // that squeezes a select narrower than its text when it has room to grow, puts the text
 // under the arrow or cuts it short. Long values in a select that already fills its
 // container may truncate with an ellipsis; that is the only allowed case.
-export async function expectSelectsLeaveRoomForArrow(page: Page) {
+export async function expectSelectsLeaveRoomForArrow(page: Page, within = 'body') {
   let findings: string[]
   try {
-    findings = await page.evaluate(() => {
+    findings = await page.evaluate(scope => {
       const canvas = document.createElement('canvas').getContext('2d')!
       const problems: string[] = []
-      for (const node of document.querySelectorAll('select')) {
+      for (const node of document.querySelectorAll<HTMLSelectElement>(`${scope} select`)) {
         // Skip controls that are in the layout but cannot be seen (visibility or opacity).
         const seen = node.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true, opacityProperty: true, visibilityProperty: true } as CheckVisibilityOptions)
         if (!seen || node.multiple || node.size > 1) continue
@@ -31,7 +31,7 @@ export async function expectSelectsLeaveRoomForArrow(page: Page) {
         if (canvas.measureText(text).width > room + 1 && !filled) problems.push(`${name}: "${text}" needs ${Math.ceil(canvas.measureText(text).width)}px, has ${Math.floor(room)}px, and its container is ${Math.floor(available)}px wide`)
       }
       return problems
-    })
+    }, within)
   } catch {
     return // The page closed or navigated as the test ended.
   }
