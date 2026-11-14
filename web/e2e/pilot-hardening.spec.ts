@@ -16228,6 +16228,10 @@ test('BOG UI P8a keeps topic pills on phones and separates saved profile values 
   await page.getByRole('button', { name: 'Edit profile' }).focus()
   await page.keyboard.press('Enter')
   await expect(page.locator('.setup-form')).toHaveClass(/is-editing/)
+  // The opener is gone, so the keyboard's place moves to the form heading and Tab reaches the first field.
+  await expect(page.locator('.setup-form h3').first()).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('textbox', { name: 'Household name' })).toBeFocused()
   await page.getByLabel('Primary goal').focus()
   await page.keyboard.press('ControlOrMeta+A')
   await page.getByLabel('Primary goal').pressSequentially('An intentional household goal.', { delay: 20 })
@@ -16509,7 +16513,8 @@ for (const demo of [false, true]) test(`BOG UI P8a fix1 noneditable category row
 
 test('BOG UI P8a fix1 ended income stays plain and readable', async ({ page }) => {
   const workspace = realWorkspaceData(true)
-  const source = { ...workspace.workspace.income_sources[0], label: 'Ended pay', timeline_status: 'archived', ends_on: '2020-01-01' }
+  // Fixed terms and no scheduled change, so the figure does not depend on today's date.
+  const source = { ...workspace.workspace.income_sources[0], label: 'Ended pay', base_amount: 15_000, schedule_entries: [], timeline_status: 'archived', ends_on: '2020-01-01' }
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, income_sources: [source] } } }))
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   const row = page.locator('.income-source-manager-card-heading')

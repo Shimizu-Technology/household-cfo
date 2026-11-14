@@ -6843,6 +6843,12 @@ export function WorkspaceSetupForm({
       }
       canceledRef.current = false
     }
+    if (!firstSession && !wasEditingRef.current.editing && editing) {
+      // "Edit profile" unmounts when editing starts. Keep the keyboard's place on the form's
+      // heading, so the next Tab reaches the first field and a phone keyboard does not open unasked.
+      const active = document.activeElement
+      if (!active || active === document.body) savedHeadingRef.current?.focus({ preventScroll: true })
+    }
     wasEditingRef.current.editing = editing
   }, [editing])
   return (
