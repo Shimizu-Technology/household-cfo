@@ -194,7 +194,7 @@ async function openAccountHelp(page: Page) {
       await page.getByRole('button', { name: 'More', exact: true }).click()
       await page.getByRole('dialog', { name: 'More', exact: true }).getByRole('button', { name: 'Account and help', exact: true }).click()
     }
-    await expect(page.locator('.shell-account-panel')).toBeVisible()
+    await expect(page.getByRole('dialog', { name: 'Account and help', exact: true }).locator('.shell-account-panel')).toBeVisible()
     return
   }
   const account = page.getByLabel('Account and help', { exact: true })
@@ -10451,9 +10451,10 @@ for (const role of ['participant', 'coach', 'admin']) {
   test(`BOG UI account help stays stable across navigation for ${role}`, async ({ page }) => {
     await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
     await page.goto(`/?pilot_e2e_role=${role}#${role === 'participant' ? 'Home' : 'Coach%20Studio'}`)
+    if (role !== 'participant') await expect(page.locator('.admin-app')).toBeVisible()
     const sheetAccount = role !== 'participant' && (page.viewportSize()?.width ?? 0) < 1024
     if (sheetAccount) await openAccountHelp(page)
-    const account = page.locator('.shell-account-menu > summary')
+    const account = sheetAccount ? page.getByRole('dialog', { name: 'Account and help', exact: true }).locator('.shell-account-menu > summary') : page.locator('.shell-account-menu > summary')
     await expect(page.getByRole('button', { name: 'Open Mia', exact: true })).toHaveCount(0)
     await page.evaluate(() => document.fonts.ready)
     const homeRight = await account.evaluate(node => node.getBoundingClientRect().right)
