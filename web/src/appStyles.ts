@@ -6,6 +6,7 @@ import './styles/cards.css'
 import './styles/home.css'
 import './styles/mia.css'
 import './styles/charts.css'
+import './styles/budgetReview.css'
 import './styles/motion.css'
 
 // Primitives and scoped native-control overrides follow legacy screen styles.

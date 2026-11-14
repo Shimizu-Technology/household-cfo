@@ -1,5 +1,5 @@
 import { useId, useState, useRef, useEffect, type CSSProperties } from 'react'
-import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
+import type { AnnualBudgetPlan, BudgetStackKey, DashboardData } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { addMoney, subtractMoney } from '../lib/moneyMath'
@@ -67,35 +67,56 @@ export function MonthPlanSummary({
   )
 }
 
+/** The selected month's plan; pending purchases never reduce the remainder. */
+export function BudgetPlanStrip({ plan, monthIndex, planKnown, answer }: { plan: AnnualBudgetPlan; monthIndex: number; planKnown: boolean; answer?: DashboardData['month_answer'] }) {
+  const month = plan.months[monthIndex]
+  const outlook = plan.annual_outlook.months.find(candidate => candidate.period_id === month?.id)
+  const income = answer ? (answer.money_in_cents == null ? null : answer.money_in_cents / 100) : month ? plan.monthly_income[month.id] : null
+  const amountsKnown = plan.rows.every(row => !row.active || (row.months[monthIndex] && !row.months[monthIndex].allocation_missing))
+  const planned = answer ? (answer.planned_out_cents == null ? null : answer.planned_out_cents / 100) : planKnown && amountsKnown && plan.monthly_debt_minimums_known !== false ? outlook?.planned_outflow : null
+  const left = answer ? (answer.plan_left_cents == null ? null : answer.plan_left_cents / 100) : income != null && planned != null ? subtractMoney(income, planned) : null
+  return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value != null && formatReviewMoney(Math.round(Math.abs(value) * 100)).length > 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
+    <p className="budget-strip-period ui-label">{month && new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month.starts_on}T00:00:00Z`))}</p>
+    <dl>
+      <div><dt>Money in</dt><dd>{income == null ? 'Not entered' : formatReviewMoney(Math.round(income * 100))}</dd></div>
+      <div><dt>Planned out</dt><dd>{planned == null ? 'Not entered' : formatReviewMoney(Math.round(planned * 100))}</dd></div>
+      <div><dt>{left != null && left < 0 ? 'Short of the plan' : 'Left after the plan'}</dt><dd>{left == null ? 'Not entered' : formatReviewMoney(Math.round(Math.abs(left) * 100))}</dd></div>
+    </dl>
+    <p>Plan figures, not a bank balance.</p>
+  </section>
+}
+
 export function ExpenseStackOverview({ positions, debtMinimums }: { positions: BudgetPosition[]; debtMinimums?: number | null }) {
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
-    return {
-      stackKey,
-      label: stackLabels[stackKey],
-      positions: stackPositions,
-      totals: budgetPositionTotals(stackPositions),
-    }
+    return { stackKey, label: stackLabels[stackKey], positions: stackPositions, totals: budgetPositionTotals(stackPositions) }
   })
 
   return (
-    <section className="expense-stack-overview" aria-labelledby={titleId}>
+    <section className="expense-stack-overview ui-card" aria-labelledby={titleId}>
       <div className="financial-visual-heading"><h4 id={titleId}>Your spending groups</h4><p>Must-pay bills stay steady. Flexible spending is where you can adjust.</p></div>
       <div className="expense-stack-list">
-        {groups.map(({ stackKey, label, totals, positions: categories }) => (
-          <article className={`expense-stack-row stack-${stackKey}`} key={stackKey}>
-            <div className="expense-stack-row-heading">
-              <div>
-                <strong>{label}</strong>
-                <span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span>
-              </div>
-              <b>{categories.length < 2 || categories.some(category => category.id === 0) ? null : categories.some(category => category.allocationMissing) ? 'Not entered' : `${formatReviewMoney(Math.round(totals.planned * 100))} planned`}</b>
-            </div>
-            {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+        {groups.map(({ stackKey, label, totals, positions: categories }) => {
+          const known = categories.length > 0 && !categories.some(category => category.id === 0 || category.allocationMissing)
+          const over = known ? subtractMoney(totals.actual, totals.planned) : 0
+          const spent = totals.actual > 0 ? `${formatReviewMoney(Math.round(totals.actual * 100))} spent` : 'No confirmed transactions yet'
+          const value = known && totals.planned > 0 ? Math.min(100, Math.max(0, totals.actual / totals.planned * 100)) : known && totals.actual > 0 ? 100 : 0
+          return <article className={`expense-stack-row stack-${stackKey}${over > 0 ? ' is-over' : ''}${formatReviewMoney(Math.round(Math.max(totals.planned, totals.actual) * 100)).length > 12 ? ' is-long-money' : ''}`} key={stackKey}>
+            <details className="expense-group-details">
+              <summary aria-label={label} aria-describedby={`${titleId}-${stackKey}-values ${titleId}-${stackKey}-meaning`}>
+                <div className="expense-stack-row-heading">
+                  <div><strong>{label}</strong><span>{stackKey === 'non_discretionary' ? 'Fixed commitments' : stackKey === 'discretionary' ? 'Room to make choices' : stackKey === 'sinking_expected' ? 'Set aside for costs you can see coming' : 'Set aside for the unexpected'}</span></div>
+                  <div id={`${titleId}-${stackKey}-values`} className="expense-group-money"><b>{known ? `${formatReviewMoney(Math.round(totals.planned * 100))} planned` : 'Not entered'}</b><span>{spent}</span></div>
+                </div>
+                {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
+                <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
+              </summary>
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+            </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
-        ))}
+        })}
       </div>
     </section>
   )

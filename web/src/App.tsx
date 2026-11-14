@@ -1,3 +1,4 @@
+import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
 import { MiaReviewError } from './components/MiaReviewError'
 import { useLiveMiaResult } from './lib/useLiveMiaResult'
 import { miaReviewResult } from './lib/miaReviewResult'
@@ -90,6 +91,7 @@ import { adminPath, adminSectionsOf, legacyStaffRedirect, navigateTo, parseAdmin
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
 import {
   CategoryPressureList,
+  BudgetPlanStrip,
   ExpenseStackOverview,
 } from './components/BudgetVisuals'
 import {
@@ -1161,7 +1163,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return
     }
 
-    if (!['Statements', 'Ask Mia'].includes(activeSectionRef.current) && !firstSessionUploadOpen) return
+    if (!['Review', 'Statements', 'Ask Mia'].includes(activeSectionRef.current) && !firstSessionUploadOpen) return
 
     if (!quiet) {
       setDocumentsLoading(true)
@@ -1383,10 +1385,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }, [hasUnsavedBudgetChanges, hasUnsavedIncomeChanges, incomeMutationPending, hasUnsavedMoneyChanges, hasUnsavedProfileChanges, hasUnsavedFirstSetupChanges, question, pendingMiaAttachments.length, setupSaving, miaLoading, uploadingKind, budgetAction, documentAction])
 
   const documentsVisible = activeSection === 'Statements' || activeSection === 'Ask Mia' || isFirstSessionUpload
+  const documentSummariesVisible = documentsVisible || activeSection === 'Review'
   const spendingVisible = activeSection === 'Review' || activeSection === 'Budget'
+  const reviewSpendingReport = spendingReport?.start_on === selectedBudgetMonthStartsOn && spendingReport?.end_on === selectedBudgetMonthEndsOn ? spendingReport : null
 
   useEffect(() => {
-    if (!workspaceLoadKey || !documentsVisible) return
+    if (!workspaceLoadKey || !documentSummariesVisible) return
 
     let cancelled = false
     queueMicrotask(() => {
@@ -1396,7 +1400,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     return () => {
       cancelled = true
     }
-  }, [documentsVisible, refreshDocumentImports, workspaceLoadKey])
+  }, [documentsVisible, documentSummariesVisible, refreshDocumentImports, workspaceLoadKey])
 
   useEffect(() => {
     if (!isRealWorkspace || !documentsVisible || !selectedImport || selectedImport.details_included) return
@@ -4391,25 +4395,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       )}
 
       {activeSection === 'Review' && (
-        <section className="screen-grid activity-screen">
+        <div className="review-layout"><section className="screen-grid activity-screen">
           <ScreenHeading
             eyebrow="Review"
-            title="Review your purchases"
+            title="Review"
             copy="Add a purchase, check it, then confirm. Only confirmed purchases count as spent."
           />
 
           {isRealWorkspace && auth.currentUser ? (
             <>
-              <article className="panel activity-review-panel">
-                <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Manual transaction controls</legend>
-                <ManualTransactionCapture
-                  categories={activeBudgetPlan?.rows ?? []}
-                  busy={budgetAction === 'create-transaction-draft'}
-                  locked={Boolean(budgetAction)}
-                  resolutionNotice={transactionNotice}
-                  onCreate={handleCreateTransactionDraft}
-                />
-                </fieldset>
+              <article className="panel activity-review-panel ui-card">
                 {(
                   <TransactionDraftReviewStack
                     drafts={pendingTransactionDrafts}
@@ -4417,6 +4412,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
                     isRealWorkspace
                     compact
+                    headerBulkAction
                     action={chatDraftAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
@@ -4452,17 +4448,36 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   />
                 </section>}
                 {!budgetYearLoading && budgetError && <p className="setup-error" role="alert">{budgetError}</p>}
-                <ReviewedTransactionsPanel report={spendingReport} errors={reviewErrors} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
+
               </article>
+              <aside className="review-rail">
+                <div className="review-other ui-card">
+                  {documentsError && <div className="review-documents-error"><p className="setup-error" role="alert">{documentsError}</p><button type="button" className="ui-btn ui-btn--text" disabled={documentsLoading} onClick={() => void refreshDocumentImports()}>Try again</button></div>}
+                  {pendingImportsCount > 0 && <button type="button" className="ui-row" onClick={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}><span className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{pendingImportsCount} file{pendingImportsCount === 1 ? '' : 's'} waiting for review</span><span className="ui-row__detail">Statements to look over</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+                <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Manual transaction controls</legend>
+                <ManualTransactionCapture
+                  categories={activeBudgetPlan?.rows ?? []}
+                  busy={budgetAction === 'create-transaction-draft'}
+                  locked={Boolean(budgetAction)}
+                  resolutionNotice={transactionNotice}
+                  onCreate={handleCreateTransactionDraft}
+                />
+                </fieldset>
               <PlaidConnections
                 householdId={data.workspace.household_id}
                 userId={String(auth.currentUser.id)}
                 variant="activity"
+                hideEmptyActivity
                 refreshKey={plaidActivityRefreshKey}
                 reviewYear={selectedBudgetYear}
                 onOpenBudget={() => switchSection('Budget')}
                 onDraftsCreated={refreshWorkspaceAfterPlaidDrafts}
               />
+                </div>
+                <ReviewConfirmedCard report={reviewSpendingReport} loading={spendingReportLoading} error={spendingReportError}>
+                  <ReviewedTransactionsPanel includeAllConfirmed report={reviewSpendingReport} errors={reviewErrors} action={chatDraftAction} disabled={budgetYearLoading} onReopen={handleReopenTransactionDraft} />
+                </ReviewConfirmedCard>
+              </aside>
             </>
           ) : (
             data.budget.annual_plan ? (
@@ -4480,7 +4495,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               <article className="panel empty-state"><strong>No monthly plan is available yet.</strong><p>Open My Profile to add starting numbers, then return here to review planned and confirmed activity.</p></article>
             )
           )}
-        </section>
+        </section></div>
       )}
 
       {activeSection === 'My Money' && (
@@ -4748,9 +4763,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       </section>}
 
       {activeSection === 'Budget' && budgetForView && (
-        <section className="screen-grid budget-screen">
+        <div className="budget-layout"><section className="screen-grid budget-screen">
           <div className="screen-heading"><h2 data-page-heading tabIndex={-1}>Budget</h2></div>
-          {selectedBudgetYear === data.dashboard.action_center.current_year && selectedBudgetMonthIndex === data.dashboard.action_center.current_month_index && <MonthPlanLine answer={data.dashboard.month_answer} />}
+
           {isRealWorkspace && !data.workspace.setup_complete && <div className="budget-setup-prompt">
             <p>Enter your income and spending plan to see how your year looks.</p>
             <Button onClick={startChatFirstSession}>Set up with {assistantName}</Button>
@@ -4759,6 +4774,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             <fieldset className="budget-loading-boundary" disabled={budgetYearLoading} aria-busy={budgetYearLoading}><legend className="sr-only">Annual budget controls</legend>
             <AnnualBudgetPlanner
               plan={budgetForView.annual_plan}
+              monthAnswer={selectedBudgetYear === data.dashboard.action_center.current_year && selectedBudgetMonthIndex === data.dashboard.action_center.current_month_index ? data.dashboard.month_answer : undefined}
               planKnown={!isRealWorkspace || householdPlanKnown(data)}
               needsSetup={Boolean(isRealWorkspace && !data.workspace.setup_complete)}
               onReviewTransactions={() => switchSection('Review')}
@@ -4800,7 +4816,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             </article>
           )}
 
-        </section>
+        </section></div>
       )}
 
       {activeSection === 'Wealth' && (
@@ -7662,7 +7678,7 @@ export function ManualTransactionCapture({
     <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading" onKeyDown={closeOnEscape}>
       <div className="manual-transaction-heading">
         <div>
-          <h3 id="manual-transaction-heading">Add a transaction</h3>
+          <span className="ui-dot ui-dot--neutral" aria-hidden="true" /><h3 id="manual-transaction-heading">Add a purchase</h3>
         </div>
         <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null); setAdded(null) }}>
           {open ? 'Close' : 'Add transaction'}
@@ -7672,7 +7688,7 @@ export function ManualTransactionCapture({
       {open && (
         <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
           <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
-          <label><span>Merchant</span><input required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
+          <label><span>Merchant</span><input className="ui-field" required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
           <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} /></label>
           <label><span>Category <small>optional</small></span><select value={categoryId} onChange={(event) => setCategoryId(event.currentTarget.value)}><option value="">Leave uncategorized</option>{activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
           {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
@@ -7694,6 +7710,7 @@ export function TransactionDraftReviewStack({
   action,
   compact = false,
   collapsed = false,
+  headerBulkAction = false,
   selectionEnabled = true,
   draftActionsDisabled = false,
   disabledReason,
@@ -7718,6 +7735,7 @@ export function TransactionDraftReviewStack({
   action: string | null
   compact?: boolean
   collapsed?: boolean
+  headerBulkAction?: boolean
   selectionEnabled?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
@@ -7839,6 +7857,7 @@ export function TransactionDraftReviewStack({
           {(description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
+        {headerBulkAction && filteredPendingDrafts.length > 1 && onBulkConfirm && !folded && <button type="button" className="ui-btn ui-btn--text review-header-bulk" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>}
         <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>
       </div>
 
@@ -7903,7 +7922,7 @@ export function TransactionDraftReviewStack({
           )}
 
           <details><summary>More bulk options</summary>
-            <button type="button" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>
+            {!headerBulkAction && <button type="button" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>}
             <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ''}</button>
           </details>
           </>}
@@ -8679,6 +8698,7 @@ export function CategoryEditCell({
 
 export function AnnualBudgetPlanner({
   plan,
+  monthAnswer,
   planKnown = true,
   needsSetup = false,
   onReviewTransactions,
@@ -8709,6 +8729,7 @@ export function AnnualBudgetPlanner({
   onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
+  monthAnswer?: DashboardData['month_answer']
   planKnown?: boolean
   needsSetup?: boolean
   onReviewTransactions: () => void
@@ -8975,15 +8996,15 @@ export function AnnualBudgetPlanner({
           <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
-            <strong className="budget-year-label">{plan.year}</strong>
             {!isViewingCurrentYear && (
               <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
-            <label>
+            <label className="ui-period">
               <span className="sr-only">Report month</span>
-              <select value={currentMonthIndex} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+              <select aria-label="Report month" value={currentMonthIndex} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
+              <strong className="budget-year-label">{plan.year}</strong>
             </label>
             {isViewingCurrentYear && !isViewingCurrentMonth && (
               <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
@@ -8991,15 +9012,45 @@ export function AnnualBudgetPlanner({
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
           </div>
         </div>
-        {!needsSetup && <div className="annual-budget-actions">
-          <div className="budget-status-row"><span>{plan.rows.length} categories</span><span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span></div>
-          <div className="budget-primary-actions">
-            {!manualTool && <button type="button" onClick={onAskMia}>Ask {assistantName} to update my plan</button>}
-            {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
-          </div>
-        </div>}
       </div>
 
+      <BudgetPlanStrip plan={plan} monthIndex={currentMonthIndex} planKnown={planKnown && !beforePlanStart} answer={monthAnswer} />
+
+
+
+      {beforePlanStart && <section aria-label="Historical spending">
+        <p>Your plan starts in {calendarMonth(plan.plan_starts_on!)}, so {calendarMonth(plan.months[currentMonthIndex].starts_on)} has no plan to compare against.</p>
+        <p>Approved spending: <strong>{approvedSpending > 0 ? formatReviewMoney(Math.round(approvedSpending * 100)) : 'Not known yet'}</strong></p>
+      </section>}
+      {!beforePlanStart && planKnown && <ExpenseStackOverview key={`${plan.year}:${plan.months[currentMonthIndex]?.id}`} positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
+
+      <div className="budget-rail">
+      {!needsSetup && <div className="annual-budget-actions ui-card">
+        <div className="budget-status-row"><span>{plan.rows.length} categories</span><span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span></div>
+        <div className="budget-primary-actions">
+          {!manualTool && <button type="button" className="ui-row" onClick={onAskMia}><span className="ui-monogram" aria-hidden="true">{Array.from(assistantName)[0]}</span><span className="ui-row__body"><span className="ui-row__title">Ask {assistantName} to update my plan</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+          {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="ui-row" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{manualTool ? 'Manual tools open' : 'Manage manually'}</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+        </div>
+      </div>}
+      {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
+      {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
+
+      {(beforePlanStart || planKnown) && <details className="budget-detail-disclosure">
+        <summary>
+          <span><strong>This month’s spending</strong><small>What you’ve spent in each category.</small></span>
+          <b>{currentPositions.length} categories</b>
+        </summary>
+        <CurrentMonthActivityPanel
+          plan={plan}
+          currentMonthIndex={currentMonthIndex}
+          planKnown={!beforePlanStart}
+          spendingReport={spendingReport}
+          loading={spendingReportLoading}
+          error={spendingReportError}
+          reopen={isRealWorkspace ? { action, disabled: isEditingBudget, errors: reviewErrors, onReopen: onReopenDraft } : undefined}
+        />
+      </details>}
+      </div>
       {manualTool && (
         <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">
@@ -9010,10 +9061,10 @@ export function AnnualBudgetPlanner({
             <button type="button" className="secondary-button" disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={closeManualManager}>Close manual tools</button>
           </div>
 
-          <div className="budget-manual-tabs" role="group" aria-label="Manual budget tools">
-            <button type="button" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('category')}>Add a category</button>
-            <button type="button" aria-pressed={manualTool === 'monthly'} disabled={hasUnsavedIncomeChanges} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
-            <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
+          <div className="budget-manual-tabs ui-rows" role="group" aria-label="Manual budget tools">
+            <button type="button" className="ui-row" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('category')}><span className="ui-row__body">Add a category</span><span className="ui-row__chevron" aria-hidden="true">{manualTool === 'category' ? '✓' : '›'}</span></button>
+            <button type="button" className="ui-row" aria-pressed={manualTool === 'monthly'} disabled={hasUnsavedIncomeChanges} onClick={() => selectManualTool('monthly')}><span className="ui-row__body">Edit monthly plan</span><span className="ui-row__chevron" aria-hidden="true">{manualTool === 'monthly' ? '✓' : '›'}</span></button>
+            <button type="button" className="ui-row" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => selectManualTool('income')}><span className="ui-row__body">Schedule income</span><span className="ui-row__chevron" aria-hidden="true">{manualTool === 'income' ? '✓' : '›'}</span></button>
           </div>
 
           {hasUnsavedIncomeChanges && <p className="annual-edit-hint" role="status">Save or cancel your income draft before switching tools or months.</p>}
@@ -9029,7 +9080,7 @@ export function AnnualBudgetPlanner({
               <form className="annual-category-form" onSubmit={onCreateCategory}>
                 <label>
                   <span>New category</span>
-                  <input ref={newCategoryInputRef} value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={action === 'create-category'} />
+                  <input className="ui-field" ref={newCategoryInputRef} value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={action === 'create-category'} />
                 </label>
                 <label>
                   <span>Spending group</span>
@@ -9209,30 +9260,6 @@ export function AnnualBudgetPlanner({
         </section>
       )}
 
-      {beforePlanStart && <section aria-label="Historical spending">
-        <p>Your plan starts in {calendarMonth(plan.plan_starts_on!)}, so {calendarMonth(plan.months[currentMonthIndex].starts_on)} has no plan to compare against.</p>
-        <p>Approved spending: <strong>{approvedSpending > 0 ? formatReviewMoney(Math.round(approvedSpending * 100)) : 'Not known yet'}</strong></p>
-      </section>}
-      {!beforePlanStart && planKnown && <ExpenseStackOverview positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
-
-      {plan.pending_transaction_drafts.length > 0 && <p className="budget-review-link">{plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length} purchase{(plan.pending_transaction_drafts_meta?.total_count ?? plan.pending_transaction_drafts.length) === 1 ? '' : 's'} waiting for review · <button type="button" className="text-button" onClick={onReviewTransactions}>Review</button></p>}
-      {(plan.pending_mia_action_drafts ?? []).length > 0 && <p className="budget-mia-review-link">{(plan.pending_mia_action_drafts ?? []).length} plan change{(plan.pending_mia_action_drafts ?? []).length === 1 ? '' : 's'} from {assistantName} waiting for you · <button type="button" className="text-button" onClick={onAskMia}>Review in {assistantName}</button></p>}
-
-      {(beforePlanStart || planKnown) && <details className="budget-detail-disclosure">
-        <summary>
-          <span><strong>This month’s spending</strong><small>What you’ve spent in each category.</small></span>
-          <b>{currentPositions.length} categories</b>
-        </summary>
-        <CurrentMonthActivityPanel
-          plan={plan}
-          currentMonthIndex={currentMonthIndex}
-          planKnown={!beforePlanStart}
-          spendingReport={spendingReport}
-          loading={spendingReportLoading}
-          error={spendingReportError}
-          reopen={isRealWorkspace ? { action, disabled: isEditingBudget, errors: reviewErrors, onReopen: onReopenDraft } : undefined}
-        />
-      </details>}
     </article>
   )
 }
