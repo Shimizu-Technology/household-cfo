@@ -17,10 +17,10 @@ body #root .document-history-card.ui-row { display: grid; grid-template-columns:
 .document-history-card > strong { grid-row: 1; font-weight: var(--weight-semibold); }
 .document-history-card > small { color: var(--muted); font-size: var(--text-xs); }
 body #root .document-history-card .document-status { padding: 0; background: transparent; color: var(--muted); border-radius: 0; font-weight: var(--weight-medium); line-height: 1.5; }
-.document-status::before { content: ''; width: 8px; height: 8px; flex: 0 0 8px; margin-inline-end: 8px; border-radius: 50%; background: var(--muted); }
-.document-status.green::before { background: var(--positive); }
-.document-status:is(.gold, .red)::before { background: var(--accent-warm); }
-.document-status.blue::before { background: var(--brand); }
+.document-history-card .document-status::before { content: ''; width: 8px; height: 8px; flex: 0 0 8px; margin-inline-end: 8px; border-radius: 50%; background: var(--muted); }
+.document-history-card .document-status.green::before { background: var(--positive); }
+.document-history-card .document-status:is(.gold, .red)::before { background: var(--accent-warm); }
+.document-history-card .document-status.blue::before { background: var(--brand); }
 .document-history-card::after { content: '›'; position: absolute; inset-inline-end: 4px; top: 14px; color: var(--muted); }
 body #root .document-history-card.active { background: var(--brand-soft); }
 .document-history-heading { padding-bottom: var(--space-3); }
