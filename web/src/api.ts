@@ -913,6 +913,8 @@ export type CfoFilterData = {
   decisions: Array<{
     item: string
     amount: number
+    /** False when the amount could not be calculated; `amount` is then a placeholder 0, never a figure. */
+    amount_known?: boolean
     recommendation: string
     reason: string
   }>

@@ -180,6 +180,10 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
+    # Debt minimums are still unknown, so no CFO Filter amount can be calculated: each row says so.
+    decisions = HouseholdFinance::DataPresenter.new(user.households.first.reload).cfo_filter.fetch(:decisions)
+    assert_equal 3, decisions.size
+    assert(decisions.all? { |decision| decision.fetch(:amount_known) == false && decision.fetch(:amount).zero? && decision.fetch(:recommendation) == "Wait" })
   end
 
   test "manual setup uses typed household operations and replays one idempotent request" do

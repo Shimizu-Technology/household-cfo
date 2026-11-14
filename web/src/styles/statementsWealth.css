@@ -128,6 +128,8 @@ body #root .document-import-workspace .document-other-links .text-button { text-
 .wealth-figures .metric-card > strong { font-size: var(--text-xl); white-space: nowrap; }
 .wealth-figures .metric-card > strong.metric-value-unknown { white-space: normal; }
 body #root .decision-card > strong, .activity-preview .plan-value strong { white-space: nowrap; }
+/* Words for an amount that could not be calculated read as a note, not as a figure. */
+body #root .decision-card > strong.decision-amount-unknown { font: var(--weight-regular) var(--text-md)/1.4 var(--font-body); color: var(--muted); }
 .participant-help { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; }
 .participant-help h4 { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 .participant-help > section { padding: 16px 0; border-top: 1px solid var(--rule); }
