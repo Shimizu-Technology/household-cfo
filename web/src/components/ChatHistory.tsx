@@ -194,7 +194,8 @@ export function ChatHistory({
 function careContactActions(content: string) {
   const actions: { href: string; label: string }[] = []
   const plain = content.replace(/[*_~]/g, '')
-  if (/(?<![\d$])\b988\b/.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
+  // No lookbehind: Safari before 16.4 cannot parse one, and the whole chat would fail to load.
+  if (/(?:^|[^\d$])\b988\b/.test(plain)) actions.push({ href: 'tel:988', label: 'Call 988' })
   if (/\btext(?:ing)?\s+(?:(?:or|and)\s+call\s+)?(?:to\s+|the\s+)?988\b/i.test(plain)) actions.push({ href: 'sms:988', label: 'Text 988' })
   return actions
 }
