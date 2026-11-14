@@ -19,7 +19,6 @@
   .participant-review .transaction-draft-card { grid-template-columns: 44px minmax(0, 1fr); gap: 8px; }
   .participant-review .transaction-draft-actions, .participant-review .transaction-draft-editor { grid-column: 1 / -1; }
   .participant-review .transaction-draft-actions.ui-actions--compact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .participant-review .transaction-draft-actions [data-review-confirm] { grid-row: 1; }
   .participant-review .transaction-draft-actions button { width: 100%; min-height: 44px; }
 }
 .transaction-review-facts { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(80px, 1fr) minmax(100px, 2fr); gap: 8px; align-items: baseline; font-variant-numeric: tabular-nums; }

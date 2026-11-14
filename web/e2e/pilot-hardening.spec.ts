@@ -7967,7 +7967,7 @@ test('mobile Ask Mia 390px action-plan transition-policy link focuses the exact 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {
+test('BOG UI manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 760 })
   let workspace = realWorkspaceData(true)
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
@@ -8014,6 +8014,12 @@ test('manual transaction capture joins the unified review queue without changing
   await expect(card).toContainText('Manual')
   await expect(card).toContainText('Needs category')
   await expect(card.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  const geometry = await card.locator('.transaction-draft-actions').evaluate(actions => ({
+    warningBottom: actions.querySelector('.transaction-draft-disabled-reason')!.getBoundingClientRect().bottom,
+    tops: [...actions.querySelectorAll('button')].map(button => button.getBoundingClientRect().top),
+  }))
+  expect(new Set(geometry.tops.map(top => Math.round(top))).size).toBe(1)
+  expect(geometry.warningBottom).toBeLessThanOrEqual(Math.min(...geometry.tops))
   await expect(page.getByRole('heading', { name: 'Purchases to review' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
