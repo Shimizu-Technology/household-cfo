@@ -103,8 +103,10 @@ async function openAdminSection(page: Page, label: string) {
 async function openSection(page: Page, name: string, simpleCoach = false) {
   if (name !== 'Admin' && name !== 'Coach Studio' && await page.locator('.admin-app').count()) {
     // Back to the household app from the Admin side.
-    if (!(await page.locator('.admin-home-link').filter({ visible: true }).count())) await page.getByRole('button', { name: 'More', exact: true }).click()
-    await page.locator('.admin-home-link').filter({ visible: true }).first().click()
+    // Inert exit copies may remain painted for 150ms; only the live link is actionable.
+    const home = page.getByRole('link', { name: 'My household', exact: true })
+    if (!(await home.count())) await page.getByRole('button', { name: 'More', exact: true }).click()
+    await home.click()
     await expect(page.locator('.tabs-shell')).toBeVisible()
   }
   if (name === 'Admin' || name === 'Coach Studio') {
@@ -14504,7 +14506,7 @@ test('Admin UI phone text entry hides only the floating bar and More consumes it
   await expect(more).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'People', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'More', exact: true }).click()
-  const handle = await page.locator('.admin-more-sheet .tabs-sheet-grab').boundingBox()
+  const handle = await more.locator('.tabs-sheet-grab').boundingBox()
   await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
   await page.mouse.down()
   await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + 120, { steps: 6 })
