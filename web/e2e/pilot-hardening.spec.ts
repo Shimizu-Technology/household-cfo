@@ -16482,6 +16482,12 @@ test('BOG UI P8a fix1 debt descriptions and record typography preserve every fig
   await expect(remove).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   const a = await remove.boundingBox(), b = await change.locator('.money-edit-row').boundingBox()
   expect(a!.y).toBeLessThan(b!.y + b!.height)
+  await remove.click()
+  await expect(change.getByRole('button', { name: 'Confirm remove', exact: true })).toBeVisible()
+  const confirming = await change.locator('.money-edit-row').boundingBox()
+  expect(confirming!.width).toBeGreaterThanOrEqual(b!.width)
+  expect(await change.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  await change.getByRole('button', { name: 'Keep', exact: true }).click()
 })
 
 for (const demo of [false, true]) test(`BOG UI P8a fix1 noneditable category rows are plain full strength demo=${demo}`, async ({ page }) => {

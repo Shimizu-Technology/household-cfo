@@ -139,3 +139,6 @@ body #root .money-screen .debt-row > .money-edit-row { align-items: start; }
 
 /* Keep figures semibold while record names use the shared medium row title. */
 body #root :is(.money-screen, .annual-income-planner) .money-edit-row > span:nth-of-type(2) > strong { font-weight: var(--weight-semibold); }
+/* An open removal review gets the row footer, so its controls cannot squeeze the figures. */
+.annual-income-planner .income-schedule-row:has(.income-remove-question) { grid-template-columns: minmax(0, 1fr); }
+.annual-income-planner .income-schedule-row:has(.income-remove-question) > div:last-child { grid-column: 1 / -1; min-width: 0; max-width: 100%; }
