@@ -16443,10 +16443,10 @@ test('BOG UI P8a fix1 debt descriptions and record typography preserve every fig
     const row = page.getByRole('button', { name: `Edit ${name}`, exact: true })
     const sizes = await row.evaluate(node => {
       const title = node.querySelector('strong')!, detail = node.querySelector('strong + span')!, amount = node.querySelector('b') ?? node.querySelectorAll('strong')[1]
-      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize]
+      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize, getComputedStyle(amount).fontWeight]
     })
     console.log(`P8a row measurements ${topic}: ${JSON.stringify(sizes)}`)
-    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px'])
+    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px', '600'])
     if (topic === 'Debt') {
       await expect(row).toHaveAccessibleDescription(/Credit Card.*18.5% APR.*Manual.*\$45.67 minimum.*\$1,234.56/i)
       const balance = await row.locator('strong').nth(1).boundingBox(), name = await row.locator('strong').first().boundingBox()
@@ -16703,10 +16703,10 @@ test('BOG UI P8a fix1 all six record types use the shared row title and readable
     await openMoneyTopic(page, topic)
     const sizes = await page.locator(selector).first().evaluate(node => {
       const title = node.querySelector('strong')!, detail = node.querySelector('.ui-row__body > span, strong + span, small')!, amount = node.querySelector('b') ?? node.querySelectorAll('strong')[1]
-      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize]
+      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize, getComputedStyle(amount).fontWeight]
     })
     console.log(`P8a type ${selector}: ${JSON.stringify(sizes)}`)
-    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px'])
+    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px', '600'])
   }
 })
 

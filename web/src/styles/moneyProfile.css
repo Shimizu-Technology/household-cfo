@@ -48,7 +48,7 @@ body :is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-di
 body [data-dialog-panel][role='dialog']:is(.financial-restart-dialog, .optional-debt-dialog, .household-privacy-dialog) :is(h3, h4) { font: var(--weight-semibold) var(--text-md)/1.4 var(--font-body); font-variant-numeric: tabular-nums lining-nums; }
 body :is(.optional-debt-dialog, .household-privacy-dialog) :is(article, .debt-proposal, .debt-comparison, .debt-term-summary) { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; padding-inline: 0; box-shadow: none; }
 .money-screen .debt-tracking fieldset > label { border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; background: transparent; }
-.money-screen .income-source-manager-card-heading b { font-weight: var(--weight-medium); font-size: var(--text-md); white-space: normal; overflow-wrap: anywhere; text-align: end; }
+.money-screen .income-source-manager-card-heading b { font-weight: var(--weight-semibold); font-size: var(--text-md); white-space: normal; overflow-wrap: anywhere; text-align: end; }
 .money-screen .income-source-manager-card-heading > .ui-row__body { display: grid; gap: var(--space-1); }
 .money-screen .income-source-manager-card-heading > .ui-row__body > span { font-size: var(--text-sm); color: var(--muted); }
 .profile-screen .mia-memory-panel, .profile-screen .workspace-collaborators .workspace-collaborator, .profile-screen .mia-memory-panel :is(.mia-memory-item, .mia-memory-editor, .mia-memory-preference) { background: transparent; border: 0; border-top: 1px solid var(--rule); border-radius: 0; box-shadow: none; }
@@ -136,3 +136,6 @@ body #root :is(.money-screen, .annual-income-planner) .money-edit-row strong { c
 body #root .money-screen .debt-row > .money-edit-row { align-items: start; }
 
 .annual-income-planner .income-schedule-row > div:last-child:not(.ui-row) { justify-self: end; grid-column: auto; display: flex; flex-wrap: wrap; width: auto; gap: var(--space-1); }
+
+/* Keep figures semibold while record names use the shared medium row title. */
+body #root :is(.money-screen, .annual-income-planner) .money-edit-row > span:nth-of-type(2) > strong { font-weight: var(--weight-semibold); }
