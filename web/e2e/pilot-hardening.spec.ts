@@ -15900,3 +15900,45 @@ test('BOG UI P8b earlier statement history says paused and stays read only', asy
   await expect(page.getByRole('region', { name: 'Fresh document review' })).toBeVisible()
   await expect(page.locator('.document-review-panel').getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0)
 })
+
+function p8bHouseholdValueImport() {
+  return {
+    id: 7201, household_id: 77, document_kind: 'spreadsheet', status: 'needs_review', filename: 'Fictional household values.csv', content_type: 'text/csv', byte_size: 100,
+    document_date: null, period_start_on: null, period_end_on: null, extracted_summary: 'One household amount to check.', extraction_error: null,
+    processed_at: '2026-11-01T00:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-11-01T00:00:00Z', source_available: false, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, attempts: [], transaction_drafts: [],
+    items: [{ id: 7202, target_type: 'expense_item', label: 'Fixed essentials', amount: 3100, amount_cents: 310000, balance: null, balance_cents: null, payment: null, payment_cents: null, cadence: 'monthly', source_type: null, stack_key: 'non_discretionary', account_type: null, debt_type: null, confidence: 'high', evidence: 'Fictional household worksheet', selected: true, ignored: false, applied_at: null, applied_record_type: null, applied_record_id: null, metadata: {} }],
+  }
+}
+
+test('BOG UI P8b extracted-value editing stays local and approval clears phone navigation', async ({ page }) => {
+  const source = p8bHouseholdValueImport()
+  let writes = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: [source] } }))
+  await page.route('http://api.test/api/v1/document_imports/7201**', route => {
+    if (route.request().method() !== 'GET') writes += 1
+    return route.fulfill({ json: { document_import: source } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Statements')
+  const label = page.getByLabel('Label', { exact: true })
+  await expect(label).toBeDisabled()
+  await page.getByRole('button', { name: 'Edit value', exact: true }).click()
+  await label.fill('An unapproved local draft')
+  expect(writes).toBe(0)
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(label).toHaveValue('Fixed essentials')
+  await expect(label).toBeDisabled()
+  expect(writes).toBe(0)
+  const apply = page.getByRole('button', { name: 'Apply selected', exact: true })
+  await apply.evaluate(el => el.scrollIntoView({ block: 'center' }))
+  await expect(apply).toBeInViewport()
+  const bar = await page.locator('.document-apply-bar').boundingBox()
+  expect(bar!.x).toBeGreaterThanOrEqual(0)
+  expect(bar!.x + bar!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  if (page.viewportSize()!.width <= 620) {
+    await expect(page.locator('.tabs-shell')).toBeVisible()
+    const action = await apply.boundingBox(), tabs = await page.locator('.tabs-shell').boundingBox()
+    expect(action!.y + action!.height).toBeLessThan(tabs!.y)
+  }
+})
