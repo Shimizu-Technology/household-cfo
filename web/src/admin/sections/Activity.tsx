@@ -21,7 +21,7 @@ export function Activity({ groups }: { groups: AdminCohort[] }) {
       <label className="admin-field"><span>Who made the change</span><input type="search" value={person} placeholder="A name" onChange={event => setPerson(event.target.value)} /></label>
       <label className="admin-field"><span>Group</span><select value={groupId} onChange={event => setGroupId(event.target.value)}><option value="">All groups</option>{groups.map(group => <option key={group.id} value={group.id}>{group.name}</option>)}</select></label>
     </div>
-    {entries.length === 0 ? <p className="admin-muted">No changes to show.</p> : <ul className="admin-list">{entries.map(item => <li key={item.key} className="admin-activity-row">
+    {entries.length === 0 ? <p className="admin-muted">No changes to show.</p> : <ul className="ui-card ui-rows admin-list">{entries.map(item => <li key={item.key} className="admin-activity-row">
       <strong>{item.what}</strong><span>{item.group} · {item.who} · {lastActiveWords(item.at)}</span><span>“{item.why}”</span>
     </li>)}</ul>}
   </div>

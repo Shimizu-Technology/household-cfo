@@ -19,7 +19,7 @@ async function open(page: Page, path: string) {
 }
 async function sectionsOffered(page: Page) {
   await open(page, '/admin/today')
-  const labels = await page.locator('.admin-sidebar-nav a, .admin-section-menu nav a').evaluateAll(links => links.map(link => link.querySelector('strong')?.textContent ?? ''))
+  const labels = await page.locator('.admin-sidebar-nav a').evaluateAll(links => links.map(link => link.querySelector('span')?.textContent ?? ''))
   return [...new Set(labels)]
 }
 async function refused(page: Page, path: string) {

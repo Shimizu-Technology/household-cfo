@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { CurrentUser } from '../../api'
 import { CoachProgramSettings } from '../../components/CoachProgramSettings'
@@ -13,7 +14,7 @@ import { BankHealth } from './BankHealth'
 import './sections.css'
 
 function Row({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
-  return <details className="admin-accordion"><summary><strong>{title}</strong><small>{hint}</small></summary><div className="admin-accordion-body">{children}</div></details>
+  return <details className="ui-disclosure admin-accordion"><summary><strong>{title}</strong><small>{hint}</small></summary><div className="admin-accordion-body">{children}</div></details>
 }
 
 // Branding and team for everyone who manages a program; programs, bank health, access and activity for admins.
@@ -31,7 +32,7 @@ export function SettingsSection({ currentUser, onDirtyChange }: { currentUser: C
   const organizationAccess = currentUser.is_admin || currentUser.enterprise_access?.organizations.some(org => org.it_admin)
   return <section className="admin-section">
     <ProgramCreatedNotice userId={currentUser.id} workspaceId={activeCoachWorkspaceId} />
-    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Settings</h2><p>{platform ? 'Choose a program at the top to change its look or team.' : 'How your program looks, and who helps run it.'}</p></div></header>
+    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Settings</h2><AdminScope currentUser={currentUser} /><p>{platform ? 'Choose a program at the top to change its look or team.' : 'How your program looks, and who helps run it.'}</p></div></header>
     <div className="admin-accordion-list">
       {(!platform || currentUser.is_admin) && <Row title={platform ? 'Programs' : 'Name and look'} hint={platform ? 'Start a new program' : 'Program name, coach profile and welcome screen'}>
         <CoachProgramSettings workspaceId={activeCoachWorkspaceId} currentUser={currentUser} mutationLifecycle={lifecycle} onDirtyChange={setProgramDirty} />

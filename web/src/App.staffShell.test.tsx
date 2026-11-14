@@ -63,7 +63,7 @@ it('opens /admin/<section> with the sections the server gave this person, in a s
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'People' })).toBeTruthy()
   const sidebar = within(screen.getByRole('navigation', { name: 'Admin' }))
-  expect(sidebar.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/', '/admin/today', '/admin/people', '/admin/groups', '/admin/coaching', '/admin/reports', '/admin/support', '/admin/settings'])
+  expect(sidebar.getAllByRole('link').map(link => link.getAttribute('href'))).toEqual(['/admin/today', '/admin/people', '/admin/groups', '/admin/coaching', '/admin/reports', '/admin/support', '/admin/settings', '/'])
   expect(sidebar.getByRole('link', { name: /^People/ }).getAttribute('aria-current')).toBe('page')
   expect(screen.queryByText('Participant session mounted')).toBeNull()
   expect(JSON.parse(window.localStorage.getItem('household-cfo:mode:v1:20')!)).toEqual({ mode: 'admin', section: 'people' })
@@ -179,6 +179,7 @@ it('asks an administrator who works across programs which program they are in, a
   state.auth.activeCoachWorkspaceId = null
   window.history.replaceState({}, '', '/admin/today')
   render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'More' }))
   const pickers = await screen.findAllByLabelText('Program')
   expect(pickers.length).toBeGreaterThan(0)
   fireEvent.change(pickers[0], { target: { value: '6' } })
@@ -239,4 +240,28 @@ it('replaces the guard entry when the person leaves, instead of stacking another
   await waitFor(() => expect(window.location.pathname).toBe('/admin/people'))
   expect(window.history.length).toBe(length)
   expect(window.history.state?.adminLeaveGuard).toBeUndefined()
+})
+
+it('selects the sole server-provided program without presenting a redundant Program picker', async () => {
+  const App = await app()
+  state.auth.currentUser = user('admin')
+  state.auth.activeCoachWorkspaceId = null
+  window.history.replaceState({}, '', '/admin/today')
+  render(<App />)
+  await waitFor(() => expect(state.auth.selectCoachWorkspace).toHaveBeenCalledWith(5))
+  fireEvent.click(screen.getByRole('button', { name: 'More' }))
+  expect(screen.queryByLabelText('Program')).toBeNull()
+})
+
+it('unmounts the portal sheet and releases its scroll lock while program access is rechecked', async () => {
+  const App = await app()
+  window.history.replaceState({}, '', '/admin/people')
+  const view = render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'More' }))
+  expect(screen.getByRole('dialog', { name: 'More' })).toBeTruthy()
+  expect(document.body.style.overflow).toBe('hidden')
+  state.auth.isVerifyingApi = true
+  view.rerender(<App />)
+  expect(screen.queryByRole('dialog', { name: 'More' })).toBeNull()
+  expect(document.body.style.overflow).toBe('')
 })

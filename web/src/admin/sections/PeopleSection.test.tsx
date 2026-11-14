@@ -9,7 +9,7 @@ vi.mock('../../api', async original => ({ ...await original<typeof import('../..
 const auth = vi.hoisted(() => ({ workspaceId: 5 as number | null }))
 vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: auth.workspaceId, selectCoachWorkspace: vi.fn() }) }))
 const media = vi.hoisted(() => ({ wide: true }))
-vi.mock('../../lib/useMatchMedia', () => ({ useMatchMedia: () => media.wide }))
+vi.mock('../../lib/useMatchMedia', () => ({ useMatchMedia: (query: string) => query.includes('max-width') ? !media.wide : media.wide }))
 const confirms = vi.hoisted(() => ({ confirmAction: vi.fn(), confirmDiscard: vi.fn() }))
 vi.mock('../../lib/confirmAction', () => confirms)
 import { PeopleSection } from './PeopleSection'

@@ -47,7 +47,7 @@ describe('Today for a program owner', () => {
     expect(screen.getByText('Asked for help with an upload')).toBeTruthy()
     expect(screen.getByRole('button', { name: /^1\s*Need you/ }).getAttribute('aria-pressed')).toBe('true')
     const headings = screen.getAllByRole('heading', { level: 3 }).map(item => item.textContent)
-    expect(headings).toEqual(['Bank of Guam 90 day savings', 'Invitations to follow up', 'Your groups'])
+    expect(headings).toEqual(['Bank of Guam 90 day savings', 'Your people', 'Coming up', 'Invitations to follow up', 'Your groups'])
     expect(screen.getByText('Bea Bounced')).toBeTruthy()
     expect(screen.queryByText('Joined Jo')).toBeNull()
     expect(screen.getByText(/4 checked in today · 1 need you/)).toBeTruthy()

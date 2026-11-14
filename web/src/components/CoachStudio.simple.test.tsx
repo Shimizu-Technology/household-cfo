@@ -16,9 +16,9 @@ const steps=()=>screen.getByRole('navigation',{name:'Coaching steps'})
 const current=()=>steps().querySelector('[aria-current=page]')?.textContent
 beforeEach(()=>{window.sessionStorage.clear();auth.workspaceId=1;auth.initialAdvancedDirty=false;window.history.replaceState(null,'','/admin/coaching');vi.resetAllMocks();api.fetchAdminPersonas.mockResolvedValue([]);api.fetchAdminPersona.mockResolvedValue(null);api.fetchAdminPersonaAssignableCohorts.mockResolvedValue([])})
 afterEach(cleanup)
-it('offers two steps and History, with no People or duplicate Go live tabs',async()=>{
+it('offers three steps and History, with no People or duplicate Go live tabs',async()=>{
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>);await screen.findByLabelText('Assistant name')
- expect(within(steps()).getAllByRole('button').map(item=>item.textContent)).toEqual(['1 · Your coach’s voice','2 · Preview and go live'])
+ expect(within(steps()).getAllByRole('button').map(item=>item.textContent)).toEqual(['1 · Your coach’s voice','2 · Teaching','3 · Preview and go live'])
  expect(screen.getByRole('heading',{name:'Coaching'})).toBeTruthy()
  expect(screen.getByRole('heading',{name:'History'})).toBeTruthy()
  expect(screen.queryByText(/server revision|release candidate|wave|cohort|Advanced \/ history/i)).toBeNull()
@@ -35,7 +35,7 @@ it('creates the assistant then makes describe and preview reachable',async()=>{
  render(<CoachStudio currentUser={user} onDirtyChange={vi.fn()}/>)
  fireEvent.change(await screen.findByLabelText('Assistant name'),{target:{value:'Lina'}});fireEvent.click(screen.getByRole('button',{name:'Describe this assistant'}))
  await screen.findByText('Describe with transcripts');expect(api.createAdminPersona).toHaveBeenCalledWith({name:'Lina',description:''})
- expect(screen.getByRole('button',{name:'Teaching'})).toBeTruthy()
+ expect(screen.getByRole('button',{name:'2 · Teaching'})).toBeTruthy()
  await waitFor(()=>expect(screen.getByRole('button',{name:'Preview answers'})).toHaveProperty('disabled',false));fireEvent.click(screen.getByRole('button',{name:'Preview answers'}))
  await screen.findByText('Review saved answers and groups')
 })
@@ -82,5 +82,5 @@ it('records steps in browser history and follows Back and Forward',async()=>{
  await act(async()=>{window.history.back();await new Promise(resolve=>setTimeout(resolve,30))})
  await waitFor(()=>expect(current()).toBe('1 · Your coach’s voice'))
  await act(async()=>{window.history.forward();await new Promise(resolve=>setTimeout(resolve,30))})
- await waitFor(()=>expect(current()).toBe('2 · Preview and go live'))
+ await waitFor(()=>expect(current()).toBe('3 · Preview and go live'))
 })

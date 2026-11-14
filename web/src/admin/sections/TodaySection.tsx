@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ApiRequestError, resendAdminUserInvitation, type AdminUser, type CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
@@ -7,6 +8,7 @@ import { useCoachWorkspaceMutationLifecycle, useHoldWorkspaceLock } from '../../
 import { useAuthContext } from '../../contexts/authContextValue'
 import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { coachChallengeApi, type CoachDailyPage, type CoachDailyPerson, type DailyFilter } from '../../lib/coachChallengeApi'
+import { guamTodayIso } from '../../lib/householdDate'
 import { dailyNeed, householdStatus, savingsStatus } from '../../lib/coachDailyWords'
 import { AdminDialog } from '../AdminDialog'
 import { groupLine, groupStatusLabel, inviteStateOf, shortDay } from '../adminWords'
@@ -77,9 +79,9 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
     finally { setResending(null) }
   }
 
-  return <section className="admin-section" aria-busy={loading}>
+  return <section className="admin-section admin-today-section" aria-busy={loading}>
     <header className="admin-section-head">
-      <div><h2 data-page-heading tabIndex={-1}>Today</h2><p>Who needs you, and how your groups are doing.</p></div>
+      <div><h2 data-page-heading tabIndex={-1}>Today</h2><AdminScope currentUser={currentUser} /><p>Who needs you, and how your groups are doing.</p></div>
       {canInvite && <Button onClick={() => setInviting(true)} disabled={loading || groups.length === 0}>Invite people</Button>}
     </header>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
@@ -97,18 +99,19 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
         : checking ? <p className="admin-muted admin-all-clear" role="status">Checking…</p>
         : unavailable.length === 0 && <p className="admin-muted admin-all-clear" role="status">You can see individual people only in the groups you coach. Support has the setup requests.</p>}
 
-      {followUps.length > 0 && <>
+      <div className="admin-today-rail">
+      {followUps.length > 0 && <aside className="ui-card admin-coming-up"><h3 className="ui-section">Coming up</h3>
         <h3 className="admin-subhead">Invitations to follow up</h3>
-        <ul className="admin-list">{followUps.slice(0, FOLLOW_UPS).map(person => <li key={person.id} className="admin-follow-row">
+        <ul className="ui-card ui-rows admin-list">{followUps.slice(0, FOLLOW_UPS).map(person => <li key={person.id} className="admin-follow-row">
           <div><strong>{person.full_name || person.email}</strong>
             <span>{[inviteStateOf(person) === 'bounced' ? 'The email didn’t arrive' : `Invited ${shortDay(person.invited_at) || 'recently'}, not joined yet`, person.cohorts.map(item => item.cohort.name).join(', ')].filter(Boolean).join(' · ')}</span></div>
           {person.can_resend_invitation && <Button variant="secondary" disabled={resending !== null} onClick={() => void resend(person)}>{resending === person.id ? 'Sending…' : 'Send again'}</Button>}
         </li>)}</ul>
         {followUps.length > FOLLOW_UPS && <Button variant="secondary" onClick={() => navigateTo(adminPath('people'))}>See all {followUps.length} in People</Button>}
-      </>}
+      </aside>}
 
-      <h3 className="admin-subhead">Your groups</h3>
-      <ul className="admin-list">{groups.filter(group => group.status !== 'archived').map(group => {
+      <h3 className="admin-subhead admin-today-groups-title">Your groups</h3>
+      <ul className="ui-card ui-rows admin-list">{groups.filter(group => group.status !== 'archived').map(group => {
         const counts = pageOf(group)?.counts
         const line = <><strong>{group.name}</strong>
           <span>{groupSummary(group, joinedCount(people, group.id))}</span>
@@ -117,6 +120,7 @@ export function TodaySection({ currentUser }: { currentUser: CurrentUser }) {
           ? <button type="button" className="admin-list-row" onClick={() => navigateTo(adminPath('groups'))}>{line}</button>
           : <div className="admin-list-row admin-list-static">{line}</div>}</li>
       })}</ul>
+      </div>
     </>}
 
     {inviting && <InvitePeople currentUser={currentUser} groups={groups} people={people} defaultGroupId={null} onClose={() => setInviting(false)} onDone={() => void reload()} />}
@@ -196,21 +200,37 @@ function DailyList({ group, overview, currentUser, workspaceId, canInvite, onInv
   }
 
   const detail = group.detail
+  // Calendar dates come from this group's existing start date; no new series or money is read.
+  const start = detail?.starts_on
+  const challengeDay = savings && start ? Math.max(0, Math.min(90, Math.round((Date.parse(guamTodayIso()) - Date.parse(start)) / 86_400_000) + 1)) : null
   return <div className="admin-daily">
+    <dl className="ui-card admin-metrics">
+      <div><dt>Joined</dt><dd>{counts.joined}</dd></div>
+      {savings && <div><dt>Checked in today</dt><dd>{counts.checked_in}</dd></div>}
+      <div><dt>Need you</dt><dd>{counts.needs_help}</dd></div>
+      {challengeDay !== null && <div><dt>Challenge day</dt><dd>{challengeDay}<small> of 90</small></dd></div>}
+    </dl>
     <h3 className="admin-subhead">{group.name}</h3>
     {detail && <p className="admin-muted">{groupLine(detail, counts.joined ?? 0).replace(`${group.name} · `, '')}</p>}
-    <div className="admin-chips" role="group" aria-label="Show people who">
+    <div className="admin-daily-filters"><div className="admin-chips" role="group" aria-label="Show people who">
       {filters.map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}><strong>{counts[value] ?? 0}</strong> {label}</button>)}
     </div>
     <label className="admin-field"><span>Find someone</span><input type="search" value={search} placeholder="Name" onChange={event => setSearch(event.target.value)} /></label>
+    </div>
+    <h3 className="admin-subhead">Your people</h3>
+    <p className="admin-privacy-copy">You see who checked in, never amounts. People choose what they share.</p>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => setAttempt(value => value + 1)}>Try again</Button></p>}
     {busy ? <p role="status" className="admin-muted">Loading people…</p>
       : records.length === 0 && !error ? <div className="admin-empty"><p>{search || filter !== 'all' ? (filter === 'needs_help' && !search ? 'No one has asked for help.' : 'No one matches. Try another name or choose Everyone.') : 'No one in this group yet. Invite someone to get started.'}</p>{canInvite && !search && filter === 'all' && <Button onClick={onInvite}>Invite people</Button>}</div>
-      : <ul className="admin-list">{records.map(row => <li key={row.participant.id} className="admin-follow-row">
-        <div><strong>{row.participant.name}</strong>
-          <span className={row.needs_help ? 'admin-need' : undefined}>{dailyNeed(row)}</span>
-          <span>{savings ? savingsStatus(row) : householdStatus(row)}</span></div>
-        <Button variant="secondary" aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} onClick={() => setOpen(row)}>{row.needs_help ? 'View help' : 'View person'}</Button>
+      : <ul className="ui-card ui-rows admin-list admin-daily-people">{records.map(row => <li key={row.participant.id} className="admin-follow-row">
+        <button type="button" className="ui-row admin-person-row" aria-label={`${row.needs_help ? 'View help for' : 'View'} ${row.participant.name}`} onClick={() => setOpen(row)}>
+          <span aria-hidden="true" className={`ui-dot ${row.needs_help ? 'ui-dot--attention' : row.check_in?.completed ? 'ui-dot--good' : 'ui-dot--neutral'}`} />
+          <span className="ui-row__body"><strong className="ui-row__title">{row.participant.name}</strong>
+            <span className={`ui-row__detail${row.needs_help ? ' admin-need' : ''}`}>{dailyNeed(row)}</span>
+            <span className="ui-row__detail">{savings ? savingsStatus(row) : householdStatus(row)}</span></span>
+          <span className="ui-row__trailing">{row.needs_help && <span className="ui-pill ui-pill--attention">Needs you</span>}<span className="admin-person-action">{row.needs_help ? 'View help' : 'View person'}</span></span>
+          <span className="ui-row__chevron" aria-hidden="true">›</span>
+        </button>
       </li>)}</ul>}
     {!busy && next !== null && <Button variant="secondary" disabled={more} onClick={() => void showMore()}>{more ? 'Loading…' : `Show more (${Math.max(0, total - records.length)} left)`}</Button>}
 

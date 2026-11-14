@@ -1,3 +1,4 @@
+import { AdminScope } from '../AdminScope'
 import { useEffect, useRef, useState } from 'react'
 import { ApiRequestError } from '../../api'
 import type { CurrentUser } from '../../api'
@@ -20,7 +21,7 @@ export function ReportsSection({ currentUser }: { currentUser: CurrentUser }) {
   const { groups, loading, error } = useAdminRoster(currentUser)
   const savingsGroups = groups.filter(group => group.savingsChallenge && group.status !== 'archived')
   return <section className="admin-section" aria-busy={loading}>
-    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Reports</h2><p>How each group is doing at Day 30, 60 and 90.</p></div></header>
+    <header className="admin-section-head"><div><h2 data-page-heading tabIndex={-1}>Reports</h2><AdminScope currentUser={currentUser} /><p>How each group is doing at Day 30, 60 and 90.</p></div></header>
     <p className="admin-privacy-note">Reports show broad ranges only, never names or personal amounts. A group of fewer than five people is hidden so no one can be picked out, and only people who agreed to share are counted.</p>
     {error && <p className="admin-alert error" role="alert">{error}</p>}
     {loading ? <p role="status" className="admin-muted">Opening your reports…</p>
@@ -88,7 +89,7 @@ function GroupReports({ group }: { group: RosterGroup }) {
     <h3>{group.name}</h3>
     {error && <p className="admin-alert error" role="alert">{error} <Button variant="secondary" size="compact" onClick={() => void load()}>Try again</Button></p>}
     {notYours ? <p className="admin-muted">Reports for this group are kept by the people who coach it, so there is nothing for you to open here.</p>
-      : !index && !error ? <p role="status" className="admin-muted">Opening…</p> : index && <ul className="admin-list">
+      : !index && !error ? <p role="status" className="admin-muted">Opening…</p> : index && <ul className="ui-card ui-rows admin-list">
       {rows.map(row => <li key={row.day} className="admin-report-row">
         <div><strong>Day {row.day}</strong><span>{row.cutoff ? formatDay(row.cutoff, { year: true }) : 'Needs a start date first'} · {row.savedId !== null ? 'Report saved' : !row.cutoff ? 'Not ready' : row.sealable ? 'Ready to save' : 'Not ready yet'}</span>
           {row.savedId === null && row.sealable && !canSave && <span>Only the coaches of this group can save it: a program owner or reviewer on its team.</span>}</div>
@@ -98,7 +99,7 @@ function GroupReports({ group }: { group: RosterGroup }) {
     </ul>}
     {earlierCopies.length > 0 && <div className="admin-report-earlier">
       <h4>Earlier saved reports</h4>
-      <ul className="admin-list">{earlierCopies.map(record => <li key={record.id} className="admin-report-row">
+      <ul className="ui-card ui-rows admin-list">{earlierCopies.map(record => <li key={record.id} className="admin-report-row">
         <div><strong>Day {record.checkpoint_day}</strong><span>As of {formatDay(record.resolved_cutoff_on, { year: true })}</span></div>
         <Button variant="secondary" disabled={busy} onClick={() => void view(record.id)}>View report</Button>
       </li>)}</ul>
