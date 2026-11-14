@@ -7433,6 +7433,22 @@ test('Admin UI every section fits the screen and calls a group a group', async (
   }
 })
 
+test('Admin UI People reveals a truncated group name on keyboard focus without widening the page', async ({ page }) => {
+  const name = 'A very long household coaching group for families across the entire island and their extended households'
+  const person = { ...pilotAdminUser, cohorts: pilotAdminUser.cohorts.map(item => ({ ...item, cohort: { ...item.cohort, name } })) }
+  await page.route('http://api.test/api/v1/admin/users', route => route.fulfill({ json: { users: [person] } }))
+  await page.goto('/admin/people?pilot_e2e_role=admin')
+  const group = page.locator('.admin-group-name').first()
+  await expect(group).toHaveText(name)
+  await expect(group).toHaveCSS('white-space', 'nowrap')
+  await page.keyboard.press('Tab')
+  if ((page.viewportSize()?.width ?? 0) >= 840) await group.focus()
+  else await page.locator('.admin-people-row').first().focus()
+  await expect(group).toHaveCSS('white-space', 'normal')
+  expect(await group.evaluate(node => node.scrollWidth <= node.clientWidth + 1 && node.scrollHeight <= node.clientHeight + 1)).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
 test('BOG UI household real review controls keep transaction and Mia changes behind explicit participant actions', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Review')

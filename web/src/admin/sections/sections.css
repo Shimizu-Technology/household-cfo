@@ -202,6 +202,8 @@
 .admin-row-link { max-width: 100%; overflow-wrap: anywhere; }
 .admin-row-link strong { color: var(--ink); font-weight: var(--weight-semibold); }
 .admin-group-name { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-group-name:focus-visible,
+.admin-people-row:focus-visible .admin-group-name { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
 .admin-setup-status { white-space: nowrap; }
 .admin-filter-fields { display: grid; gap: 12px; }
 .admin-people-filters { min-width: 0; }
