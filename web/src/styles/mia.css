@@ -585,6 +585,8 @@ body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
   /* Files and a five-line draft must still leave a readable conversation on
      the shortest phone. The field scrolls after three lines with a tray. */
   .is-chat-page .mia-chat-shell:has(> .composer-attachment-workflow) .ask-row textarea { max-height: 72px; }
+  /* Keep the full file rejection and a readable thread on the shortest phone. */
+  .is-chat-page .mia-chat-shell:not(.is-expanded):has(.mia-composer-notices .chat-error) > .composer-attachment-workflow { padding-block: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   /* Opt these opacity-only states out of App.css's legacy motion shutdown. */

@@ -8824,6 +8824,7 @@ for (const setupComplete of [false, true]) {
     const files = Array.from({ length: 5 }, (_, index) => ({ name: `QA-statement-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') }))
     await fileInput.setInputFiles(files)
     await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
+    await page.evaluate(() => document.fonts.ready)
     await r6MiaShot(page, `attachments-${setupComplete ? 'established' : 'setup'}`)
     await expect(page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })).toHaveCount(1)
     const geometry = await page.locator('.mia-chat-shell').evaluate((shell) => {
@@ -8842,7 +8843,9 @@ for (const setupComplete of [false, true]) {
     await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 
     await fileInput.setInputFiles({ name: 'QA-sixth-statement.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
-    await expect(page.getByRole('alert').filter({ hasText: 'Not added: QA-sixth-statement.pdf' })).toBeVisible()
+    const rejection = page.getByRole('alert').filter({ hasText: 'Not added: QA-sixth-statement.pdf' })
+    await expect(rejection).toBeInViewport({ ratio: 1 })
+    await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport({ ratio: 1 })
     const rejectionLayout = await page.locator('.mia-chat-shell').evaluate(shell => ({ history: shell.querySelector('.chat-card-wrap')!.getBoundingClientRect().height, sendBottom: shell.querySelector('.send-button')!.getBoundingClientRect().bottom, viewport: innerHeight }))
     expect(rejectionLayout.history).toBeGreaterThan(40)
     expect(rejectionLayout.sendBottom).toBeLessThanOrEqual(rejectionLayout.viewport)
