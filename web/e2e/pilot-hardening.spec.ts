@@ -16044,7 +16044,9 @@ test('BOG UI P8b fix1 portaled statement sheets use paper and safe area corners'
   const sheet = page.getByRole('dialog')
   await expect(sheet).toHaveCSS('box-shadow', 'none')
   await expect(sheet).toHaveCSS('background-color', await page.locator('.document-history').evaluate(node => getComputedStyle(node).backgroundColor))
-  await expect(sheet.getByRole('heading')).toHaveCSS('font-family', await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-display').trim()))
+  // Browsers serialise font-family differently (WebKit drops the quotes), so compare the names only.
+  const displayFace = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--font-display').replace(/["']/g, '').trim())
+  await expect.poll(() => sheet.getByRole('heading').evaluate(node => getComputedStyle(node).fontFamily.replace(/["']/g, ''))).toBe(displayFace)
   await page.keyboard.press('Escape')
   await review.locator('.statement-summary-line').getByRole('button', { name: 'Change', exact: true }).click()
   await expect(sheet).toHaveCSS('background-color', await page.locator('.document-history').evaluate(node => getComputedStyle(node).backgroundColor))
