@@ -14580,18 +14580,24 @@ test('BOG UI shell More exit holds the backdrop at its finished opacity', async 
   await page.getByRole('button', { name: 'More', exact: true }).click()
   const surface = page.locator('.tabs-tools-surface')
   await surface.evaluate(node => Promise.allSettled(node.getAnimations({ subtree: true }).map(a => a.finished)))
-  const samples = await surface.evaluate(async node => {
+  const samples = await surface.evaluate(node => {
     ;(node.querySelector('.tabs-tools-close') as HTMLElement).click()
     const copy = document.querySelector<HTMLElement>('[data-dialog-exit-copy]')!
     const dim = copy.querySelector<HTMLElement>('.tabs-tools-backdrop')!
-    const values = []
-    while (copy.isConnected) {
-      values.push({ dim: Number(getComputedStyle(dim).opacity), root: Number(getComputedStyle(copy).opacity) })
-      await new Promise(requestAnimationFrame)
-    }
+    // Sample explicit animation times; a loaded runner need not paint three
+    // frames during the short exit, even when its opacity is correct.
+    const fade = copy.getAnimations().find(animation => !('animationName' in animation) && !('transitionProperty' in animation))!
+    fade.pause()
+    const duration = Number(fade.effect!.getTiming().duration)
+    const values = [0, duration / 3, duration * 2 / 3, duration - 1].map(time => {
+      fade.currentTime = time
+      return { dim: Number(getComputedStyle(dim).opacity), root: Number(getComputedStyle(copy).opacity) }
+    })
+    fade.finish()
     return values
   })
   expect(samples.length).toBeGreaterThan(2)
+  expect(samples[samples.length - 1].root).toBeLessThan(samples[0].root)
   for (const [index, sample] of samples.entries()) {
     expect(sample.dim).toBe(1)
     if (index) expect(sample.root).toBeLessThanOrEqual(samples[index - 1].root)
