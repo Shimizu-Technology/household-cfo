@@ -14648,3 +14648,28 @@ test('BOG UI Mia checkpoint offer and review share the compact card with explici
   await expect(card.getByRole('button', { name: 'Approve Day 30', exact: true })).toBeEnabled()
   expect(calls.map(call => call.action)).toEqual(['checkpoint_stage'])
 })
+
+test('BOG UI Mia opens the remaining purchases without approving a change', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  workspace.mia.messages = [
+    { id: 99501, role: 'user', author: 'You', content: 'I have two purchases to check.' },
+    { id: 99502, role: 'assistant', author: 'Mia', content: 'Check each purchase before it counts.' },
+  ]
+  let mutations = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/**', route => {
+    if (route.request().method() !== 'GET') mutations++
+    return route.abort()
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const cards = page.locator('.chat-card .transaction-draft-card')
+  await expect(cards).toHaveCount(1)
+  await r6MiaShot(page, 'several-purchases-collapsed', cards.first())
+  await page.getByRole('button', { name: '1 more purchase to check', exact: true }).click()
+  await expect(cards).toHaveCount(2)
+  await r6MiaShot(page, 'several-purchases-expanded', page.locator('.chat-card .transaction-draft-stack'))
+  await page.getByRole('button', { name: 'Show fewer purchases', exact: true }).click()
+  await expect(cards).toHaveCount(1)
+  expect(mutations).toBe(0)
+})
