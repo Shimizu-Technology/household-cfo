@@ -24,7 +24,7 @@ body #root .money-screen .money-edit-row, body #root .annual-income-planner .mon
 .money-screen .income-source-manager-card :is(dt, dd) { font-size: var(--text-sm); margin: 0; }
 .money-screen .income-source-manager-heading { display: flex; flex-wrap: wrap; gap: var(--space-3); justify-content: space-between; }
 .money-screen .profile-disclosure > .panel, .profile-screen .profile-disclosure > .panel { border: 0; border-radius: 0; background: transparent; padding: var(--space-4) 0 0; box-shadow: none; }
-.profile-screen .setup-fieldset { background: transparent; border: 0; border-radius: 0; padding: 0; margin: 0; min-width: 0; }
+:is(.money-screen, .profile-screen) .setup-fieldset { background: transparent; border: 0; border-radius: 0; padding: 0; margin: 0; min-width: 0; }
 .profile-screen .setup-field-grid { grid-template-columns: minmax(0, 1fr); }
 .profile-screen .setup-field { min-width: 0; }
 .profile-screen .is-viewing .setup-field { border-top: 1px solid var(--rule); padding-block: var(--space-3); gap: var(--space-2); }
