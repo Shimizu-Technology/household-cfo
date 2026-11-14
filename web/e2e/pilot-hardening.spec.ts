@@ -16487,7 +16487,7 @@ test('BOG UI P8a fix1 debt descriptions and record typography preserve every fig
 for (const demo of [false, true]) test(`BOG UI P8a fix1 noneditable category rows are plain full strength demo=${demo}`, async ({ page }) => {
   const workspace = realWorkspaceData(true)
   const modules = workspace.workspace.capabilities.modules
-  modules.find(module => module.id === 'budget')!.enabled = false
+  if (!demo) modules.find(module => module.id === 'budget')!.enabled = false
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, ...(demo ? { mode: 'demo' } : {}) } } }))
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   await openMoneyTopic(page, 'Spending')
