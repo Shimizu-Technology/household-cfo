@@ -243,6 +243,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) details[open] > summary::
 .ui-actions.ui-actions--compact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--compact > .ui-btn { width: 100%; padding-inline: 8px; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--tight > .ui-btn { padding-inline: 8px; }
+.ui-actions.ui-actions--tight:has(> .ui-btn:nth-child(3)):not(:has(> .ui-btn:nth-child(4))) { display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(2, minmax(0, 1fr)); align-items: stretch; }
 @media (max-width: 620px) {
   .ui-actions--long > :first-child { flex-basis: 100%; }
 }

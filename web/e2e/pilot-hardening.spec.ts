@@ -10226,9 +10226,11 @@ async function assertDailySaveUncovered(button: ReturnType<Page['getByRole']>) {
 test('BOG UI daily Mia report card saves every listed purchase once with one tap',async({page})=>{
   const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await expect(card).toContainText('Mon, Sep 28');await expect(card.getByLabel('Amount for Fictional fuel')).toHaveValue('8.00');await expect(card.getByLabel('How did you feel when you spent?')).toHaveValue('Fictional rushed');expect(calls).toHaveLength(0)
+  await r6MiaShot(page, 'daily-checkin', card)
   await assertDailySaveUncovered(card.getByRole('button',{name:'Save',exact:true}));await card.getByRole('button',{name:'Save',exact:true}).click();await expect(card).toContainText('Add where you spent this.');expect(calls).toHaveLength(0)
   await card.getByLabel('Place for purchase 2').fill('Fictional lunch');await card.getByRole('button',{name:'Save',exact:true}).click()
   await expect(card.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(card.getByRole('button',{name:'Save',exact:true})).toHaveCount(0)
+  await r6MiaShot(page, 'daily-checkin-finished', card)
   expect(calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','purchase_stage','purchase_approve','check_in_save','reflection_save','reflection_save'])
   expect(calls[0].input).toEqual({amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28',link_kind:'manual_new',expected_version_id:null,expected_head_lock_version:0});expect(calls[3].input).toMatchObject({accepted:true})
   const fits=await card.evaluate(root=>root.scrollWidth<=root.clientWidth+1);expect(fits).toBe(true)
@@ -13079,18 +13081,11 @@ test('BOG UI mobile Ask Mia structured review figures match Review and short thr
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const card = page.getByRole('article', { name: draft.title, exact: true })
   await expect(card.locator('.mia-change-figure')).toHaveText('$60')
-  await r6MiaShot(page, 'action-draft', card)
   await expect.poll(() => page.locator('.chat-turn-spacer').evaluate(spacer => spacer.getBoundingClientRect().height)).toBe(0)
   expect(await page.locator('.chat-card').evaluate(history => {
     const bounds = history.getBoundingClientRect()
-    const messages = [...history.querySelectorAll('.message-row')]
-    const first = messages[0].getBoundingClientRect()
-    const last = messages.at(-1)!.getBoundingClientRect()
-    // The starter row now lives outside history. At 320×568 this exchange
-    // exceeds the remaining thread height, so entry keeps the newest reply
-    // at its existing 12px anchor instead of treating it as a short thread.
-    const anchor = last.bottom - first.top <= history.clientHeight ? first : last
-    return Math.abs(anchor.top - bounds.top)
+    const first = [...history.querySelectorAll('.message-row, .mia-action-draft-card')].find(item => item.getBoundingClientRect().bottom > bounds.top)
+    return Math.abs(first!.getBoundingClientRect().top - bounds.top)
   })).toBeLessThanOrEqual(24)
   await card.getByText('See details', { exact: true }).click()
   await expect(card.locator('.mia-change-lines')).toContainText('Dining out$250 → $190')
@@ -13108,6 +13103,7 @@ test('BOG UI mobile Ask Mia structured review figures match Review and short thr
   expect(change.x).toBeGreaterThanOrEqual(apply.x + apply.width)
   expect(later.x - change.x - change.width).toBeLessThanOrEqual(16)
   expect(later.x).toBeGreaterThanOrEqual(change.x + change.width)
+  await r6MiaShot(page, 'action-draft', card)
   const reviewLink = page.getByRole('button', { name: /changes? to review|purchases? to review/ }).last()
   expect(await reviewLink.evaluate(link => Boolean(link.closest('.chat-card')))).toBe(true)
   await reviewLink.click()
