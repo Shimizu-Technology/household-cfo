@@ -433,12 +433,12 @@ export function MiaDailyReportCard({ nonce, report, scope, cohortId, onSaved, on
       {foreignPending && mutation.checkStatus && <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={foreignPending.working} onClick={() => void mutation.checkStatus?.()}>Check the earlier save first</button>}
       {!saved && footnote && <p className="mia-daily-footnote">{footnote}</p>}
       {!saved ? (
-        <div className="mia-daily-actions ui-actions">
+        <div className="mia-daily-actions ui-actions ui-actions--tight">
           <button type="button" className="mia-daily-save ui-btn ui-btn--primary" disabled={busy || reconciling || Boolean(foreignPending) || noSpendBlocked || !actor || (!noSpend && openRows.length === 0 && !finishing)} onClick={() => void save()}>{busy ? 'Saving…' : allToday ? 'Save to today' : 'Save'}</button>
           {!noSpend && <button type="button" className="secondary-button ui-btn ui-btn--tonal" disabled={busy || !movable} onClick={() => void moveToToday()}>Edit in Today</button>}
           <button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy || Boolean(state.unconfirmed)} onClick={() => void dismiss()}>Not right</button>
         </div>
-      ) : <div className="mia-daily-actions ui-actions"><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={() => void dismiss()}>Done</button></div>}
+      ) : <div className="mia-daily-actions ui-actions ui-actions--tight"><button type="button" className="mia-daily-dismiss ui-btn ui-btn--text" disabled={busy} onClick={() => void dismiss()}>Done</button></div>}
     </section>
   )
 }

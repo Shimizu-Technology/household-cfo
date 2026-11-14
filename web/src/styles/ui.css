@@ -240,7 +240,7 @@ body :is(#root, [role='dialog'], [role='alertdialog']) details[open] > summary::
    on phones; the short purchase decisions always remain side by side. */
 .ui-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ui-actions > :is(button, a) { flex: 0 1 auto; min-width: 0; }
-.ui-actions.ui-actions--compact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ui-card .ui-actions.ui-actions--compact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--compact > .ui-btn { width: 100%; padding-inline: 8px; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .ui-actions--tight > .ui-btn { padding-inline: 8px; }
 .ui-actions.ui-actions--tight:has(> .ui-btn:nth-child(3)):not(:has(> .ui-btn:nth-child(4))) { display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(2, minmax(0, 1fr)); align-items: stretch; }
