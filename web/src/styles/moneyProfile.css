@@ -93,6 +93,7 @@ body .optional-debt-dialog :is(.debt-warning, .debt-notice) { background: transp
 body .financial-restart-dialog .financial-restart-confirm input { scroll-margin-block: var(--space-2); }
 .money-screen .money-topic-heading { display: block; }
 .money-screen .money-topic-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.money-screen .money-topic-actions > button { flex: 0 0 auto; }
 .money-screen .money-topic-actions > .ui-btn--tonal { align-self: start; }
 .annual-income-planner .income-schedule-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
 .annual-income-planner .income-schedule-row > div:last-child:not(.ui-row) { justify-self: end; }
