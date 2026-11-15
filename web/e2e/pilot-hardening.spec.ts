@@ -17036,6 +17036,12 @@ function f4Review(answer?: boolean) {
   data.accounts[0].period_start_on='2026-10-01'; data.accounts[0].period_end_on='2026-10-31'
   const facts = data.participant_review!.accounts[0].approved!.statement_facts
   facts.period_start_on='2026-10-01';facts.period_end_on='2026-10-31'
+  for (const field of ['opening_balance_cents','closing_balance_cents','printed_debit_cents','printed_credit_cents','printed_row_count'] as const) { data.accounts[0][field]=null; facts[field]=null }
+  data.revision.coverage={expected_sheet_count:1,processed_sheets:[0],reported_row_count:null,represented_row_count:15}
+  data.revision.reconciliation.row_census={represented:15,reported:null,matches_reported:null,by_kind:{posted:data.counts.posted,unresolved:data.counts.unresolved}}
+  data.revision.reconciliation.page_coverage={expected:null,processed:[],all_processed:null}
+  data.revision.reconciliation.sheet_coverage={expected:1,processed:[0]}
+  data.participant_review!.coverage.represented_rows=15
   plan.spending = {read_count:0,read_cents:0,counted_count:0,counted_cents:0}
   plan.attention = data.events.map(event => ({ event_id:event.id, event_type:event.event_type, merchant:event.evidence!.merchant, posted_on:event.posted_on, signed_amount_cents:event.signed_amount_cents, amount_cents:Math.abs(Math.round(Number(event.evidence!.source_amount_text)*100)), category_id:null,category_name:null,
     kind:answer === undefined ? 'direction' as const : event.event_type === 'debt_payment' ? 'card_payment' as const : 'no_category' as const,
@@ -17051,7 +17057,7 @@ function f4Review(answer?: boolean) {
   return data
 }
 
-async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false) {
+async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false, lineCount = 15) {
   const width = Number(process.env.F4_EVIDENCE_WIDTH)
   if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
   await page.clock.setFixedTime(new Date('2026-11-15T03:00:00Z'))
@@ -17060,7 +17066,7 @@ async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, rec
   workspace.budget.annual_plan.pending_transaction_drafts = receipt ? [{ id: 99001, merchant: 'Pay-Less Supermarkets', occurred_on: '2026-11-14', amount: 69.51, amount_cents: 6951, status: 'pending', source_type: 'receipt', financial_document_import_id: latestImportId, category_id: 10, category_name: 'Groceries', stack_label: 'Flexible spending', summary: 'Grocery receipt', matches: [], splits: [] }] : []
   workspace.mia.messages = [
     { id: 101, role: 'user', author: 'You', content: receipt ? 'Here is my grocery receipt from yesterday.' : 'Here is my bank file.', attachments: [{ document_import_id: latestImportId, filename: receipt ? 'receipt.jpg' : 'bank.csv', content_type: receipt ? 'image/jpeg' : 'text/csv', document_kind: receipt ? 'receipt' : 'statement', status: 'needs_review', source_available: true }] },
-    { id: 102, role: 'assistant', author: 'Mia', content: receipt ? 'I read a receipt from Pay-Less Supermarkets for $69.51, on Nov 14, 2026. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it.' : 'I read 15 lines from your statement. 0 look right and 15 need a look. The card below is waiting for you to review and approve it. Nothing counts in your spending until you approve it.' },
+    { id: 102, role: 'assistant', author: 'Mia', content: receipt ? 'I read a receipt from Pay-Less Supermarkets for $69.51, on Nov 14, 2026. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it.' : `I read ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} from your statement. 0 look right and ${lineCount} ${lineCount === 1 ? 'needs' : 'need'} a look. The card below is waiting for you to review and approve it. Nothing counts in your spending until you approve it.` },
   ]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: imports } }))
@@ -17108,11 +17114,18 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
 test('BOG UI F4 a read amount asks money out or money in truthfully', async ({ page }) => {
   let movementType: 'unknown' | 'transfer' | 'debt_payment' = 'unknown'
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
-    const data = f4Review(true)
+    const data = f4Review()
+    data.events=[{...data.events[0],event_type:movementType,posted_on:'2026-10-03',evidence:{merchant:'Fictional shop',source_amount_text:'-126.42'}}]
+    data.counts={all:1,posted:0,unresolved:1,informational:0,pending_transaction_drafts:0,resolved_transaction_drafts:0}
+    data.pagination={page:1,per_page:50,total_count:1,total_pages:1,has_previous:false,has_next:false}
+    data.participant_review!.plan={...data.participant_review!.plan,total:1,ready:[],ready_event_ids:[],signed_amount_question:false,first_on:'2026-10-03',last_on:'2026-10-03'}
+    data.participant_review!.coverage.represented_rows=1
+    data.revision.coverage.represented_row_count=1
+    data.revision.reconciliation.row_census={represented:1,reported:null,matches_reported:null,by_kind:{unresolved:1}}
     data.participant_review!.plan.attention = [{ event_id: 4000, event_type: movementType, kind: 'direction', merchant: 'Fictional shop', posted_on: '2026-10-03', signed_amount_cents: null, amount_cents: 12642, category_id: null, category_name: null, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
     return route.fulfill({ json: { source_review: data } })
   })
-  await f4Chat(page, [f4Source()])
+  await f4Chat(page, [f4Source()], 1203, false, 1)
   await expect(page.getByText('$126.42', { exact: true })).toBeVisible()
   await f4Evidence(page, 'row-direction')
   await expect(page.getByText('Was this money out or money in?')).toBeVisible()
