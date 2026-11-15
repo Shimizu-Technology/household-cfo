@@ -17592,12 +17592,14 @@ function f2Workspace() {
   plan.months.forEach((month, index) => { month.starts_on = `2026-${String(index + 1).padStart(2, '0')}-01`; month.ends_on = `2026-${String(index + 1).padStart(2, '0')}-28` })
   plan.rows = [{ ...plan.rows[1], id: 2, name: 'Flexible spending', months: categoryMonths(2, 900, 0), planned_total: 10800, actual_total: 0 }]
   plan.pending_transaction_drafts = []
+  plan.pending_mia_action_drafts = []
   plan.pending_transaction_drafts_meta = { total_count: 0, returned_count: 0, limit: 500, truncated: false }
   workspace.dashboard.action_center = { ...workspace.dashboard.action_center, current_year: 2026, current_month_index: 10, current_month_label: 'November', transaction_review_count: 0, mia_action_review_count: 0, total_review_count: 0 }
   workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, year: 2026, month: 11, period_label: 'November 2026', spent_so_far_cents: 0, pending_count: 0, pending_cents: 0 }
   return workspace
 }
 async function f2Mock(page: Page, workspace = f2Workspace()) {
+  await mockEmptyPlaidState(page, false)
   await page.clock.setFixedTime(new Date('2026-11-15T02:00:00Z'))
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: null } }))
@@ -17607,7 +17609,7 @@ async function f2NoOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   const last = page.locator('main button:visible').last()
   if (await last.count()) {
-    await last.scrollIntoViewIfNeeded()
+    await last.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }))
     const nav = page.locator('.tabs-shell')
     if ((page.viewportSize()?.width ?? 1440) <= 620 && await nav.isVisible()) {
       const [button, tabs] = await Promise.all([last.boundingBox(), nav.boundingBox()])
