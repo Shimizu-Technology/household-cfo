@@ -50,10 +50,11 @@ module FinancialDocuments
         bases = revision.financial_source_accounts.map do |account|
           SourceAccountReviewHead.find_by(financial_source_account: account)&.approved_version&.source_tracked_account&.account_basis || account.account_basis
         end
+        file_answer_available = revision.financial_document_import&.source_available? == true && !SpreadsheetSignAnswer.saved_decisions?(revision)
         target_rows = revision.coverage["signed_amount_target_rows"]
         target_accounts = plan.lines.select { |line| target_rows ? target_rows.include?(line.event.row_identity) : line.event.limitations.include?("transaction_direction_unclear") }.map { |line| line.event.financial_source_account_id }.uniq
-        { signed_amount_single_sign: revision.coverage["signed_amount_single_sign"], signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && plan.lines.none?(&:done) && revision.financial_document_import&.source_available? && bases.uniq.length == 1 && target_accounts.one?,
-          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && plan.lines.none?(&:done) && revision.financial_document_import&.source_available?,
+        { signed_amount_single_sign: revision.coverage["signed_amount_single_sign"], signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && file_answer_available && bases.uniq.length == 1 && target_accounts.one?,
+          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && file_answer_available,
           sign_effect: sign_effect(plan), total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },

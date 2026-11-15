@@ -390,6 +390,30 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     end
   end
 
+  test "a saved decision keeps the file question withdrawn after an account edit makes it stale" do
+    user, document = sign_document("stale-saved.csv")
+    original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    event = original.financial_source_events.order(:position).first
+    FinancialDocuments::SourceReview::LineApprover.new(domain, original, { lines: [ { event_id: event.id, decision: "leave_out" } ] }).call
+    FinancialDocuments::SourceReview::LineApprover.new(domain, original, { lines: [], accounts: [ { source_account_id: event.financial_source_account_id, account_basis: "asset", period_start_on: "2026-09-30" } ] }).call
+    plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, original, user: user).plan_summary
+    assert_equal 0, plan[:done], "the saved decision is stale under the new account identity"
+    assert_not plan[:signed_amount_question]
+    assert_not plan[:signed_amount_answerable]
+    assert plan[:attention].any?
+    assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: true, user: user) }
+  end
+
+  test "a derived effect for one line excludes recognized directions" do
+    user, document = sign_document("derived-one.csv")
+    content = "Date,Description,Amount,Balance,Direction\n2026-10-01,Pay,100,1000,Credit\n2026-10-02,Known shop,-10,990,Debit\n2026-10-03,Other shop,-20,970,POS\n"
+    original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, original, user: user).plan_summary
+    assert_equal "The balance column and account kind: spending is negative. This set the direction of 1 line.", plan[:sign_effect]
+    assert_not plan[:signed_amount_question]
+  end
+
   private
 
   def sign_document(filename)

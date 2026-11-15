@@ -4,6 +4,10 @@ module FinancialDocuments
   # Re-derive a spreadsheet from its private, already-read cell evidence. A sign
   # answer appends a revision; it neither edits old facts nor approves purchases.
   class SpreadsheetSignAnswer
+    def self.saved_decisions?(revision)
+      SourceReviewHead.where(financial_source_event_id: revision.financial_source_events.select(:id)).where.not(approved_version_id: nil).exists?
+    end
+
     def self.call(revision, negative_is_money_out:, user:)
       raise ArgumentError, "Choose how amounts are shown." unless [ true, false, nil, "all_out", "all_in", "individual" ].include?(negative_is_money_out)
       choice = negative_is_money_out
@@ -12,7 +16,7 @@ module FinancialDocuments
       document = revision.financial_document_import
       raise ArgumentError, "The original file is no longer available. Review each line’s money out or money in question." unless document&.source_available?
       raise ArgumentError, "This file does not need a sign answer." unless (revision.coverage["signed_amount_question"] == true || revision.coverage["signed_amount_answerable"] == true) && document&.spreadsheet? && document.source_available?
-      raise ArgumentError, "This file already has approved lines. Review those lines individually." if SourceReviewHead.where(financial_source_event_id: revision.financial_source_events.select(:id)).where.not(approved_version_id: nil).exists?
+      raise ArgumentError, "This file already has approved lines. Review those lines individually." if saved_decisions?(revision)
       accounts = revision.financial_source_accounts.includes(:financial_source_evidence).order(:id).to_a
       identities = SourceAccountReviewHead.where(financial_source_account_id: accounts.map(&:id)).includes(approved_version: :source_tracked_account).index_by(&:financial_source_account_id)
       bases = accounts.map { |account| identities[account.id]&.approved_version&.source_tracked_account&.account_basis || account.account_basis }.uniq
