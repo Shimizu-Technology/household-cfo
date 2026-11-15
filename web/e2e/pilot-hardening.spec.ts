@@ -17178,7 +17178,7 @@ test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad p
 })
 
 for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
-  const source = { ...f4Source(), status: 'failed', metadata: { ...f4Source().metadata, extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
+  const source = { ...f4Source(), status: 'failed', metadata: { extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
   await f4Chat(page, [source])
   await expect(page.getByRole('region', { name: /Could not read/ })).toBeVisible()
   await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
@@ -17431,7 +17431,7 @@ test('BOG UI F4 fix1 every photo picker leaves native iPhone conversion availabl
 
 
 for (const stage of ['processing', 'failed', 'needs_review'] as const) test(`BOG UI F4 fix2 newest statement comes before proposed changes while ${stage}`, async ({ page }) => {
-  const source = { ...f4Source(), status: stage, extraction_error: stage === 'failed' ? 'The reader can’t accept this file.' : null }
+  const source = { ...f4Source(), status: stage, metadata: stage === 'needs_review' ? f4Source().metadata : {}, extraction_error: stage === 'failed' ? 'The reader can’t accept this file.' : null }
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review() } }))
   await f4Chat(page, [source], 1203, false, 15, false, workspace => { workspace.budget.annual_plan.pending_mia_action_drafts = [miaBudgetDraft] })
   const queue = page.locator('.chat-review-queue')
@@ -17512,13 +17512,28 @@ test('BOG UI F4 fix2 saved line withdraws the file question and reveals the rema
 })
 
 test('BOG UI F4 fix2 CSV and PDF preparation never claim to prepare a photo', async ({ page }) => {
+  await page.addInitScript(() => {
+    const original = Blob.prototype.arrayBuffer
+    Blob.prototype.arrayBuffer = function () {
+      document.documentElement.dataset.f4Reading = 'yes'
+      return new Promise<void>(resolve => setTimeout(resolve, 600)).then(() => original.call(this)).finally(() => { delete document.documentElement.dataset.f4Reading })
+    }
+  })
   await f4Chat(page, [], 0)
   await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Amount\n2026-10-01,Store,10') })
+  await expect(page.locator('html')).toHaveAttribute('data-f4-reading', 'yes')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeDisabled()
+  expect(await page.getByText('Preparing your photo…', { exact: true }).count()).toBe(0)
   await expect(page.getByText('1 file ready to send', { exact: true })).toBeVisible()
-  await expect(page.getByText('Preparing your photo…', { exact: true })).toHaveCount(0)
+  expect(await page.getByText('Preparing your photo…', { exact: true }).count()).toBe(0)
   await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'bank.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-fictional') })
+  await expect(page.locator('html')).toHaveAttribute('data-f4-reading', 'yes')
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeDisabled()
+  expect(await page.getByText('Preparing your photo…', { exact: true }).count()).toBe(0)
   await expect(page.getByText('2 files ready to send', { exact: true })).toBeVisible()
-  await expect(page.getByText('Preparing your photo…', { exact: true })).toHaveCount(0)
+  expect(await page.getByText('Preparing your photo…', { exact: true }).count()).toBe(0)
   await f4Evidence(page, 'fix2-files-ready')
 })
 
