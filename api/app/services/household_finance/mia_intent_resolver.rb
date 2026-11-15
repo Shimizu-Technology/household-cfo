@@ -772,7 +772,7 @@ module HouseholdFinance
       ))
       Result.new(
         intent: "debt_action", confidence: 1.0, continuation: !direct,
-        resolved_message: "Save a confirmed no-debt summary: $0 total balance and $0 monthly minimum",
+        resolved_message: "Save a confirmed no-debt summary: $0 total balance and $0 monthly debt payments",
         needs_clarification: false, clarification: "",
         topic: { type: "debt_edit", title: "No-debt summary", subject: "Debt summary" },
         action: action, read_only_plan: {}, source: "deterministic"

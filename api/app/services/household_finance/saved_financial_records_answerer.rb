@@ -270,14 +270,14 @@ module HouseholdFinance
         balance = known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)
         minimum = known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)
         answer = if profile.debt_summary_balance_known?
-          "Your saved debt total is #{balance}, with a monthly minimum of #{minimum}. That is the saved total across your debts, not a per-card figure, so I can’t say what is owed on one credit card. If you want a balance for each card, add them under My Money, Debt."
+          "Your saved debt total is #{balance}, with monthly debt payments of #{minimum}. That is the saved total across your debts, not a per-card figure, so I can’t say what is owed on one credit card. If you want a balance for each card, add them under My Money, Debt."
         else
           "I don’t have a saved debt total yet, so I can’t say what you owe. Add your balances under My Money, Debt and I’ll answer from them."
         end
         return result(:debts, answer, tracking_mode: "summary")
       end
       if profile&.debt_tracking_mode == "summary"
-        answer = "Your household plan uses summary debt tracking: balance #{known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)}, monthly minimum #{known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)}. Individual records are preserved but excluded from that total. This is separate from the challenge's optional card-term review and does not establish complete debt coverage."
+        answer = "Your household plan uses summary debt tracking: balance #{known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)}, monthly debt payments #{known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)}. Individual records are preserved but excluded from that total. This is separate from the challenge's optional card-term review and does not establish complete debt coverage."
         return result(:debts, answer, tracking_mode: "summary")
       end
       scope = @household.debts.active.order(:debt_type, :label, :id)

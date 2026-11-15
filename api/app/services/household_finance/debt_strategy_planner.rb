@@ -33,7 +33,7 @@ module HouseholdFinance
       return "Your approved records confirm no outstanding debt and no monthly debt payments. There is no debt payment target to rank. You can continue with your savings goal; no payment is made automatically." if confirmed_debt_free?
       if portfolio.mode == "summary" && parsed_scenario_debts.empty?
         balance = portfolio.balance_known? ? money(portfolio.total_balance_cents) : "an unconfirmed total balance"
-        minimum = portfolio.minimum_payment_known? ? money(portfolio.monthly_minimum_cents) : "an unconfirmed monthly minimum"
+        minimum = portfolio.minimum_payment_known? ? "#{money(portfolio.monthly_minimum_cents)} in monthly debt payments" : "unconfirmed monthly debt payments"
         return "Your approved debt summary shows #{balance} and #{minimum}. Individual debt details are not canonical in summary mode. Add each balance and APR, then explicitly switch to individual tracking before I rank saved lenders; I will not guess which lender should come first. No payment is made automatically."
       end
       approved_debts = portfolio.mode == "individual" ? household.debts.active.order(:id).to_a : []

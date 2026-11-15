@@ -196,7 +196,7 @@ class HouseholdFinanceSavedFinancialRecordsAnswererTest < ActiveSupport::TestCas
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_cents: 450_000, debt_summary_balance_known: true, debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: false)
     @household.debts.create!(label: "Preserved Visa", debt_type: "credit_card", balance_cents: 999_999, minimum_payment_cents: 20_000)
     response = answer("What is my household debt?")
-    assert_includes response.answer, "balance $4,500, monthly minimum unknown"
+    assert_includes response.answer, "balance $4,500, monthly debt payments unknown"
     assert_not_includes response.answer, "Preserved Visa"
     assert_not_includes response.answer, "$9,999.99"
   end
