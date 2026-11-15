@@ -56,14 +56,14 @@ describe('ReviewedTransactionsPanel', () => {
   })
 })
 
-it('shows a distinct catch-all name while reopening the unchanged saved category', () => {
+it('keeps saved names on ledger rows whose group is unknown', () => {
   const fixture = report()
   fixture.transactions[0].categories = ['Flexible spending']
   fixture.ignored_drafts![0].category_name = 'Fixed essentials'
   const onReopen = vi.fn()
   render(<ReviewedTransactionsPanel report={fixture} action={null} onReopen={onReopen} />)
-  expect(screen.getByText('Other flexible spending')).toBeTruthy()
-  expect(screen.getByText('Other fixed essentials')).toBeTruthy()
+  expect(screen.getByText('Flexible spending')).toBeTruthy()
+  expect(screen.getByText('Fixed essentials')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: "Reopen McDonald's $25 on Oct 4" }))
   expect(onReopen).toHaveBeenCalledWith(expect.objectContaining({ category_name: 'Flexible spending' }))
   expect(fixture.transactions[0].categories).toEqual(['Flexible spending'])

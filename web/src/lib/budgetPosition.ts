@@ -157,7 +157,7 @@ export function transactionDraftBudgetImpacts(
     if (!row || !cell || cell.allocation_missing === true) {
       return {
         categoryId,
-        categoryName: allocation.categoryName || 'Unknown category',
+        categoryName: row ? categoryDisplayName(row.name, row.stack_key) : allocation.categoryName || 'Unknown category',
         draftAmount: allocation.amount,
         planned: null,
         actual: null,

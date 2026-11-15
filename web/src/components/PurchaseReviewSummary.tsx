@@ -5,7 +5,7 @@ import { formatReviewMoney } from '../lib/reviewMoney'
 // Same headline and detail-row presentation as Mia's plan-change cards.
 export function PurchaseReviewSummary({ draft, date, needsCategory, effect }: { draft: TransactionDraft; date: string; needsCategory: boolean; effect?: string }) {
   const headline = { amount_cents: draft.amount_cents ?? Math.round(draft.amount * 100), label: draft.merchant }
-  const categories = new Map(draft.splits?.map(split => [split.budget_category_id, categoryDisplayName(split.category_name ?? '', split.stack_key ?? undefined)]))
+  const categories = new Map(draft.splits?.map(split => [split.budget_category_id ?? `${split.stack_key}:${split.category_name}`, categoryDisplayName(split.category_name ?? '', split.stack_key ?? undefined)]))
   const category = needsCategory ? 'Choose a category' : categories.size > 1
     ? `${categories.size} categories` : categories.values().next().value || (draft.category_name ? categoryDisplayName(draft.category_name) : 'Choose a category')
   return <>
