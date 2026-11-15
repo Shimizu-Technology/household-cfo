@@ -3,11 +3,11 @@ import { HEIC_CONVERSION_FAILURE, prepareFinancialUpload } from './prepareFinanc
 
 const workers: FakeWorker[] = []
 class FakeWorker {
-  onmessage?: (event: { data: { blob?: Blob } }) => void
+  onmessage?: (event: { data: { ready?: boolean; blob?: Blob } }) => void
   onerror?: () => void
   terminate = vi.fn()
   postMessage = vi.fn(() => queueMicrotask(() => this.onmessage?.({ data: { blob: new Blob(['jpeg'], { type: 'image/jpeg' }) } })))
-  constructor() { workers.push(this) }
+  constructor() { workers.push(this); queueMicrotask(() => this.onmessage?.({ data: { ready: true } })) }
 }
 afterEach(() => { vi.unstubAllGlobals(); workers.length = 0 })
 

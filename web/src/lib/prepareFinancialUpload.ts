@@ -24,10 +24,15 @@ export async function prepareFinancialUpload(file: File): Promise<File> {
       if (blob?.size) resolve(blob)
       else reject(new Error(HEIC_CONVERSION_FAILURE))
     }
-    const timeout = setTimeout(() => finish(), 30_000)
-    worker.onmessage = (event: MessageEvent<{ blob?: Blob }>) => finish(event.data.blob)
+    let timeout = setTimeout(() => finish(), 120_000)
+    worker.onmessage = (event: MessageEvent<{ ready?: boolean; blob?: Blob }>) => {
+      if (event.data.ready) {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => finish(), 30_000)
+        worker.postMessage(file)
+      } else finish(event.data.blob)
+    }
     worker.onerror = () => finish()
-    worker.postMessage(file)
   }).catch(() => { throw new Error(HEIC_CONVERSION_FAILURE) })
   const output = new File([converted], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg', lastModified: file.lastModified })
   const result = validateFinancialUpload(output)

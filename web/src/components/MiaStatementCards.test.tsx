@@ -11,7 +11,7 @@ vi.mock('../api', async (original) => ({ ...await original<typeof import('../api
 const fetchReview = vi.mocked(fetchDocumentSourceReview)
 const mutate = vi.mocked(mutateStatementReview)
 
-const NOW = new Date().toISOString()
+const NOW = '2026-11-15T03:00:00Z'
 const head = { approved_version_id: null, lock_version: 0 }
 const SPENDING = { read_count: 18, read_cents: 224965, counted_count: 0, counted_cents: 0 }
 const progress = (done: number, total = 27) => ({ total, done, spending: SPENDING, coverage: { question: null, answer: null } })
@@ -54,9 +54,11 @@ const mount = (imports: FinancialDocumentImport[], extra: Partial<Parameters<typ
   return props
 }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(NOW))
   sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+  vi.mocked(answerSpreadsheetSign).mockReset()
   fetchReview.mockReset(); mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 2, left_out: 0, unchanged: 0, complete: false } })
 })
 
@@ -345,4 +347,53 @@ it('uses the bank basis she chose over a different basis read from the file', as
   mount([statement(1)])
   await screen.findByText(/In this bank account file/)
   expect(screen.queryByText(/In this credit card file/)).toBeNull()
+})
+
+
+it('keeps an unfinished answer open when another attachment becomes newest', async () => {
+  serve(review(planWith([question(4001, 'Unclear', 'direction', { signed_amount_cents: null, amount_cents: 2500, answers: [{ id: 'money_in', label: 'Money in' }] })])))
+  const props = { imports: [statement(1), statement(2)], expandedImportIds: [1], assistantName: 'Mia', challenge: false, onReview: vi.fn(), onRetry: vi.fn(), onSaved: vi.fn() }
+  const mounted = render(<MiaStatementCards {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Money in: Unclear' }))
+  const sheet = await screen.findByRole('dialog')
+  fireEvent.change(within(sheet).getByLabelText('Name'), { target: { value: 'Keep this answer' } })
+  mounted.rerender(<MiaStatementCards {...props} expandedImportIds={[2]} />)
+  expect((within(screen.getByRole('dialog')).getByLabelText('Name') as HTMLInputElement).value).toBe('Keep this answer')
+})
+
+it('shows the sign effect and holds sign buttons while Mia is replying', async () => {
+  serve(review(planWith([], { signed_amount_answerable: true, sign_effect: '13 lines are money out, 2 lines are money in' })))
+  mount([statement(1)], { disabled: true })
+  await screen.findByText('13 lines are money out, 2 lines are money in')
+  expect((screen.getByRole('button', { name: 'Yes, spending is negative' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+
+it('keeps every pending statement reachable and retains the newest four full cards', async () => {
+  serve(review(planWith([])))
+  mount([1, 2, 3, 4, 5, 6].map(id => statement(id)))
+  await waitFor(() => expect(fetchReview).toHaveBeenCalledTimes(4))
+  expect(fetchReview.mock.calls.map(call => call[0]).sort()).toEqual([3, 4, 5, 6])
+  expect(screen.getByRole('button', { name: /statement-1.pdf · Still waiting/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /statement-2.pdf · Still waiting/ })).toBeTruthy()
+})
+
+it('keeps a known refund when its direction is money in', async () => {
+  serve(review(planWith([question(4001, 'Shop refund', 'direction', { event_type: 'refund', signed_amount_cents: null, amount_cents: 5000, answers: [{ id: 'money_in', label: 'Money in' }] })])))
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'Money in: Shop refund' }))
+  const sheet = await screen.findByRole('dialog')
+  expect((within(sheet).getByLabelText('What was this?') as HTMLSelectElement).value).toBe('refund')
+})
+
+
+it('uses sound balance arithmetic only after she establishes the account basis', async () => {
+  const data = review(planWith([], { signed_amount_question: true, signed_amount_balance_factor: 1 }))
+  data.accounts[0].account_basis = 'unknown'
+  data.participant_review!.accounts[0].approved = null
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'Credit card' }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, false))
 })

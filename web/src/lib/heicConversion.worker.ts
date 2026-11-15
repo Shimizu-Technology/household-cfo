@@ -1,20 +1,18 @@
 /// <reference lib="webworker" />
 import { heicTo } from 'heic-to/csp'
+import { encodeFinancialPhoto } from './encodeFinancialPhoto'
 
 self.onmessage = async (event: MessageEvent<File>) => {
   let bitmap: ImageBitmap | undefined
   try {
     bitmap = await heicTo({ blob: event.data, type: 'bitmap' })
-    if (bitmap.width * bitmap.height > 32_000_000) throw new Error('Photo too large')
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
-    const context = canvas.getContext('2d')
-    if (!context) throw new Error('Image conversion unavailable')
-    context.drawImage(bitmap, 0, 0)
-    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.92 })
-    self.postMessage({ blob })
+    self.postMessage({ blob: await encodeFinancialPhoto(bitmap) })
   } catch {
     self.postMessage({})
   } finally {
     bitmap?.close()
   }
 }
+// Static decoder imports have finished downloading before this signal. The
+// conversion deadline starts here, rather than penalising a slow connection.
+self.postMessage({ ready: true })

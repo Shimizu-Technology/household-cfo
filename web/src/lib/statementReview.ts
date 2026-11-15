@@ -26,6 +26,9 @@ export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
 export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
 export type StatementPlan = {
+  signed_amount_balance_factor?: number | null
+  signed_amount_answerable?: boolean
+  sign_effect?: string | null
   signed_amount_question?: boolean
   total: number
   done: number
@@ -86,6 +89,7 @@ export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdi
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  directionRequired?: boolean
   moneyDirection?: 'in' | 'out'
   expectedHead?: ExpectedLineHead
   eventId: number
@@ -100,12 +104,12 @@ export type SheetLine = {
 /** Keep a known non-spending movement as that kind when she supplies its missing direction. */
 export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'out'): SheetLine {
   const line = lineSheetFromAttention(item)
-  return { ...line, moneyDirection: direction, kind: item.event_type === 'transfer' || item.event_type === 'debt_payment' || (item.event_type === 'cash_withdrawal' && direction === 'out') ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
+  return { ...line, moneyDirection: direction, kind: item.event_type === 'refund' || item.event_type === 'transfer' || item.event_type === 'debt_payment' || (item.event_type === 'cash_withdrawal' && direction === 'out') ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
 }
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
+  return { directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 

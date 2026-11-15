@@ -237,7 +237,7 @@ const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 8_000
 const MIA_MESSAGE_LENGTH_WARNING_AT = 1_000
 const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
-const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
+const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,image/*,image/jpeg,image/png,image/webp,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
 const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
@@ -414,7 +414,7 @@ const documentUploadCards: Array<{
     kind: 'statement',
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
-    accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,image/*',
     formats: 'PDF, Excel, CSV or photos',
     helper: 'Choose a PDF, spreadsheet, or photo of your statement.',
     sizeGuidance: 'Images and PDFs up to 12 MB · CSV and Excel up to 20 MB',
@@ -423,7 +423,7 @@ const documentUploadCards: Array<{
     kind: 'pay_stub',
     label: 'Pay stub',
     eyebrow: 'Income proof',
-    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,image/*',
     formats: 'PDF, Word or photos',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
     sizeGuidance: 'Images and PDFs up to 12 MB · Word up to 20 MB',
@@ -432,7 +432,7 @@ const documentUploadCards: Array<{
     kind: 'receipt',
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
-    accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    accepts: '.pdf,.jpg,.jpeg,.png,.webp,image/*',
     formats: 'PDF or photos',
     helper: 'Upload a receipt, PDF, or photo so your assistant can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
     sizeGuidance: 'Images and PDFs up to 12 MB',
@@ -760,6 +760,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const setTransactionNotice = (text: string) => setTransactionResult({ section: activeSectionRef.current, text })
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
+  const [preparationCount, setPreparationCount] = useState(0)
+  const preparingAttachments = preparationCount > 0
   const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
   const pendingMiaAttachmentsRef = useRef<PendingMiaAttachment[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<PendingMiaAttachment | null>(null)
@@ -2275,16 +2277,17 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (firstAnswerPending) document.querySelector<HTMLElement>('main [data-page-heading]')?.focus({ preventScroll: true })
   }, [firstAnswerPending])
   useEffect(() => {
-    if (!firstAnswerPending || miaLoading || budgetYearLoading || setupSaving || budgetAction) return
+    if (!firstAnswerPending || preparingAttachments || miaLoading || budgetYearLoading || setupSaving || budgetAction) return
     // Wait for the latest render and the route's inert heading before sending.
     const frame = requestAnimationFrame(() => {
       setFirstAnswerPending(false)
       firstAnswerSenderRef.current()
     })
     return () => cancelAnimationFrame(frame)
-  }, [firstAnswerPending, miaLoading, budgetYearLoading, setupSaving, budgetAction])
+  }, [firstAnswerPending, preparingAttachments, miaLoading, budgetYearLoading, setupSaving, budgetAction])
 
   async function handleAskMia(prompt = question, focusAfterReply: 'composer' | 'heading' = 'composer') {
+    if (preparingAttachments) return
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaRequestBusyRef.current || budgetYearLoading || budgetActionRef.current) return
@@ -3475,12 +3478,19 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return false
     }
 
+    const uploadScope = budgetViewScopeRef.current
+    const assertUploadContext = captureApiOperation()
     setUploadingKind(kind)
     setDocumentsError(null)
     setDocumentsNotice(null)
     trackDocumentUpload(kind, 'started', uploadFile)
     try {
-      const documentImport = await uploadDocumentImport(uploadFile, kind, origin)
+      setDocumentsNotice('Preparing your photo…')
+      const preparedFile = await prepareFinancialUpload(uploadFile)
+      assertUploadContext()
+      if (!workspaceMounted.current || budgetViewScopeRef.current !== uploadScope) return false
+      setDocumentsNotice(null)
+      const documentImport = await uploadDocumentImport(preparedFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
       setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. ${assistantName} is extracting draft values for review.`)
@@ -3492,6 +3502,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
       return true
     } catch (caught) {
+      setDocumentsNotice(null)
       trackDocumentUpload(kind, 'failed', uploadFile)
       const uploadError = participantErrorMessage(caught, 'Document could not be uploaded.')
       setDocumentsError(uploadError)
@@ -3515,36 +3526,40 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return
     }
 
-    const isCurrent = captureWorkspaceReloadGuard()
+    const preparationScope = budgetViewScopeRef.current
+    const isCurrent = () => workspaceMounted.current && budgetViewScopeRef.current === preparationScope
     const transportGuard = captureApiOperation()
-    const normalizedFiles: File[] = []
-    let conversionError: string | null = null
-    for (const [index, file] of files.entries()) {
-      try {
-        const prepared = await prepareFinancialUpload(normalizedEvidenceFile(file, index))
-        transportGuard()
-        if (!isCurrent()) return
-        normalizedFiles.push(prepared)
-      } catch (failure) {
-        if (!isCurrent()) return
-        conversionError ||= participantErrorMessage(failure, 'We couldn’t prepare this file. Take a screenshot of it, or save it as JPEG.')
+    setPreparationCount(count => count + 1)
+    try {
+      const normalizedFiles: File[] = []
+      let conversionError: string | null = null
+      for (const [index, file] of files.entries()) {
+        try {
+          const prepared = await prepareFinancialUpload(normalizedEvidenceFile(file, index))
+          transportGuard()
+          if (!isCurrent()) return
+          normalizedFiles.push(prepared)
+        } catch (failure) {
+          if (!isCurrent()) return
+          conversionError ||= participantErrorMessage(failure, 'We couldn’t prepare this file. Take a screenshot of it, or save it as JPEG.')
+        }
       }
-    }
-    const validatedFiles = normalizedFiles.map((file) => ({ file, validation: validateFinancialUpload(file) }))
-    const acceptedFiles = validatedFiles.filter(({ validation }) => validation.valid).map(({ file }) => file)
-    const firstRejection = validatedFiles.find(({ validation }) => !validation.valid)
-    const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
-    const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
-    if (conversionError) setMiaError(conversionError)
-    else if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
-    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. Not added: ${acceptedFiles.slice(room).map((file) => file.name).join(', ')}. Send this batch, then attach the remaining files.`)
-    else setMiaError(null)
+      const validatedFiles = normalizedFiles.map((file) => ({ file, validation: validateFinancialUpload(file) }))
+      const acceptedFiles = validatedFiles.filter(({ validation }) => validation.valid).map(({ file }) => file)
+      const firstRejection = validatedFiles.find(({ validation }) => !validation.valid)
+      const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
+      const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
+      if (conversionError) setMiaError(conversionError)
+      else if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
+      else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. Not added: ${acceptedFiles.slice(room).map((file) => file.name).join(', ')}. Send this batch, then attach the remaining files.`)
+      else setMiaError(null)
 
-    if (accepted.length > 0) setPendingMiaAttachments((current) => {
-      const keep = accepted.slice(0, Math.max(MAX_CHAT_ATTACHMENTS - current.length, 0))
-      accepted.slice(keep.length).forEach(attachment => URL.revokeObjectURL(attachment.previewUrl))
-      return [...current, ...keep]
-    })
+      if (accepted.length > 0) setPendingMiaAttachments((current) => {
+        const keep = accepted.slice(0, Math.max(MAX_CHAT_ATTACHMENTS - current.length, 0))
+        accepted.slice(keep.length).forEach(attachment => URL.revokeObjectURL(attachment.previewUrl))
+        return [...current, ...keep]
+      })
+    } finally { setPreparationCount(count => count - 1) }
   }
 
   function removePendingMiaAttachment(id: string) {
@@ -4094,16 +4109,41 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
   </> : dailyCheckInPrompt
 
-  const latestUploadIds = (currentMessages.findLast(message => message.role === 'user')?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id])
-  const statementIds = documentImports.filter(document => document.document_kind === 'statement').map(document => document.id)
+  const latestUploadIds = (currentMessages.findLast(message => message.role === 'user' && message.attachments?.length)?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id]).filter(id => documentImports.some(document => document.id === id))
   const typedStatementIds = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'typed').map(document => document.id)
   const olderLegacyStatements = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'legacy' && documentNeedsReview(document) && !latestUploadIds.includes(document.id))
-  const chatPurchaseDrafts = latestUploadIds.length ? pendingTransactionDrafts.filter(draft => draft.financial_document_import_id != null && latestUploadIds.includes(draft.financial_document_import_id) && !typedStatementIds.includes(draft.financial_document_import_id)) : pendingTransactionDrafts.filter(draft => draft.financial_document_import_id == null || !statementIds.includes(draft.financial_document_import_id))
+  const chatPurchaseDrafts = pendingTransactionDrafts.filter(draft => draft.financial_document_import_id == null || !typedStatementIds.includes(draft.financial_document_import_id)).sort((left, right) => Number(right.financial_document_import_id != null && latestUploadIds.includes(right.financial_document_import_id)) - Number(left.financial_document_import_id != null && latestUploadIds.includes(left.financial_document_import_id)))
+
+
+  const latestHasPurchases = chatPurchaseDrafts.some(draft => draft.financial_document_import_id != null && latestUploadIds.includes(draft.financial_document_import_id))
+  const latestHasStatement = latestUploadIds.some(id => typedStatementIds.includes(id))
+  const chatPurchaseCards = (chatPurchaseDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
+  <TransactionDraftReviewStack key="chat-purchases"
+    drafts={chatPurchaseDrafts}
+    errors={reviewErrors}
+    completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
+    draftActionsDisabled={budgetYearLoading}
+    isRealWorkspace={Boolean(isRealWorkspace)}
+    action={chatDraftAction}
+    compact
+    collapsed
+    categories={activeBudgetPlan?.rows ?? []}
+    plan={activeBudgetPlan}
+    queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
+    onUpdate={handleUpdateTransactionDraft}
+    onMatch={handleMatchTransactionDraft}
+    onConfirm={handleConfirmTransactionDraft}
+    onIgnore={handleIgnoreTransactionDraft}
+    onReopen={handleReopenTransactionDraft}
+    onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+    onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+  />
+)
 
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
-  const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
+  const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards key="mia-statements"
     imports={documentImports}
-    expandedImportIds={currentMessages.length ? latestUploadIds : undefined}
+    expandedImportIds={latestUploadIds.length ? latestUploadIds : undefined}
     assistantName={assistantName}
     challenge={Boolean(isSavingsExperience)}
     onReview={openDocumentReview}
@@ -4341,30 +4381,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   reviewCount={safetyHold ? 0 : pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
-                    {(chatPurchaseDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
-                      <TransactionDraftReviewStack
-                        drafts={chatPurchaseDrafts}
-                        errors={reviewErrors}
-                        completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
-                        draftActionsDisabled={budgetYearLoading}
-                        isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={chatDraftAction}
-                        compact
-                        collapsed
-                        categories={activeBudgetPlan?.rows ?? []}
-                        plan={activeBudgetPlan}
-                        queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
-                        onUpdate={handleUpdateTransactionDraft}
-                        onMatch={handleMatchTransactionDraft}
-                        onConfirm={handleConfirmTransactionDraft}
-                        onIgnore={handleIgnoreTransactionDraft}
-                        onReopen={handleReopenTransactionDraft}
-                        onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
-                        onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
-                      />
-                    )}
-                    {statementCards}
-                    {olderLegacyStatements.map(document => <button type="button" className="chat-pending-line" key={document.id} onClick={() => openDocumentReview(document.id)}>{document.filename} · Still waiting for your review <span aria-hidden="true">→</span></button>)}
+                    {latestHasStatement && statementCards}
+                    {latestHasPurchases && chatPurchaseCards}
                     {challengeReviewContent}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
@@ -4381,6 +4399,11 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         onAskFresh={askForFreshDraft}
                       />
                     )}
+
+                    {!latestHasStatement && statementCards}
+                    {!latestHasPurchases && chatPurchaseCards}
+                    {olderLegacyStatements.map(document => <button type="button" className="chat-pending-line" key={document.id} onClick={() => openDocumentReview(document.id)}>{document.filename} · Still waiting for your review <span aria-hidden="true">→</span></button>)}
+
                   </> : challengeReviewContent}
                 />
 
@@ -4398,6 +4421,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   </div>
                 )}
               <div className="mia-composer-notices">
+                {preparingAttachments && <p role="status">Preparing your photo…</p>}
                 {!budgetYearLoading && budgetError && budgetError !== miaError && <p className="chat-error" role="alert">{budgetError}</p>}
                 {miaError && <p className="chat-error" role="alert">{miaError}{miaRetryRequestRef.current && <button type="button" className="ui-btn ui-btn--text" disabled={miaLoading} onClick={() => void handleAskMia(question)}>Try again</button>}</p>}
                 {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
@@ -4419,7 +4443,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || challengeNotOpen || Boolean(statementUploadBlocked) || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
+                  disabled={preparingAttachments || !isRealWorkspace || challengeNotOpen || Boolean(statementUploadBlocked) || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
                   title={statementUploadBlocked ?? (challengeNotOpen ? CHALLENGE_UPLOADS_CLOSED : isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.')}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
@@ -4468,7 +4492,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={budgetYearLoading || miaLoading || Boolean(budgetAction) || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={preparingAttachments || budgetYearLoading || miaLoading || Boolean(budgetAction) || voiceRecording || voiceTranscribing || question.trim().length > MIA_MESSAGE_MAX_LENGTH || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? `${assistantName} is thinking` : `Send message to ${assistantName}`}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -5843,6 +5867,7 @@ export function DocumentReviewPanel({
   onStatementSaved?: () => void
 }) {
   const { assistantName } = useBrand()
+  const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
   if (!documentImport) return <article className="document-review-panel empty-state"><h4>Select an upload to review</h4><p>Your uploads will appear here.</p></article>
 
   if (!documentImport.details_included) {
@@ -5954,6 +5979,9 @@ export function DocumentReviewPanel({
           importId={documentImport.id}
           revisionId={documentImport.metadata.source_accounting_revision_id!}
           onSaved={onStatementSaved}
+          onSignAnswered={revisionId => setSignFocus({ importId: documentImport.id, revisionId })}
+          focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
+          onSignFocusDone={() => setSignFocus(null)}
           refreshKey={`${documentImport.updated_at}:${JSON.stringify(documentImport.transaction_drafts)}`}
           next={[...(onAskMia ? [{ label: `See what ${assistantName} notices`, run: onAskMia }] : []), ...(onReviewBaseline ? [{ label: 'Open your spending snapshot', run: onReviewBaseline }] : [])]}
         />

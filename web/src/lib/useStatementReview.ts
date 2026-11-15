@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDocumentSourceReview, answerSpreadsheetSign } from '../api'
+import { fetchDocumentSourceReview, answerSpreadsheetSign, captureApiOperation } from '../api'
 import { participantErrorMessage } from './participantErrorMessage'
 import { validateSourceReview, type SourceReview } from './sourceReview'
 import {
@@ -113,7 +113,11 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   }
   function chooseBasis(account: number, basis: 'asset' | 'liability') {
     const pending = { input: { lines: [], accounts: [{ source_account_id: account, account_basis: basis }] }, index: null, accountId: account, basis }
-    void save(pending.input).then((saved) => setUnsavedAnswer(saved ? null : pending))
+    void save(pending.input).then(async (saved) => {
+      setUnsavedAnswer(saved ? null : pending)
+      const factor = plan?.signed_amount_balance_factor
+      if (saved && data?.accounts.length === 1 && (factor === 1 || factor === -1)) await answerSign((factor === 1) === (basis === 'asset'))
+    })
   }
   /** One tap on a question's answer. A line she wants to rewrite ("edit" with no category) is for the line sheet, not this. */
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
@@ -124,9 +128,14 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
   async function answerSign(negativeIsMoneyOut: boolean) {
+    const actor = review?.actor_scope
+    if (!actor || !isStatementReviewActor(actor)) return
+    const assertContext = captureApiOperation()
     setSignBusy(true); setSignError(null)
     try {
       const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut)
+      assertContext()
+      if (!isStatementReviewActor(actor)) return
       focusAfter.current = null
       setAnsweredRevision(result.revision_id)
       onSignAnswered?.(result.revision_id)

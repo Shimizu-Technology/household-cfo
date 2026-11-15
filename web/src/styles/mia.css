@@ -603,3 +603,5 @@ body #root .mia-chat-shell .ask-row textarea:focus-visible { outline: none; }
 .transaction-draft-card.is-finished .terminal { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .transaction-draft-card.is-finished .terminal [data-review-result] { display: block; }
 .transaction-draft-card.is-finished .terminal > button { width: auto; max-width: 120px; }
+
+.chat-pending-line { overflow-wrap: anywhere; min-width: 0; white-space: normal; }

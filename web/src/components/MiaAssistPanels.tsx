@@ -58,7 +58,7 @@ function PanelContent(props: Props) {
       <button type="button" className="secondary-button" onClick={props.onClose}>Close</button>
     </header>
     <div className="mia-assist-body">
-      {props.panel === 'about' ? <section className="mia-assist-section" aria-label="Assistant disclosure"><p>{props.assistantName} is an AI coach, not a financial advisor.</p>{props.disclaimer && <p>{props.disclaimer}</p>}</section> : props.panel === 'memory' ? <MiaMemoryPanel enabled={props.realWorkspace} /> : props.panel === 'prompts' ? <>
+      {props.panel === 'about' ? <section className="mia-assist-section" aria-label="Assistant disclosure"><p>{props.assistantName} is an AI coach, not a financial advisor.</p>{props.disclaimer && <p>{props.disclaimer}</p>}<p><a href="/third-party/heic-to-NOTICE.txt">Photo converter notices</a>{' · '}<a href="/third-party/heic-to-LICENSE.txt">LGPL licence</a>{' · '}<a href="/third-party/GPL-3.0.txt">GPL licence</a></p></section> : props.panel === 'memory' ? <MiaMemoryPanel enabled={props.realWorkspace} /> : props.panel === 'prompts' ? <>
         <p className="mia-assist-intro">Choose a starting point, edit your message, then Send. Changes always need your review.</p>
         {[{ title: 'Update my information', prompts: props.updatePrompts }, { title: 'Ask a question', prompts: props.questionPrompts }].map(group => <section className="mia-assist-section" key={group.title} aria-label={group.title}>
           <h3>{group.title}</h3>
@@ -86,7 +86,7 @@ function PanelContent(props: Props) {
           {props.onHistory && <div className="mia-assist-conversation-action"><p>Read conversations from before a reset. Earlier messages do not supply your current numbers.</p><button type="button" className="secondary-button" onClick={() => act(props.onHistory!)}>Earlier conversations</button></div>}
           {props.onStartOver && <div className="mia-assist-conversation-action"><p>Admin testing only. Review what starts fresh and what stays before resetting your household’s test data.</p><button type="button" className="secondary-button" disabled={props.busy} onClick={() => act(props.onStartOver!)}>Reset my test workspace</button></div>}
         </section>}
-        {props.disclaimer && <section className="mia-assist-section" aria-label={`About ${props.assistantName}`}><h3>About {props.assistantName}</h3><p>{props.disclaimer}</p></section>}
+        {props.disclaimer && <section className="mia-assist-section" aria-label={`About ${props.assistantName}`}><h3>About {props.assistantName}</h3><p>{props.disclaimer}</p><p><a href="/third-party/heic-to-NOTICE.txt">Photo converter notices</a>{' · '}<a href="/third-party/heic-to-LICENSE.txt">LGPL licence</a>{' · '}<a href="/third-party/GPL-3.0.txt">GPL licence</a></p></section>}
       </>}
     </div>
   </>

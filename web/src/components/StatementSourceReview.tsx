@@ -14,8 +14,11 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
+  onSignAnswered?: (revisionId: number) => void
+  focusAfterSign?: boolean
+  onSignFocusDone?: () => void
   onSaved?: () => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
@@ -26,7 +29,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
-  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved })
+  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
   const { data, error, review, plan, categories, names, needBasis, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
 
@@ -38,6 +41,10 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('.statement-question')
     ;(next ?? heading.current)?.focus()
   }, [data, focusAfterRef])
+
+  useEffect(() => {
+    if (data && focusAfterSign) { heading.current?.focus(); onSignFocusDone?.() }
+  }, [data, focusAfterSign, onSignFocusDone])
 
   const pendingRequest = mutation.pendingRequest
   useEffect(() => {
@@ -69,11 +76,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return lineSheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
-    return { eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+    return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }

@@ -9128,7 +9128,8 @@ test('BOG UI completing a statement refreshes Home purchase counts without a pag
 })
 
 test('BOG UI Mia posts a card for a statement she has read, and the participant approves it without leaving the chat', async ({ page }) => {
-  const now = new Date().toISOString()
+  const now = '2026-11-15T03:00:00Z'
+  await page.clock.setFixedTime(new Date(now))
   const source = {
     id: 1203, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: 'Fictional-September-statement.pdf', content_type: 'application/pdf', byte_size: 500,
     document_date: null, period_start_on: '2026-09-01', period_end_on: '2026-09-30', extracted_summary: null, extraction_error: null,
@@ -9140,7 +9141,7 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   let workspaceReads = 0
   const progress = () => saved ? { total: 137, done: 137, spending: spending(true), coverage: { question: null, answer: null } } : { total: 137, done: 0, spending: spending(false), coverage: { question: null, answer: null } }
   const current = () => ({ ...source, statement_review: progress() })
-  await page.route('http://api.test/api/v1/workspace', (route) => { workspaceReads += 1; return route.fulfill({ json: { ...realWorkspaceData(true), mia: { ...realWorkspaceData(true).mia, messages: [{ id: 101, role: 'user', author: 'You', content: 'Please read this statement.', attachments: [{ document_import_id: 1203, filename: source.filename, document_kind: 'statement', content_type: 'application/pdf', status: 'needs_review', source_available: true }] }, { id: 102, role: 'assistant', author: 'Mia', content: 'I read your statement. The card below is waiting for your review.' }] } } }) })
+  await page.route('http://api.test/api/v1/workspace', (route) => { workspaceReads += 1; return route.fulfill({ json: realWorkspaceData(true) }) })
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [current()] } }))
   await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: current() } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
@@ -17032,6 +17033,8 @@ function f4Review(answer?: boolean) {
   data.pagination = {page:1,per_page:50,total_count:15,total_pages:1,has_previous:false,has_next:false}
   const plan = data.participant_review!.plan
   plan.total = 15; plan.ready = []; plan.ready_event_ids = []; plan.signed_amount_question = answer === undefined
+  plan.signed_amount_answerable = answer !== undefined
+  plan.sign_effect = answer === undefined ? null : answer ? '13 lines are money out, 2 lines are money in' : '2 lines are money out, 13 lines are money in'
   plan.first_on = '2026-10-01'; plan.last_on = '2026-10-28'
   data.accounts[0].period_start_on='2026-10-01'; data.accounts[0].period_end_on='2026-10-31'
   const facts = data.participant_review!.accounts[0].approved!.statement_facts
@@ -17057,7 +17060,7 @@ function f4Review(answer?: boolean) {
   return data
 }
 
-async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false, lineCount = 15) {
+async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false, lineCount = 15, legacyStatement = false) {
   const width = Number(process.env.F4_EVIDENCE_WIDTH)
   if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
   await page.clock.setFixedTime(new Date('2026-11-15T03:00:00Z'))
@@ -17065,11 +17068,11 @@ async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, rec
   workspace.budget.annual_plan.pending_mia_action_drafts = []
   workspace.budget.annual_plan.pending_transaction_drafts = receipt ? [{ id: 99001, merchant: 'Pay-Less Supermarkets', occurred_on: '2026-11-14', amount: 69.51, amount_cents: 6951, status: 'pending', source_type: 'receipt', financial_document_import_id: latestImportId, category_id: 10, category_name: 'Groceries', stack_label: 'Flexible spending', summary: 'Grocery receipt', matches: [], splits: [] }] : []
   workspace.mia.messages = [
-    { id: 101, role: 'user', author: 'You', content: receipt ? 'Here is my grocery receipt from yesterday.' : 'Here is my bank file.', attachments: [{ document_import_id: latestImportId, filename: receipt ? 'receipt.jpg' : 'bank.csv', content_type: receipt ? 'image/jpeg' : 'text/csv', document_kind: receipt ? 'receipt' : 'statement', status: 'needs_review', source_available: true }] },
+    { id: 101, role: 'user', author: 'You', content: receipt ? 'Here is my grocery receipt from yesterday.' : 'Here is my bank file.', attachments: [{ document_import_id: latestImportId, filename: receipt && !legacyStatement ? 'receipt.jpg' : 'bank.csv', content_type: receipt && !legacyStatement ? 'image/jpeg' : 'text/csv', document_kind: receipt && !legacyStatement ? 'receipt' : 'statement', status: 'needs_review', source_available: true }] },
     { id: 102, role: 'assistant', author: 'Mia', content: receipt ? 'I read a receipt from Pay-Less Supermarkets for $69.51, on Nov 14, 2026. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it.' : `I read ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} from your statement. 0 look right and ${lineCount} ${lineCount === 1 ? 'needs' : 'need'} a look. The card below is waiting for you to review and approve it. Nothing counts in your spending until you approve it.` },
   ]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
-  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: imports } }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: receipt && !legacyStatement && !imports.some(document => (document as { id: number }).id === latestImportId) ? [...imports, { ...f4Source(latestImportId), document_kind: 'receipt', filename: 'receipt.jpg', metadata: {} }] : imports } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 }
 
@@ -17105,7 +17108,7 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
   await f4Evidence(page, 'sign-question')
   await expect(question).toHaveCount(1)
   await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
-  await expect(question).toHaveCount(0)
+  await expect(page.getByText(negative ? '13 lines are money out, 2 lines are money in' : '2 lines are money out, 13 lines are money in', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeFocused()
   await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
   await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
@@ -17214,7 +17217,7 @@ test('BOG UI F4 an iPhone photo converts before it joins the chat tray and an un
 
 
 test('BOG UI F4 a newly attached legacy statement keeps its purchase review card', async ({ page }) => {
-  await f4Chat(page, [{ ...f4Source(1204), metadata: {} }], 1204, true)
+  await f4Chat(page, [{ ...f4Source(1204), metadata: {} }], 1204, true, 15, true)
   await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Pay-Less Supermarkets$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Confirm Pay-Less Supermarkets/ })).toBeVisible()
 })
@@ -17224,4 +17227,148 @@ test('BOG UI F4 an older legacy statement is an opening line beside the newest r
   await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Pay-Less Supermarkets$/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Fictional-bank-1203.csv · Still waiting for your review/ })).toBeVisible()
   await expect(page.getByRole('region', { name: /^Statement:/ })).toHaveCount(0)
+})
+
+test('BOG UI F4 fix1 a text-only follow-up keeps the current statement open', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review() } }))
+  await page.route('http://api.test/api/v1/mia/messages', route => route.request().method() !== 'POST' ? route.fallback() : route.fulfill({ json: {
+    user_message: { id: 501, role: 'user', author: 'You', content: 'Please explain this.', attachments: [] },
+    assistant_message: { id: 502, role: 'assistant', author: 'Mia', content: 'You decide which lines to approve.', attachments: [] }, transaction_draft: null, mia_action_draft: null, budget: null,
+  } }))
+  await f4Chat(page, [f4Source()])
+  const question = page.getByText(/is money you spent shown as a negative amount/)
+  await expect(question).toBeVisible()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Please explain this.')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
+  await expect(page.getByText('You decide which lines to approve.', { exact: true })).toBeVisible()
+  await expect(question).toBeVisible()
+  await f4Evidence(page, 'follow-up-keeps-open')
+})
+
+test('BOG UI F4 fix1 a 24 megapixel image scales and a blank result is refused', async ({ page }) => {
+  await f4Chat(page, [], 0)
+  const result = await page.evaluate(async () => {
+    const { encodeFinancialPhoto } = await import('/src/lib/encodeFinancialPhoto.ts')
+    const canvas = new OffscreenCanvas(6000, 4000)
+    const context = canvas.getContext('2d')!
+    context.fillStyle = 'white'; context.fillRect(0, 0, 6000, 4000)
+    context.fillStyle = 'black'; context.fillRect(0, 0, 3000, 2000)
+    const bitmap = await createImageBitmap(canvas)
+    const jpeg = await encodeFinancialPhoto(bitmap); bitmap.close()
+    const decoded = await createImageBitmap(jpeg)
+    const size = [decoded.width, decoded.height]; decoded.close()
+    context.fillStyle = 'white'; context.fillRect(0, 0, 6000, 4000)
+    const blank = await createImageBitmap(canvas)
+    let refused = false
+    try { await encodeFinancialPhoto(blank) } catch { refused = true } finally { blank.close() }
+    return { size, refused }
+  })
+  expect(result).toEqual({ size: [3000, 2000], refused: true })
+})
+
+test('BOG UI F4 fix1 preparing a photo holds Send until it is ready', async ({ page }) => {
+  await page.route('**/src/lib/heicConversion.worker.ts*', async route => {
+    await new Promise(resolve => setTimeout(resolve, 1200))
+    return route.continue()
+  })
+  await f4Chat(page, [], 0)
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Here is my receipt')
+  await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'receipt.heic', mimeType: 'image/heic', buffer: readFileSync(new URL('./fixtures/r7-receipt.heic', import.meta.url)) })
+  await expect(page.getByText('Preparing your photo…', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeDisabled()
+  await f4Evidence(page, 'photo-preparing')
+  await expect(page.getByText('1 file ready to send', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeEnabled()
+})
+
+test('BOG UI F4 fix1 earlier receipts and typed purchases stay in the counted queue', async ({ page }) => {
+  await f4Chat(page, [], 1204, true)
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  workspace.mia.messages = [{ id: 701, role: 'user', author: 'You', content: 'Here is another receipt.', attachments: [{ document_import_id: 1204, filename: 'receipt.jpg', document_kind: 'receipt', content_type: 'image/jpeg', status: 'needs_review', source_available: true }] }]
+  workspace.budget.annual_plan.pending_transaction_drafts = [
+    { id: 99101, merchant: 'Newest shop', financial_document_import_id: 1204 },
+    { id: 99102, merchant: 'Earlier receipt shop', financial_document_import_id: 1100 },
+    { id: 99103, merchant: 'Typed lunch', financial_document_import_id: null },
+  ].map(row => ({ ...row, occurred_on: '2026-11-14', amount: 12.50, amount_cents: 1250, status: 'pending', source_type: row.financial_document_import_id ? 'receipt' : 'chat', category_id: 10, category_name: 'Groceries', stack_label: 'Flexible spending', summary: 'Fictional purchase', matches: [], splits: [] }))
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.reload()
+  await page.getByRole('button', { name: '2 more purchases to check' }).click()
+  for (const merchant of ['Newest shop', 'Earlier receipt shop', 'Typed lunch']) await expect(page.locator('.chat-review-queue strong').filter({ hasText: new RegExp(`^${merchant}$`) })).toBeVisible()
+  await f4Evidence(page, 'all-counted-purchases')
+})
+
+test('BOG UI F4 fix1 an unrelated purchase save does not discard a preparing photo', async ({ page }) => {
+  let releaseDecoder!: () => void
+  const decoder = new Promise<void>(resolve => { releaseDecoder = resolve })
+  await page.route('**/src/lib/heicConversion.worker.ts*', async route => { await decoder; return route.continue() })
+  await f4Chat(page, [], 1204, true)
+  const after = realWorkspaceData(true)
+  after.budget.annual_plan.pending_transaction_drafts = []
+  after.budget.annual_plan.pending_mia_action_drafts = []
+  await page.route('http://api.test/api/v1/transaction_drafts/99001/confirm', route => route.fulfill({ json: { workspace: after } }))
+  await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'receipt.heic', mimeType: 'image/heic', buffer: readFileSync(new URL('./fixtures/r7-receipt.heic', import.meta.url)) })
+  await expect(page.getByText('Preparing your photo…', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: /Confirm Pay-Less Supermarkets/ }).click()
+  await expect(page.getByText(/^Confirmed Pay-Less Supermarkets for/).first()).toBeVisible()
+  releaseDecoder()
+  await expect(page.getByText('1 file ready to send', { exact: true })).toBeVisible()
+  await expect(page.getByText('receipt.jpg', { exact: true })).toBeVisible()
+})
+
+test('BOG UI F4 fix1 Statements refreshes the answered revision before reopening', async ({ page }) => {
+  const source = f4Source()
+  let answered = false
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.fulfill({ json: { document_import: source } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', route => {
+    answered = true; source.metadata.source_accounting_revision_id = 89
+    return route.fulfill({ json: { revision_id: 89 } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const requested = Number(new URL(route.request().url()).searchParams.get('revision_id'))
+    if (answered && requested === 88) return route.fulfill({ status: 409, json: { errors: ['The extraction changed. Refresh this statement.'] } })
+    const data = f4Review(answered ? true : undefined)
+    data.revision.id = answered ? 89 : 88
+    data.events.forEach(event => { event.financial_extraction_revision_id = data.revision.id })
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [source])
+  await page.getByRole('link', { name: 'Statements', exact: true }).click()
+  const review = page.getByRole('region', { name: 'Statement review', exact: true })
+  await expect(review.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
+  await review.getByRole('button', { name: 'Yes, spending is negative' }).click()
+  await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
+  await expect(review.getByRole('heading', { level: 5 })).toBeFocused()
+  await f4Evidence(page, 'statements-sign-effect')
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Statements', exact: true }).click()
+  await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
+  await expect(review.getByRole('alert')).toHaveCount(0)
+})
+
+test('BOG UI F4 fix1 long older filenames wrap and every capped statement stays reachable', async ({ page }) => {
+  const sources = [1203, 1204, 1205, 1206, 1207, 1208].map(id => f4Source(id))
+  sources[0].filename = 'Fictional-very-long-statement-name-without-spaces-for-a-household-review-October-2026.csv'
+  await page.route('http://api.test/api/v1/document_imports/1208/source_review?*', route => {
+    const data = f4Review(); data.document_import_id = 1208; data.revision.financial_document_import_id = 1208
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, sources, 1208)
+  await expect(page.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
+  for (const source of sources.slice(0, -1)) await expect(page.getByRole('button', { name: `${source.filename} · Still waiting for your review` })).toBeVisible()
+  const long = page.getByRole('button', { name: `${sources[0].filename} · Still waiting for your review` })
+  expect(await long.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await f4Evidence(page, 'long-filename-and-capped-reminders')
+})
+
+test('BOG UI F4 fix1 About links the converter notices and both licence texts', async ({ page }) => {
+  await f4Chat(page, [], 0)
+  await page.locator('.chat-shell-header').getByRole('button', { name: 'More chat options' }).click()
+  await page.locator('.chat-more-menu').getByRole('button', { name: 'About Mia', exact: true }).click()
+  const about = page.locator('.mia-assist-panel')
+  await expect(about.getByRole('link', { name: 'Photo converter notices', exact: true })).toHaveAttribute('href', '/third-party/heic-to-NOTICE.txt')
+  await expect(about.getByRole('link', { name: 'LGPL licence', exact: true })).toHaveAttribute('href', '/third-party/heic-to-LICENSE.txt')
+  await expect(about.getByRole('link', { name: 'GPL licence', exact: true })).toHaveAttribute('href', '/third-party/GPL-3.0.txt')
+  await f4Evidence(page, 'about-converter-licences')
+  await about.getByRole('button', { name: 'Close', exact: true }).click()
 })
