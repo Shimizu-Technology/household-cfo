@@ -43,6 +43,7 @@ import { StatementSourceReview } from './components/StatementSourceReview'
 import { setStatementReviewExpectedUser } from './lib/statementReviewRecovery'
 import { sourceReviewMode } from './lib/sourceReview'
 import { miaWorkspaceStorageKey } from './lib/miaWorkspaceScope'
+import { categoryDisplayName, isCatchAllCategory } from './lib/categoryDisplayName'
 import { HomeMoneyValues, HomeScreen, MonthPlanLine } from './components/HomeScreen'
 import { checkedDailyReport, checkedSavingsIntake, type DailyReportIntake, type SavingsIntake } from './lib/savingsChallenge'
 import { clearDailyCards, dailyCardNeedsAttention, forgetDailyCard, latestReplyHoldsCheckIn, latestReplyIsSafety, registerDailyCard, restoreDailyCards, useTodayCheckIn } from './lib/dailyCheckIn'
@@ -245,11 +246,12 @@ const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied']
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
 const SPENDING_PATTERNS_PROMPT = 'What spending patterns do you see?'
 const SAVINGS_QUICK_PROMPTS = ['Help me with today’s check-in.', 'What is a comfortable savings target for me?', 'Explain my approved savings progress.']
-const MIA_UPDATE_PROMPTS = [
+const MIA_CHANGE_PROMPTS = [
   { label: 'Update my income', message: 'Help me update my household income sources and schedules.' },
   { label: 'Update a debt', message: 'Help me update one of my household debts.' },
   { label: 'Change my spending plan', message: 'Help me change a spending category in my household plan.' },
 ]
+const MIA_UPDATE_PROMPTS = [{ label: 'Log a purchase', message: '' }, ...MIA_CHANGE_PROMPTS]
 const SAVINGS_UPDATE_PROMPTS = [
   { label: 'Report money set aside', message: 'Help me review money I actually set aside for the savings challenge.' },
   { label: 'Find a comfortable change', message: 'Help me find one comfortable spending change this week.' },
@@ -2048,6 +2050,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
       return
     }
+    setComposerHint(prompt === '' ? 'For example: $8 at Shell and 20 at Payless' : null)
     setQuestion(prompt)
     setMiaError(null)
     setVoiceNotice(null)
@@ -2059,7 +2062,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     budgetFocusSequenceRef.current += 1
     setBudgetFocusRequest({
       key: budgetFocusSequenceRef.current,
-      operationKey: tool === 'category' ? 'budget.category.create' : 'budget.category.update',
+      operationKey: tool === 'category' ? 'budget.category.create' : 'budget.allocation.set',
       actionType: tool === 'category' ? 'create_category' : 'update_category',
       categoryId,
       months: tool === 'category' ? [] : [selectedBudgetMonthIndex + 1],
@@ -3141,7 +3144,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
-  async function handleCreateTransactionDraft(values: TransactionDraftCreateInput) {
+  const [manualPurchaseOpen, setManualPurchaseOpen] = useState(false)
+
+  async function handleCreateTransactionDraft(values: TransactionDraftCreateInput, confirm = false) {
     if (budgetYearLoading) return
     if (!isRealWorkspace) return
 
@@ -3149,17 +3154,28 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!beginBudgetAction('create-transaction-draft')) throw budgetActionBusyError()
     setBudgetError(null)
     try {
-      const response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
+      let response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
       transactionOperationKeysRef.current.complete(signature)
+      let confirmationFailed = false
+      if (confirm) {
+        try {
+          const confirmSignature = `transaction:manual-confirm:${response.transaction_draft.id}`
+          response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
+          transactionOperationKeysRef.current.complete(confirmSignature)
+          rememberPurchase(response.transaction_draft, 'confirmed')
+        } catch {
+          confirmationFailed = true
+        }
+      }
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       setData({ type: 'financial_mutation', update: response.workspace })
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       replaceMiaHistory(response.workspace.mia)
       captureAnalyticsEvent('transaction_draft_created', { source_type: 'manual_ui' })
+      return confirmationFailed ? 'Your purchase is in Review. Confirmation did not finish. Check it there before trying again.' : undefined
     } catch (caught) {
       const message = participantErrorMessage(caught, 'Transaction review could not be created.')
-      setBudgetError(message)
       throw new Error(message, { cause: caught })
     } finally {
       endBudgetAction()
@@ -4229,6 +4245,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                 if (!switchSection('Ask Mia', { focusHeading: false })) return
                 prepareMiaUpdate(prompt)
               }}
+              onAddPurchase={() => { if (switchSection('Review')) setManualPurchaseOpen(true) }}
               onReviewTransactions={() => switchSection('Review')}
               onReviewMiaActions={() => switchSection('Ask Mia')}
               pendingImportCount={visibleSections.includes('Statements') ? (documentImportsLoaded || !isRealWorkspace ? pendingImportsCount : data.dashboard.action_center.document_review_count ?? 0) : 0}
@@ -4514,7 +4531,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               onHistory={isRealWorkspace && historicalMessageCount > 0 ? () => setEarlierConversationsOpen(true) : undefined}
               onFixSetup={isRealWorkspace ? () => setSetupHelpOpen(true) : undefined}
               onStartOver={isRealWorkspace && auth.currentUser?.is_admin && !auth.activeCoachWorkspaceId ? () => setFinancialRestartOpen(true) : undefined}
-              updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : MIA_UPDATE_PROMPTS}
+              updatePrompts={isSavingsExperience ? SAVINGS_UPDATE_PROMPTS : isFirstSessionSetup ? MIA_CHANGE_PROMPTS : MIA_UPDATE_PROMPTS}
               questionPrompts={(isSavingsExperience ? SAVINGS_QUICK_PROMPTS : [...data.mia.quick_prompts, SPENDING_PATTERNS_PROMPT]).map(message => ({ label: message, message }))}
               onChoosePrompt={prepareMiaUpdate} />
           </div>
@@ -4527,7 +4544,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           <ScreenHeading
             eyebrow="Review"
             title="Review"
-            copy="Add a purchase, check it, then confirm. Only confirmed purchases count as spent."
+            copy="Only confirmed purchases count as spent."
           />
 
           {isRealWorkspace && auth.currentUser ? (
@@ -4547,8 +4564,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Purchases to review"
-                    emptyTitle={pendingMiaActionDrafts.length > 0 ? 'No purchases to review' : undefined}
+                    emptyTitle="Nothing to check right now."
                     description="Check the date, amount and category before confirming."
+                    onPlanCategory={categoryId => openBudgetMoneyTool('monthly', categoryId)}
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
@@ -4584,6 +4602,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   {pendingImportsCount > 0 && <button type="button" className="ui-row" onClick={() => openDocumentReview(documentImports.find(documentNeedsReview)?.id)}><span className="ui-dot ui-dot--attention" aria-hidden="true" /><span className="ui-row__body"><span className="ui-row__title">{pendingImportsCount} file{pendingImportsCount === 1 ? '' : 's'} waiting for review</span><span className="ui-row__detail">Statements to look over</span></span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
                 <fieldset className="budget-loading-boundary" disabled={budgetYearLoading}><legend className="sr-only">Manual transaction controls</legend>
                 <ManualTransactionCapture
+                  initiallyOpen={manualPurchaseOpen}
+                  onOpenHandled={() => setManualPurchaseOpen(false)}
                   categories={activeBudgetPlan?.rows ?? []}
                   busy={budgetAction === 'create-transaction-draft'}
                   locked={Boolean(budgetAction)}
@@ -4694,9 +4714,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                       const editable = isRealWorkspace && visibleSections.includes('Budget')
                       const Row = editable ? 'button' : 'div'
                       return <li key={row.id}>
-                        <Row type={editable ? "button" : undefined} className="ui-row money-edit-row" aria-label={editable ? `Edit ${row.name}` : undefined} aria-describedby={`money-category-${row.id}-details money-category-${row.id}-amount`} disabled={editable ? budgetYearLoading : undefined} onClick={editable ? () => openBudgetMoneyTool('monthly', row.id) : undefined}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`money-category-${row.id}-details`}><strong>{row.name}</strong><span>{row.stack_label}</span></span>
+                        <Row type={editable ? "button" : undefined} className="ui-row money-edit-row" aria-label={editable ? `Edit ${row.name}` : undefined} aria-describedby={`money-category-${row.id}-details money-category-${row.id}-amount`} disabled={editable ? budgetYearLoading : undefined} onClick={editable ? () => openBudgetMoneyTool('monthly', row.id) : undefined}><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`money-category-${row.id}-details`}><strong>{categoryDisplayName(row.name, row.stack_key)}</strong><span>{row.stack_label}</span></span>
                         <span id={`money-category-${row.id}-amount`}>
-                          <strong>{month && !month.allocation_missing ? formatReviewMoney(Math.round((month.planned) * 100)) : 'Not available'} planned</strong>
+                          <strong>{month && !month.allocation_missing ? month.planned > 0 ? `${formatReviewMoney(Math.round(month.planned * 100))} planned` : 'No amount planned yet' : 'Not available'}</strong>
                           <span>{month ? formatReviewMoney(Math.round((month.actual) * 100)) : 'Not available'} confirmed</span>
                         </span>{editable && <span className="money-edit-label">Edit</span>}</Row>
                       </li>
@@ -7322,27 +7342,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
   return (
     <article ref={sectionRef} className="panel debt-manager ui-card">
-      <div className="row-between debt-manager-heading">
-        <div>
-          <h3>Choose the amount of detail that works for your household.</h3>
-          <p>Use one approved summary for a quick starting picture, or track each debt so {assistantName} can compare payoff strategies without guessing.</p>
-        </div>
-
-      </div>
-
-      <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
-        <fieldset disabled={saving || formDirty}>
-          <legend>How should {brand.product_name} track debt?</legend>
-          <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One household summary</strong><small>Best when you know the totals but do not want to enter every lender yet.</small></span></label>
-          <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
-        </fieldset>
-        {modeDraft === 'summary' && <div className="debt-summary-inputs">
-          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
-          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
-        </div>}
-        <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" className="ui-btn ui-btn--tonal" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
-      </form>
-
+      <h3>Your debts</h3>
       <div className="debt-summary" aria-label="Canonical debt totals">
         <span><small>Total balance</small><strong>{formatKnownMoney(portfolio.total_balance, portfolio.balance_known)}</strong></span>
         <span><small>Monthly minimums</small><strong>{formatKnownMoney(portfolio.monthly_minimum, portfolio.minimum_payment_known)}</strong></span>
@@ -7351,7 +7351,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
 
       {portfolio.mode === 'summary' && <div className="debt-empty"><strong>{assistantName} is using the approved household summary.</strong><p>Individual records are preserved below for review and editing, but do not affect totals until you switch to individual tracking.</p></div>}
 
-      {portfolio.mode === 'individual' && activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No active debts entered yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p><button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'Confirm no debt ($0)'}</button></div>}
+      {activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No debts added yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
         {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
 <button type="button" data-debt-action="edit" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${debt.label}`} aria-describedby={`debt-${debt.id}-details debt-${debt.id}-amount`} disabled={saving} onClick={() => beginEdit(debt)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />          <span id={`debt-${debt.id}-details`}><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type, assistantName)} · {recordMoney(debt.minimum_payment)} minimum</span></span>
@@ -7360,6 +7360,9 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       <div className="debt-row-actions"><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} aria-label={`${archiveId === debt.id ? 'Confirm archive' : 'Archive'} ${debt.label}`} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button>{archiveId === debt.id && <button type="button" className="secondary-button" disabled={saving} aria-label={`Cancel archiving ${debt.label}`} onClick={() => setArchiveId(null)}>Cancel</button>}</div>
         </div>)}
       </div></>}
+
+      {editingId === null && <button data-manager-add className="ui-btn ui-btn--tonal" type="button" onClick={beginCreate}>Add a debt</button>}
+      {activeDebts.length === 0 && editingId === null && <button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'My household has no debts'}</button>}
 
       {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
         <fieldset className="debt-form-grid" disabled={saving || trackingDirty} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}><legend className="sr-only">Debt fields</legend>
@@ -7376,7 +7379,19 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
       {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" aria-label={`Restore ${debt.label}`} disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
       <p className="debt-privacy-note">{brand.product_name} uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
-    {editingId === null && <button data-manager-add className="ui-btn ui-btn--tonal" type="button" onClick={beginCreate}>Add a debt</button>}
+      <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
+        <fieldset disabled={saving || formDirty}>
+          <legend>How much detail would you like to keep?</legend>
+          <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One total for all debts</strong><small>Enter the total you owe and the total you must pay each month.</small></span></label>
+          <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Each debt separately</strong><small>Keep a separate balance and monthly payment for each lender.</small></span></label>
+        </fieldset>
+        {modeDraft === 'summary' && <div className="debt-summary-inputs">
+          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
+          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
+        </div>}
+        <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" className="ui-btn ui-btn--tonal" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
+      </form>
+
     </article>
   )
 }
@@ -7794,27 +7809,35 @@ function miaActionItemFinePrint(item: MiaActionItem) {
 }
 
 export function ManualTransactionCapture({
-  categories,
-  busy,
-  locked = busy,
-  onCreate,
-  resolutionNotice,
+  categories, busy, locked = busy, onCreate, resolutionNotice, initiallyOpen = false, onOpenHandled,
 }: {
   categories: BudgetCategoryRow[]
   busy: boolean
   resolutionNotice?: string | null
   locked?: boolean
-  onCreate: (values: TransactionDraftCreateInput) => Promise<void>
+  initiallyOpen?: boolean
+  onOpenHandled?: () => void
+  onCreate: (values: TransactionDraftCreateInput, confirm?: boolean) => Promise<void | string>
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(initiallyOpen)
   const [occurredOn, setOccurredOn] = useState(guamTodayIso())
   const [merchant, setMerchant] = useState('')
   const [amount, setAmount] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [categoryName, setCategoryName] = useState('')
+  const [categoryError, setCategoryError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [added, setAdded] = useState<string | null>(null)
   const toggleRef = useRef<HTMLButtonElement | null>(null)
-  const activeCategories = categories.filter((category) => category.active)
+  const resultRef = useRef<HTMLParagraphElement | null>(null)
+  const categoryRef = useRef<HTMLSelectElement | null>(null)
+  const merchantRef = useRef<HTMLInputElement | null>(null)
+  const activeCategories = categories.filter(category => category.active)
+  useEffect(() => {
+    if (!initiallyOpen) return
+    onOpenHandled?.()
+    requestAnimationFrame(() => { merchantRef.current?.scrollIntoView({ block: 'center' }); merchantRef.current?.focus() })
+  }, [initiallyOpen, onOpenHandled])
 
   function closeOnEscape(event: KeyboardEvent<HTMLElement>) {
     if (event.key !== 'Escape' || locked || !open) return
@@ -7823,60 +7846,65 @@ export function ManualTransactionCapture({
     setFormError(null)
     toggleRef.current?.focus()
   }
-
   function reset() {
     setOccurredOn(guamTodayIso())
     setMerchant('')
     setAmount('')
     setCategoryId('')
+    setCategoryName('')
+    setCategoryError(null)
     setFormError(null)
   }
-
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (locked) return
+    const confirm = (event.nativeEvent as SubmitEvent).submitter?.getAttribute('value') !== 'review'
+    if (confirm && (!categoryId || (categoryId === 'new' && !categoryName.trim()))) {
+      setCategoryError(categoryId === 'new' ? 'Name the new category before confirming.' : 'Choose a category before confirming. If you are not sure, choose Add to review.')
+      categoryRef.current?.focus()
+      return
+    }
     setFormError(null)
+    setCategoryError(null)
     try {
       const addedMerchant = merchant.trim()
       const addedAmount = Number(amount)
-      await onCreate({
-        occurred_on: occurredOn,
-        merchant: addedMerchant,
-        amount,
-        budget_category_id: categoryId ? Number(categoryId) : null,
-      })
+      const notice = await onCreate({
+        occurred_on: occurredOn, merchant: addedMerchant, amount,
+        budget_category_id: categoryId && categoryId !== 'new' ? Number(categoryId) : null,
+        ...(categoryId === 'new' && categoryName.trim() ? { splits: [{ amount, category_name: categoryName.trim(), stack_key: 'discretionary' as const }] } : {}),
+      }, confirm)
       reset()
       setOpen(false)
-      setAdded(`Added ${addedMerchant}${Number.isFinite(addedAmount) ? ` for ${formatReviewMoney(Math.round((addedAmount) * 100))}` : ''} to your review. Your actuals stay unchanged until you confirm it.`)
-      toggleRef.current?.focus()
+      setAdded(notice || (confirm
+        ? `Confirmed ${addedMerchant} for ${formatReviewMoney(Math.round(addedAmount * 100))}. It now counts as spent.`
+        : `Added ${addedMerchant}${Number.isFinite(addedAmount) ? ` for ${formatReviewMoney(Math.round(addedAmount * 100))}` : ''} to your review. Your actuals stay unchanged until you confirm it.`))
+      requestAnimationFrame(() => resultRef.current?.focus())
     } catch (caught) {
-      setFormError(participantErrorMessage(caught, 'Transaction review could not be created.'))
+      setFormError(participantErrorMessage(caught, 'Purchase could not be saved. Try again.'))
     }
   }
-
   return (
     <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading" onKeyDown={closeOnEscape}>
       <div className="manual-transaction-heading">
-        <div>
-          <span className="ui-dot ui-dot--neutral" aria-hidden="true" /><h3 id="manual-transaction-heading">Add a purchase</h3>
-        </div>
-        <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null); setAdded(null) }}>
-          {open ? 'Close' : 'Add transaction'}
-        </button>
+        <div><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><h3 id="manual-transaction-heading">Add a purchase</h3></div>
+        <button ref={toggleRef} type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen(current => !current); setFormError(null); setAdded(null) }}>{open ? 'Close' : 'Add a purchase'}</button>
       </div>
-      {(resolutionNotice || added) && !open && <p data-review-result tabIndex={-1} className="document-alert success" role="status">{resolutionNotice || added}</p>}
-      {open && (
-        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
-          <label><span>Merchant</span><input className="ui-field" required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
-          <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} /></label>
-          <label><span>Category <small>optional</small></span><select value={categoryId} onChange={(event) => setCategoryId(event.currentTarget.value)}><option value="">Leave uncategorized</option>{activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
-          {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
-          <div className="manual-transaction-actions">
-            <button type="button" className="secondary-button" disabled={locked} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
-            <button type="submit" disabled={locked}>{busy ? 'Adding review' : 'Add to review'}</button>
-          </div>
-        </form>
-      )}
+      {(resolutionNotice || added) && !open && <p ref={resultRef} data-review-result tabIndex={-1} className="document-alert success" role="status">{added || resolutionNotice}</p>}
+      {open && <form className="manual-transaction-form" onSubmit={event => void submit(event)}>
+        <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={event => setOccurredOn(event.currentTarget.value)} /></label>
+        <label><span>Merchant</span><input ref={merchantRef} className="ui-field" required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={event => setMerchant(event.currentTarget.value)} /></label>
+        <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={event => setAmount(event.currentTarget.value)} /></label>
+        <label><span>Category</span><select ref={categoryRef} aria-invalid={Boolean(categoryError)} aria-describedby={categoryError ? 'manual-category-error' : undefined} value={categoryId} onChange={event => { setCategoryId(event.currentTarget.value); setCategoryError(null) }}><option value="">Choose a category</option><option value="new">New category</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key)}</option>)}</select></label>
+        {categoryId === 'new' && <label><span>New category name</span><input aria-label="New category name" className="ui-field" maxLength={80} value={categoryName} onChange={event => setCategoryName(event.currentTarget.value)} /><small>Added to flexible spending when you confirm.</small></label>}
+        {categoryError && <p id="manual-category-error" className="manual-transaction-error" role="alert">{categoryError}</p>}
+        {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
+        <div className="manual-transaction-actions">
+          <button type="button" className="ui-btn ui-btn--text" disabled={locked} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
+          <button type="submit" value="review" className="ui-btn ui-btn--tonal" disabled={locked}>Add to review</button>
+          <button type="submit" value="confirm" className="ui-btn ui-btn--primary" disabled={locked}>{busy ? 'Saving purchase' : 'Add and confirm'}</button>
+        </div>
+      </form>}
     </section>
   )
 }
@@ -7903,8 +7931,9 @@ export function TransactionDraftReviewStack({
   onReopen,
   onBulkConfirm,
   onBulkIgnore,
+  onPlanCategory,
   title,
-  emptyTitle = 'All caught up',
+  emptyTitle = 'Nothing to check right now.',
   description,
 }: {
   drafts: TransactionDraft[]
@@ -7927,6 +7956,7 @@ export function TransactionDraftReviewStack({
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
+  onPlanCategory?: (categoryId: number) => void
   onBulkIgnore?: (drafts: TransactionDraft[]) => void
   eyebrow?: string
   title?: string
@@ -8034,11 +8064,11 @@ export function TransactionDraftReviewStack({
       <div className="transaction-draft-stack-heading">
         <div>
           <Heading ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? emptyTitle : resolvedTitle}</Heading>
-          {(description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
+          {drafts.length > 0 && (description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         {headerBulkAction && filteredPendingDrafts.length > 1 && onBulkConfirm && !folded && <button type="button" className="ui-btn ui-btn--text review-header-bulk" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>}
-        <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>
+        {drafts.length > 0 && <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>}
       </div>
 
       {queueMeta?.truncated && (
@@ -8120,6 +8150,7 @@ export function TransactionDraftReviewStack({
         <TransactionDraftReviewCard
           key={draft.id}
           error={errors[`purchase:${draft.id}`]}
+          onPlanCategory={onPlanCategory}
           onEditingChange={(editing) => setEditingIds(current => { const next = new Set(current); if (editing) next.add(draft.id); else next.delete(draft.id); return next })}
           draft={draft}
           isRealWorkspace={isRealWorkspace}
@@ -8171,6 +8202,7 @@ function TransactionDraftReviewCard({
   draft,
   error,
   onEditingChange,
+  onPlanCategory,
   isRealWorkspace,
   action,
   draftActionsDisabled,
@@ -8187,6 +8219,7 @@ function TransactionDraftReviewCard({
 }: {
   draft: TransactionDraft
   error?: string
+  onPlanCategory?: (categoryId: number) => void
   onEditingChange: (editing: boolean) => void
   isRealWorkspace: boolean
   action: string | null
@@ -8230,7 +8263,7 @@ function TransactionDraftReviewCard({
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
-  const allowsNewCategory = draft.source_type === 'manual_chat' && !draft.financial_document_import_id
+  const allowsNewCategory = ['manual_chat', 'manual_ui'].includes(draft.source_type ?? '') && !draft.financial_document_import_id
   const isPending = draft.status === 'pending'
   if (!isPending && editing) setEditing(false)
   const liveResult = useLiveMiaResult(!isPending)
@@ -8242,7 +8275,7 @@ function TransactionDraftReviewCard({
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending || Boolean(action)
   const splitsNeedingCategory = (draft.splits ?? []).filter((split) => transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id))
-  const needsCategoryReview = splitsNeedingCategory.length > 0
+  const needsCategoryReview = transactionDraftNeedsCategory(draft)
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = transactionCategoryWarningCopy(draft, assistantName)
   const itemName = transactionItemName(draft)
@@ -8269,7 +8302,7 @@ function TransactionDraftReviewCard({
     })),
   } satisfies TransactionDraft : draft
   const budgetImpacts = plan ? transactionDraftBudgetImpacts(plan, impactDraft) : []
-  const knownImpacts = budgetImpacts.filter(impact => impact.remainingIfApproved !== null)
+  const knownImpacts = budgetImpacts.filter(impact => impact.remainingIfApproved !== null && impact.planned !== null && impact.planned > 0)
   const effect = isPending && !editing && knownImpacts.length > 0 ? knownImpacts.map(impact => {
     const remaining = impact.remainingIfApproved!
     return remaining < 0
@@ -8368,7 +8401,7 @@ function TransactionDraftReviewCard({
         {isPending && needsCategoryReview && (
           <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
             <div>
-              <strong>Choose a category for {splitsNeedingCategory.length} item{splitsNeedingCategory.length === 1 ? '' : 's'}</strong>
+              <strong>Choose a category for {Math.max(1, splitsNeedingCategory.length)} item{splitsNeedingCategory.length <= 1 ? '' : 's'}</strong>
               <p>{categoryWarningCopy}</p>
             </div>
             {!editing && onUpdate && <button type="button" className="secondary-button" aria-label={`Review categories for ${itemName}`} disabled={actionsDisabled} onClick={() => {
@@ -8432,7 +8465,7 @@ function TransactionDraftReviewCard({
                   }} ref={index === firstMissingSplitIndex ? firstMissingCategoryRef : undefined}>
                     <option value="">Needs category</option>
                     {allowsNewCategory && <option value="new">New category</option>}
-                    {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    {activeCategories.map((category) => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key)}</option>)}
                   </select>
                 </label>
                 {!split.budget_category_id && (allowsNewCategory && (split.metadata.new_category || !placeholderCategoryName(split.category_name))) && (
@@ -8441,7 +8474,7 @@ function TransactionDraftReviewCard({
                       <span>New category name</span>
                       <input maxLength={80} value={split.category_name} onChange={(event) => updateSplit(index, { category_name: event.currentTarget.value })} />
                     </label>
-                    <small>Added to flexible spending when you confirm this purchase. You can set its budget later.</small>
+                    <small>Added to flexible spending when you confirm this purchase. Then choose Set amount to plan for it.</small>
                   </div>
                 )}
                 <label>
@@ -8484,13 +8517,14 @@ function TransactionDraftReviewCard({
           </button>
         </div>
       )}
+      {!isPending && ['confirmed', 'corrected'].includes(draft.status) && plan && onPlanCategory && plan.rows.filter(row => row.active && row.months[monthIndexFromIsoDate(draft.occurred_on)]?.planned === 0 && (row.id === draft.category_id || (draft.splits ?? []).some(split => split.budget_category_id === row.id || split.category_name === row.name))).map(row => <div className="ui-row" key={row.id}><span className="ui-row__body">{row.name} · No amount planned yet</span><button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(row.id)}>Set amount for {row.name}</button></div>)}
       {isPending && (
         <details className="transaction-review-details" open={editing || undefined}><summary>Purchase details</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
               <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
-                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.category_name} · {formatReviewMoney(Math.round((exactMoneyNumber(split.amount, split.amount_cents)) * 100))}</strong>
+                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.stack_key ? categoryDisplayName(split.category_name ?? '', split.stack_key) : split.category_name} · {formatReviewMoney(Math.round((exactMoneyNumber(split.amount, split.amount_cents)) * 100))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
                     !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
@@ -8530,14 +8564,14 @@ function TransactionDraftBudgetImpactPanel({
       </div>
       <div className="transaction-draft-impact-list">
         {impacts.map((impact, index) => {
-          if (impact.categoryId === null || impact.planned === null || impact.actual === null || impact.remainingIfApproved === null) {
+          if (impact.categoryId === null || impact.planned === null || impact.planned === 0 || impact.actual === null || impact.remainingIfApproved === null) {
             return (
               <article className="transaction-draft-impact-row needs-category" key={`${impact.categoryId ?? 'none'}-${index}`}>
                 <div>
                   <strong>{impact.categoryName}</strong>
                   <span>{formatReviewMoney(Math.round((impact.draftAmount) * 100))} in this draft</span>
                 </div>
-                <p>{impact.categoryId === null ? 'Choose a budget category to see what this would leave—or put over plan.' : 'The plan for this category is not known yet.'}</p>
+                <p>{impact.categoryId === null ? 'Choose a category to see how this fits your plan.' : impact.planned === 0 ? 'No amount planned yet.' : 'The plan for this category is not known yet.'}</p>
               </article>
             )
           }
@@ -8621,11 +8655,11 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
 
 function transactionDraftNeedsCategory(draft: TransactionDraft) {
   if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id))
-  return placeholderCategoryName(draft.category_name) || (!draft.category_id && (draft.source_type !== 'manual_chat' || Boolean(draft.financial_document_import_id)))
+  return placeholderCategoryName(draft.category_name) || (!draft.category_id && (!['manual_chat', 'manual_ui'].includes(draft.source_type ?? '') || Boolean(draft.financial_document_import_id)))
 }
 
 function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit, sourceType?: string, documentImportId?: number | null) {
-  return placeholderCategoryName(split.category_name) || (!split.budget_category_id && (sourceType !== 'manual_chat' || Boolean(documentImportId)))
+  return placeholderCategoryName(split.category_name) || (!split.budget_category_id && (!['manual_chat', 'manual_ui'].includes(sourceType ?? '') || Boolean(documentImportId)))
 }
 
 function placeholderCategoryName(name: string | null | undefined) {
@@ -8646,7 +8680,9 @@ export function CurrentMonthActivityPanel({
   error,
   reopen,
   planKnown = true,
+  onPlanCategory,
 }: {
+  onPlanCategory?: (categoryId: number) => void
   plan: AnnualBudgetPlan
   currentMonthIndex: number
   spendingReport: SpendingReport | null
@@ -8676,11 +8712,13 @@ export function CurrentMonthActivityPanel({
       {error && <p className="setup-error" role="alert">{error}</p>}
       <CategoryPressureList
         positions={positions}
+        onPlanCategory={onPlanCategory}
         planKnown={planKnown}
         title="Spending by category"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
       {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} planKnown={planKnown} />}
+      {planKnown && <p>Debt payments are counted in Planned out above, alongside these spending categories.</p>}
       {visibleSpendingReport && reopen && <IgnoredTransactionList drafts={visibleSpendingReport.ignored_drafts ?? []} {...reopen} />}
     </section>
   )
@@ -8850,7 +8888,7 @@ export function CategoryEditCell({
     <div className="annual-category-cell-editor">
       <label>
         <span className="sr-only">Category name</span>
-        <input data-budget-category-action="name" disabled={Boolean(action)} value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
+        <input data-budget-category-action="name" disabled={Boolean(action)} value={categoryDisplayName(draft.name, draft.stack_key)} onChange={(event) => onChange({ name: event.currentTarget.value })} />
       </label>
       <label>
         <span className="sr-only">Expense stack</span>
@@ -9083,6 +9121,17 @@ export function AnnualBudgetPlanner({
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
   }
 
+  function openCategoryAmountEditor(categoryId: number) {
+    if (hasUnsavedBudgetChanges || hasUnsavedIncomeChanges || !plan.rows.some(row => row.id === categoryId)) return
+    beginBudgetEdit()
+    setManualTool('monthly')
+    requestAnimationFrame(() => {
+      const target = document.querySelector<HTMLElement>(`[data-budget-category-id="${categoryId}"] [data-budget-month="${currentMonthIndex + 1}"]`)
+      target?.scrollIntoView({ block: 'center' })
+      target?.focus()
+    })
+  }
+
   function cancelBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: false, allocationDrafts: {}, categoryDrafts: {} })
   }
@@ -9206,7 +9255,7 @@ export function AnnualBudgetPlanner({
         <p>Your plan starts in {calendarMonth(plan.plan_starts_on!)}, so {calendarMonth(plan.months[currentMonthIndex].starts_on)} has no plan to compare against.</p>
         <p>Approved spending: <strong>{approvedSpending > 0 ? formatReviewMoney(Math.round(approvedSpending * 100)) : 'Not known yet'}</strong></p>
       </section>}
-      {!beforePlanStart && planKnown && <ExpenseStackOverview key={`${plan.year}:${plan.months[currentMonthIndex]?.id}`} positions={currentPositions} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
+      {!beforePlanStart && planKnown && <ExpenseStackOverview key={`${plan.year}:${plan.months[currentMonthIndex]?.id}`} positions={currentPositions} onPlanCategory={isRealWorkspace ? openCategoryAmountEditor : undefined} debtMinimums={plan.monthly_debt_minimums_known === false ? null : plan.monthly_debt_minimums} />}
 
       <div className="budget-rail">
       {(!needsSetup || plan.pending_transaction_drafts.length > 0 || (plan.pending_mia_action_drafts ?? []).length > 0) && <div className="annual-budget-actions ui-card">
@@ -9228,6 +9277,7 @@ export function AnnualBudgetPlanner({
         <CurrentMonthActivityPanel
           plan={plan}
           currentMonthIndex={currentMonthIndex}
+          onPlanCategory={isRealWorkspace ? openCategoryAmountEditor : undefined}
           planKnown={!beforePlanStart}
           spendingReport={spendingReport}
           loading={spendingReportLoading}
@@ -9414,6 +9464,18 @@ export function AnnualBudgetPlanner({
                                 <strong className="annual-planned-readonly">{formatReviewMoney(Math.round((month.planned) * 100))}</strong>
                               )}
                               <small>{allocationMissing ? 'Planned amount needs repair' : `${formatReviewMoney(Math.round((month.actual) * 100))} actual`}</small>
+                              {row.active && categoryChanges.length === 0 && !allocationMissing && !isCatchAllCategory(row.name, row.stack_key) && index === editMonthIndex && (() => {
+                                const source = plan.rows.find(candidate => candidate.active && candidate.stack_key === row.stack_key && isCatchAllCategory(candidate.name, candidate.stack_key))
+                                const sourceMonth = source?.months[index]
+                                if (!source || !sourceMonth?.allocation_id || sourceMonth.allocation_missing) return null
+                                const sourceValue = Number(allocationDraftValue(sourceMonth, allocationDrafts))
+                                const increase = plan.rows.filter(candidate => candidate.active && candidate.stack_key === row.stack_key && candidate.id !== source.id).reduce((total, candidate) => { const cell = candidate.months[index]; return total + (cell ? moneyCents(Number(allocationDraftValue(cell, allocationDrafts))) - moneyCents(cell.planned) : 0) }, 0)
+                                const enough = Number.isFinite(increase) && increase > 0 && increase <= moneyCents(sourceMonth.planned) && moneyCents(sourceValue) !== moneyCents(sourceMonth.planned) - increase
+                                return <><small>Enter an amount, then take it from {categoryDisplayName(source.name, source.stack_key)} to keep the group total the same.</small><button type="button" className="ui-btn ui-btn--tonal" disabled={budgetEditsLocked || !enough} onClick={() => {
+                                  setBudgetEditState(current => ({ ...current, allocationDrafts: { ...current.allocationDrafts, [allocationDraftKey(sourceMonth)]: String((moneyCents(sourceMonth.planned) - increase) / 100) } }))
+                                }}>Take from {categoryDisplayName(source.name, source.stack_key)}</button></>
+                              })()}
+
                             </td>
                           )
                         })}

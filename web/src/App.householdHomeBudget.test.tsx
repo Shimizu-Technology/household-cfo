@@ -184,7 +184,7 @@ it('distinguishes confirmed zero, missing category amounts, mixed subtotals and 
  const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
  const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={null} />)
  const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
- expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero bill$0')
+ expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero billNo amount planned yet')
  expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billNot entered')
  expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')

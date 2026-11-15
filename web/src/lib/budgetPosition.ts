@@ -5,6 +5,7 @@ import type {
   SpendingReport,
   TransactionDraft,
 } from '../api'
+import { categoryDisplayName } from './categoryDisplayName'
 import { addMoney, dollarsFromCents, moneyCents, subtractMoney } from './moneyMath'
 
 export type BudgetPosition = {
@@ -61,7 +62,7 @@ export function budgetPositionsForMonth(
     return {
       id: row.id,
       allocationMissing: !cell || cell.allocation_missing === true,
-      name: row.name,
+      name: categoryDisplayName(row.name, row.stack_key),
       stackKey: row.stack_key,
       stackLabel: row.stack_label,
       planned,
@@ -76,7 +77,7 @@ export function budgetPositionsForMonth(
     .filter((category) => !planCategoryIds.has(category.id))
     .map((category) => ({
       id: category.id,
-      name: category.name,
+      name: categoryDisplayName(category.name, category.stack_key),
       stackKey: category.stack_key,
       stackLabel: category.stack_label,
       planned: category.planned,
@@ -170,7 +171,7 @@ export function transactionDraftBudgetImpacts(
     const projectedIfApproved = addMoney(cell.actual, allocation.amount)
     return {
       categoryId,
-      categoryName: row.name,
+      categoryName: categoryDisplayName(row.name, row.stack_key),
       draftAmount: allocation.amount,
       planned: cell.planned,
       actual: cell.actual,

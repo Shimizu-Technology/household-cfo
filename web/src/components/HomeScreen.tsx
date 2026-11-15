@@ -14,6 +14,7 @@ type HomeScreenProps = {
   onChoosePrompt?: (message: string) => void
   dashboard: DashboardData
   budget: BudgetData
+  onAddPurchase?: () => void
   onAskMia: () => void
   onReviewTransactions: () => void
   onReviewMiaActions: () => void
@@ -29,7 +30,7 @@ type HomeScreenProps = {
   canReviewTransactions?: boolean
 }
 
-export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
+export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, budget, onAddPurchase, onAskMia, onReviewTransactions, onReviewMiaActions, pendingImportCount, onReviewImports, onOpenDebt, onOpenBudget, onOpenProfile, onOpenAccounts, incomeKnown = true, planKnown = true, canAskMia = true, canReviewTransactions = true }: HomeScreenProps) {
   const { assistantName } = useBrand()
   const screenRef = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -80,6 +81,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
       {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="ui-btn ui-btn--tonal home-answer-recovery" onClick={onOpenDebt}>Add debt minimums</button>}
       {answer && answer.pending_count == null && <p className="home-answer-pending ui-answer__note">More purchases may be waiting. Check Review before your next money decision.</p>}
     </section>
+    {canReviewTransactions && onAddPurchase && <button type="button" className="ui-btn ui-btn--primary" onClick={onAddPurchase}>Add a purchase</button>}
     {needsReview && <section className="home-needs-you home-other-reviews ui-card" aria-label="Needs you">
       <h3 className="ui-section home-needs-heading">Needs you</h3>
       <div className="ui-rows">

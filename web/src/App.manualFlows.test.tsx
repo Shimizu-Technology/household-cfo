@@ -216,12 +216,12 @@ describe('budget table and quick capture', () => {
 
   it('closes the Add transaction panel with Escape and returns focus to its toggle', () => {
     render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} />)
-    const toggle = screen.getByRole('button', { name: 'Add transaction' })
+    const toggle = screen.getByRole('button', { name: 'Add a purchase' })
     fireEvent.click(toggle)
     const merchant = screen.getByRole('textbox', { name: 'Merchant' })
     fireEvent.keyDown(merchant, { key: 'Escape' })
     expect(screen.queryByRole('textbox', { name: 'Merchant' })).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add transaction' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a purchase' }))
   })
 })
 
@@ -394,4 +394,30 @@ it('keeps proposal identity through completion so its live result still fades', 
   const { container, rerender } = render(<MiaActionDraftReviewStack {...props} drafts={[draft]} />)
   rerender(<MiaActionDraftReviewStack {...props} drafts={[{ ...draft, status: 'applied', suggested_selected_item_ids: undefined }]} />)
   expect(container.querySelector('.mia-action-draft-card.is-live-result')).not.toBeNull()
+})
+
+it('requires a category for one-step confirmation but lets an uncertain purchase wait in review', async () => {
+  const onCreate = vi.fn().mockResolvedValue(undefined)
+  render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  expect(onCreate).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert').textContent).toContain('Choose a category before confirming.')
+  fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))
+  await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ budget_category_id: null }), false))
+})
+
+it('adds and confirms a deliberately selected new category in one action and focuses the result', async () => {
+  const onCreate = vi.fn().mockResolvedValue(undefined)
+  render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
+  fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Groceries' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ splits: [{ amount: '45.20', category_name: 'Groceries', stack_key: 'discretionary' }] }), true))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
 })

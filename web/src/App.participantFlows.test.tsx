@@ -73,7 +73,7 @@ it('shows only selected bulk actions and collapses per-row detail', () => {
   expect(screen.queryByRole('button', { name: 'Ignore selected' })).toBeNull()
 })
 
-it('moves focus to a non-action heading then All caught up when focused reviews leave', () => {
+it('moves focus to a non-action heading then Nothing to check right now. when focused reviews leave', () => {
   const view = render(<TransactionDraftReviewStack {...props} drafts={[draft(1), draft(2)]} />)
   act(() => screen.getByRole('button', { name: /^Confirm Market 1/ }).focus())
   view.rerender(<TransactionDraftReviewStack {...props} drafts={[draft(2)]} />)
@@ -81,7 +81,7 @@ it('moves focus to a non-action heading then All caught up when focused reviews 
   expect(document.activeElement?.matches('[data-review-confirm]')).toBe(false)
   view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} />)
   expect(document.activeElement).toBe(screen.getByRole('status'))
-  expect(document.activeElement?.textContent).toBe('All caught up')
+  expect(document.activeElement?.textContent).toBe('Nothing to check right now.')
 })
 
 it('keeps unrelated user focus when a review resolves in the background', () => {

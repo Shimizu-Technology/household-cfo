@@ -81,7 +81,7 @@ export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields =
   </section>
 }
 
-export function ExpenseStackOverview({ positions, debtMinimums }: { positions: BudgetPosition[]; debtMinimums?: number | null }) {
+export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory }: { positions: BudgetPosition[]; debtMinimums?: number | null; onPlanCategory?: (categoryId: number) => void }) {
   const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && (position.active || position.actual > 0))
@@ -109,7 +109,7 @@ export function ExpenseStackOverview({ positions, debtMinimums }: { positions: B
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
                 <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
-              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Not entered' : formatReviewMoney(Math.round(category.planned * 100))}</strong></li>)}</ul>}
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Not entered' : category.planned === 0 ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.planned === 0 && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}</li>)}</ul>}
             </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
@@ -125,7 +125,9 @@ export function CategoryPressureList({
   title = 'Categories needing the closest look',
   eyebrow = 'Category attention',
   planKnown = true,
+  onPlanCategory,
 }: {
+  onPlanCategory?: (categoryId: number) => void
   positions: BudgetPosition[]
   limit?: number
   title?: string
@@ -151,7 +153,7 @@ export function CategoryPressureList({
         {rankedPositions.length === 0 ? (
           <p className="category-pressure-empty">{planKnown ? 'Add categories to see monthly plan pressure here.' : 'Approved spending is not known yet.'}</p>
         ) : rankedPositions.map((position) => {
-          const positionPlanKnown = planKnown && position.id !== 0
+          const positionPlanKnown = planKnown && position.id !== 0 && position.planned > 0 && !position.allocationMissing
           const projected = addMoney(position.actual, position.pending)
           const projectedDifference = subtractMoney(position.planned, projected)
           return (
@@ -180,6 +182,7 @@ export function CategoryPressureList({
                   <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
                 </>}
               </div>
+              {planKnown && position.id !== 0 && position.planned === 0 && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}</div>}
             </article>
           )
         })}
