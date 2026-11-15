@@ -120,6 +120,7 @@ export function ChatHistory({
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripAuthorPrefix={message.role === 'assistant' ? message.author : undefined} />}
                 {message.role === 'assistant' && message.setup_help?.available && onSetupHelp && <button type="button" className="secondary-button mia-message-restart" disabled={miaLoading} onClick={onSetupHelp}>Fix my setup</button>}
+                {message.role === 'assistant' && message.setup_help?.debt_balances && onOpenMoneyInput && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => onOpenMoneyInput('debt')}>Add what you owe</button>}
                 {message.role === 'assistant' && onOpenMoneyInput && message.setup_help?.money_inputs?.map(destination => {
                   const label = { profile: 'Add income', budget: 'Add planned costs', debt: 'Add debt minimums', accounts: 'Add account balances' }[destination]
                   return label && <button key={destination} type="button" className="secondary-button mia-message-restart" onClick={() => onOpenMoneyInput(destination)}>{label}</button>

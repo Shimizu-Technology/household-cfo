@@ -879,6 +879,7 @@ export type WealthData = {
     monthly_wealth_building?: number
   }
   milestones: Array<{
+    action?: 'debt_details'
     kind: 'progress' | 'debt_remaining' | 'status'
     label: string
     current: number
@@ -956,7 +957,7 @@ export type MiaMessage = {
   // Set on the newest Mia reply while she is in personal support, and for the rest of that day after.
   care_hold?: boolean
   care_active?: boolean
-  setup_help?: { available: boolean; money_inputs?: Array<'profile' | 'budget' | 'debt' | 'accounts'> } | null
+  setup_help?: { available: boolean; debt_balances?: boolean; money_inputs?: Array<'profile' | 'budget' | 'debt' | 'accounts'> } | null
   financial_restart?: { available: boolean; state: 'review_available' | 'owner_required' | 'unavailable' } | null
   id?: number
   client_id?: string

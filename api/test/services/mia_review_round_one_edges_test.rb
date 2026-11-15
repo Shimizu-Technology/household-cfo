@@ -13,7 +13,9 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
   end
   teardown { travel_back }
 
-  test "review one roster loads debt records without multiplying its participant join" do
+  test "review one roster keeps five essential households setup done without debt reads" do
+    @household.household_profile.update!(debt_summary_minimum_payment_known: false)
+    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "debt_payment" ])
     coach = User.create!(clerk_id: "coach_#{SecureRandom.hex(8)}", email: "#{SecureRandom.hex(8)}@example.invalid", role: "coach", invitation_status: "accepted")
     workspace = CoachWorkspaces::Resolver.new(user: coach).call
     cohort = Cohort.create!(name: "Review roster", status: "active", created_by_user: coach, coach_workspace: workspace)
@@ -22,7 +24,7 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
     capture = ->(*args) { queries << args.last[:sql] }
     result = ActiveSupport::Notifications.subscribed(capture, "sql.active_record") { ChallengePrivacy::CoachDailyRoster.new(cohort, user: coach).call }
     assert_equal 1, result[:counts]["setup_done"]
-    refute queries.any? { |sql| sql.match?(/JOIN "debts"/) }, queries.grep(/JOIN "debts"/).join("\n")
+    refute queries.any? { |sql| sql.match?(/FROM "(?:debts|household_profiles)"/) }, queries.join("\n")
   end
 
   test "five essential completion does not read optional debt records" do

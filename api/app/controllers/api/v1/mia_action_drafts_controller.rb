@@ -67,6 +67,8 @@ module Api
             return render json: { errors: [ "Nothing on this card is ready to save yet. Add an amount first." ] }, status: :unprocessable_entity
           end
         end
+        was_complete = HouseholdFinance::SetupStatus.new(@draft.household.reload).complete?
+        had_debts = @draft.household.debts.active.exists?
         result = HouseholdFinance::MiaActionDraftApplier.new(@draft, user: current_user, cohort_membership: current_cohort_membership).call(
           idempotency_key: idempotency_key,
           selected_item_ids: params[:item_ids]
@@ -77,6 +79,9 @@ module Api
           return render json: body, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
+        household = result.draft.household.reload
+        @offer_debt_balances = ((!was_complete && HouseholdFinance::SetupStatus.new(household).complete?) || (!had_debts && household.debts.active.exists?)) &&
+          !HouseholdFinance::DebtPortfolio.new(household).balance_known?
         narrate_applied(result.draft) unless result.replayed?
 
         render json: {
@@ -201,7 +206,11 @@ module Api
       def narrate_applied(draft)
         carried = carry_unresolved_setup(draft)
         status_message = applied_message(draft, carried)
-        append_chat_status_message(status_message)
+        status_message += " Next, add what you owe under Debt in My Money to see your net worth. Balances are optional." if @offer_debt_balances
+        message = append_chat_status_message(status_message)
+        if message && @offer_debt_balances
+          message.update!(setup_help: { available: false, debt_balances: true })
+        end
         update_conversation_action_status(draft.status, status_message)
         remember_setup_question(draft, carried)
       rescue StandardError => e
@@ -216,6 +225,7 @@ module Api
       end
 
       def applied_message(draft, carried = nil)
+        draft.household.reload
         if draft.status == "partially_applied"
           remaining = draft.mia_action_items.count { |item| item.applied_at.blank? }
           return "Applied the selected reviewed changes together. #{remaining} #{'step'.pluralize(remaining)} remain in this plan, and no unselected change was applied."

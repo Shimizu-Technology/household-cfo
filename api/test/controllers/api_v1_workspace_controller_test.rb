@@ -232,7 +232,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.fetch("errors").join, "idempotency key"
   end
 
-  test "manual setup repairs a changed allocation even when the legacy expense total matches" do
+  test "manual setup preserves a changed allocation when the submitted base total matches" do
     user = create_user(email: "setup-allocation-drift@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     # This established household has covered the full year since January.
@@ -249,10 +249,10 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :success
-    assert_equal Array.new(12, 100_000), category.budget_allocations.joins(:budget_period)
+    assert_equal Array.new(12, 100_000).tap { |months| months[5] = 125_000 }, category.budget_allocations.joins(:budget_period)
       .where(budget_periods: { starts_on: Date.new(Date.current.year, 1, 1)..Date.new(Date.current.year, 12, 31) })
       .order("budget_periods.starts_on").pluck(:planned_amount_cents)
-    assert household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
+    refute household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
   end
 
   test "profile text edits save when a multi-category group has a one-month override" do
@@ -460,7 +460,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     profile.reload
     assert_equal 700_000, profile.debt_summary_balance_cents
-    assert_equal 70_000, profile.debt_summary_minimum_payment_cents
+    assert_equal 90_000, profile.debt_summary_minimum_payment_cents
   end
 
   test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
@@ -626,7 +626,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty household.goals.where(goal_type: "runway")
   end
 
-  test "workspace setup ignores legacy aggregate debt fields while individual debt tracking is active" do
+  test "workspace setup rejects aggregate debt changes while individual debt tracking is active" do
     user = create_user(email: "document-debt-payment@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
@@ -636,13 +636,14 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Edit each debt in My Money"
     assert_equal 1, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, debt.reload.balance_cents
     assert_equal 0, debt.minimum_payment_cents
   end
 
-  test "workspace setup ignores legacy aggregate debt fields across multiple detailed debts" do
+  test "workspace setup rejects aggregate debt changes across multiple detailed debts" do
     user = create_user(email: "multi-document-debt@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
@@ -655,7 +656,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Edit each debt in My Money"
     assert_equal 2, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, visa.reload.balance_cents
     assert_equal 120_000, mastercard.reload.balance_cents

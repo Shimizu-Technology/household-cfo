@@ -11,6 +11,7 @@ module HouseholdFinance
       unexpected_sinking_fund: [ "Unexpected sinking fund", "sinking_unexpected" ]
     }.freeze
     ACCOUNT_FIELDS = { emergency_fund: [ "Emergency fund", "emergency_fund" ], other_assets: [ "Other assets", "other" ] }.freeze
+    DEBT_FIELDS = %i[credit_card_debt debt_payment].freeze
     MONEY_FIELDS = (INCOME_FIELDS.keys + BUDGET_FIELDS.keys).freeze
     REQUIRED_MONEY_FIELDS = %i[primary_income fixed_expenses flexible_spend].freeze
     REQUIRED_LABELS = SetupUpdater::REQUIRED_LABELS.freeze
@@ -75,7 +76,7 @@ module HouseholdFinance
           value.to_s.squish.truncate(500, omission: "…").presence
         elsif MONEY_FIELDS.include?(field)
           Money.cents!(value, message: "#{setup_label(field)} must be a number with no more than two decimal places")
-        elsif ACCOUNT_FIELDS.key?(field)
+        elsif ACCOUNT_FIELDS.key?(field) || DEBT_FIELDS.include?(field)
           value.to_s.strip.present? ? Money.cents!(value, message: "#{setup_label(field)} must be a number with no more than two decimal places") : nil
         elsif field == :target_runway_months
           normalize_runway(value)
@@ -95,8 +96,27 @@ module HouseholdFinance
       INCOME_FIELDS.each { |field, (label, source_type)| add_income_spec(specs, normalized, field, label, source_type) }
       BUDGET_FIELDS.each { |field, (label, stack_key)| add_budget_spec(specs, normalized, field, label, stack_key) }
       ACCOUNT_FIELDS.each { |field, (label, account_type)| add_account_spec(specs, normalized, field, label, account_type) }
+      add_debt_spec(specs, normalized)
       add_runway_spec(specs, normalized)
       specs
+    end
+
+    def add_debt_spec(specs, normalized)
+      return if (normalized.keys & DEBT_FIELDS).empty?
+
+      portfolio = DebtPortfolio.new(household)
+      balance = normalized.fetch(:credit_card_debt) { portfolio.balance_known? ? portfolio.total_balance_cents : nil }
+      payment = normalized.fetch(:debt_payment) { portfolio.minimum_payment_known? ? portfolio.monthly_minimum_cents : nil }
+      return if balance == (portfolio.balance_known? ? portfolio.total_balance_cents : nil) && payment == (portfolio.minimum_payment_known? ? portfolio.monthly_minimum_cents : nil)
+
+      if portfolio.mode == "individual" && household.debts.active.exists?
+
+        raise ArgumentError, "Debt is tracked by individual records. Edit each debt in My Money so no detailed amount changes silently"
+      end
+      specs << {
+        operation_key: "debt.tracking_mode.update",
+        input: { mode: "summary", summary_balance: balance.nil? ? nil : Money.dollars(balance), summary_minimum_payment: payment.nil? ? nil : Money.dollars(payment) }
+      }
     end
 
     def profile_input(normalized)
@@ -169,7 +189,7 @@ module HouseholdFinance
         return if allocation_totals.keys.sort == (1..12).to_a && allocation_totals.values.all? { |total| total == cents } && current_cents == cents
       end
       # An older client resubmits every field; a total the person did not change must not be re-split across categories.
-      return if categories.many? && current_cents == cents
+      return if categories.any? && current_cents == cents
       if categories.many?
         raise ArgumentError, "#{setup_label(field)} is split across #{categories.length} budget categories, so it can't be changed as one total here. " \
           "Change those categories in Budget > Edit monthly plan so no detailed amounts change silently."
@@ -226,11 +246,11 @@ module HouseholdFinance
 
     def run_confirmation(normalized)
       unconfirmed = normalized.filter_map do |field, value|
-        field.to_s if (field.in?(%i[emergency_fund other_assets]) && value.nil?) || (field == :primary_goal && value.blank?)
+        field.to_s if (field.in?(%i[emergency_fund other_assets credit_card_debt debt_payment]) && value.nil?) || (field == :primary_goal && value.blank?)
       end
       confirmed = normalized.keys.map(&:to_s) - unconfirmed
       expected = normalized.to_h do |field, value|
-        display = if MONEY_FIELDS.include?(field) || ACCOUNT_FIELDS.key?(field)
+        display = if MONEY_FIELDS.include?(field) || ACCOUNT_FIELDS.key?(field) || DEBT_FIELDS.include?(field)
           value.nil? ? nil : Money.dollars(value)
         elsif field == :target_runway_months
           value.to_s("F")
@@ -262,6 +282,8 @@ module HouseholdFinance
     def setup_label(field)
       return "Primary income" if field == :primary_income
       return "Business income" if field == :business_income
+      return "Monthly debt payments" if field == :debt_payment
+      return "Debt balance" if field == :credit_card_debt
 
       MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field)
     end

@@ -848,7 +848,7 @@ module HouseholdFinance
           [ "Liquid balances needed", "Add checking, savings, or emergency-fund balances under Accounts & assets" ]
         end
         return [
-          { kind: "status", label: label, current: 0, target: 0, unit: unit, status: "yellow" }
+          { kind: "status", label: label, current: 0, target: 0, unit: unit, status: "yellow", action: (!snapshot.fetch(:debt_balance_known) || !snapshot.fetch(:debt_minimums_known)) ? "debt_details" : nil }
         ]
       end
 

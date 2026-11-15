@@ -51,7 +51,8 @@ module HouseholdFinance
         def mutate!(subject, input, prepared:)
           ensure_profile_fields_are_present!(subject, input.fetch(:confirmed_fields))
           confirmed = Array(subject.confirmed_setup_fields).map(&:to_s) + input.fetch(:confirmed_fields)
-          subject.update!(confirmed_setup_fields: (confirmed - input.fetch(:unconfirmed_fields)).uniq)
+          subject.update!(confirmed_setup_fields: (confirmed - input.fetch(:unconfirmed_fields)).uniq,
+            setup_skipped_fields: Array(subject.setup_skipped_fields) - input.fetch(:confirmed_fields))
           subject.reload
         end
 

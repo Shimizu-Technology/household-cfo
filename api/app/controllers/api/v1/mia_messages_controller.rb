@@ -497,6 +497,7 @@ module Api
         retain_care_topic(session, content)
         retire_document_evidence_state(session) if retire_prior_document_evidence
         if @setup_card_ask_field
+          current_household.update!(setup_skipped_fields: Array(current_household.setup_skipped_fields) - HouseholdFinance::SetupStatus.new(current_household).missing_field_keys) if @setup_card_guide_turn
           session.update!(active_topic: session.reload.active_topic.to_h.merge("setup_card_field" => @setup_card_ask_field))
         end
         if @savings_household_request
@@ -1187,7 +1188,7 @@ module Api
         message = guide.setup_request_message(content)
         return unless message
 
-        next_field = guide.next_missing_field
+        next_field = HouseholdFinance::SetupStatus.new(current_household).missing_field_keys.first
         @setup_card_guide_turn = true
         @setup_card_ask_field = next_field
         label = HouseholdFinance::SetupStatus::FIELD_LABELS[next_field&.to_sym]

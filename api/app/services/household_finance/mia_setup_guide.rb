@@ -33,7 +33,13 @@ module HouseholdFinance
     end
 
     def setup_request_message(value)
-      return after_apply_message if self.class.setup_request?(value)
+      if self.class.setup_request?(value)
+        field = setup_status.missing_field_keys.first
+        return complete_message unless field
+        return missing_minimum_question if field == MiaSetupCard::DEBT_FIELD && missing_minimum_names.any?
+
+        return MiaSetupCardReply.question(field, card: MiaSetupCard.new(household), previous: nil)
+      end
       return unless value.to_s.squish.match?(/\Awhat (?:else )?do you (?:still )?need from me to finish (?:setting up|setup)\??\z/i)
 
       return complete_message if setup_status.missing_field_keys.empty?
@@ -65,7 +71,8 @@ module HouseholdFinance
     end
 
     def complete_message
-      "Your household setup is complete. Ask me “How am I doing this month?” to see what your plan leaves."
+      message = "Your household setup is complete. Ask me “How am I doing this month?” to see what your plan leaves."
+      message
     end
   end
 end

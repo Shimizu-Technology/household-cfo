@@ -144,3 +144,5 @@ body #root :is(.money-screen, .annual-income-planner) .money-edit-row > span:nth
 /* An open removal review gets the row footer, so its controls cannot squeeze the figures. */
 .annual-income-planner .income-schedule-row:has(.income-remove-question) { grid-template-columns: minmax(0, 1fr); }
 .annual-income-planner .income-schedule-row:has(.income-remove-question) > div:last-child { grid-column: 1 / -1; min-width: 0; max-width: 100%; }
+
+.profile-screen .setup-save-notice { flex-basis: 100%; margin: 0; }
