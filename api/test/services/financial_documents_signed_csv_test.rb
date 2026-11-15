@@ -1,5 +1,6 @@
 require "test_helper"
 require "csv"
+require "spreadsheet"
 
 class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
   test "running balances prove the whole bank CSV without a model" do
@@ -116,6 +117,35 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal "transfer", version.event_type
     assert_equal 3000, version.signed_amount_cents
     assert_empty household.household_transactions
+  end
+
+  test "one workbook question applies across sheets even when each sheet has only one sign" do
+    file = Tempfile.new([ "f4-workbook", ".xls" ])
+    workbook = Spreadsheet::Workbook.new
+    [ [ "Spending", "-30" ], [ "Deposits", "40" ] ].each do |name, amount|
+      sheet = workbook.create_worksheet(name: name)
+      sheet.row(0).replace(%w[Date Description Amount])
+      sheet.row(1).replace([ "2026-10-01", "Fictional row one", amount ])
+      sheet.row(2).replace([ "2026-10-02", "Fictional row two", amount ])
+    end
+    workbook.write(file.path)
+    original = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank.xls", document_kind: "statement").call
+    assert original.success?, original.error
+    assert original.data[:source_accounting][:coverage][:signed_amount_question]
+    [ true, false ].each do |answer|
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank.xls", document_kind: "statement", negative_is_money_out: answer, account_basis: "asset").call
+      assert result.success?, result.error
+      assert_equal 4, result.data[:source_accounting][:events].count { |event| event[:row_kind] == "posted" }
+      assert_equal answer ? [ -3000, -3000, 4000, 4000 ] : [ 3000, 3000, -4000, -4000 ], result.data[:source_accounting][:events].pluck(:signed_amount_cents)
+    end
+  ensure
+    file&.close!
+  end
+
+  test "running balances also prove a file with only outgoing rows" do
+    rows = extract("Date,Description,Amount,Balance\n2026-10-01,Store one,-30,100\n2026-10-02,Store two,-20,80\n")[:source_accounting][:events]
+    assert_equal [ "posted", "posted" ], rows.pluck(:row_kind)
+    assert_equal [ -3000, -2000 ], rows.pluck(:signed_amount_cents)
   end
 
   private

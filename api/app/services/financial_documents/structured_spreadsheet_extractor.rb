@@ -185,13 +185,13 @@ module FinancialDocuments
     def extract_source_accounting(summary)
       raw_accounts = []
       raw_events = []
+      file_direction = signed_file_direction(summary)
       Array(summary[:sheets]).each_with_index do |sheet, fallback_index|
         sheet_index = sheet[:sheet_index] || fallback_index
         rows = Array(sheet[:rows])
         header = rows.find { |row| transaction_header?(row[:values]) }
         next unless header
         map = header_map_for(header[:values])
-        file_direction = signed_file_direction(rows.select { |row| row[:row] > header[:row] }, map)
         rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
           values = row[:values]
           next if transaction_header?(values)
@@ -235,15 +235,22 @@ module FinancialDocuments
 
     # Only a whole account's complete running-balance arithmetic proves a sign convention.
     # Never let a single row or a merchant name choose it.
-    def signed_file_direction(rows, map)
-      return if map.key?("debit") || map.key?("credit") || !map.key?("amount")
-      amounts = rows.map { |row| money_cents(cell(row[:values], map, "amount"), allow_negative: true) }
-      return unless amounts.any? { |amount| amount.to_i.positive? } && amounts.any? { |amount| amount.to_i.negative? }
+    def signed_file_direction(summary)
+      groups = Array(summary[:sheets]).flat_map do |sheet|
+        rows = Array(sheet[:rows])
+        header = rows.find { |row| transaction_header?(row[:values]) }
+        next [] unless header
+        map = header_map_for(header[:values])
+        next [] if map.key?("debit") || map.key?("credit") || !map.key?("amount")
+        rows.select { |row| row[:row] > header[:row] && !transaction_header?(row[:values]) }
+          .group_by { |row| cell(row[:values], map, "account").to_s }.values.map { |group| [ group, map ] }
+      end
+      amounts = groups.flat_map { |rows, map| rows.map { |row| money_cents(cell(row[:values], map, "amount"), allow_negative: true) } }
+      return if groups.empty?
       return @negative_is_money_out ? :signed : :reversed unless @negative_is_money_out.nil?
 
-      groups = rows.group_by { |row| cell(row[:values], map, "account").to_s }
-      proven = map.key?("balance") && groups.values.all? do |group|
-        group.length >= 2 && group.all? do |row|
+      proven = groups.all? do |group, map|
+        map.key?("balance") && group.length >= 2 && group.all? do |row|
           money_cents(cell(row[:values], map, "balance"), allow_negative: true) && money_cents(cell(row[:values], map, "amount"), allow_negative: true)
         end && group.each_cons(2).all? do |previous, current|
           before = money_cents(cell(previous[:values], map, "balance"), allow_negative: true)
@@ -254,7 +261,7 @@ module FinancialDocuments
       end
       return :signed if proven
 
-      @sign_question = true
+      @sign_question = amounts.any? { |amount| amount.to_i.positive? } && amounts.any? { |amount| amount.to_i.negative? }
       nil
     end
 
