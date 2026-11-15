@@ -67,6 +67,8 @@ async function closeAdminProgramPicker(page: Page) {
 }
 async function selectAdminProgram(page: Page, value: string) {
   await (await adminProgramPicker(page)).selectOption(value)
+  // The async change handler closes More and commits the new scope after returning.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
 }
 async function expectAdminProgramValue(page: Page, value: string) {
   await expect(await adminProgramPicker(page)).toHaveValue(value)
@@ -120,8 +122,11 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   }
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
-  if (!(await page.locator('.tabs-shell, .staff-navigation').isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    // The app restores composer focus after 80ms; dismiss its keyboard after that recovery.
+    await page.waitForTimeout(100)
     // Explicitly dismiss a text keyboard before navigating away from its draft.
+
     // Buttons, selects and checkboxes must never require this workaround.
     await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
   }
@@ -138,6 +143,8 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   if (name === 'Coach Studio' && !simpleCoach) { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Voice versions/ }).click() }
   if (await more.count()) await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
+  // Route heading focus and scroll restoration finish on the next render frames.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
 }
 
 async function openMiaReviewDetails(page: Page) {
