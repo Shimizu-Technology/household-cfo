@@ -179,9 +179,6 @@ body #root .document-review-panel .document-transaction-drafts { padding: 18px; 
 .review-layout .activity-preview { grid-column: 1 / -1; }
 body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: start; }
 body :is(.baseline-dialog, .evidence-dialog, .daily-dialog, .document-preview-modal) > header :is(h2, h3) { font: var(--weight-regular) clamp(24px, 3vw, 32px)/1.1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
-/* Only the dialog's own title is serif. The shared title rule also matches a section's first heading,
-   so section headings inside these dialogs are set back to the body face here. */
-body [data-dialog-panel]:is(.baseline-dialog, .evidence-dialog, .daily-dialog) section > :is(h3, h4):first-child { font-family: var(--font-body); }
 body :is(#root, [role='dialog']) :is(.pilot-privacy-note, .pilot-guide-dialog footer, .pilot-feedback-success) { border: 1px solid var(--rule); background: var(--surface-ground); color: var(--muted); }
 body :is(#root, [role='dialog']) .setup-help-topics button.ui-row { border-top: 0; }
 @media (forced-colors: active) {

@@ -16653,3 +16653,36 @@ test('BOG UI P8a fix1 completed households reach setup corrections without Ask M
   await expect(dialog.getByRole('button', { name: 'Request support review', exact: true })).toBeVisible()
   await expect(dialog.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
 })
+
+
+test('BOG UI dialog titles use display type while snapshot and evidence sections use body type', async ({ page }) => {
+  const checkFaces = async (dialog: Locator) => {
+    const faces = await dialog.evaluate(panel => {
+      const title = panel.querySelector('header h2')!
+      const section = panel.querySelector('section > h3')!
+      const paragraph = panel.querySelector('p')!
+      const displayReference = document.createElement('span')
+      displayReference.style.fontFamily = 'var(--font-display)'
+      panel.append(displayReference)
+      const result = {
+        title: getComputedStyle(title).fontFamily,
+        display: getComputedStyle(displayReference).fontFamily,
+        section: getComputedStyle(section).fontFamily,
+        body: getComputedStyle(paragraph).fontFamily,
+      }
+      displayReference.remove()
+      return result
+    })
+    expect(faces.title).toBe(faces.display)
+    expect(faces.section).toBe(faces.body)
+    expect(faces.title).not.toBe(faces.section)
+  }
+  const { dialog } = await openBaseline(page)
+  await checkFaces(dialog)
+  await dialog.getByRole('button', { name: 'Close spending snapshot', exact: true }).click()
+  await page.goto('/e2e/fixtures/evidence.html')
+  await page.getByRole('button', { name: 'Review fictional savings evidence', exact: true }).click()
+  const evidence = page.getByRole('dialog', { name: 'Match to a statement', exact: true })
+  await expect(evidence.getByRole('heading', { name: 'Statement entries · page 1', exact: true })).toBeVisible()
+  await checkFaces(evidence)
+})

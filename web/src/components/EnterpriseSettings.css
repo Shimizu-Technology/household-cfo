@@ -28,3 +28,6 @@
   .enterprise-records li { align-items: stretch; flex-direction: column; }
   .enterprise-actions .button { flex: 1 1 100%; }
 }
+
+/* Keep the existing section typography independent of shared dialog-title styling. */
+body :where(.enterprise-settings) :is(.enterprise-form, .enterprise-section) > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }

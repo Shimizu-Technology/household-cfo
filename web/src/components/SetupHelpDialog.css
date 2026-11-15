@@ -14,3 +14,6 @@
 .setup-help-consent input { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 3px; }
 .setup-help-section button { min-height: 44px; }
 @media (max-height: 400px) { .setup-help-dialog > header h2 { font-size: var(--text-xl); } .setup-help-dialog > header { padding: 12px 16px; } }
+
+/* Preserve this existing dialog section face after narrowing shared title styling. */
+body :where(.setup-help-dialog) .setup-help-section > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }

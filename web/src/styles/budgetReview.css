@@ -176,3 +176,6 @@ body #root .activity-screen .transaction-draft-actions > .ui-btn--text { width: 
   .budget-screen .annual-budget-panel.is-plan-unknown > .budget-rail { grid-column: 1; }
 }
 /* The native select's chevron needs its own space inside the period pill. */
+
+/* This dialog title is wrapped by its form rather than a header. */
+body :where(.bulk-confirm-dialog) form > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
