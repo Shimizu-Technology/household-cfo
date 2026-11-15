@@ -288,7 +288,7 @@ module FinancialDocuments
         map = header_map_for(header[:values])
         rows.select { |row| row[:row] > header[:row] }.map { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
       end.uniq
-      @sign_question = unresolved.any? && account_keys.reject { |key| key.start_with?("sheet-") }.length <= 1
+      @sign_question = unresolved.any? && account_keys.one?
       directions
     end
 

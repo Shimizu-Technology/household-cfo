@@ -119,7 +119,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_empty household.household_transactions
   end
 
-  test "one workbook question applies across sheets even when each sheet has only one sign" do
+  test "separate worksheet accounts use individual directions even when each sheet has one sign" do
     file = Tempfile.new([ "f4-workbook", ".xls" ])
     workbook = Spreadsheet::Workbook.new
     [ [ "Spending", "-30" ], [ "Deposits", "40" ] ].each do |name, amount|
@@ -131,13 +131,9 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     workbook.write(file.path)
     original = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank.xls", document_kind: "statement").call
     assert original.success?, original.error
-    assert original.data[:source_accounting][:coverage][:signed_amount_question]
-    [ true, false ].each do |answer|
-      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank.xls", document_kind: "statement", negative_is_money_out: answer, account_basis: "asset").call
-      assert result.success?, result.error
-      assert_equal 4, result.data[:source_accounting][:events].count { |event| event[:row_kind] == "posted" }
-      assert_equal answer ? [ -3000, -3000, 4000, 4000 ] : [ 3000, 3000, -4000, -4000 ], result.data[:source_accounting][:events].pluck(:signed_amount_cents)
-    end
+    assert_not original.data[:source_accounting][:coverage][:signed_amount_question]
+    assert_equal 2, original.data[:source_accounting][:accounts].length
+    assert_equal [ nil, nil, nil, nil ], original.data[:source_accounting][:events].pluck(:signed_amount_cents)
   ensure
     file&.close!
   end
@@ -178,6 +174,14 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     result = extract("Date,Description,Amount,Account,Account type\n2026-10-01,Store,10,Bank,asset\n2026-10-02,Card store,-20,Card,liability\n")[:source_accounting]
     assert_not result[:coverage][:signed_amount_question]
     assert_equal [ nil, nil ], result[:events].pluck(:signed_amount_cents)
+    user, document = sign_document("two-accounts.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: result, structured_spreadsheet: true).call[:revision]
+    event = revision.financial_source_events.order(:position).first
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: event.id, decision: "edited", edit: { kind: "money_in", money_direction: "in", amount_cents: 1000, posted_on: "2026-10-01" } } ] }).call
+    assert_equal 1000, SourceReviewHead.find_by!(financial_source_event: event).approved_version.signed_amount_cents
+    assert_nil revision.financial_source_events.order(:position).last.signed_amount_cents
+    assert_empty document.household.household_transactions
   end
 
   test "a workbook answer preserves debit credit and proven rows for either answer" do

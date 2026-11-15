@@ -16,6 +16,8 @@ module FinancialDocuments
       target_rows = revision.coverage["signed_amount_target_rows"]
       originals = revision.financial_source_events.includes(:financial_source_evidence).order(:position).to_a
       target_rows ||= originals.select { |event| event.limitations.include?("transaction_direction_unclear") }.map(&:row_identity)
+      target_accounts = originals.select { |event| target_rows.include?(event.row_identity) }.map(&:financial_source_account_id).uniq
+      raise ArgumentError, "Review each account’s money out or money in lines individually." unless target_accounts.one?
       file = Tempfile.new([ "spreadsheet-sign", ".csv" ])
       file.write(CSV.generate do |csv|
         csv << %w[Date Description Amount Direction Category Account]
