@@ -9520,7 +9520,7 @@ export function AnnualBudgetPlanner({
                                   onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
                                 />
                               ) : (
-                                <strong className="annual-planned-readonly">{formatReviewMoney(Math.round((month.planned) * 100))}</strong>
+                                <strong className="annual-planned-readonly">{allocationMissing ? 'Not entered' : formatReviewMoney(Math.round((month.planned) * 100))}</strong>
                               )}
                               <small>{allocationMissing ? 'Planned amount needs repair' : `${formatReviewMoney(Math.round((month.actual) * 100))} actual`}</small>
 

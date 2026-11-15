@@ -17975,6 +17975,11 @@ test('BOG UI F2 fix1 missing allocation keeps repair wording and known zero spen
   await expect(row).toContainText('$0 actual')
   await expect(row).not.toContainText('No amount planned yet')
   await expect(page.getByRole('button', { name: /Set amount/ })).toHaveCount(0)
+  await openSection(page, 'My Money')
+  await openMoneyTopic(page, 'Spending')
+  await page.getByRole('button', { name: 'Edit Other flexible spending', exact: true }).click()
+  await expect(page.locator('[data-budget-category-id="2"] .annual-planned-readonly')).toHaveText('Not entered')
+  await expect(page.locator('[data-budget-category-id="2"]')).toContainText('Planned amount needs repair')
 })
 
 test('BOG UI F2 fix1 purchase planning selects its year before focusing its amount', async ({ page }) => {
