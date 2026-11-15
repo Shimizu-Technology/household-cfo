@@ -2266,7 +2266,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   useLayoutEffect(() => {
     firstAnswerSenderRef.current = () => {
       if (question.trim() || pendingMiaAttachments.length > 0) {
-        setMiaError('Your message and files are waiting here. Your first answer is one tap away: ask “How am I doing this month?”')
+        setMiaError('Your message and files are waiting here. Send or clear them, then ask “How am I doing this month?” for your first answer.')
       } else void handleAskMia('How am I doing this month?', 'heading')
     }
   })

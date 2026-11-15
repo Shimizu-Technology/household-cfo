@@ -16904,7 +16904,7 @@ for (const intervening of ['draft', 'files', 'request']) test(`BOG UI F1 fix1 de
   if (intervening === 'files') await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'Keep-this-file.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })
   releaseSave()
   if (intervening !== 'request') {
-    await expect(page.getByText(/Your first answer is one tap away/)).toBeVisible()
+    await expect(page.getByText('Your message and files are waiting here. Send or clear them, then ask “How am I doing this month?” for your first answer.', { exact: true })).toBeVisible()
     if (intervening === 'draft') await expect(composer).toHaveValue('Keep my new question')
     else await expect(page.getByText('Keep-this-file.pdf', { exact: true })).toBeVisible()
     expect(sent).toEqual([])
