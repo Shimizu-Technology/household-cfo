@@ -4601,11 +4601,35 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_090000) do
     CREATE TRIGGER source_review_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.source_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
   SQL
   execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.source_account_history_in_use(tracked_id bigint)
+     RETURNS boolean
+     LANGUAGE sql
+    AS $function$
+      SELECT EXISTS (SELECT 1 FROM source_tracked_accounts WHERE id = tracked_id AND account_id IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM household_operation_executions WHERE subject_type = 'SourceTrackedAccount' AND subject_id = tracked_id)
+        OR EXISTS (SELECT 1 FROM household_audit_events WHERE auditable_type = 'SourceTrackedAccount' AND auditable_id = tracked_id)
+        OR EXISTS (SELECT 1 FROM financial_baseline_versions b WHERE
+          jsonb_path_exists(b.snapshot, '$.**.tracked_account_ids[*] ? (@ == $id)', jsonb_build_object('id', tracked_id))
+          OR jsonb_path_exists(b.snapshot, '$.**.tracked_account_id ? (@ == $id)', jsonb_build_object('id', tracked_id)))
+        OR EXISTS (SELECT 1 FROM source_account_identity_versions i WHERE i.source_tracked_account_id = tracked_id AND (
+          EXISTS (SELECT 1 FROM household_operation_executions WHERE subject_type = 'SourceAccountIdentityVersion' AND subject_id = i.id)
+          OR EXISTS (SELECT 1 FROM household_audit_events WHERE auditable_type = 'SourceAccountIdentityVersion' AND auditable_id = i.id)
+          OR EXISTS (SELECT 1 FROM source_review_versions WHERE source_account_identity_version_id = i.id)
+          OR EXISTS (SELECT 1 FROM source_review_drafts WHERE facts ->> 'source_account_identity_version_id' = i.id::text)
+          OR EXISTS (SELECT 1 FROM financial_baseline_versions b WHERE
+            jsonb_path_exists(b.snapshot, '$.**.account_identity_version_id ? (@ == $id)', jsonb_build_object('id', i.id))
+            OR jsonb_path_exists(b.snapshot, '$.**.account_version_ids[*] ? (@ == $id)', jsonb_build_object('id', i.id)))))
+        OR EXISTS (SELECT 1 FROM savings_debt_cards WHERE source_tracked_account_id = tracked_id)
+        OR EXISTS (SELECT 1 FROM savings_debt_drafts WHERE source_tracked_account_id = tracked_id)
+        OR EXISTS (SELECT 1 FROM savings_debt_versions WHERE source_tracked_account_id = tracked_id)
+    $function$
+  SQL
+  execute <<~SQL
     CREATE OR REPLACE FUNCTION public.statement_account_answers_removable(document_id bigint)
      RETURNS boolean
      LANGUAGE sql
     AS $function$
-      SELECT EXISTS (SELECT 1 FROM financial_document_imports d WHERE d.id = document_id AND d.document_kind = 'statement')
+      SELECT EXISTS (SELECT 1 FROM financial_document_imports d WHERE d.id = document_id)
         AND NOT EXISTS (SELECT 1 FROM financial_document_import_items WHERE financial_document_import_id = document_id AND applied_at IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM transaction_drafts WHERE financial_document_import_id = document_id AND status IN ('confirmed', 'corrected', 'matched'))
         AND NOT EXISTS (SELECT 1 FROM household_transactions WHERE source_import_id = document_id AND status IN ('confirmed', 'reconciled'))
@@ -4625,14 +4649,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_090000) do
     DECLARE document_id bigint;
     BEGIN
       IF TG_TABLE_NAME = 'source_tracked_accounts' THEN
-        IF OLD.account_id IS NULL AND NOT EXISTS (SELECT 1 FROM source_account_identity_versions WHERE source_tracked_account_id = OLD.id) THEN RETURN OLD; END IF;
+        IF NOT source_account_history_in_use(OLD.id) AND NOT EXISTS (SELECT 1 FROM source_account_identity_versions WHERE source_tracked_account_id = OLD.id) THEN RETURN OLD; END IF;
       ELSE
         IF TG_TABLE_NAME = 'source_account_review_heads' THEN
           SELECT r.financial_document_import_id INTO document_id FROM financial_source_accounts a JOIN financial_extraction_revisions r ON r.id = a.financial_extraction_revision_id WHERE a.id = OLD.financial_source_account_id;
         ELSE
           SELECT r.financial_document_import_id INTO document_id FROM source_account_review_heads h JOIN financial_source_accounts a ON a.id = h.financial_source_account_id JOIN financial_extraction_revisions r ON r.id = a.financial_extraction_revision_id WHERE h.id = OLD.source_account_review_head_id;
         END IF;
-        IF statement_account_answers_removable(document_id) THEN RETURN OLD; END IF;
+        IF statement_account_answers_removable(document_id) AND NOT EXISTS (
+          SELECT 1 FROM source_account_identity_versions i WHERE
+            (TG_TABLE_NAME = 'source_account_review_heads' AND i.source_account_review_head_id = OLD.id
+              OR TG_TABLE_NAME = 'source_account_identity_versions' AND i.id = OLD.id)
+            AND source_account_history_in_use(i.source_tracked_account_id)
+        ) THEN RETURN OLD; END IF;
       END IF;
       RAISE EXCEPTION 'Approved source facts cannot be deleted';
     END; $function$

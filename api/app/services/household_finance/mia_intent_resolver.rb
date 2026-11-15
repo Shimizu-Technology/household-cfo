@@ -803,7 +803,7 @@ module HouseholdFinance
       # Only a message that asks nothing but the no-debt offer can be answered with "yes".
       return false if text.count("?") > 1 || text.match?(/\balso\b/i)
 
-      text.match?(/\bno[- ]debt\s+summary\b|\$0\s+(?:total\s+)?(?:debt\s+)?balance\b.{0,60}\$0\s+(?:total\s+)?(?:monthly\s+)?minimum/i)
+      text.match?(/\bno[- ]debt\s+summary\b|\$0\s+(?:total\s+)?(?:debt\s+)?balance\b.{0,60}\$0\s+(?:total\s+)?(?:monthly\s+)?(?:minimum|debt\s+payments)/i)
     end
 
     def latest_assistant_text

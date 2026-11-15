@@ -67,7 +67,7 @@ module HouseholdFinance
         approved = plan.fetch(:plan_available, true)
         fields = SetupStatus.new(household).confirmed_field_keys
         costs_known = { "fixed_expenses" => "non_discretionary", "flexible_spend" => "discretionary" }.all? do |field, stack|
-          fields.include?(field) || active.any? { |row| row[:stack_key] == stack }
+          fields.include?(field) || active.any? { |row| row[:stack_key] == stack && Array(row[:months]).any? { |entry| !entry[:allocation_missing] && Money.cents(entry[:planned]).nonzero? } }
         end
         allocations_known = approved && Date.new(year, month, 1) >= PlanCoverage.new(household).starts_on && costs_known && active.all? { |row| cell(row).present? && !cell(row)[:allocation_missing] }
         # Business income is optional. Its unconfirmed absence must not hide an
@@ -134,7 +134,9 @@ module HouseholdFinance
       return "Your #{facts[:year]} plan is not set up yet, so I cannot show a plan comparison for #{facts[:period_label]}. Open Budget to set up that year’s plan when you are ready. Nothing has been created or saved." unless facts[:plan_available]
 
       if facts[:before_debt_payments]
-        return "Before debt payments, your plan leaves #{money(facts[:before_debt_left_cents])} a month: #{money(facts[:money_in_cents])} in, #{money(facts[:before_debt_out_cents])} out. Add your monthly debt payments to complete it."
+        left = facts[:before_debt_left_cents]
+        result = left.negative? ? "is short by #{money(-left)}" : "leaves #{money(left)}"
+        return [ "Before debt payments, your plan #{result} for #{facts[:period_label]}: #{money(facts[:money_in_cents])} in, #{money(facts[:before_debt_out_cents])} out. This is a plan figure, not a bank balance or permission to spend. Add your monthly debt payments to complete it.", review_next_step(facts, next_move: next_move) ].compact.join(" ")
       end
 
       left = facts[:plan_left_cents]

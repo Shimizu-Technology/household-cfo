@@ -163,7 +163,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
       max_transaction_rows: 1
     ).call
 
-    assert_includes answer, "more extracted rows than Mia can verify completely"
+    assert_includes answer, "more lines than I can check completely"
     assert_includes answer, "did not calculate a partial total"
     assert_not_includes answer, "$10"
     assert_not_includes answer, "$30"
@@ -180,7 +180,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
       max_setup_rows: 1
     ).call
 
-    assert_includes answer, "more extracted rows than Mia can verify completely"
+    assert_includes answer, "more lines than I can check completely"
     assert_not_includes answer, "$5,000"
     assert_not_includes answer, "Primary"
   end
@@ -195,7 +195,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_no_difference([ "BudgetYear.count", "BudgetAllocation.count" ]) do
       answer = answer_for("Does this grocery receipt fit my plan?")
-      assert_includes answer, "I can verify $87.45 in the attached pending evidence"
+      assert_includes answer, "I can verify $87.45 in the files you sent, waiting for your approval"
       assert_includes answer, "there is no confirmed annual plan"
       assert_includes answer, "cannot safely say whether it fits"
     end
@@ -408,7 +408,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
   test "does not use stale rows from a failed import as evidence" do
     create_draft!(merchant: "Stale merchant", amount_cents: 99_00, occurred_on: Date.new(2026, 8, 2))
-    @document_import.update!(status: "failed", extraction_error: "provider failed")
+    @document_import.update!(status: "failed", extraction_error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
 
     answer = answer_for("What is the total in this attachment?")
 
@@ -537,6 +537,16 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?("Check this receipt")
     refute HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?("What is the total on this receipt?")
     refute HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?("Please review this receipt and tell me whether it fits my plan.")
+  end
+
+  test "two readable files without matching money details are called these files" do
+    other = @document_import.dup
+    other.s3_key = "test/another-readable.pdf"
+    other.filename = "Another readable file.pdf"
+    other.save!
+    answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(@household, message: "What is the total?", document_imports: [ @document_import, other ]).call
+    assert_includes answer, "I read these files"
+    refute_includes answer, "the other files"
   end
 
   private

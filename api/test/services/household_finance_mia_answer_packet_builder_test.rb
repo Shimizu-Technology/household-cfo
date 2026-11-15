@@ -87,4 +87,11 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
     refute packet.fetch(:conversation_state).key?(:personalization_memory)
     assert_equal 1, JSON.generate(packet).scan("user_curated_personalization").length
   end
+  test "partial before debt amounts are not offered as free narration figures" do
+    packet = HouseholdFinance::MiaAnswerPacketBuilder.new(kind: "coaching", fallback_response: "Before debt payments.", write_state: "no_write", annual_plan: { year: 2026, rows: [] }, month_answer: { before_debt_payments: true, before_debt_left_cents: 245000, before_debt_out_cents: 275000 }).call
+    summary = packet.dig(:annual_plan_summary, :month_answer)
+    refute summary.key?(:before_debt_left_cents)
+    refute summary.key?(:before_debt_out_cents)
+    assert_empty summary[:coaching_figures]
+  end
 end

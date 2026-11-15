@@ -192,6 +192,7 @@ module Api
         destroy_error = nil
 
         ApplicationRecord.transaction do
+          current_household.lock!
           @document_import.with_lock do
             if FinancialSourceUse.where(financial_document_import: @document_import).exists?
               destroy_error = "Review every affected challenge use in Privacy before deleting this original."
@@ -218,8 +219,11 @@ module Api
         end
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
-      rescue ActiveRecord::RecordNotDestroyed
-        render json: { errors: [ "Could not delete document import" ] }, status: :unprocessable_entity
+      rescue ActiveRecord::RecordNotDestroyed, ActiveRecord::InvalidForeignKey, ActiveRecord::StatementInvalid => error
+        raise if error.is_a?(ActiveRecord::StatementInvalid) && !error.is_a?(ActiveRecord::InvalidForeignKey) && !error.cause.is_a?(PG::RaiseException)
+
+        Rails.logger.warn("[DocumentDelete] deletion refused: #{error.class}")
+        render json: { errors: [ "This file has approved lines or saved money details. Nothing was deleted. You can remove the original file and keep this record." ] }, status: :unprocessable_entity
       end
 
       def reprocess
@@ -733,7 +737,7 @@ module Api
       rescue ActiveRecord::RecordNotDestroyed
         document_import.update_columns(
           status: "failed",
-          extraction_error: "Private S3 upload failed before extraction; cleanup could not remove the import.",
+          extraction_error: "The file upload did not finish. Nothing was saved. Please try uploading it again.",
           processed_at: Time.current,
           updated_at: Time.current
         )
@@ -777,12 +781,13 @@ module Api
           period_start_on: document_import.period_start_on,
           period_end_on: document_import.period_end_on,
           extracted_summary: document_import.extracted_summary,
-          extraction_error: document_import.extraction_error,
+          extraction_error: document_import.failed? ? HouseholdFinance::UploadFailureReply.call(document_import) : document_import.extraction_error,
           processed_at: document_import.processed_at,
           applied_at: document_import.applied_at,
           source_deleted_at: document_import.source_deleted_at,
           updated_at: document_import.updated_at&.iso8601,
           source_available: ChallengePrivacy::SourceRetention.available?(document_import),
+          can_delete_record: !FinancialSourceUse.where(financial_document_import: document_import).exists? && (!import_has_resolved_values?(document_import) || FinancialDocuments::UnapprovedStatementAccounts.removable?(document_import)),
           details_included: include_details,
           uploaded_by: serialize_user_reference(document_import.uploaded_by_user),
           applied_by: serialize_user_reference(document_import.applied_by_user),

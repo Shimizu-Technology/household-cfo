@@ -99,6 +99,7 @@ module HouseholdFinance
       facts = @month_answer
       return unless facts
 
+      facts = facts.except(:before_debt_left_cents, :before_debt_out_cents)
       facts.merge(coaching_figures: facts.filter_map do |key, value|
         [ key, value ] if key.to_s.end_with?("_cents") && !value.nil?
       end.to_h)

@@ -130,7 +130,7 @@ class HouseholdFinanceMiaDebtActionDraftsTest < ActiveSupport::TestCase
     review = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items).sole.fetch(:review_fields)
 
     assert_equal [ "$9,000.00", "$3,100.00" ], review.find { |field| field.fetch(:label) == "Planning balance" }.values_at(:before, :after)
-    assert_equal [ "$400.00", "$175.00" ], review.find { |field| field.fetch(:label) == "Planning monthly minimum" }.values_at(:before, :after)
+    assert_equal [ "$400.00", "$175.00" ], review.find { |field| field.fetch(:label) == "Planning monthly debt payments" }.values_at(:before, :after)
     assert_equal [ "1", "1" ], review.find { |field| field.fetch(:label) == "Active individual records" }.values_at(:before, :after)
   end
 

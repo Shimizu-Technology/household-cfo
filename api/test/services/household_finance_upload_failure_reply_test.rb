@@ -11,8 +11,8 @@ class HouseholdFinanceUploadFailureReplyTest < ActiveSupport::TestCase
     assert_equal FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE, answer([ @failed ])
   end
 
-  test "temporary failure uses the same retry words and hides technical errors" do
-    @failed.update!(metadata: {}, extraction_error: "provider failed extraction")
+  test "temporary failure repeats the stored participant retry words" do
+    @failed.update!(metadata: {}, extraction_error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
     assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, answer([ @failed ])
   end
 

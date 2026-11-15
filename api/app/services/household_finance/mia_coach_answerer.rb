@@ -323,7 +323,7 @@ module HouseholdFinance
       liquid_missing = !AssetPortfolio.new(household).liquid_balance_known?
       missing = liquid_missing ? "monthly debt payments and checking, savings, and emergency-fund balances" : "monthly debt payments"
       account_step = liquid_missing ? " Add your account balances in My Money, under Accounts." : ""
-      "For spending and cushion guidance, I still need #{missing}. I cannot judge available cash from missing numbers.#{account_step} Open Debt in My Money to review minimums, including no debt payments if there are none."
+      "For spending and cushion guidance, I still need #{missing}. I cannot judge available cash from missing numbers.#{account_step} Open Debt in My Money to review monthly debt payments, including no debt payments if there are none."
     end
 
     def confirmed_debt_free_answer

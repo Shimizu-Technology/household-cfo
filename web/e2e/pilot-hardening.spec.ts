@@ -8924,6 +8924,7 @@ test('BOG UI Home and current review survive a future Budget year', async ({ pag
 
 test('BOG UI partially reviewed statements keep their remaining coverage visible', async ({ page }) => {
   const source = {
+    can_delete_record: false,
     id: 1201, household_id: 77, document_kind: 'statement', status: 'partially_applied', filename: `${'October-household-statement-with-a-long-filename-'.repeat(3)}2026.pdf`, content_type: 'application/pdf', byte_size: 50,
     document_date: null, period_start_on: `${currentYear}-01-01`, period_end_on: `${currentYear}-01-31`, extracted_summary: 'Three extracted purchases.', extraction_error: null,
     processed_at: '2026-10-01T01:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-10-01T01:00:00Z', source_available: true, details_included: true,
@@ -18405,6 +18406,8 @@ for (const location of ['Ask Mia', 'Statements']) for (const mode of ['unanswere
   if (mode !== 'unanswered') {
     await expect(card.getByRole('button', { name: 'Yes, spending is negative' })).toHaveCount(0)
     await card.getByRole('button', { name: 'Change this', exact: true }).click()
+    await f5Capture(page, `direction-revealed-${location.replace(' ', '-')}-${mode}`)
+    await expect(card.getByText(/In this bank account file, is money you spent shown/)).toBeFocused()
   }
   await card.getByRole('button', { name: 'Yes, spending is negative' }).click()
   await expect(card.locator('.statement-sign-result')).toBeFocused()
@@ -18422,7 +18425,7 @@ for (const mode of ['unknown-debt', 'known-debt', 'no-debts', 'unknown-income'])
   workspace.budget.annual_plan.pending_mia_action_drafts = []
   workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, money_in_cents: missingIncome ? null : 520000, planned_out_cents: unknown ? null : 275000 + debt, plan_left_cents: unknown || missingIncome ? null : 245000 - debt, before_debt_payments: unknown, before_debt_out_cents: unknown ? 275000 : null, before_debt_left_cents: unknown ? 245000 : null, runway_months: null, missing_plan_inputs: unknown ? [{ label: 'monthly debt payments', destination: 'debt' }] : [], cushion_missing_inputs: unknown ? [{ label: 'monthly debt payments', destination: 'debt' }] : [] }
   workspace.dashboard.coach_read = { title: 'Complete your picture', body: 'Add the missing numbers', action: 'open_debt' }
-  workspace.mia.messages = [{ id: 102, role: 'assistant', author: 'Mia', content: unknown ? 'Before debt payments, your plan leaves $2,450 a month: $5,200 in, $2,750 out. Add your monthly debt payments to complete it.' : missingIncome ? 'Still to add: your main income.' : `Your plan leaves about $${mode === 'no-debts' ? '2,450' : '2,100'} for November 2026.` }]
+  workspace.mia.messages = [{ id: 102, role: 'assistant', author: 'Mia', content: unknown ? 'Before debt payments, your plan leaves $2,450 for November 2026: $5,200 in, $2,750 out. This is a plan figure, not a bank balance or permission to spend. Add your monthly debt payments to complete it.' : missingIncome ? 'Still to add: your main income.' : `Your plan leaves about $${mode === 'no-debts' ? '2,450' : '2,100'} for November 2026.` }]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Home')
   await expect(page.locator('.home-money-values')).toBeVisible()
@@ -18484,4 +18487,48 @@ test('BOG UI F5 delete refusal explains approved spending and original removal',
   await answerConfirm(page, 'accept')
   await expect(page.getByText(message, { exact: true })).toBeVisible()
   await f5Capture(page, 'delete-refusal')
+})
+
+test('BOG UI F5 fix1 database refusal keeps the file and offers original removal', async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const message = 'This file has approved lines or saved money details. Nothing was deleted. You can remove the original file and keep this record.'
+  const source = f4Source()
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.request().method() === 'DELETE' ? route.fulfill({ status: 422, json: { errors: [message] } }) : route.fulfill({ json: { document_import: source } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review(true) } }))
+  await f4Chat(page, [source])
+  await openSection(page, 'Statements')
+  await openDetails(page, 'File options')
+  await page.getByRole('button', { name: 'Delete upload & record', exact: true }).click()
+  await answerConfirm(page, 'accept')
+  await expect(page.getByText(message, { exact: true })).toBeVisible()
+  await f5Capture(page, 'delete-database-refusal')
+})
+
+
+test('BOG UI F5 fix1 before-debt shortfall names the missing payments', async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, money_in_cents: 520000, planned_out_cents: null, plan_left_cents: null, before_debt_payments: true, before_debt_left_cents: -30000, before_debt_out_cents: 550000, runway_months: null, missing_plan_inputs: [{label: 'monthly debt payments', destination: 'debt'}], cushion_missing_inputs: [{label: 'monthly debt payments', destination: 'debt'}] }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await f5Capture(page, 'home-before-debt-shortfall')
+  await expect(page.getByText('Shortfall · before debt payments', {exact: true})).toBeVisible()
+  await expect(page.locator('.home-money-values')).toContainText('$300')
+  await expect(page.locator('.home-money-values')).not.toContainText('-$300')
+  await f5Capture(page, 'home-before-debt-shortfall')
+})
+
+test('BOG UI F5 fix1 account-only partially saved file offers server-authorized deletion', async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const source = { ...f4Source(), status: 'partially_applied', can_delete_record: true }
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.fulfill({json: {document_import: source}}))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: {source_review: f4Review(true)} }))
+  await f4Chat(page, [source])
+  await openSection(page, 'Statements')
+  await page.getByText('File options', {exact: true}).click()
+  await f5Capture(page, 'delete-account-only-partial')
+  await expect(page.getByRole('button', {name: 'Delete upload & record', exact: true})).toBeEnabled()
 })

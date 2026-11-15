@@ -11,7 +11,7 @@ class HouseholdFinanceBeforeDebtAnswerTest < ActiveSupport::TestCase
 
   test "only unknown debt exposes labelled partial values in chat and dashboard" do
     answer = month_answer
-    assert_equal "Before debt payments, your plan leaves $2,450 a month: $5,200 in, $2,750 out. Add your monthly debt payments to complete it.", answer.response
+    assert_equal "Before debt payments, your plan leaves $2,450 for November 2026: $5,200 in, $2,750 out. This is a plan figure, not a bank balance or permission to spend. Add your monthly debt payments to complete it.", answer.response
     facts = answer.call
     assert_nil facts[:plan_left_cents]
     assert_nil facts[:planned_out_cents]
@@ -48,6 +48,29 @@ class HouseholdFinanceBeforeDebtAnswerTest < ActiveSupport::TestCase
     assert_not facts[:before_debt_payments]
     assert_nil facts[:before_debt_left_cents]
   end
+
+  test "partial answer names its month keeps the review step and describes a shortfall" do
+    plan = HouseholdFinance::AnnualBudgetManager.new(@household).plan_data
+    plan[:rows].first[:months][10][:planned] = 5000
+    plan[:pending_transaction_drafts] = [ { occurred_on: "2026-11-01", amount_cents: 1000 } ]
+    answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: plan)
+    text = answer.response(next_move: "Check this proposed change.")
+    assert_includes text, "is short by $1,850 for November 2026"
+    assert_includes text, "not a bank balance"
+    assert_includes text, "Check this proposed change; review the 1 purchase"
+    refute_includes text, "a month"
+  end
+
+  test "a newly created zero category does not supply an unanswered spending group" do
+    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "flexible_spend" ])
+    @household.expense_items.where(stack_key: "discretionary").destroy_all
+    @household.budget_categories.where(stack_key: "discretionary").destroy_all
+    HouseholdFinance::AnnualBudgetManager.new(@household).create_category!(name: "Not answered", stack_key: "discretionary")
+    facts = month_answer.call
+    assert_not facts[:before_debt_payments]
+    assert_nil facts[:before_debt_left_cents]
+  end
+
 
   private
 

@@ -124,7 +124,7 @@ export function HomeMoneyValues({ answer }: { answer?: DashboardData['month_answ
   const beforeDebt = answer?.before_debt_payments === true
   const left = beforeDebt ? answer.before_debt_left_cents : answer?.plan_left_cents
   return <dl className="home-money-values">
-    <MoneyValue hero label={beforeDebt ? 'What’s left · before debt payments' : left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={beforeDebt || left == null ? left : Math.abs(left)} />
+    <MoneyValue hero label={beforeDebt ? left != null && left < 0 ? 'Shortfall · before debt payments' : 'What’s left · before debt payments' : left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
     <MoneyValue label={beforeDebt ? 'Money out · before debt payments' : 'Money out · planned'} cents={beforeDebt ? answer.before_debt_out_cents : answer?.planned_out_cents} />
     <MoneyValue label="Money in" cents={answer?.money_in_cents} />
   </dl>

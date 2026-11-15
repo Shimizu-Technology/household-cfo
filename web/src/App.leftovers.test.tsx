@@ -108,6 +108,7 @@ describe('monthly debt payments card', () => {
       coach_read: { title: 'Finish the monthly debt payments before making a cash-flow call.', body: 'Add it in My Money, under Debt.', action: 'open_debt' },
       alerts: [{ tone: 'yellow', title: 'Monthly debt payments needed', body: 'Add every required monthly minimum in My Money, under Debt.', action: 'open_debt' }],
       readiness_path: { available: false },
+      month_answer: { period_label: 'October 2026', money_in_cents: null, planned_out_cents: null, plan_left_cents: null, missing_plan_inputs: [{label: 'monthly debt payments', destination: 'debt'}], cushion_missing_inputs: [{label: 'monthly debt payments', destination: 'debt'}] },
       next_steps: [], accounts: [],
     } as unknown as DashboardData
     const onOpenDebt = vi.fn()

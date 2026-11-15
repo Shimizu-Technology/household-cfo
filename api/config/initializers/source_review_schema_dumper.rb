@@ -2,7 +2,7 @@ module SourceReviewSchemaDumper
   private
 
   def trailer(stream)
-    %w[source_review_facts_immutable() source_review_heads_scope_immutable() statement_account_answers_removable(bigint) unapproved_statement_account_delete()].each do |signature|
+    %w[source_review_facts_immutable() source_review_heads_scope_immutable() source_account_history_in_use(bigint) statement_account_answers_removable(bigint) unapproved_statement_account_delete()].each do |signature|
       function = @connection.select_value("SELECT pg_get_functiondef(to_regprocedure('#{signature}'))")
       if function.present?
         stream.puts "  execute <<~SQL\n#{function.lines.map { |line| "    #{line}" }.join}  SQL"

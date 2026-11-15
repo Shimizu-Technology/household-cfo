@@ -211,7 +211,7 @@ module FinancialDocuments
       def overlap_candidates(events)
         amounts = events.filter_map(&:signed_amount_cents).uniq
         return Set.new if amounts.empty?
-        others = FinancialSourceEvent.where(household: household).where.not(financial_extraction_revision_id: revision.id)
+        others = FinancialSourceEvent.where(household: household).where(financial_extraction_revision_id: FinancialExtractionRevision.where("financial_document_import_id IS NOT NULL OR EXISTS (SELECT 1 FROM source_review_heads h JOIN financial_source_events e ON e.id = h.financial_source_event_id WHERE e.financial_extraction_revision_id = financial_extraction_revisions.id AND h.approved_version_id IS NOT NULL)").select(:id)).where.not(financial_extraction_revision_id: revision.id)
         heads = SourceReviewHead.where(household: household, financial_source_event_id: others.select(:id))
         keys = others.where(signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).to_set { |amount, day| [ amount, day.to_s ] }
         SourceReviewVersion.where(id: heads.select(:approved_version_id), signed_amount_cents: amounts).pluck(:signed_amount_cents, :posted_on).each { |amount, day| keys << [ amount, day.to_s ] }

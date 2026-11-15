@@ -178,7 +178,7 @@ it('keeps approval explicit when a statement includes a selected account value',
   fireEvent.click(screen.getByRole('button', { name: 'Apply selected' }))
   expect(actions.onApply).toHaveBeenCalledWith(source)
   expect(actions.onDeleteImport).not.toHaveBeenCalled()
-  const applied = { ...source, status: 'applied' as const, applied_at: '2026-10-22T00:00:00Z', items: source.items.map(item => ({ ...item, applied_at: '2026-10-22T00:00:00Z' })) }
+  const applied = { ...source, status: 'applied' as const, can_delete_record: false, applied_at: '2026-10-22T00:00:00Z', items: source.items.map(item => ({ ...item, applied_at: '2026-10-22T00:00:00Z' })) }
   view.rerender(<DocumentReviewPanel {...actions} documentImport={applied} />)
   expect(screen.getByRole('heading', { name: '1 saved value already feeds your assistant' })).toBeTruthy()
   expect(screen.getAllByRole('button', { name: 'Edit saved values' })).toHaveLength(1)
@@ -238,4 +238,13 @@ for (const mode of ['opener', 'outside'] as const) it(`profile editing entry ${m
   ;(mode === 'opener' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByLabelText('Memory draft')).focus()
   view.rerender(<><WorkspaceSetupForm {...form} editing /><input aria-label="Memory draft" /></>)
   expect(document.activeElement).toBe(mode === 'opener' ? screen.getByRole('heading', { name: 'Household details' }) : screen.getByLabelText('Memory draft'))
+})
+
+it('asks the server whether an account-only partially saved file can be deleted', () => {
+  const source = statement({ status: 'partially_applied', can_delete_record: true })
+  const actions = reviewPanelProps(source)
+  render(<DocumentReviewPanel {...actions} />)
+  fireEvent.click(screen.getByText('File options'))
+  fireEvent.click(screen.getByRole('button', { name: 'Delete upload & record' }))
+  expect(actions.onDeleteImport).toHaveBeenCalledWith(source)
 })

@@ -5959,15 +5959,11 @@ export function DocumentReviewPanel({
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
   const fullyApplied = documentImport.status === 'applied'
-  const importHasSavedValues = fullyApplied ||
-    documentImport.status === 'partially_applied' ||
-    documentImport.items.some((item) => item.applied_at) ||
-    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
   const retentionHelpId = `document-retention-help-${documentImport.id}`
   const retentionHelp = !documentImport.source_available
     ? 'The original file has been removed. This import history, its extracted results, and any saved household values remain.'
-    : importHasSavedValues
+    : documentImport.can_delete_record === false
       ? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
       : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
@@ -5997,7 +5993,7 @@ export function DocumentReviewPanel({
               <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
                 {actionForImport('source') ? 'Removing' : 'Remove original file'}
               </button>
-              <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={importHasSavedValues || actionForImport('delete')}>
+              <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={documentImport.can_delete_record === false || actionForImport('delete')}>
                 {actionForImport('delete') ? 'Deleting' : 'Delete upload & record'}
               </button>
             </div>

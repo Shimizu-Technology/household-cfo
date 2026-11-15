@@ -244,7 +244,7 @@ module HouseholdFinance
       failure = failed_import_notice
       read = document_imports.any? { |document| !document.failed? }
       parts = []
-      parts << "I read #{document_imports.one? ? 'this file' : 'the other files'}, but couldn’t find the money details needed to answer that question. Nothing changed." if read
+      parts << "I read #{document_imports.one? ? 'this file' : document_imports.any?(&:failed?) ? 'the other files' : 'these files'}, but couldn’t find the money details needed to answer that question. Nothing changed." if read
       parts << failure
       parts.compact.join(" ")
     end
@@ -468,7 +468,7 @@ module HouseholdFinance
 
     def unavailable_plan_fit_answer(rows)
       amount = rows.sum { |row| question_amount_cents(row) }
-      "I can verify #{money(amount)} in the attached pending evidence, but there is no confirmed annual plan for that transaction year, so I cannot safely say whether it fits."
+      "I can verify #{money(amount)} in the files you sent, waiting for your approval, but there is no confirmed annual plan for that transaction year, so I cannot safely say whether it fits."
     end
 
     def plan_with_complete_pending_drafts(plan, date)
@@ -506,7 +506,7 @@ module HouseholdFinance
     end
 
     def evidence_bound_answer
-      "These attachments contain more extracted rows than Mia can verify completely in one answer. Review the imports separately or attach a smaller batch; I did not calculate a partial total, and no household numbers changed."
+      "These files contain more lines than I can check completely in one answer. Review the files separately or send a smaller batch; I did not calculate a partial total, and no household numbers changed."
     end
 
     def date_filtered(rows)

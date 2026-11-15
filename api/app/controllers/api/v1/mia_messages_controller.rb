@@ -2900,6 +2900,7 @@ module Api
             fallback_response = month_answer_with_review(fallback_response, transaction_draft: transaction_draft)
           end
         end
+        return fallback_response if month_facts && (month_facts[:before_plan_start] || month_facts[:before_debt_payments])
         # A reflection is about the participant's experience, not a fresh plan
         # calculation. Supplying totals invites unrelated figures and caveats.
         reflection = kind == "coaching" && priority == :reflective

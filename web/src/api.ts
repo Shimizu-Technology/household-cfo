@@ -310,6 +310,7 @@ export type TransactionDraftMatch = {
 }
 
 export type FinancialDocumentImport = {
+  can_delete_record?: boolean
   statement_review?: StatementProgress | null
   context_paused_by_restart?: boolean
   id: number

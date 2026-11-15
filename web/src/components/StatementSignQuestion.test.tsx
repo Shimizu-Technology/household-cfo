@@ -17,6 +17,7 @@ for (const effect of ['You said spending is shown as negative. That set the dire
   expect(screen.getByRole('status').textContent).toBe(effect)
   expect(screen.queryByRole('button', { name: 'Yes, spending is negative' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Change this' }))
+  expect(document.activeElement?.className).toBe('statement-question')
   fireEvent.click(screen.getByRole('button', { name: 'Yes, spending is negative' }))
   expect(model.answerSign).toHaveBeenCalledWith(true)
 })

@@ -169,7 +169,7 @@ it('puts one plan caveat below the whole money row and uses plain spent copy', (
 })
 it('recovers missing monthly debt payments from Home without inventing a zero outflow', () => {
  const openDebt = vi.fn()
- render(<HomeScreen dashboard={{...dashboard, coach_read: {title: 'Monthly debt payments needed', body: 'Add minimums', action: 'open_debt'}, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
+ render(<HomeScreen dashboard={{...dashboard, coach_read: {title: 'Monthly debt payments needed', body: 'Add minimums', action: 'open_debt'}, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label: 'monthly debt payments', destination: 'debt'}], cushion_missing_inputs: [{label: 'monthly debt payments', destination: 'debt'}]}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
  expect(screen.getAllByText('Not entered')).toHaveLength(2)
  fireEvent.click(screen.getByRole('button', {name: 'Add monthly debt payments'}))
  expect(openDebt).toHaveBeenCalledOnce()
@@ -389,4 +389,10 @@ it('labels the known subtotal before debt and offers just one action for the mis
   expect(actions).toHaveLength(1)
   fireEvent.click(actions[0])
   expect(open).toHaveBeenCalledOnce()
+})
+
+it('shows a before-debt shortfall as a positive shortfall amount', () => {
+  render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, before_debt_payments: true, before_debt_left_cents: -30000, before_debt_out_cents: 550000, money_in_cents: 520000, plan_left_cents: null, planned_out_cents: null}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).toContain('$300')
+  expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).not.toContain('-$300')
 })

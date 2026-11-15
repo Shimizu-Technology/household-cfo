@@ -479,6 +479,16 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     assert_equal "a place of our own", result&.action.to_h.dig(:setup_updates, :primary_goal), result.to_h.inspect
   end
 
+  test "new no debt offer wording recognises yes and an explicit zero pair" do
+    asked = debt_context(recent: [ { role: "user", content: "We do not have any debt." }, { role: "assistant", content: "Would you like me to save $0 debt balance and $0 monthly debt payments for the household?" } ])
+    [ "yes", "0 and 0" ].each do |reply|
+      result = resolve(reply, context: asked)
+      assert result&.actionable?, reply
+      assert_equal "0", result.action[:minimum_payment]
+    end
+  end
+
+
   private
 
   def finished_setup_context(**extra)
