@@ -230,3 +230,12 @@ for (const mode of ['save', 'outside', 'cancel'] as const) it(`profile ${mode} r
   view.rerender(<><WorkspaceSetupForm {...form} editing={false} /><input aria-label="Memory draft" /></>)
   expect(document.activeElement).toBe(mode === 'outside' ? screen.getByLabelText('Memory draft') : mode === 'cancel' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByRole('heading', { name: 'Household details' }))
 })
+
+for (const mode of ['opener', 'outside'] as const) it(`profile editing entry ${mode === 'opener' ? 'moves focus from the opener to the form heading' : 'leaves focus that is outside the form'}`, () => {
+  const values = { household_name: 'Cruz', primary_goal: 'Save', primary_income: '', fixed_expenses: '', flexible_spend: '', emergency_fund: '', other_assets: '', expected_sinking_fund: '', unexpected_sinking_fund: '', business_income: '', target_runway_months: '', debt_payment: '', credit_card_debt: '' }
+  const form = { values, saving: false, error: null, firstSession: false, personalOnly: true, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
+  const view = render(<><WorkspaceSetupForm {...form} editing={false} /><input aria-label="Memory draft" /></>)
+  ;(mode === 'opener' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByLabelText('Memory draft')).focus()
+  view.rerender(<><WorkspaceSetupForm {...form} editing /><input aria-label="Memory draft" /></>)
+  expect(document.activeElement).toBe(mode === 'opener' ? screen.getByRole('heading', { name: 'Household details' }) : screen.getByLabelText('Memory draft'))
+})

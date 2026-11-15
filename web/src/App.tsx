@@ -6844,10 +6844,13 @@ export function WorkspaceSetupForm({
       canceledRef.current = false
     }
     if (!firstSession && !wasEditingRef.current.editing && editing) {
-      // "Edit profile" unmounts when editing starts. Keep the keyboard's place on the form's
-      // heading, so the next Tab reaches the first field and a phone keyboard does not open unasked.
+      // When editing starts, React reuses the "Edit profile" button's node for Cancel, so focus would
+      // sit after the fields (or fall to the page in Safari, where a click does not focus a button).
+      // Put the keyboard's place on the form's heading: the next Tab reaches the first field, and a
+      // phone keyboard does not open unasked. Focus she has moved elsewhere is left alone.
       const active = document.activeElement
-      if (!active || active === document.body) savedHeadingRef.current?.focus({ preventScroll: true })
+      const form = savedHeadingRef.current?.closest('form')
+      if (!active || active === document.body || form?.contains(active)) savedHeadingRef.current?.focus({ preventScroll: true })
     }
     wasEditingRef.current.editing = editing
   }, [editing])
