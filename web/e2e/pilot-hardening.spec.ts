@@ -10268,7 +10268,11 @@ test('BOG UI daily revoked context hides personal reports and purchase controls'
 const miaDailyReport={kind:'daily_report',local_on:'2026-09-28',purchases:[{amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28'},{amount_cents:1250,merchant:'',purchased_on:'2026-09-28'}],no_spend:false,feelings:{when_spent:'Fictional rushed',now:null},approval_state:'unreviewed_input',counted:false}
 async function sendMiaDailyReport(page:Page,reply?:object){
   await page.route('http://api.test/api/v1/mia/messages',route=>route.request().method()!=='POST'?route.fallback():reply?route.fulfill({json:reply}):route.fulfill({json:{user_message:{id:8001,role:'user',author:'You',content:'$8 at Fictional fuel and 12.50 for lunch'},assistant_message:{id:8002,role:'assistant',author:'Mia',content:'Got it: $8.00 at Fictional fuel and $12.50. I\'ve put these below — check them and tap Save. Nothing is saved until you do.'},savings_intake:miaDailyReport}}))
-  await openSection(page, 'Ask Mia');await page.getByRole('textbox',{name:'Ask Mia',exact:true}).fill('$8 at Fictional fuel and 12.50 for lunch');await page.getByRole('button',{name:'Send message to Mia',exact:true}).click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  // A second message is already in chat; the phone keyboard may hide navigation.
+  if (!await composer.isVisible()) await openSection(page, 'Ask Mia')
+  await composer.fill('$8 at Fictional fuel and 12.50 for lunch')
+  await page.getByRole('button', { name: 'Send message to Mia', exact: true }).click()
   return page.getByRole('region',{name:'Your check-in',exact:true})
 }
 async function assertDailySaveUncovered(button: ReturnType<Page['getByRole']>) {
@@ -17587,6 +17591,8 @@ test('BOG UI F4 fix2 a new receipt promotes only its purchases and keeps older s
   expect(await queue.evaluate(element => Boolean(element.querySelector('[data-review-item="99001"]')!.compareDocumentPosition(element.querySelector('.mia-statement-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
   expect(await queue.evaluate(element => Boolean(element.querySelector('.mia-statement-cards')!.compareDocumentPosition(element.querySelector('.mia-action-draft-card')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
   await f4Evidence(page, 'fix2-receipt-statement-changes-order')
+})
+
 // F2 uses a fixed household month and no model or real API calls.
 function f2Workspace() {
   const workspace = realWorkspaceData(true)
