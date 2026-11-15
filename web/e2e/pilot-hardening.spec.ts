@@ -16823,7 +16823,7 @@ test('BOG UI F1 completion and Wealth open the same optional balances screen', a
   ] })
   Object.assign(w.workspace.debt_portfolio, { balance_known: false, active_count: 2, monthly_minimum: 385 })
   w.mia.messages = [{ id: 991, role: 'assistant', author: 'Mia', content: 'Your household setup is complete. Next, add what you owe under Debt in My Money to see your net worth. Balances are optional.', setup_help: { available: false, debt_balances: true } }] as typeof w.mia.messages
-  w.wealth.milestones = [{ kind: 'debt_remaining', label: 'Debt details needed', current: 0, target: 0, unit: 'dollars', status: 'yellow' }]
+  w.wealth.milestones = [{ kind: 'status', label: 'Debt details needed', current: 0, target: 0, unit: 'Add debt balances and monthly minimums in My Money', status: 'yellow' }]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: w }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await page.getByRole('button', { name: 'Add what you owe', exact: true }).click()
@@ -16831,6 +16831,7 @@ test('BOG UI F1 completion and Wealth open the same optional balances screen', a
   await expect(page.locator('.debt-manager')).toContainText('Visa')
   await expect(page.locator('.debt-manager')).toContainText('Truck')
   await openSection(page, 'Wealth')
+  await expect(page.locator('.wealth-screen')).not.toContainText('$0 remaining')
   await page.getByRole('button', { name: 'Add what you owe', exact: true }).click()
   await expect(page.locator('.debt-manager')).toBeVisible()
 })
