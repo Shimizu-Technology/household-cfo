@@ -2084,7 +2084,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_equal [ "One or more attached uploads are unavailable in this household." ], JSON.parse(response.body).fetch("errors")
+    assert_equal [ "One or more files are no longer available in this household." ], JSON.parse(response.body).fetch("errors")
     assert_not_includes response.body, "private-statement"
   end
 

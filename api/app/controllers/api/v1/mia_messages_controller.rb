@@ -93,7 +93,7 @@ module Api
         end
         attached_imports = attached_document_imports
         if unavailable_attachment_ids.any?
-          return render json: { errors: [ "One or more attached uploads are unavailable in this household." ] }, status: :unprocessable_entity
+          return render json: { errors: [ "One or more files are no longer available in this household." ] }, status: :unprocessable_entity
         end
         content = "Please review this upload." if content.blank? && attached_imports.any?
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?

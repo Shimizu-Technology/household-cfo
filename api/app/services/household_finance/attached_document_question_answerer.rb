@@ -149,7 +149,7 @@ module HouseholdFinance
       scoped = scoped_transaction_rows(rows)
       matching = filtered_transaction_rows(scoped)
       qualifier = explicit_transaction_scope?(rows) || date_scope_requested? || threshold_requested? ? " matching that merchant, category, date, or amount filter" : ""
-      "The files you sent has #{matching.length} transaction row#{'s' unless matching.one?}#{qualifier} totaling #{money(matching.sum { |row| question_amount_cents(row) })}."
+      "The files you sent have #{matching.length} transaction row#{'s' unless matching.one?}#{qualifier} totaling #{money(matching.sum { |row| question_amount_cents(row) })}."
     end
 
     def largest_transaction_answer(rows)
@@ -210,7 +210,7 @@ module HouseholdFinance
       relevant = setup if relevant.empty?
       listed = relevant.first(MAX_LISTED_ROWS).map { |row| setup_row_label(row) }
       suffix = relevant.length > listed.length ? "; plus #{relevant.length - listed.length} more value#{'s' unless relevant.length - listed.length == 1}" : ""
-      "The income, bills or debts in the files you sent shows #{listed.join('; ')}#{suffix}."
+      "The files you sent show #{listed.join('; ')}#{suffix}."
     end
 
     def unsupported_question_answer
@@ -562,7 +562,7 @@ module HouseholdFinance
       end
       return if totals.empty?
 
-      "By month, the matching files you sent totals #{totals.to_sentence}."
+      "By month, the matching lines in the files you sent total #{totals.to_sentence}."
     end
 
     def date_scope

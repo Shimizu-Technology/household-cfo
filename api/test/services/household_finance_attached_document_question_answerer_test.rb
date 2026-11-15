@@ -48,7 +48,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("What is the total and largest transaction in this attachment?")
 
-    assert_includes answer, "2 transaction rows totaling $143.45"
+    assert_includes answer, "The files you sent have 2 transaction rows totaling $143.45"
     assert_includes answer, "largest attached transaction is Pay-Less for $123.45 on Aug 2, 2026"
     assert_includes answer, "still waiting for you to approve"
     assert_includes answer, "don't count in your spending until you do"
