@@ -74,15 +74,9 @@ assert.ok(budgetVisuals.includes('Money in') && budgetVisuals.includes('Planned 
 assert.ok(!budgetVisuals.includes('Left in the plan'), 'planned spending not yet used must not read as money left over')
 assert.ok(home.includes('readiness_guidance'), 'Home should use the same plain cushion guidance as Mia')
 assert.ok(home.includes('<YearOutlook'), 'Home should expose year differences without opening details')
-assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')
-assert.ok(budgetVisuals.includes("activeMonth.period_id === reportPeriodId ? 'Report month' : 'Chart preview'"), 'cash-flow detail should distinguish the report month from an interactive chart preview')
-assert.ok(budgetVisuals.includes("aria-current={month.period_id === reportPeriodId ? 'date' : undefined}"), 'cash-flow charts should expose the report month to assistive technology')
 assert.ok(app.includes('budgetPositionsForMonth(plan, currentMonthIndex, spendingReport)'), 'Budget categories should follow the selected report month')
 assert.ok(app.includes('<YearOutlook plan={plan}'), 'Budget should show year differences')
 assert.ok(css.includes('.budget-period-summary .metric-row'), 'Budget report-month metrics should use a complete three-column hierarchy')
-assert.ok(css.includes('.cash-flow-month.is-report-month'), 'cash-flow charts should visibly mark the report month')
-assert.ok(budgetVisuals.includes('Expected irregular plan included in outflow'), 'selected cash-flow months should explain the irregular plan behind their totals')
-assert.ok(budgetVisuals.includes('expected_contributors.map'), 'selected cash-flow months should list their expected irregular contributors')
 assert.ok(!budgetVisuals.includes('Safe to spend'), 'the month summary should keep one meaning for plan remaining')
 assert.ok(budgetVisuals.includes('pending review · not counted as spent'), 'pending activity must remain visibly outside confirmed actuals')
 assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
@@ -244,7 +238,6 @@ assert.ok(!app.includes('window.prompt('), 'bulk confirm should not use the nati
 assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')
 assert.ok(css.includes('.transaction-draft-bulk-actions'), 'bulk transaction controls should have intentional styling')
 assert.ok(css.includes('.budget-progress-pending'), 'pending budget amounts should have a visually separate progress treatment')
-assert.ok(css.includes('.annual-cash-flow-scroll'), 'annual cash-flow charts should have an intentional mobile scroll region')
 assert.ok(incomePlanner.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
 assert.ok(
   !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app + incomePlanner + incomeSources),

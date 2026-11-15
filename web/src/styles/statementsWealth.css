@@ -104,7 +104,6 @@ body #root .statements-screen .document-history-list { grid-template-columns: mi
 body #root .statements-screen .document-review-layout { grid-template-columns: minmax(0, 1fr); }
 body #root .statements-screen .document-history { margin: 0; }
 .wealth-figures .metric-card { display: block; min-height: 0; }
-.wealth-figures .metric-card > strong { white-space: normal; }
 :is(.wealth-screen, .cfo-screen, .optionality-screen) .ui-card.ui-rows { padding: 18px; }
 body #root .statements-screen .document-upload-secondary .document-upload-card { border: 0; border-top: 1px solid var(--rule); border-radius: 0; background: transparent; padding-inline: 0; }
 body :is(#root, [role='dialog'], [role='alertdialog']) .document-preview-modal { border: 1px solid var(--line); background: var(--surface-card); color: var(--ink); box-shadow: none; }

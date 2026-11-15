@@ -4,8 +4,6 @@
 export const cssPolicyAllowlist = new Set([
   // Chosen phone navigation: one floating paper-pill shadow.
   '["src/styles/shell.css","shadow",["@media (max-width: 620px)"],".app > .tabs-shell","box-shadow: var(--shadow-float)"]',
-  // Existing component-owned hover; outside W7 stylesheet ownership: .cash-flow-month-trigger:hover.
-  "[\"src/styles/charts.css\",\"hover\",[],\".cash-flow-month-trigger:hover\",\".cash-flow-month-trigger:hover { outline: none; background: transparent; }\"]",
   // Intentional floating surface or focus ring: .participant-private-access > p.
   "[\"src/App.css\",\"shadow\",[],\".participant-private-access > p\",\"box-shadow: var(--shadow-sm)\"]",
   // Intentional floating surface or focus ring: .tabs-secondary.
