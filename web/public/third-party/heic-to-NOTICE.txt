@@ -1,0 +1,10 @@
+HEIC / HEIF conversion uses unmodified heic-to 1.6.7 by Hopper Gee, licensed
+under LGPL-3.0. Its decoder includes libheif. The license is provided beside
+this notice as heic-to-LICENSE.txt.
+
+Package and corresponding source:
+https://www.npmjs.com/package/heic-to/v/1.6.7
+https://github.com/hoppergee/heic-to
+
+The decoder is bundled separately in the photo conversion worker. It runs on
+this device; this conversion does not send the photo to an external service.

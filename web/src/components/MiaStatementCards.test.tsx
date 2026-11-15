@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview, type FinancialDocumentImport } from '../api'
+import { ApiRequestError, answerSpreadsheetSign, fetchDocumentSourceReview, mutateStatementReview, type FinancialDocumentImport } from '../api'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
 import { bindStatementReviewActor, setStatementReviewExpectedUser } from '../lib/statementReviewRecovery'
 import type { PlanAttention, StatementPlan } from '../lib/statementReview'
 import { MiaStatementCards } from './MiaStatementCards'
 
-vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDocumentSourceReview: vi.fn(), mutateStatementReview: vi.fn() }))
+vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDocumentSourceReview: vi.fn(), answerSpreadsheetSign: vi.fn(), mutateStatementReview: vi.fn() }))
 const fetchReview = vi.mocked(fetchDocumentSourceReview)
 const mutate = vi.mocked(mutateStatementReview)
 
@@ -91,14 +91,14 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4002, decision: 'as_read', shown: { event_type: 'purchase', category_id: null } }] })
   })
 
-  it('moves focus to the next question after one is answered, so a keyboard user does not start over', async () => {
+  it('moves focus to the next inert question after one is answered', async () => {
     serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
     mount([statement(1)])
     const answer = await screen.findByRole('button', { name: 'Yes: Own savings' }) as HTMLButtonElement
     await waitFor(() => expect(answer.disabled).toBe(false))
     fireEvent.click(answer)
     serve(review(planWith([question(4003, 'Rent transfer', 'transfer')])))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Yes: Rent transfer' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Did this move between your own accounts?')))
   })
 
   it('offers her own categories for a suggestion she wants to change, without a sheet', async () => {
@@ -267,4 +267,61 @@ it('fix2 final statement answer exposes completion and focuses the inert heading
   expect(status.closest('details')).toBeNull()
   expect(document.activeElement).toBe(within(region).getByRole('heading'))
   expect(document.activeElement?.matches('button, summary')).toBe(false)
+})
+
+for (const answer of [true, false]) it(`asks once for a file sign convention and rederives the file after ${answer}`, async () => {
+  const data = review(planWith([question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })], { signed_amount_question: true }))
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockImplementation(async () => {
+    serve(review(planWith([], { signed_amount_question: false })))
+    return { revision_id: 202 }
+  })
+  mount([statement(1)])
+  const yes = await screen.findByRole('button', { name: 'Yes, spending is negative' })
+  expect(screen.getAllByText(/is money you spent shown as a negative amount/)).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: 'Money out: Readable amount' })).toBeNull()
+  fireEvent.click(answer ? yes : screen.getByRole('button', { name: 'No, spending is positive' }))
+  await waitFor(() => expect(screen.queryByText(/is money you spent shown as a negative amount/)).toBeNull())
+  expect(vi.mocked(answerSpreadsheetSign).mock.calls.at(-1)).toEqual([1, 101, answer])
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('states known amount and unknown direction and opens a review with Money out or Money in', async () => {
+  serve(review(planWith([question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })])))
+  mount([statement(1)])
+  await screen.findByText('Was this money out or money in?')
+  expect(screen.getByText('$25')).toBeTruthy()
+  expect(screen.queryByText('We couldn’t read this line clearly.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Money in: Readable amount' }))
+  expect(await screen.findByRole('dialog')).toBeTruthy()
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('condenses an older statement to one opening line while the newest file stays full', async () => {
+  serve(review(planWith([])))
+  const props = mount([statement(1), statement(2)], { expandedImportIds: [2] })
+  const older = screen.getByRole('button', { name: /statement-1.pdf · Still waiting for your review/ })
+  fireEvent.click(older)
+  expect(props.onReview).toHaveBeenCalledWith(1)
+  await screen.findByText(/I read 18 purchases/)
+  expect(fetchReview.mock.calls.map(call => call[0])).toEqual([2])
+})
+
+for (const permanent of [true, false]) it(`shows ${permanent ? 'permanent' : 'temporary'} failure recovery honestly`, () => {
+  mount([statement(1, { status: 'failed', extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it.' : 'This is usually temporary. Try Reprocess in a few minutes.', metadata: { extraction_failure_permanent: permanent } })])
+  expect(Boolean(screen.queryByRole('button', { name: 'Try reading it again' }))).toBe(!permanent)
+  expect(Boolean(screen.queryByText(/few minutes/))).toBe(!permanent)
+})
+
+it('phrases the file question for the credit card she already chose and keeps a failed answer beside it', async () => {
+  const data = review(planWith([], { signed_amount_question: true }))
+  data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'liability'
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockRejectedValueOnce(new Error('We couldn’t save that answer. Please try again.'))
+  mount([statement(1)])
+  await screen.findByText(/In this credit card file/)
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, spending is negative' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'We couldn’t save that answer. Please try again.')
+  expect(screen.getByText(/In this credit card file/)).toBeTruthy()
+  expect(mutate).not.toHaveBeenCalled()
 })

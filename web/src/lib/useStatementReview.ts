@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchDocumentSourceReview } from '../api'
+import { fetchDocumentSourceReview, answerSpreadsheetSign } from '../api'
 import { participantErrorMessage } from './participantErrorMessage'
 import { validateSourceReview, type SourceReview } from './sourceReview'
 import {
@@ -15,13 +15,17 @@ export type UnsavedAnswer = { input: ApproveLinesInput; index: number | null; ev
  * One statement's review as the server plans it: what looks right, the few lines that need her answer, and the saves
  * that answer them. The Statements screen and the chat card both use this, so they save exactly the same things the same way.
  */
-export function useStatementReview({ importId, revisionId, refreshKey, page = 1, onSaved, onChanged }: {
+export function useStatementReview({ importId, revisionId: sourceRevisionId, refreshKey, page = 1, onSaved, onChanged }: {
   importId: number; revisionId: number; refreshKey: string; page?: number
   /** Every line is saved and nothing is left to ask (also true when the statement was already finished on open). */
   onSaved?: () => void
   /** Something she did was saved, even if the statement is not finished: the numbers that read from it have moved. */
   onChanged?: () => void
 }) {
+  const [answeredRevision, setAnsweredRevision] = useState<number | null>(null)
+  const revisionId = answeredRevision ?? sourceRevisionId
+  const [signBusy, setSignBusy] = useState(false)
+  const [signError, setSignError] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [savingLines, setSavingLines] = useState(0)
   // What she said about missing lines. It rides along with every save, and the server records it only when the statement is finished.
@@ -118,6 +122,17 @@ export function useStatementReview({ importId, revisionId, refreshKey, page = 1,
   function retryUnsaved() {
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
+  async function answerSign(negativeIsMoneyOut: boolean) {
+    setSignBusy(true); setSignError(null)
+    try {
+      const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut)
+      focusAfter.current = null
+      setAnsweredRevision(result.revision_id)
+      changedCallback.current?.()
+    } catch (failure) {
+      setSignError(participantErrorMessage(failure, 'We couldn’t save that answer. Please try again.'))
+    } finally { setSignBusy(false) }
+  }
   function reload() { setAttempt((value) => value + 1) }
   function resetAndReload() {
     setUnsavedAnswer(null); setCoverageAnswer(null); setCoverageFailed(false); coverageVersion.current = null
@@ -125,7 +140,8 @@ export function useStatementReview({ importId, revisionId, refreshKey, page = 1,
   }
 
   return {
-    data, error, refreshing, review, plan, categories, names, needBasis, counts, mutation, busy: mutation.busy,
+    data, error, refreshing, review, plan, categories, names, needBasis, counts, mutation, busy: mutation.busy || signBusy,
+    answerSign, signError,
     coverage: { ask: askCoverage, said, recorded, failed: coverageFailed, answer: answerCoverage, answerAgain: () => { if (coverageAnswer) answerCoverage(coverageAnswer) } },
     finished, savingLines, unsavedAnswer, focusAfterRef: focusAfter,
     save, approveRest, chooseBasis, answer, retryUnsaved, reload, resetAndReload,

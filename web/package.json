@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@sentry/react": "^10.75.2",
+    "heic-to": "1.6.7",
     "posthog-js": "^1.434.9",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",

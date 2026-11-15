@@ -9140,7 +9140,7 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   let workspaceReads = 0
   const progress = () => saved ? { total: 137, done: 137, spending: spending(true), coverage: { question: null, answer: null } } : { total: 137, done: 0, spending: spending(false), coverage: { question: null, answer: null } }
   const current = () => ({ ...source, statement_review: progress() })
-  await page.route('http://api.test/api/v1/workspace', (route) => { workspaceReads += 1; return route.fulfill({ json: realWorkspaceData(true) }) })
+  await page.route('http://api.test/api/v1/workspace', (route) => { workspaceReads += 1; return route.fulfill({ json: { ...realWorkspaceData(true), mia: { ...realWorkspaceData(true).mia, messages: [{ id: 101, role: 'user', author: 'You', content: 'Please read this statement.', attachments: [{ document_import_id: 1203, filename: source.filename, document_kind: 'statement', content_type: 'application/pdf', status: 'needs_review', source_available: true }] }, { id: 102, role: 'assistant', author: 'Mia', content: 'I read your statement. The card below is waiting for your review.' }] } } }) })
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ json: { document_imports: [current()] } }))
   await page.route('http://api.test/api/v1/document_imports/1203', (route) => route.fulfill({ json: { document_import: current() } }))
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', (route) => {
@@ -17004,4 +17004,185 @@ test('BOG UI F1 fix1 first save confirms prefilled household text without blank 
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
   expect((await saving).postDataJSON().workspace).toEqual({ household_name: 'Cruz household', primary_goal: 'A calm month', primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700 })
   await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
+})
+
+// F4: ordinary files, fictional money, no model or production connection.
+function f4Source(id = 1203) {
+  return {
+    id, household_id: 77, document_kind: 'statement', status: 'needs_review', filename: `Fictional-bank-${id}.csv`, content_type: 'text/csv', byte_size: 900,
+    document_date: null, period_start_on: '2026-10-01', period_end_on: '2026-10-31', extracted_summary: null, extraction_error: null,
+    processed_at: '2026-11-15T00:00:00Z', applied_at: null, source_deleted_at: null, updated_at: '2026-11-15T00:00:00Z', source_available: true, details_included: true,
+    uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: { source_accounting_revision_id: 88, source_accounting_contract_version: 'source_accounting_v1', source_accounting_review_pending: true }, items: [], attempts: [], transaction_drafts: [],
+  }
+}
+
+function f4Review(answer?: boolean) {
+  const data = participantReviewFixture()
+  const csv = readFileSync(new URL('../../api/test/fixtures/files/r7_bank_statement.csv', import.meta.url), 'utf8').trim().split('\n').slice(1)
+  data.events = csv.map((line, index) => {
+    const [date, merchant, amount] = line.split(',')
+    const [month, day, year] = date.split('/')
+    const cents = Math.round(Number(amount) * 100) * (answer === false ? -1 : 1)
+    const known = answer !== undefined
+    const type = /(?:LOAN PMT|CARD PAYMENT)/.test(merchant) ? 'debt_payment' as const : cents > 0 ? 'income' as const : 'purchase' as const
+    return { ...data.events[index], row_kind: known ? 'posted' as const : 'unresolved' as const, event_type: known ? type : 'unknown' as const, signed_amount_cents: known ? cents : null, expense_amount_cents: known && type === 'purchase' ? Math.abs(cents) : null,
+      posted_on: `${year}-${month}-${day}`, locator: {sheet_index:0,row:index+2}, limitations: known ? [] : ['transaction_direction_unclear'], evidence: {merchant, source_amount_text: amount} }
+  })
+  data.counts = { all:15, posted: answer === undefined ? 0 :15, unresolved: answer === undefined ?15:0, informational:0, pending_transaction_drafts:0, resolved_transaction_drafts:0 }
+  data.pagination = {page:1,per_page:50,total_count:15,total_pages:1,has_previous:false,has_next:false}
+  const plan = data.participant_review!.plan
+  plan.total = 15; plan.ready = []; plan.ready_event_ids = []; plan.signed_amount_question = answer === undefined
+  plan.first_on = '2026-10-01'; plan.last_on = '2026-10-28'
+  data.accounts[0].period_start_on='2026-10-01'; data.accounts[0].period_end_on='2026-10-31'
+  const facts = data.participant_review!.accounts[0].approved!.statement_facts
+  facts.period_start_on='2026-10-01';facts.period_end_on='2026-10-31'
+  plan.spending = {read_count:0,read_cents:0,counted_count:0,counted_cents:0}
+  plan.attention = data.events.map(event => ({ event_id:event.id, event_type:event.event_type, merchant:event.evidence!.merchant, posted_on:event.posted_on, signed_amount_cents:event.signed_amount_cents, amount_cents:Math.abs(Math.round(Number(event.evidence!.source_amount_text)*100)), category_id:null,category_name:null,
+    kind:answer === undefined ? 'direction' as const : event.event_type === 'debt_payment' ? 'card_payment' as const : 'no_category' as const,
+    question:answer === undefined ? 'Was this money out or money in?' : event.event_type === 'debt_payment' ? 'Is this a payment on your own card or loan?' : 'What was this for?',
+    answers:answer === undefined ? [{id:'money_out' as const,label:'Money out'},{id:'money_in' as const,label:'Money in'}] : event.event_type === 'debt_payment' ? [{id:'as_read' as const,label:'Yes'},{id:'edit' as const,label:'No'}] : [{id:'edit' as const,label:'Choose one'},{id:'leave_out' as const,label:'Leave it out'}] }))
+  if (answer !== undefined) {
+    plan.ready = data.events.filter(event=>event.event_type==='income').map(event=>({event_id:event.id,event_type:event.event_type,category_id:null,category_name:null,as_before:false,merchant:event.evidence!.merchant,posted_on:event.posted_on,signed_amount_cents:event.signed_amount_cents}))
+    plan.ready_event_ids=plan.ready.map(row=>row.event_id)
+    plan.attention=plan.attention.filter(row=>row.event_type!=='income')
+    const purchases=data.events.filter(event=>event.event_type==='purchase')
+    plan.spending={read_count:purchases.length,read_cents:purchases.reduce((total,event)=>total+Math.abs(event.signed_amount_cents!),0),counted_count:0,counted_cents:0}
+  }
+  return data
+}
+
+async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false) {
+  const width = Number(process.env.F4_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  await page.clock.setFixedTime(new Date('2026-11-15T03:00:00Z'))
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  workspace.budget.annual_plan.pending_transaction_drafts = receipt ? [{ id: 99001, merchant: 'Pay-Less Supermarkets', occurred_on: '2026-11-14', amount: 69.51, amount_cents: 6951, status: 'pending', source_type: 'receipt', financial_document_import_id: latestImportId, category_id: 10, category_name: 'Groceries', stack_label: 'Flexible spending', summary: 'Grocery receipt', matches: [], splits: [] }] : []
+  workspace.mia.messages = [
+    { id: 101, role: 'user', author: 'You', content: receipt ? 'Here is my grocery receipt from yesterday.' : 'Here is my bank file.', attachments: [{ document_import_id: latestImportId, filename: receipt ? 'receipt.jpg' : 'bank.csv', content_type: receipt ? 'image/jpeg' : 'text/csv', document_kind: receipt ? 'receipt' : 'statement', status: 'needs_review', source_available: true }] },
+    { id: 102, role: 'assistant', author: 'Mia', content: receipt ? 'I read a receipt from Pay-Less Supermarkets for $69.51, on Nov 14, 2026. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it.' : 'I read 15 lines from your statement. 0 look right and 15 need a look. The card below is waiting for you to review and approve it. Nothing counts in your spending until you approve it.' },
+  ]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: imports } }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+}
+
+async function f4Evidence(page: Page, state: string) {
+  const directory = process.env.F4_EVIDENCE_DIR
+  if (!directory) return
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(directory, { recursive: true })
+  await page.evaluate(() => document.fonts.ready)
+  await page.screenshot({ path: `${directory}/${state}-${page.viewportSize()!.width}.png`, fullPage: true, scale: 'css' })
+}
+
+for (const negative of [true, false]) test(`BOG UI F4 one sign question applies to the whole file (${negative})`, async ({ page }) => {
+  let answered = false
+  await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', async route => {
+    expect(route.request().postDataJSON()).toEqual({ revision_id: 88, negative_is_money_out: negative })
+    answered = true
+    return route.fulfill({ json: { revision_id: 89 } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review(answered ? negative : undefined)
+    const revision = answered ? 89 : 88
+    data.revision.id = revision
+    data.events.forEach(event => { event.financial_extraction_revision_id = revision })
+    data.participant_review!.plan.signed_amount_question = !answered
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  const question = page.getByText(/is money you spent shown as a negative amount/)
+  await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeVisible()
+  await f4Evidence(page, 'sign-question')
+  await expect(question).toHaveCount(1)
+  await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
+  await expect(question).toHaveCount(0)
+  await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
+  await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
+})
+
+test('BOG UI F4 a read amount asks money out or money in truthfully', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review(true)
+    data.participant_review!.plan.attention = [{ event_id: 4000, event_type: 'unknown', kind: 'direction', merchant: 'Fictional shop', posted_on: '2026-10-03', signed_amount_cents: null, amount_cents: 12642, category_id: null, category_name: null, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  await expect(page.getByText('$126.42', { exact: true })).toBeVisible()
+  await f4Evidence(page, 'row-direction')
+  await expect(page.getByText('Was this money out or money in?')).toBeVisible()
+  await page.getByRole('button', { name: 'Money in: Fictional shop' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'What was this?' })).toHaveValue('money_in')
+  await f4Evidence(page, 'row-money-in')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
+test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad photos are refused', async ({ page }) => {
+  test.setTimeout(90_000)
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const result = await page.evaluate(async () => {
+    const path = '/src/lib/prepareFinancialUpload.ts'
+    const { prepareFinancialUpload } = await import(path)
+    const source = await (await fetch('/e2e/fixtures/r7-receipt.heic')).blob()
+    const output = await prepareFinancialUpload(new File([source], 'receipt.heif', { type: 'image/heif' }))
+    const bitmap = await createImageBitmap(output)
+    const dimensions = [bitmap.width, bitmap.height]
+    bitmap.close()
+    let refusal = ''
+    try { await prepareFinancialUpload(new File(['bad file'], 'bad.heic', { type: 'image/heic' })) } catch (error) { refusal = (error as Error).message }
+    return { type: output.type, name: output.name, dimensions, bytes: Array.from(new Uint8Array(await output.slice(0, 3).arrayBuffer())), refusal, jpeg: Array.from(new Uint8Array(await output.arrayBuffer())) }
+  })
+  if (process.env.F4_EVIDENCE_DIR) {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(process.env.F4_EVIDENCE_DIR, { recursive: true })
+    await writeFile(`${process.env.F4_EVIDENCE_DIR}/converted-receipt.jpg`, Buffer.from(result.jpeg))
+  }
+  expect(result.type).toBe('image/jpeg')
+  expect(result.name).toBe('receipt.jpg')
+  expect(result.dimensions).toEqual([600, 700])
+  expect(result.bytes).toEqual([255, 216, 255])
+  expect(result.refusal).toContain('Take a screenshot of it, or save it as JPEG')
+})
+
+for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
+  const source = { ...f4Source(), status: 'failed', metadata: { ...f4Source().metadata, extraction_failure_permanent: permanent }, extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.' : 'We couldn’t read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes.' }
+  await f4Chat(page, [source])
+  await expect(page.getByRole('region', { name: /Could not read/ })).toBeVisible()
+  await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
+  await expect(page.getByRole('button', { name: 'Try reading it again' })).toHaveCount(permanent ? 0 : 1)
+  await expect(page.getByText(/usually temporary/)).toHaveCount(permanent ? 0 : 1)
+})
+
+test('BOG UI F4 the newest receipt is directly below the reply and an older statement is one opening line', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: participantReviewFixture() } }))
+  await f4Chat(page, [f4Source()], 1204, true)
+  const receipt = page.locator('.chat-review-queue .transaction-review-card').first()
+  await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Pay-Less Supermarkets$/ })).toBeVisible()
+  await f4Evidence(page, 'newest-receipt')
+  const older = page.getByRole('button', { name: /Fictional-bank-1203.csv · Still waiting for your review/ })
+  await expect(older).toBeVisible()
+  await expect(page.getByRole('region', { name: /^Statement:/ })).toHaveCount(0)
+  expect(await page.locator('.chat-review-queue').evaluate(element => element.textContent!.indexOf('Pay-Less Supermarkets') < element.textContent!.indexOf('Fictional-bank-1203.csv'))).toBe(true)
+  expect(await receipt.count()).toBeLessThanOrEqual(1)
+  await older.click()
+  await expect(page.getByRole('region', { name: 'Statement review', exact: true })).toBeVisible()
+})
+
+
+test('BOG UI F4 an iPhone photo converts before it joins the chat tray and an unreadable photo is refused there', async ({ page }) => {
+  await f4Chat(page, [], 0)
+  let presigns = 0
+  await page.route('http://api.test/api/v1/document_imports/presign', route => { presigns += 1; return route.fulfill({ status: 500, json: {} }) })
+  const input = page.locator('.ask-row input[type="file"]')
+  await input.setInputFiles({ name: 'bad.heic', mimeType: 'image/heic', buffer: Buffer.from('not a photo') })
+  await expect(page.getByText('We couldn’t convert this photo. Take a screenshot of it, or save it as JPEG, then choose that file.', { exact: true })).toBeVisible()
+  await f4Evidence(page, 'heic-refused')
+  expect(presigns).toBe(0)
+  await input.setInputFiles({ name: 'receipt.heic', mimeType: 'image/heic', buffer: readFileSync(new URL('./fixtures/r7-receipt.heic', import.meta.url)) })
+  await expect(page.getByText('1 file ready to send', { exact: true })).toBeVisible()
+  await expect(page.getByText('receipt.jpg', { exact: true })).toBeVisible()
+  await f4Evidence(page, 'heic-converted')
+  expect(presigns).toBe(0)
 })

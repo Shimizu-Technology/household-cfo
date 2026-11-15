@@ -1,3 +1,4 @@
+import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
 import { MiaReviewError } from './components/MiaReviewError'
 import { useLiveMiaResult } from './lib/useLiveMiaResult'
@@ -3507,24 +3508,43 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     addPendingMiaAttachments(Array.from(files ?? []))
   }
 
-  function addPendingMiaAttachments(files: File[]) {
+  async function addPendingMiaAttachments(files: File[]) {
     if (files.length === 0) return
     if (!isRealWorkspace) {
       setMiaError('Sign in to a real workspace before attaching documents.')
       return
     }
 
-    const normalizedFiles = files.map(normalizedEvidenceFile)
+    const isCurrent = captureWorkspaceReloadGuard()
+    const transportGuard = captureApiOperation()
+    const normalizedFiles: File[] = []
+    let conversionError: string | null = null
+    for (const [index, file] of files.entries()) {
+      try {
+        const prepared = await prepareFinancialUpload(normalizedEvidenceFile(file, index))
+        transportGuard()
+        if (!isCurrent()) return
+        normalizedFiles.push(prepared)
+      } catch (failure) {
+        if (!isCurrent()) return
+        conversionError ||= participantErrorMessage(failure, 'We couldn’t prepare this file. Take a screenshot of it, or save it as JPEG.')
+      }
+    }
     const validatedFiles = normalizedFiles.map((file) => ({ file, validation: validateFinancialUpload(file) }))
     const acceptedFiles = validatedFiles.filter(({ validation }) => validation.valid).map(({ file }) => file)
     const firstRejection = validatedFiles.find(({ validation }) => !validation.valid)
     const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
     const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
-    if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
+    if (conversionError) setMiaError(conversionError)
+    else if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
     else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. Not added: ${acceptedFiles.slice(room).map((file) => file.name).join(', ')}. Send this batch, then attach the remaining files.`)
     else setMiaError(null)
 
-    if (accepted.length > 0) setPendingMiaAttachments((current) => [...current, ...accepted])
+    if (accepted.length > 0) setPendingMiaAttachments((current) => {
+      const keep = accepted.slice(0, Math.max(MAX_CHAT_ATTACHMENTS - current.length, 0))
+      accepted.slice(keep.length).forEach(attachment => URL.revokeObjectURL(attachment.previewUrl))
+      return [...current, ...keep]
+    })
   }
 
   function removePendingMiaAttachment(id: string) {
@@ -4074,9 +4094,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     {data.workspace.experience_mode === 'savings_challenge' && auth.currentUser && miaSavingsNote?.scope===challengeIntakeScope && !safetyHold && <MiaSavingsReview intake={miaSavingsNote.intake} today={todayCheckIn.context?.calendar.local_today} onReview={()=>{const intake=miaSavingsNote.intake;setMiaSavingsNote(null);setIsChatExpanded(false);if(intake.kind==='purchase'&&!savingsJoined){switchSection('Home')}else if(intake.kind==='purchase'){setDailyIntake({scope:challengeIntakeScope,intake});setDailyOpen(true)}else{setSavingsIntake({scope:challengeIntakeScope,intake,nonce:crypto.randomUUID()});switchSection('Home')}}}/>}
   </> : dailyCheckInPrompt
 
+  const latestUploadIds = (currentMessages.findLast(message => message.role === 'user')?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id])
+  const latestStatementIds = documentImports.filter(document => document.document_kind === 'statement').map(document => document.id)
+  const chatPurchaseDrafts = latestUploadIds.length ? pendingTransactionDrafts.filter(draft => draft.financial_document_import_id != null && latestUploadIds.includes(draft.financial_document_import_id) && !latestStatementIds.includes(draft.financial_document_import_id)) : pendingTransactionDrafts
+
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
   const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
     imports={documentImports}
+    expandedImportIds={currentMessages.length ? latestUploadIds : undefined}
     assistantName={assistantName}
     challenge={Boolean(isSavingsExperience)}
     onReview={openDocumentReview}
@@ -4314,27 +4339,9 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   reviewCount={safetyHold ? 0 : pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
-                    {challengeReviewContent}
-                    {statementCards}
-                    {pendingMiaActionDrafts.length > 0 && (
-                      <MiaActionDraftReviewStack
-                        errors={reviewErrors}
-                        drafts={pendingMiaActionDrafts}
-                        isRealWorkspace={Boolean(isRealWorkspace)}
-                        action={chatDraftAction}
-                        compact
-                        onApply={handleApplyMiaActionDraft}
-                        onCancel={handleCancelMiaActionDraft}
-                        onEditSetupCard={handleEditMiaSetupCard}
-                        onChoosePurchase={handleChoosePurchaseForChange}
-                        onEditManually={openManualControls}
-                        onAskFresh={askForFreshDraft}
-                      />
-                    )}
-
-                    {(pendingTransactionDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
+                    {(chatPurchaseDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
                       <TransactionDraftReviewStack
-                        drafts={pendingTransactionDrafts}
+                        drafts={chatPurchaseDrafts}
                         errors={reviewErrors}
                         completedDrafts={completedPurchases.scope === purchaseScope ? completedPurchases.drafts : []}
                         draftActionsDisabled={budgetYearLoading}
@@ -4352,6 +4359,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                         onReopen={handleReopenTransactionDraft}
                         onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
                         onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+                      />
+                    )}
+                    {statementCards}
+                    {challengeReviewContent}
+                    {pendingMiaActionDrafts.length > 0 && (
+                      <MiaActionDraftReviewStack
+                        errors={reviewErrors}
+                        drafts={pendingMiaActionDrafts}
+                        isRealWorkspace={Boolean(isRealWorkspace)}
+                        action={chatDraftAction}
+                        compact
+                        onApply={handleApplyMiaActionDraft}
+                        onCancel={handleCancelMiaActionDraft}
+                        onEditSetupCard={handleEditMiaSetupCard}
+                        onChoosePurchase={handleChoosePurchaseForChange}
+                        onEditManually={openManualControls}
+                        onAskFresh={askForFreshDraft}
                       />
                     )}
                   </> : challengeReviewContent}
@@ -5870,6 +5894,8 @@ export function DocumentReviewPanel({
             <div className="document-review-actions">
               {fullyApplied ? (
                 <span className="document-action-hint">Upload a new copy to reprocess</span>
+              ) : documentImport.metadata.extraction_failure_permanent ? (
+                <span className="document-action-hint">Upload a screenshot or JPEG</span>
               ) : (
                 <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
                   {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
