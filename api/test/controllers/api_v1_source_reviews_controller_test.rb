@@ -237,6 +237,14 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     @source = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extraction.data[:source_accounting], structured_spreadsheet: true).call.merge(import: document)
     post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [], accounts: [ { source_account_id: @source[:revision].financial_source_accounts.sole.id, account_basis: "asset" } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => "r7-f4-basis"), as: :json
     assert_response :success
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: "individual" }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    individual_id = response.parsed_body.fetch("revision_id")
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: "individual" }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    assert_equal individual_id, response.parsed_body.fetch("revision_id")
+    assert_equal 1, document.reload.metadata["signed_amount_answers"].length
+    @source[:revision] = document.financial_extraction_revisions.find(individual_id)
     post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: true }, headers: auth_headers(@user), as: :json
     assert_response :success
     revision = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
@@ -251,7 +259,7 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     changed = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
     assert_equal [ -260_000, 145_000 ], changed.financial_source_events.pluck(:signed_amount_cents).sort
-    assert_equal 2, document.reload.metadata["signed_amount_answers"].length
+    assert_equal 3, document.reload.metadata["signed_amount_answers"].length
   ensure
     file&.close!
   end

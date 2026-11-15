@@ -184,7 +184,7 @@ module HouseholdFinance
       active = rows.select { |row| row[:active] }
       if matches.empty? && available && active.any? && active.all? { |row| !row[:months][@reference_date.month - 1][:allocation_missing] }
         total = active.sum { |row| Money.cents(row[:months][@reference_date.month - 1][:planned]) }
-        footer << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes debt minimums and archived category allocations."
+        footer << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes monthly debt payments and archived category allocations."
       end
       footer << "#{drafts.length} pending household transaction #{'review'.pluralize(drafts.length)} recorded in #{month_label}, totaling #{money(Money.dollars(drafts.sum(&:total_amount_cents)))}; these have not changed confirmed actuals. Unassigned pending categories may not appear in the category amounts above."
       footer << "Pending budget edit cards are proposals; they do not change the saved plan amounts above until you apply reviewed changes."

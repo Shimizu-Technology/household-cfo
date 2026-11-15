@@ -445,6 +445,9 @@ export type ReadinessMilestone = {
 }
 
 export type MiaMonthAnswer = {
+  before_debt_payments?: boolean
+  before_debt_out_cents?: number | null
+  before_debt_left_cents?: number | null
   year: number
   month: number
   period_label: string

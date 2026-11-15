@@ -18,7 +18,7 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
     refute_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "setup is complete"
     assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "debts"
     answer = HouseholdFinance::MiaMonthAnswer.new(@household, annual_plan: @plan)
-    assert_includes answer.response, "debt minimums"
+    assert_includes answer.response, "monthly debt payments"
     refute_includes answer.response, "missing income"
   end
 

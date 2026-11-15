@@ -365,7 +365,7 @@ it('shows the sign effect and holds sign buttons while Mia is replying', async (
   serve(review(planWith([], { signed_amount_answerable: true, sign_effect: '13 lines are money out, 2 lines are money in' })))
   mount([statement(1)], { disabled: true })
   await screen.findByText('13 lines are money out, 2 lines are money in')
-  expect((screen.getByRole('button', { name: 'Yes, spending is negative' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Change this' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
 

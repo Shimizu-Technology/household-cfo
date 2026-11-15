@@ -485,7 +485,7 @@ module HouseholdFinance
         return :crisis_support_missing
       end
       if answer_packet[:care_context]
-        return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|debt minimums)|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
+        return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|(?:monthly debt payments|debt minimums))|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
         without_dates = content.gsub(/\b\d{1,2}(?:st|nd|rd|th)\b/i) { |date| user_message.include?(date) ? "" : date }
         without_dates = without_dates.gsub(/\b(?:988|911)\b/, "") if recent_crisis?
         return :unverified_amount if without_dates.match?(/[\p{N}\p{Sc}]/)

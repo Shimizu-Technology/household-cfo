@@ -4,7 +4,7 @@ require_relative "message_reply_intent"
 
 module HouseholdFinance
   # One month picture for chat and Home. Values are cents; unknown stays nil.
-  # Planned out includes debt minimums. Spent so far is confirmed category
+  # Planned out includes monthly debt payments. Spent so far is confirmed category
   # spending, so it is compared with category budgets, never with bank cash.
   class MiaMonthAnswer
     QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
@@ -80,6 +80,7 @@ module HouseholdFinance
         categories = allocations_known ? active.sum { |row| Money.cents(cell(row)[:planned]) } : nil
         debt = !before_start && plan[:monthly_debt_minimums_known] ? Money.cents(plan[:monthly_debt_minimums]) : nil
         planned = categories && debt ? categories + debt : nil
+        before_debt = income && categories && debt.nil?
         # These cells are uncapped SQL aggregates of approved category splits,
         # independent of the capped recent/pending transaction lists.
         actual = approved || before_start ? rows.sum { |row| Money.cents(cell(row)[:actual]) } : nil
@@ -96,6 +97,9 @@ module HouseholdFinance
           cushion_missing_inputs: cushion_missing_inputs(snapshot, income, categories, debt),
           year: year, month: month, period_label: Date.new(year, month, 1).strftime("%B %Y"),
           money_in_cents: income, planned_out_cents: planned, category_plan_cents: categories,
+          before_debt_payments: !!before_debt,
+          before_debt_out_cents: before_debt ? categories : nil,
+          before_debt_left_cents: before_debt ? income - categories : nil,
           debt_minimums_cents: debt, spent_so_far_cents: actual,
           plan_left_cents: income && planned ? income - planned : nil,
           category_left_cents: categories && actual ? categories - actual : nil,
@@ -128,6 +132,10 @@ module HouseholdFinance
       end
 
       return "Your #{facts[:year]} plan is not set up yet, so I cannot show a plan comparison for #{facts[:period_label]}. Open Budget to set up that year’s plan when you are ready. Nothing has been created or saved." unless facts[:plan_available]
+
+      if facts[:before_debt_payments]
+        return "Before debt payments, your plan leaves #{money(facts[:before_debt_left_cents])} a month: #{money(facts[:money_in_cents])} in, #{money(facts[:before_debt_out_cents])} out. Add your monthly debt payments to complete it."
+      end
 
       left = facts[:plan_left_cents]
       plan_line = if left.nil?
@@ -176,7 +184,7 @@ module HouseholdFinance
       [].tap do |inputs|
         inputs << { label: "your main income", destination: "profile" } if income.nil?
         inputs << { label: "planned household costs", destination: "budget" } if categories.nil?
-        inputs << { label: "debt minimums", destination: "debt" } if debt.nil?
+        inputs << { label: "monthly debt payments", destination: "debt" } if debt.nil?
       end
     end
 

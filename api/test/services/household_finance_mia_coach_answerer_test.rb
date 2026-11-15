@@ -48,7 +48,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
       assert_includes answer, "From approved records, monthly income is $8,500", prompt
       assert_includes answer, "planned fixed essentials are $6,925", prompt
-      assert_includes answer, "monthly debt minimums are $920", prompt
+      assert_includes answer, "monthly debt payments are $920", prompt
       assert_includes answer, "account balances yet", prompt
       assert_includes answer, "leaving anything unknown blank", prompt
     end
@@ -490,7 +490,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     ).call
 
     assert_includes answer, "$5,000 category plan"
-    assert_includes answer, "$920 debt minimums"
+    assert_includes answer, "$920 monthly debt payments"
     assert_includes answer, "$5,920 total outflow"
     assert_includes answer, "$2,580 baseline surplus"
     assert_includes answer, "$1,032 monthly safe-to-spend guardrail"

@@ -2212,7 +2212,7 @@ test('BOG UI household Home keeps known debt and unknown liquid guidance distinc
   await expect(page.locator('.home-screen')).not.toContainText('Safe to spend')
   await expect(page.locator('.home-money-values')).toContainText('$15,000')
   await page.getByRole('button', { name: 'Plan details →' }).click()
-  await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in debt minimums.')
+  await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in monthly debt payments.')
 })
 
 test('BOG UI household Home leads with the shared money answer, visible runway and year differences', async ({ page }) => {
@@ -3868,7 +3868,7 @@ test('BOG UI household Budget explains scheduled income changes and upcoming ann
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Budget')
   await expect(page.getByRole('heading', { name: 'Your annual plan' })).toBeVisible()
-  await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in debt minimums.')
+  await expect(page.locator('.expense-debt-note')).toContainText('Plus $200 in monthly debt payments.')
   await expect(page.locator('.expense-group-categories')).toHaveCount(4)
   await expect(page.locator('.year-outlook')).toHaveCount(0)
   await expect(page.getByLabel('Annual money out breakdown')).toHaveCount(0)
@@ -4152,7 +4152,7 @@ test('BOG UI My Money keeps debt summary and individual tracking explicit on des
 
   await page.getByRole('radio', { name: /One total for all debts/ }).check()
   await page.getByLabel('Total debt balance').fill('15000')
-  await page.getByLabel('Total monthly minimums').fill('500')
+  await page.getByLabel('Total monthly debt payments').fill('500')
   await page.getByRole('button', { name: 'Save tracking choice' }).click()
   await expect(page.getByText('Mia is using the approved household summary.')).toBeVisible()
   await expect(page.getByLabel('Canonical debt totals').getByText('$15,000')).toBeVisible()
@@ -11004,7 +11004,7 @@ test('BOG UI debt summary decimal formats stay clean and decimal saves release n
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   await openMoneyTopic(page, 'Debt')
   const balance = page.getByLabel('Total debt balance')
-  const minimum = page.getByLabel('Total monthly minimums')
+  const minimum = page.getByLabel('Total monthly debt payments')
   await balance.fill('150.00')
   await minimum.fill('25.50')
   await expect(page.getByRole('button', { name: 'Save tracking choice' })).toBeDisabled()
@@ -13385,12 +13385,12 @@ for (const runway of [-1, 0]) {
 test('BOG UI Home hides debt recovery when My Money is disabled', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.workspace.capabilities.modules = workspace.workspace.capabilities.modules.map(module => module.id === 'profile' ? { ...module, enabled: false } : module)
-  workspace.dashboard.coach_read = { title: 'Debt minimums needed', body: 'Add minimums', action: 'open_debt' }
+  workspace.dashboard.coach_read = { title: 'Monthly debt payments needed', body: 'Add minimums', action: 'open_debt' }
   workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, planned_out_cents: null, plan_left_cents: null }
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.goto('/?pilot_e2e_role=participant#Home')
   await expect(page.getByRole('heading', { name: 'Home', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add monthly debt payments', exact: true })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'My Money', exact: true })).toHaveCount(0)
 })
 
@@ -16486,12 +16486,12 @@ for (const records of [false, true]) for (const [type, add] of [['debt_plan', 'A
   const draft = { ...miaAssetDraft, draft_type: type, title: `Review ${type}`, items: [{ ...miaAssetDraft.items[0], target_record_type: type === 'asset_plan' ? 'Account' : 'Goal', operation_key: type === 'asset_plan' ? 'account.legacy' : 'goal.record.legacy', action_type: 'legacy', payload: {} }] }
   if (type === 'debt_plan') {
     base.workspace.setup_complete = false
-    base.workspace.setup_status.missing_fields.push({ key: 'debt_payment', label: 'Debt minimums', confirmed: false })
+    base.workspace.setup_status.missing_fields.push({ key: 'debt_payment', label: 'Monthly debt payments', confirmed: false })
   }
   const workspace = { ...base, budget: { ...base.budget, annual_plan: { ...base.budget.annual_plan, pending_mia_action_drafts: [draft] } } }
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.goto(type === 'debt_plan' ? '/?pilot_e2e_role=participant#Home' : '/?pilot_e2e_role=participant#Ask%20Mia')
-  if (type === 'debt_plan') await page.getByRole('button', { name: 'Add debt minimums', exact: true }).click()
+  if (type === 'debt_plan') await page.getByRole('button', { name: 'Add monthly debt payments', exact: true }).click()
   else {
     await openMiaReviewDetails(page)
     await page.getByRole('article', { name: draft.title, exact: true }).getByRole('button', { name: 'Change', exact: true }).click()
@@ -16828,7 +16828,7 @@ for (const payment of ['none', '350']) test(`BOG UI F1 complete form ${payment} 
 })
 test('BOG UI F1 five-field save opens Home dashboard with unknown debt', async ({ page }) => {
   await f1Workspace(page)
-  await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Add monthly debt payments', exact: true })).toHaveCount(0)
   await f1Fill(page)
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
   await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
@@ -16846,7 +16846,7 @@ test('BOG UI F1 completion and Wealth open the same optional balances screen', a
   ] })
   Object.assign(w.workspace.debt_portfolio, { balance_known: false, active_count: 2, monthly_minimum: 385 })
   w.mia.messages = [{ id: 991, role: 'assistant', author: 'Mia', content: 'Your household setup is complete. Next, add what you owe under Debt in My Money to see your net worth. Balances are optional.', setup_help: { available: false, debt_balances: true } }] as typeof w.mia.messages
-  w.wealth.milestones = [{ action: 'debt_details', kind: 'status', label: 'Balances still to add', current: 0, target: 0, unit: 'Add debt balances and monthly minimums in My Money', status: 'yellow' }]
+  w.wealth.milestones = [{ action: 'debt_details', kind: 'status', label: 'Balances still to add', current: 0, target: 0, unit: 'Add debt balances and monthly debt payments in My Money', status: 'yellow' }]
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: w }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await page.getByRole('button', { name: 'Add what you owe', exact: true }).click()
@@ -17119,7 +17119,7 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
   await expect(question).toHaveCount(1)
   await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
   await expect(page.getByText(negative ? 'You said spending is shown as negative. That set the direction of 15 lines.' : 'You said spending is shown as positive. That set the direction of 15 lines.', { exact: true })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeFocused()
+  await expect(page.locator('.statement-sign-result')).toBeFocused()
   await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
   await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
 })
@@ -17353,7 +17353,7 @@ test('BOG UI F4 fix1 Statements refreshes the answered revision before reopening
   await expect(review.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
   await review.getByRole('button', { name: 'Yes, spending is negative' }).click()
   await expect(review.getByText('You said spending is shown as negative. That set the direction of 15 lines.', { exact: true })).toBeVisible()
-  await expect(review.getByRole('heading', { level: 5 })).toBeFocused()
+  await expect(review.locator('.statement-sign-result')).toBeFocused()
   await f4Evidence(page, 'statements-sign-effect')
   await openSection(page, 'Ask Mia')
   await openSection(page, 'Statements')
@@ -18371,4 +18371,117 @@ test('BOG UI F2 fix2 a delayed planning year never pulls someone back after leav
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await expect(page).toHaveURL(/#Home$/)
   await expect(page.locator('#budget-manual-manager')).toHaveCount(0)
+})
+
+async function f5Capture(page: Page, name: string) {
+  const directory = process.env.F5_EVIDENCE_DIR
+  if (!directory) return
+  await page.evaluate(() => document.fonts.ready)
+  await page.screenshot({ path: `${directory}/${name}-${page.viewportSize()!.width}.png`, fullPage: true, scale: 'css', animations: 'disabled' })
+}
+for (const location of ['Ask Mia', 'Statements']) for (const mode of ['unanswered', 'answered', 'derived', 'individual']) test(`BOG UI F5 ${location} direction card ${mode}`, async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  let changed = false
+  const source = f4Source()
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.fulfill({ json: { document_import: source } }))
+  const effect = mode === 'derived' ? 'The balance column shows spending as negative. That set the direction of 15 lines.' : mode === 'individual' ? 'You chose to answer money out or money in for each line.' : 'You said spending is shown as negative. That set the direction of 15 lines.'
+  await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', route => { changed = true; source.metadata.source_accounting_revision_id = 89; return route.fulfill({ json: { revision_id: 89 } }) })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review(changed || mode === 'answered' || mode === 'derived' ? true : undefined)
+    const plan = data.participant_review!.plan
+    plan.signed_amount_question = mode === 'unanswered' && !changed
+    plan.signed_amount_answerable = true
+    plan.sign_effect = changed ? 'You said spending is shown as negative. That set the direction of 15 lines.' : mode === 'unanswered' ? null : effect
+    if (changed) { data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 }) }
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [source])
+  if (location === 'Statements') await openSection(page, 'Statements')
+  const card = location === 'Statements' ? page.getByRole('region', { name: 'Statement review', exact: true }) : page.locator('.mia-statement-card')
+  await expect(card).toBeVisible()
+  await expect(mode === 'unanswered' ? card.getByRole('button', { name: 'Yes, spending is negative' }) : card.getByText(effect, { exact: true })).toBeVisible()
+  await f5Capture(page, `direction-${location.replace(' ', '-')}-${mode}`)
+  if (mode !== 'unanswered') {
+    await expect(card.getByRole('button', { name: 'Yes, spending is negative' })).toHaveCount(0)
+    await card.getByRole('button', { name: 'Change this', exact: true }).click()
+  }
+  await card.getByRole('button', { name: 'Yes, spending is negative' }).click()
+  await expect(card.locator('.statement-sign-result')).toBeFocused()
+  await expect(card.getByRole('button', { name: 'Yes, spending is negative' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Change this' })).toBeVisible()
+})
+
+for (const mode of ['unknown-debt', 'known-debt', 'no-debts', 'unknown-income']) test(`BOG UI F5 Home first answer ${mode}`, async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const unknown = mode === 'unknown-debt'
+  const missingIncome = mode === 'unknown-income'
+  const debt = mode === 'no-debts' ? 0 : 35000
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, money_in_cents: missingIncome ? null : 520000, planned_out_cents: unknown ? null : 275000 + debt, plan_left_cents: unknown || missingIncome ? null : 245000 - debt, before_debt_payments: unknown, before_debt_out_cents: unknown ? 275000 : null, before_debt_left_cents: unknown ? 245000 : null, runway_months: null, missing_plan_inputs: unknown ? [{ label: 'monthly debt payments', destination: 'debt' }] : [], cushion_missing_inputs: unknown ? [{ label: 'monthly debt payments', destination: 'debt' }] : [] }
+  workspace.dashboard.coach_read = { title: 'Complete your picture', body: 'Add the missing numbers', action: 'open_debt' }
+  workspace.mia.messages = [{ id: 102, role: 'assistant', author: 'Mia', content: unknown ? 'Before debt payments, your plan leaves $2,450 a month: $5,200 in, $2,750 out. Add your monthly debt payments to complete it.' : missingIncome ? 'Still to add: your main income.' : `Your plan leaves about $${mode === 'no-debts' ? '2,450' : '2,100'} for November 2026.` }]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  await expect(page.locator('.home-money-values')).toBeVisible()
+  await f5Capture(page, `home-${mode}`)
+  {
+    if (unknown) {
+      await expect(page.getByText('What’s left · before debt payments', { exact: true })).toBeVisible()
+      await expect(page.locator('.home-money-values')).toContainText('$2,450')
+      await expect(page.getByRole('button', { name: 'Add monthly debt payments', exact: true })).toHaveCount(1)
+    } else {
+      await expect(page.getByText('What’s left · planned', { exact: true })).toBeVisible()
+      if (missingIncome) await expect(page.locator('.home-money-values')).not.toContainText('$2,450')
+      else await expect(page.locator('.home-money-values')).toContainText(mode === 'no-debts' ? '$2,450' : '$2,100')
+    }
+  }
+  await openSection(page, 'Ask Mia')
+  await expect(page.locator('.message.assistant').last()).toContainText(unknown ? 'Before debt payments' : missingIncome ? 'Still to add' : 'Your plan leaves')
+  await f5Capture(page, `mia-${mode}`)
+})
+
+test('BOG UI F5 empty categories explain where to create one', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review(true)
+    data.participant_review!.categories = []
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  await openSection(page, 'Statements')
+  await expect(page.getByText('Create a category in Budget, then come back to choose it for this line.').first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Choose a category', exact: true })).toHaveCount(0)
+})
+
+test('BOG UI F5 unreadable reply gives the same recovery as the file card', async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const text = 'The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed.'
+  const source = { ...f4Source(), filename: 'unreadable.jpg', content_type: 'image/jpeg', status: 'failed', extraction_error: text, metadata: { extraction_failure_permanent: true } }
+  await f4Chat(page, [source], 1203, false, 15, false, workspace => {
+    workspace.mia.messages = [{ id: 102, role: 'assistant', author: 'Mia', content: text }]
+  })
+  await expect(page.locator('.message.assistant').last()).toContainText(text)
+  await f5Capture(page, 'mia-unreadable')
+  await openSection(page, 'Statements')
+  await expect(page.getByText(text, { exact: true })).toBeVisible()
+  await f5Capture(page, 'statements-unreadable')
+})
+
+test('BOG UI F5 delete refusal explains approved spending and original removal', async ({ page }) => {
+  const width = Number(process.env.F5_EVIDENCE_WIDTH)
+  if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+  const message = 'This file has approved lines or saved money details. Only approved spending lines count in your numbers. You can remove the original file, but keep this record of what you approved.'
+  const source = f4Source()
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.request().method() === 'DELETE' ? route.fulfill({ status: 422, json: { errors: [message] } }) : route.fulfill({ json: { document_import: source } }))
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review(true) } }))
+  await f4Chat(page, [source])
+  await openSection(page, 'Statements')
+  await openDetails(page, 'File options')
+  await page.getByRole('button', { name: 'Delete upload & record', exact: true }).click()
+  await answerConfirm(page, 'accept')
+  await expect(page.getByText(message, { exact: true })).toBeVisible()
+  await f5Capture(page, 'delete-refusal')
 })

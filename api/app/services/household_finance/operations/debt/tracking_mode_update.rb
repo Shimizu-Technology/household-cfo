@@ -18,7 +18,7 @@ module HouseholdFinance
               raise ArgumentError, "Enter the total debt balance, or leave it blank to mark it unknown"
             end
             unless input.key?(:summary_minimum_payment) || input.key?(:summary_minimum_payment_cents)
-              raise ArgumentError, "Enter the total monthly minimum, or leave it blank to mark it unknown"
+              raise ArgumentError, "Enter the total monthly debt payments, or leave it blank to mark it unknown"
             end
             values.merge!(normalize_optional_money(input, :summary_balance, :summary_balance_cents, label: "Summary balance"))
             values.merge!(normalize_optional_money(input, :summary_minimum_payment, :summary_minimum_payment_cents, label: "Summary minimum payment"))

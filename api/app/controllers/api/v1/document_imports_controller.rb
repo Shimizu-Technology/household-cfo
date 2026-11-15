@@ -197,11 +197,12 @@ module Api
               destroy_error = "Review every affected challenge use in Privacy before deleting this original."
               raise ActiveRecord::Rollback
             end
-            if import_has_resolved_values?(@document_import)
-              destroy_error = "Delete the source file instead; this import already applied or matched household values"
+            if import_has_resolved_values?(@document_import) && !FinancialDocuments::UnapprovedStatementAccounts.removable?(@document_import)
+              destroy_error = "This file has approved lines or saved money details. Only approved spending lines count in your numbers. You can remove the original file, but keep this record of what you approved."
               raise ActiveRecord::Rollback
             end
 
+            FinancialDocuments::UnapprovedStatementAccounts.remove!(@document_import) if FinancialDocuments::UnapprovedStatementAccounts.removable?(@document_import)
             cleanup = FinancialDocumentSourceCleanup.request!(@document_import, user: current_user)
             @document_import.destroy!
           end

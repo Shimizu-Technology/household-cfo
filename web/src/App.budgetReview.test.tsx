@@ -40,13 +40,13 @@ it('distinguishes a zero plan with spending from a zero plan not started', () =>
   expect(view.container.querySelector('.stack-discretionary .ui-track')?.getAttribute('style')).toContain('100%')
   expect(screen.getByText('$25 over the plan.')).toBeTruthy()
 })
-it('reads the selected period ID, includes debt minimums and never subtracts pending', () => {
+it('reads the selected period ID, includes monthly debt payments and never subtracts pending', () => {
   render(<BudgetPlanStrip confirmedFields={['fixed_expenses', 'flexible_spend']} plan={plan} monthIndex={0} planKnown />)
   expect(screen.getByText('$200')).toBeTruthy()
   expect(screen.getByText('$120')).toBeTruthy()
   expect(screen.getByText('$80')).toBeTruthy()
 })
-it('keeps unknown income and debt minimums as words, but a confirmed zero as money', () => {
+it('keeps unknown income and monthly debt payments as words, but a confirmed zero as money', () => {
   const view = render(<BudgetPlanStrip confirmedFields={['fixed_expenses', 'flexible_spend']} plan={{ ...plan, monthly_income: {41: null}, monthly_debt_minimums_known: false }} monthIndex={0} planKnown />)
   expect(screen.getAllByText('Not entered')).toHaveLength(3)
   expect(view.container.textContent).not.toContain('$0')

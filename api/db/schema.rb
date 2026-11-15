@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_16_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -4554,7 +4554,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
     CREATE TRIGGER participant_invitation_cancellations_immutable BEFORE DELETE OR UPDATE ON public.participant_invitation_cancellations FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
-    CREATE TRIGGER source_account_identity_versions_immutable BEFORE DELETE OR UPDATE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+    CREATE TRIGGER source_account_identity_versions_immutable BEFORE UPDATE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER source_economic_group_versions_immutable BEFORE DELETE OR UPDATE ON public.source_economic_group_versions FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
@@ -4572,7 +4572,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
     CREATE TRIGGER source_revision_approvals_immutable BEFORE DELETE OR UPDATE ON public.source_revision_approvals FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
-    CREATE TRIGGER source_tracked_accounts_immutable BEFORE DELETE OR UPDATE ON public.source_tracked_accounts FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
+    CREATE TRIGGER source_tracked_accounts_immutable BEFORE UPDATE ON public.source_tracked_accounts FOR EACH ROW EXECUTE FUNCTION source_review_facts_immutable();
   SQL
   execute <<~SQL
     CREATE OR REPLACE FUNCTION public.source_review_heads_scope_immutable()
@@ -4592,13 +4592,59 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_12_110000) do
     CREATE TRIGGER financial_baseline_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.financial_baseline_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
   SQL
   execute <<~SQL
-    CREATE TRIGGER source_account_review_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.source_account_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+    CREATE TRIGGER source_account_review_heads_scope_immutable BEFORE UPDATE ON public.source_account_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER source_economic_groups_scope_immutable BEFORE DELETE OR UPDATE ON public.source_economic_groups FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
   SQL
   execute <<~SQL
     CREATE TRIGGER source_review_heads_scope_immutable BEFORE DELETE OR UPDATE ON public.source_review_heads FOR EACH ROW EXECUTE FUNCTION source_review_heads_scope_immutable();
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.statement_account_answers_removable(document_id bigint)
+     RETURNS boolean
+     LANGUAGE sql
+    AS $function$
+      SELECT EXISTS (SELECT 1 FROM financial_document_imports d WHERE d.id = document_id AND d.document_kind = 'statement')
+        AND NOT EXISTS (SELECT 1 FROM financial_document_import_items WHERE financial_document_import_id = document_id AND applied_at IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM transaction_drafts WHERE financial_document_import_id = document_id AND status IN ('confirmed', 'corrected', 'matched'))
+        AND NOT EXISTS (SELECT 1 FROM household_transactions WHERE source_import_id = document_id AND status IN ('confirmed', 'reconciled'))
+        AND NOT EXISTS (SELECT 1 FROM financial_extraction_revisions r WHERE r.financial_document_import_id = document_id AND (
+          EXISTS (SELECT 1 FROM source_revision_approvals WHERE financial_extraction_revision_id = r.id)
+          OR EXISTS (SELECT 1 FROM financial_source_events e WHERE e.financial_extraction_revision_id = r.id AND (
+            EXISTS (SELECT 1 FROM source_review_heads WHERE financial_source_event_id = e.id AND approved_version_id IS NOT NULL)
+            OR EXISTS (SELECT 1 FROM household_transactions WHERE financial_source_event_id = e.id AND status IN ('confirmed', 'reconciled'))
+            OR EXISTS (SELECT 1 FROM savings_evidence_capacities WHERE financial_source_event_id = e.id)))))
+    $function$
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION public.unapproved_statement_account_delete()
+     RETURNS trigger
+     LANGUAGE plpgsql
+    AS $function$
+    DECLARE document_id bigint;
+    BEGIN
+      IF TG_TABLE_NAME = 'source_tracked_accounts' THEN
+        IF OLD.account_id IS NULL AND NOT EXISTS (SELECT 1 FROM source_account_identity_versions WHERE source_tracked_account_id = OLD.id) THEN RETURN OLD; END IF;
+      ELSE
+        IF TG_TABLE_NAME = 'source_account_review_heads' THEN
+          SELECT r.financial_document_import_id INTO document_id FROM financial_source_accounts a JOIN financial_extraction_revisions r ON r.id = a.financial_extraction_revision_id WHERE a.id = OLD.financial_source_account_id;
+        ELSE
+          SELECT r.financial_document_import_id INTO document_id FROM source_account_review_heads h JOIN financial_source_accounts a ON a.id = h.financial_source_account_id JOIN financial_extraction_revisions r ON r.id = a.financial_extraction_revision_id WHERE h.id = OLD.source_account_review_head_id;
+        END IF;
+        IF statement_account_answers_removable(document_id) THEN RETURN OLD; END IF;
+      END IF;
+      RAISE EXCEPTION 'Approved source facts cannot be deleted';
+    END; $function$
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_account_identity_versions_unapproved_delete BEFORE DELETE ON public.source_account_identity_versions FOR EACH ROW EXECUTE FUNCTION unapproved_statement_account_delete();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_account_review_heads_unapproved_delete BEFORE DELETE ON public.source_account_review_heads FOR EACH ROW EXECUTE FUNCTION unapproved_statement_account_delete();
+  SQL
+  execute <<~SQL
+    CREATE TRIGGER source_tracked_accounts_unapproved_delete BEFORE DELETE ON public.source_tracked_accounts FOR EACH ROW EXECUTE FUNCTION unapproved_statement_account_delete();
   SQL
   execute <<~SQL
     CREATE OR REPLACE FUNCTION public.savings_plan_context_guard()

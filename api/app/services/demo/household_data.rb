@@ -322,7 +322,7 @@ module Demo
         financial_facts: financial_facts,
         transaction_ledger: { available: false, confirmed_transaction_count: 0 },
         boundaries: [
-          "Category plan excludes debt minimums.",
+          "Category plan excludes monthly debt payments.",
           "Safe-to-spend is a monthly decision guardrail, not an account balance.",
           "The exact impact of a hypothetical purchase depends on its funding account and category.",
           "An empty preview ledger is missing data, not proof of zero spending."
@@ -429,7 +429,7 @@ module Demo
             item: "Non-essential purchase",
             amount: facts.fetch(:safe_to_spend),
             recommendation: facts.fetch(:safe_to_spend).positive? ? "Pause" : "Wait",
-            reason: "Only approve wants that fit inside true surplus after bills, sinking funds, debt minimums, and confirmed activity."
+            reason: "Only approve wants that fit inside true surplus after bills, sinking funds, monthly debt payments, and confirmed activity."
           },
           {
             item: "Extra debt payment",

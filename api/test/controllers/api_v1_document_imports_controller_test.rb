@@ -877,6 +877,51 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "income_source", "Primary salary", "6200" ], rows.second.fetch("values")
   end
 
+  test "destroy removes account answers and only the tracked account owned by this statement" do
+    [ false, true ].each do |shared|
+      document = create_import!(status: "needs_review")
+      accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+        accounts: [ { account_key: "file-account", account_basis: "unknown" } ], events: [ { account_key: "file-account", row_kind: "unresolved", event_type: "unknown", posted_on: "2026-10-01", merchant: "Fictional shop", locator: { row: 1 } } ] })
+      revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting).call[:revision]
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [], accounts: [ { source_account_id: revision.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+      head = SourceAccountReviewHead.find_by!(financial_source_account: revision.financial_source_accounts.sole)
+      identity = head.approved_version
+      tracked = identity.source_tracked_account
+      if shared
+        other = create_import!(status: "needs_review", s3_key: "fictional/f5-other.pdf")
+        other_revision = FinancialDocuments::SourceAccountingPersister.new(other, attempt: nil, accounting: accounting).call[:revision]
+        input = { source_account_id: other_revision.financial_source_accounts.sole.id, tracked_account_id: tracked.id, base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Same account in another file" }
+        domain.execute("account_link", domain.normalize("account_link", input))
+      end
+      with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+        delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+      end
+      assert_response :no_content
+      assert_not FinancialDocumentImport.exists?(document.id)
+      assert_not SourceAccountReviewHead.exists?(head.id)
+      assert_not SourceAccountIdentityVersion.exists?(identity.id)
+      assert_equal shared, SourceTrackedAccount.exists?(tracked.id)
+    end
+  end
+
+  test "approved statement lines refuse deletion with recovery and keep their account answer" do
+    document = create_import!(status: "needs_review")
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "file-account", account_basis: "asset" } ], events: [ { account_key: "file-account", row_kind: "posted", event_type: "purchase", signed_amount_cents: -1000, posted_on: "2026-10-01", merchant: "Fictional shop", locator: { row: 1 } } ] })
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: revision.financial_source_events.sole.id, decision: "leave_out" } ], accounts: [ { source_account_id: revision.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+    assert_not FinancialDocuments::UnapprovedStatementAccounts.removable?(document)
+    with_s3_stubs(configured?: true, delete: ->(*) { flunk "Must keep the file" }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "Only approved spending lines count in your numbers. You can remove the original file"
+    assert FinancialDocumentImport.exists?(document.id)
+    assert SourceAccountReviewHead.exists?(financial_source_account_id: revision.financial_source_accounts.sole.id)
+  end
+
   test "destroy removes database record before deleting private source" do
     document_import = create_import!(s3_key: "household-cfo/test/source.pdf")
     record_existed_when_s3_deleted = []
@@ -940,7 +985,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_match(/Delete the source file instead/i, JSON.parse(response.body).fetch("errors").join)
+    assert_includes JSON.parse(response.body).fetch("errors").join, "You can remove the original file"
     assert FinancialDocumentImport.exists?(document_import.id)
     assert_empty deleted_keys
   end

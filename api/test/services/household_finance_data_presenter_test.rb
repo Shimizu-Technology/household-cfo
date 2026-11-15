@@ -369,7 +369,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 0, minimum_payment_known: false)
 
     dashboard = HouseholdFinance::DataPresenter.new(household, user: user).app_data.fetch(:dashboard)
-    alert = dashboard.fetch(:alerts).find { |entry| entry.fetch(:title) == "Debt minimums needed" }
+    alert = dashboard.fetch(:alerts).find { |entry| entry.fetch(:title) == "Monthly debt payments needed" }
 
     assert_equal "open_debt", alert.fetch(:action)
     assert_equal "open_debt", dashboard.fetch(:coach_read).fetch(:action)

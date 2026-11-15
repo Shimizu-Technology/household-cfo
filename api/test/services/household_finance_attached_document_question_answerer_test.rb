@@ -412,7 +412,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     answer = answer_for("What is the total in this attachment?")
 
-    assert_includes answer, "failed extraction and produced no verified rows"
+    assert_includes answer, FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
     assert_not_includes answer, "$99"
     assert_not_includes answer, "Stale merchant"
   end

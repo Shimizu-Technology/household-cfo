@@ -3826,7 +3826,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   async function handleDeleteDocumentImport(documentImport: FinancialDocumentImport) {
-    if (!(await confirmAction('This removes the upload, its original file, and its import history. It cannot be undone and is only available before anything is applied or matched.', { title: 'Delete this upload?', confirmLabel: 'Delete upload', cancelLabel: 'Keep it', caution: true }))) return
+    if (!(await confirmAction('This removes the upload, its original file, and the answers you gave about it. It cannot be undone. You can do this only before any lines or money details from it are approved.', { title: 'Delete this upload?', confirmLabel: 'Delete upload', cancelLabel: 'Keep it', caution: true }))) return
 
     setDocumentAction(`delete:${documentImport.id}`)
     setDocumentsError(null)
@@ -4774,7 +4774,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
             </ProfileDisclosure>}
             {moneyTopic === 'debt' && (
               <>
-                {isSavingsExperience && <article className="panel money-scope-note ui-card"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and minimums used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setOptionalDebtOpen(true) }}>Open optional card review</Button>}</article>}
+                {isSavingsExperience && <article className="panel money-scope-note ui-card"><strong>Household debt and optional card review</strong><p>This household plan tracks balances and monthly debt payments used in your budget. The challenge card review separately holds approved statement terms and comparisons; changes here do not update it.</p>{challengeParticipantScope && data.workspace.cohort?.id && <Button variant="secondary" onClick={event => { event.currentTarget.focus({ preventScroll: true }); setOptionalDebtOpen(true) }}>Open optional card review</Button>}</article>}
                 {isRealWorkspace ? <DebtManager
                       sectionRef={debtManagerRef}
                       key={`${data.workspace.debt_portfolio?.mode}:${data.workspace.debt_portfolio?.total_balance}:${data.workspace.debt_portfolio?.monthly_minimum}:${data.workspace.debt_portfolio?.balance_known}:${data.workspace.debt_portfolio?.minimum_payment_known}:${data.workspace.debt_portfolio?.active_count}:${data.workspace.debt_portfolio?.archived_count}`}
@@ -5387,7 +5387,7 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, p
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
     {answer?.main_income_missing && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: your main income.</span></p>}
     {missingFields.length > 0 && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</span></p>}
-    {started && missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="ui-row text-button" onClick={onOpenDebt}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Add debt minimums</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+    {started && missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="ui-row text-button" onClick={onOpenDebt}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Add monthly debt payments</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
     {!started && <p className="home-welcome-note">Takes about 3 minutes. You can skip anything.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
@@ -7400,7 +7400,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
       <h3>Your debts</h3>
       <div className="debt-summary" aria-label="Canonical debt totals">
         <span><small>Total balance</small><strong>{formatKnownMoney(portfolio.total_balance, portfolio.balance_known)}</strong></span>
-        <span><small>Monthly minimums</small><strong>{formatKnownMoney(portfolio.monthly_minimum, portfolio.minimum_payment_known)}</strong></span>
+        <span><small>Monthly debt payments</small><strong>{formatKnownMoney(portfolio.monthly_minimum, portfolio.minimum_payment_known)}</strong></span>
         <span><small>Active debts</small><strong>{portfolio.mode === 'individual' ? portfolio.active_count : 'Summary'}</strong></span>
       </div>
 
@@ -7443,7 +7443,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, onNoDebtConfirme
         </fieldset>
         {modeDraft === 'summary' && <div className="debt-summary-inputs">
           <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} disabled={saving || formDirty} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
-          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
+          <label className="setup-field"><span>Total monthly debt payments</span><span className="money-input-shell"><span aria-hidden="true">$</span><input className="ui-field" type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} disabled={saving || formDirty} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
         <div className="debt-form-actions">{trackingDirty && <button type="button" className="secondary-button" disabled={saving} onClick={() => { setModeDraft(portfolio.mode); setSummaryBalance(initialSummaryBalance); setSummaryMinimum(initialSummaryMinimum); setError(null) }}>Cancel tracking changes</button>}<button type="submit" className="ui-btn ui-btn--tonal" disabled={saving || formDirty || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>

@@ -149,7 +149,7 @@ module HouseholdFinance
       scoped = scoped_transaction_rows(rows)
       matching = filtered_transaction_rows(scoped)
       qualifier = explicit_transaction_scope?(rows) || date_scope_requested? || threshold_requested? ? " matching that merchant, category, date, or amount filter" : ""
-      "The attached evidence has #{matching.length} transaction row#{'s' unless matching.one?}#{qualifier} totaling #{money(matching.sum { |row| question_amount_cents(row) })}."
+      "The files you sent has #{matching.length} transaction row#{'s' unless matching.one?}#{qualifier} totaling #{money(matching.sum { |row| question_amount_cents(row) })}."
     end
 
     def largest_transaction_answer(rows)
@@ -194,7 +194,7 @@ module HouseholdFinance
         [ normalized_entity(row.fetch(:merchant)), row.fetch(:amount_cents), row.fetch(:occurred_on) ]
       end.values.select { |group| group.many? }
       if duplicates.empty?
-        return "I found no exact duplicate charges in the attached evidence. I compared merchant, amount, and date; similar charges with different details still need manual review."
+        return "I found no exact duplicate charges in the files you sent. I compared merchant, amount, and date; similar charges with different details still need manual review."
       end
 
       listed = duplicates.first(MAX_LISTED_ROWS).map do |group|
@@ -202,7 +202,7 @@ module HouseholdFinance
         "#{row.fetch(:merchant)} — #{money(row.fetch(:amount_cents))} on #{formatted_date(row.fetch(:occurred_on))} appears #{group.length} times"
       end
       suffix = duplicates.length > listed.length ? "; plus #{duplicates.length - listed.length} more exact-match group#{'s' unless duplicates.length - listed.length == 1}" : ""
-      "I found #{duplicates.length} potential duplicate charge group#{'s' unless duplicates.one?} in the attached evidence: #{listed.join('; ')}#{suffix}. These are exact merchant, amount, and date matches for you to review; nothing was changed."
+      "I found #{duplicates.length} potential duplicate charge group#{'s' unless duplicates.one?} in the files you sent: #{listed.join('; ')}#{suffix}. These are exact merchant, amount, and date matches for you to review; nothing was changed."
     end
 
     def setup_answer(setup)
@@ -210,7 +210,7 @@ module HouseholdFinance
       relevant = setup if relevant.empty?
       listed = relevant.first(MAX_LISTED_ROWS).map { |row| setup_row_label(row) }
       suffix = relevant.length > listed.length ? "; plus #{relevant.length - listed.length} more value#{'s' unless relevant.length - listed.length == 1}" : ""
-      "The attached setup evidence shows #{listed.join('; ')}#{suffix}."
+      "The income, bills or debts in the files you sent shows #{listed.join('; ')}#{suffix}."
     end
 
     def unsupported_question_answer
@@ -237,19 +237,16 @@ module HouseholdFinance
     end
 
     def failed_import_notice
-      count = document_imports.count(&:failed?)
-      return if count.zero?
-
-      "#{count} attached upload#{'s' unless count == 1} failed extraction and contributed no evidence to this answer."
+      UploadFailureReply.for_files(document_imports)
     end
 
     def no_evidence_answer
-      failed = document_imports.count(&:failed?)
-      if failed.positive?
-        "I could not answer that question from the attached upload#{'s' if document_imports.many?}: #{failed} failed extraction and produced no verified rows. The upload is saved, and no household numbers changed."
-      else
-        "I read the attached upload#{'s' if document_imports.many?}, but there are no structured transaction or setup values that can answer that question without guessing. No household numbers changed."
-      end
+      failure = failed_import_notice
+      read = document_imports.any? { |document| !document.failed? }
+      parts = []
+      parts << "I read #{document_imports.one? ? 'this file' : 'the other files'}, but couldn’t find the money details needed to answer that question. Nothing changed." if read
+      parts << failure
+      parts.compact.join(" ")
     end
 
     def transaction_total_question?
@@ -565,7 +562,7 @@ module HouseholdFinance
       end
       return if totals.empty?
 
-      "By month, the matching attached evidence totals #{totals.to_sentence}."
+      "By month, the matching files you sent totals #{totals.to_sentence}."
     end
 
     def date_scope

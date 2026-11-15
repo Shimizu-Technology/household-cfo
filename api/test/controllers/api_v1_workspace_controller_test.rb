@@ -2327,9 +2327,26 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
-    assert_includes content, "failed extraction and produced no verified rows"
+    assert_includes content, FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
     assert_not_includes content, "$700"
     assert_not_includes content, "unsafe provider details"
+  end
+
+  test "permanently unreadable and mixed file replies explain the recovery without technical words" do
+    user = create_user(email: "mia-f5-files@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    failed = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "receipt", status: "failed", filename: "unreadable.jpg", content_type: "image/jpeg", byte_size: 3, s3_key: "fictional/f5.jpg", metadata: { extraction_failure_permanent: true })
+    post "/api/v1/mia/messages", params: { message: "Please read this", document_import_ids: [ failed.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE
+    good = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "receipt", status: "needs_review", filename: "good.jpg", content_type: "image/jpeg", byte_size: 3, s3_key: "fictional/f5-good.jpg")
+    good.transaction_drafts.create!(household: household, merchant: "Fictional shop", total_amount_cents: 1200, occurred_on: Date.new(2026, 10, 1), source_type: "receipt", status: "pending")
+    post "/api/v1/mia/messages", params: { message: "Please read these", document_import_ids: [ good.id, failed.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    text = response.parsed_body.dig("assistant_message", "content")
+    assert_includes text, "I read a receipt from Fictional shop for $12"
+    assert_includes text, "unreadable.jpg: #{FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE}"
+    refute_match(/extraction|verified rows|structured values|attached evidence/, text)
   end
 
   test "mia chat explains budget uploads as review before apply setup values" do

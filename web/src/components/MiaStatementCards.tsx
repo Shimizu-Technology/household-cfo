@@ -146,7 +146,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
 
   // Keep remount focus separate: a new parent callback must not consume a line's pending focus before refreshed rows arrive.
   useEffect(() => {
-    if (data && focusAfterSign) { heading.current?.focus(); onSignFocusDone() }
+    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('.statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone() }
   }, [data, focusAfterSign, onSignFocusDone])
 
   if (!data || !review || !plan || !counts) {

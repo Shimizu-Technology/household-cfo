@@ -23,7 +23,7 @@ export function StatementAnswers({ item, categories, disabled, unsaved, inlineCa
       ? categories.length > 0 && categories.length <= 3
         ? categories.map((category) => <Button key={category.id} variant={mine?.categoryId === category.id ? 'primary' : 'secondary'} aria-pressed={mine?.categoryId === category.id} disabled={disabled} aria-label={`${category.name}: ${name}`} onClick={() => onAnswer('edit', category.id)}>{category.name}</Button>)
         : categories.length === 0
-          ? <Button key={choice.id} variant="secondary" disabled={disabled} onClick={() => onAnswer('edit')}>Choose a category</Button>
+          ? <p key={choice.id}>Create a category in Budget, then come back to choose it for this line.</p>
           : <select key={choice.id} aria-label={`Category for ${name}`} value={mine?.categoryId ?? ''} disabled={disabled} onChange={(event) => { if (event.target.value) onAnswer('edit', Number(event.target.value)) }}>
             <option value="">{choice.label}</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}

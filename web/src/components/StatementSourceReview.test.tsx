@@ -135,7 +135,7 @@ describe('statement review a participant can finish', () => {
     mount()
     await screen.findByRole('list', { name: 'Lines that need a quick look' })
     expect(screen.queryByRole('combobox', { name: /^Category for/ })).toBeNull()
-    expect(screen.getAllByRole('button', { name: 'Choose a category' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Create a category in Budget, then come back to choose it for this line.').length).toBeGreaterThan(0)
   })
 
   it('keeps an unsaved category answer and lets her retry it', async () => {

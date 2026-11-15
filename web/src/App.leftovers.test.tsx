@@ -100,19 +100,19 @@ describe('profile base amounts', () => {
   })
 })
 
-describe('debt minimums card', () => {
-  it('keeps Home focused on money and one next action when debt minimums need entry', () => {
+describe('monthly debt payments card', () => {
+  it('keeps Home focused on money and one next action when monthly debt payments need entry', () => {
     const dashboard = {
-      summary: { readiness_tone: 'yellow', readiness_label: 'Debt minimums needed', readiness_available: false, next_safe_to_spend_amount: null, monthly_income: 0, debt_payments: 0 },
+      summary: { readiness_tone: 'yellow', readiness_label: 'Monthly debt payments needed', readiness_available: false, next_safe_to_spend_amount: null, monthly_income: 0, debt_payments: 0 },
       action_center: { current_month_label: 'October', current_year: 2026, current_month_index: 9, total_review_count: 0, transaction_review_count: 0, mia_action_review_count: 0 },
-      coach_read: { title: 'Finish the debt minimums before making a cash-flow call.', body: 'Add it in My Money, under Debt.', action: 'open_debt' },
-      alerts: [{ tone: 'yellow', title: 'Debt minimums needed', body: 'Add every required monthly minimum in My Money, under Debt.', action: 'open_debt' }],
+      coach_read: { title: 'Finish the monthly debt payments before making a cash-flow call.', body: 'Add it in My Money, under Debt.', action: 'open_debt' },
+      alerts: [{ tone: 'yellow', title: 'Monthly debt payments needed', body: 'Add every required monthly minimum in My Money, under Debt.', action: 'open_debt' }],
       readiness_path: { available: false },
       next_steps: [], accounts: [],
     } as unknown as DashboardData
     const onOpenDebt = vi.fn()
     render(<HomeScreen dashboard={dashboard} budget={{} as never} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} pendingImportCount={0} onReviewImports={vi.fn()} onOpenDebt={onOpenDebt} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add debt minimums' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add monthly debt payments' }))
     expect(onOpenDebt).toHaveBeenCalledOnce()
     expect(screen.queryByRole('button', { name: 'Open My Money > Debt' })).toBeNull()
     expect(screen.getByRole('button', { name: /Tell .+ what changed/ })).toBeTruthy()

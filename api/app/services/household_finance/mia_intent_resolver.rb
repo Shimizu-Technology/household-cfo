@@ -795,7 +795,7 @@ module HouseholdFinance
     end
 
     def debt_balance_and_minimum_question?
-      latest_assistant_text.match?(/\btotal\s+(?:debt\s+)?balance\b.{0,40}\b(?:total\s+)?monthly\s+minimum\b/i)
+      latest_assistant_text.match?(/\btotal\s+(?:debt\s+)?balance\b.{0,40}\b(?:total\s+)?monthly\s+(?:minimum|debt\s+payments)\b/i)
     end
 
     def debt_free_offer_pending?
@@ -1078,8 +1078,8 @@ module HouseholdFinance
       return results.find(&:clarification?) if results.any?(&:clarification?)
       return unless results.all?(&:actionable?)
       Result.new(intent: "action_plan", confidence: 1.0, continuation: false, resolved_message: user_message,
-        needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Debt minimums" }, action: { type: "none" }, read_only_plan: {}, source: "deterministic",
-        write_plan: { title: "Debt minimums", kind: "debt_minimums", actions: results.each_with_index.map { |result, index| { source_text: parts[index], depends_on: [], action: result.action } } })
+        needs_clarification: false, clarification: "", topic: { type: "debt_edit", title: "Monthly debt payments" }, action: { type: "none" }, read_only_plan: {}, source: "deterministic",
+        write_plan: { title: "Monthly debt payments", kind: "debt_minimums", actions: results.each_with_index.map { |result, index| { source_text: parts[index], depends_on: [], action: result.action } } })
     end
 
     def saved_setup_change_result
@@ -1145,7 +1145,7 @@ module HouseholdFinance
           return deterministic_setup_clarification(field, clarification: "Your individual debts are on file. Review their minimums in My Money, Debt, or name the debt to change. Nothing changed.")
         end
         return Result.new(intent: "debt_action", confidence: 1.0, continuation: true,
-          resolved_message: "Set monthly debt minimums to #{value}", needs_clarification: false, clarification: "",
+          resolved_message: "Set monthly debt payments to #{value}", needs_clarification: false, clarification: "",
           topic: { type: "household_setup", title: "Starting household picture", subject: label },
           action: { type: "update_debt_tracking", debt_tracking_mode: "summary", amount: context.dig(:debt_tracking, :balance_known) ? context.dig(:debt_tracking, :total_balance).to_s : "unknown", minimum_payment: value }, read_only_plan: {}, source: "deterministic")
       end
@@ -3669,7 +3669,7 @@ module HouseholdFinance
         "Which archived debt should I restore?"
       when "update_debt_tracking"
         return "Should debt use one household summary or individual records?" unless action[:debt_tracking_mode].in?(HouseholdProfile::DEBT_TRACKING_MODES)
-        "What are the approved total balance and total monthly minimum? Say unknown for either one you have not confirmed."
+        "What are the approved total balance and total monthly debt payments? Say unknown for either one you have not confirmed."
       when "create_account"
         return "What should this account be called?" if action[:account_name].blank?
         "What kind of account is this?"

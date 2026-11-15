@@ -58,7 +58,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
   const known = answer?.money_in_cents != null && answer.planned_out_cents != null && left != null
   const income = Math.max(0, answer?.money_in_cents ?? 0)
   const spent = Math.min(income, Math.max(0, answer?.spent_so_far_cents ?? 0))
-  // Debt minimums stay in the plan; pending purchases never become spending.
+  // Monthly debt payments stay in the plan; pending purchases never become spending.
   const stillPlanned = answer?.category_left_cents != null && answer.category_plan_cents != null
     ? Math.max(0, answer.category_left_cents) + Math.max(0, (answer.planned_out_cents ?? 0) - answer.category_plan_cents)
     : Math.max(0, (answer?.planned_out_cents ?? 0) - spent)
@@ -72,13 +72,13 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
     </div>
     <section className={`home-month-answer ui-answer${left != null && left < 0 ? ' home-month-answer--short' : ''}`} aria-label="Your month in money">
       <HomeMoneyValues answer={answer} />
-      <p className="home-plan-caveat ui-answer__note">{answer?.missing_plan_inputs?.length ? `Still to add: ${answer.missing_plan_inputs.map(input => input.label).join(', ')}.` : answer?.main_income_missing ? 'Still to add: your main income.' : left == null ? 'Add your income, planned costs, and debt minimums to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
+      <p className="home-plan-caveat ui-answer__note">{answer?.missing_plan_inputs?.length ? `Still to add: ${answer.missing_plan_inputs.map(input => input.label).join(', ')}.` : answer?.main_income_missing ? 'Still to add: your main income.' : left == null ? 'Add your income, planned costs, and monthly debt payments to see what’s left.' : 'This is your plan, not your bank balance.'}</p>
       {known && <div className="ui-bar" aria-hidden="true" style={barStyle}>
         {answer?.spent_so_far_cents != null && <span className="ui-bar__spent" />}
         <span className="ui-bar__planned" /><span className="ui-bar__remainder" />
       </div>}
       <p className="home-spent"><span><i className="ui-dot ui-dot--spent" aria-hidden="true" />Spent so far this month:</span>{' '}<strong>{answer?.spent_so_far_cents == null ? 'Not known yet' : formatReviewMoney(answer.spent_so_far_cents)}</strong></p>
-      {answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="ui-btn ui-btn--tonal home-answer-recovery" onClick={onOpenDebt}>Add debt minimums</button>}
+      {!answer?.cushion_missing_inputs?.some(input => input.destination === 'debt') && answer?.planned_out_cents == null && dashboard.coach_read?.action === 'open_debt' && onOpenDebt && <button type="button" className="ui-btn ui-btn--tonal home-answer-recovery" onClick={onOpenDebt}>Add monthly debt payments</button>}
       {answer && answer.pending_count == null && <p className="home-answer-pending ui-answer__note">More purchases may be waiting. Check Review before your next money decision.</p>}
     </section>
     {canReviewTransactions && onAddPurchase && <button type="button" className="ui-btn ui-btn--primary" onClick={onAddPurchase}>Add a purchase</button>}
@@ -95,7 +95,7 @@ export function HomeScreen({ starterPrompts = [], onChoosePrompt, dashboard, bud
       <p>{answer?.readiness_guidance ?? 'Add the missing starting numbers before judging your cushion.'}</p>
       {answer?.runway_months == null && answer?.cushion_missing_inputs?.map(input => {
         const open = { profile: onOpenProfile, budget: onOpenBudget, debt: onOpenDebt, accounts: onOpenAccounts }[input.destination]
-        const label = { profile: 'Add income', budget: 'Add planned costs', debt: 'Add debt minimums', accounts: 'Add account balances' }[input.destination]
+        const label = { profile: 'Add income', budget: 'Add planned costs', debt: 'Add monthly debt payments', accounts: 'Add account balances' }[input.destination]
         return open && <HomeAction secondary key={input.destination} onClick={open}>{label}</HomeAction>
       })}
       {answer?.runway_months != null && <>
@@ -121,10 +121,11 @@ function HomeAction({ children, onClick, secondary = false, className = '' }: { 
 }
 
 export function HomeMoneyValues({ answer }: { answer?: DashboardData['month_answer'] }) {
-  const left = answer?.plan_left_cents
+  const beforeDebt = answer?.before_debt_payments === true
+  const left = beforeDebt ? answer.before_debt_left_cents : answer?.plan_left_cents
   return <dl className="home-money-values">
-    <MoneyValue hero label={left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={left == null ? left : Math.abs(left)} />
-    <MoneyValue label="Money out · planned" cents={answer?.planned_out_cents} />
+    <MoneyValue hero label={beforeDebt ? 'What’s left · before debt payments' : left != null && left < 0 ? 'Short of the plan' : 'What’s left · planned'} cents={beforeDebt || left == null ? left : Math.abs(left)} />
+    <MoneyValue label={beforeDebt ? 'Money out · before debt payments' : 'Money out · planned'} cents={beforeDebt ? answer.before_debt_out_cents : answer?.planned_out_cents} />
     <MoneyValue label="Money in" cents={answer?.money_in_cents} />
   </dl>
 }
