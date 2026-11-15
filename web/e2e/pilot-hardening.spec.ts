@@ -17776,6 +17776,7 @@ test('BOG UI F2 new purchase category has no over warning and opens its amount e
 test('BOG UI F2 failed manual confirmation leaves one saved review and an inert recovery result', async ({ page }) => {
   const workspace = await f2Mock(page)
   let creates = 0
+  const confirmationKeys: string[] = []
   await page.route('http://api.test/api/v1/transaction_drafts', async route => {
     creates++
     const input = route.request().postDataJSON().transaction_draft
@@ -17783,7 +17784,13 @@ test('BOG UI F2 failed manual confirmation leaves one saved review and an inert 
     workspace.budget.annual_plan.pending_transaction_drafts = [draft]
     await route.fulfill({ json: { transaction_draft: draft, workspace } })
   })
-  await page.route('http://api.test/api/v1/transaction_drafts/7799/confirm', route => route.fulfill({ status: 422, json: { error: 'Not confirmed' } }))
+  await page.route('http://api.test/api/v1/transaction_drafts/7799/confirm', async route => {
+    confirmationKeys.push(route.request().headers()['idempotency-key'])
+    if (confirmationKeys.length === 1) return route.fulfill({ status: 422, json: { error: 'Not confirmed' } })
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.dashboard.month_answer.spent_so_far_cents = 4520
+    await route.fulfill({ json: { workspace } })
+  })
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
   await page.getByLabel('Merchant', { exact: true }).fill('Payless')
@@ -17797,4 +17804,11 @@ test('BOG UI F2 failed manual confirmation leaves one saved review and an inert 
   expect(creates).toBe(1)
   await openSection(page, 'Home')
   await expect(page.locator('.home-spent')).toContainText('$0')
+  await openSection(page, 'Review')
+  await page.locator('[data-review-item="7799"]').getByRole('button', { name: /^Confirm / }).click()
+  await expect(page.locator('[data-review-item="7799"] [data-review-result]')).toContainText('Confirmed.')
+  expect(confirmationKeys).toHaveLength(2)
+  expect(confirmationKeys[0]).toBeTruthy()
+  expect(confirmationKeys[1]).toBe(confirmationKeys[0])
+  expect(creates).toBe(1)
 })
