@@ -3159,7 +3159,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       let confirmationFailed = false
       if (confirm) {
         try {
-          const confirmSignature = `transaction:manual-confirm:${response.transaction_draft.id}`
+          const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
           response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
           transactionOperationKeysRef.current.complete(confirmSignature)
           rememberPurchase(response.transaction_draft, 'confirmed')
