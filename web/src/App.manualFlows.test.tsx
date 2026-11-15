@@ -618,6 +618,22 @@ it('keeps a later household category named in the purchase summary when its grou
   expect(screen.queryByText('Other flexible spending')).toBeNull()
 })
 
+it('opens on the merchant field but never pulls her out of a field she is already in', () => {
+  const frames: FrameRequestCallback[] = []
+  const frame = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    const first = render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} initiallyOpen />)
+    frames.splice(0).forEach(callback => callback(0))
+    expect(document.activeElement).toBe(screen.getByLabelText('Merchant'))
+    first.unmount()
+    // A late frame: she has already moved to Amount.
+    render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} initiallyOpen />)
+    screen.getByLabelText('Amount').focus()
+    frames.splice(0).forEach(callback => callback(0))
+    expect(document.activeElement).toBe(screen.getByLabelText('Amount'))
+  } finally { frame.mockRestore() }
+})
+
 it('focuses the inert purchase result even when an animation frame runs before its commit', async () => {
   const frame = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1 })
   try {

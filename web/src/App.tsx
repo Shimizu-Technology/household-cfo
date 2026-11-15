@@ -7884,7 +7884,13 @@ export function ManualTransactionCapture({
   useEffect(() => {
     if (!initiallyOpen) return
     onOpenHandled?.()
-    requestAnimationFrame(() => { merchantRef.current?.scrollIntoView({ block: 'center' }); merchantRef.current?.focus() })
+    requestAnimationFrame(() => {
+      const field = merchantRef.current
+      // On a slow frame she may already be typing in another field: never pull her out of it.
+      if (!field || field.form?.contains(document.activeElement)) return
+      field.scrollIntoView({ block: 'center' })
+      field.focus()
+    })
   }, [initiallyOpen, onOpenHandled])
 
   function closeOnEscape(event: KeyboardEvent<HTMLElement>) {
