@@ -7999,7 +7999,8 @@ export function TransactionDraftReviewStack({
       draft.merchant,
       draft.occurred_on,
       draft.category_name ?? '',
-      ...(draft.splits ?? []).map((split) => split.category_name ?? ''),
+      categoryDisplayName(draft.category_name ?? ''),
+      ...(draft.splits ?? []).flatMap(split => [split.category_name ?? '', categoryDisplayName(split.category_name ?? '', split.stack_key ?? undefined)]),
       exactMoneyNumber(draft.amount, draft.amount_cents).toFixed(2),
     ].join(' ').toLowerCase().includes(normalizedQuery))
   }, [drafts, query])
@@ -8517,14 +8518,14 @@ function TransactionDraftReviewCard({
           </button>
         </div>
       )}
-      {!isPending && ['confirmed', 'corrected'].includes(draft.status) && plan && onPlanCategory && plan.rows.filter(row => row.active && row.months[monthIndexFromIsoDate(draft.occurred_on)]?.planned === 0 && (row.id === draft.category_id || (draft.splits ?? []).some(split => split.budget_category_id === row.id || split.category_name === row.name))).map(row => <div className="ui-row" key={row.id}><span className="ui-row__body">{row.name} · No amount planned yet</span><button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(row.id, monthIndexFromIsoDate(draft.occurred_on) + 1)}>Set amount for {row.name}</button></div>)}
+      {!isPending && ['confirmed', 'corrected'].includes(draft.status) && plan && onPlanCategory && plan.rows.filter(row => row.active && row.months[monthIndexFromIsoDate(draft.occurred_on)]?.planned === 0 && (row.id === draft.category_id || (draft.splits ?? []).some(split => split.budget_category_id === row.id || split.category_name === row.name))).map(row => <div className="ui-row" key={row.id}><span className="ui-row__body">{categoryDisplayName(row.name, row.stack_key)} · No amount planned yet</span><button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(row.id, monthIndexFromIsoDate(draft.occurred_on) + 1)}>Set amount for {categoryDisplayName(row.name, row.stack_key)}</button></div>)}
       {isPending && (
         <details className="transaction-review-details" open={editing || undefined}><summary>Purchase details</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
               <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
-                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : split.stack_key ? categoryDisplayName(split.category_name ?? '', split.stack_key) : split.category_name} · {formatReviewMoney(Math.round((exactMoneyNumber(split.amount, split.amount_cents)) * 100))}</strong>
+                <strong>{transactionDraftSplitNeedsCategory(split, draft.source_type, draft.financial_document_import_id) ? 'Needs category' : categoryDisplayName(split.category_name ?? '', split.stack_key ?? undefined)} · {formatReviewMoney(Math.round((exactMoneyNumber(split.amount, split.amount_cents)) * 100))}</strong>
                 {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
                   <span>{[
                     !split.budget_category_id && extractedCategoryLabel(split) ? `${assistantName} read “${extractedCategoryLabel(split)}”` : null,
@@ -8778,6 +8779,7 @@ function TransactionLedger({
         const haystack = [
           transaction.merchant,
           transaction.categories.join(' '),
+          transaction.categories.map(name => categoryDisplayName(name)).join(' '),
           transaction.occurred_on,
           formatShortDate(transaction.occurred_on),
           String(transaction.amount),
@@ -8813,7 +8815,7 @@ function TransactionLedger({
               <span className="sr-only">Filter by category</span>
               <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.currentTarget.value); setPage(1) }}>
                 <option value="all">All categories</option>
-                {categoryOptions.map((category) => <option value={category} key={category}>{category}</option>)}
+                {categoryOptions.map((category) => <option value={category} key={category}>{categoryDisplayName(category)}</option>)}
               </select>
             </label>
             <label>
@@ -8837,7 +8839,7 @@ function TransactionLedger({
         <div className={`recent-transaction-row${reopen ? ' has-row-action' : ''}`} key={transaction.id}>
           <span>{formatShortDate(transaction.occurred_on)}</span>
           <strong>{transaction.merchant}</strong>
-          <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+          <span>{transaction.categories.map(name => categoryDisplayName(name)).join(', ') || 'Uncategorized'}</span>
           <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
           {reopen && (transaction.transaction_draft_id ? <TransactionReopenButton transaction={transaction} {...reopen} /> : <span aria-hidden="true" />)}
         </div>
@@ -9493,7 +9495,7 @@ export function AnnualBudgetPlanner({
                   <div className="archived-category-list">
                     {archivedCategories.map((category) => (
                       <div className="archived-category-row" data-archived-budget-category-id={category.id} key={category.id}>
-                        <div><strong>{category.name}</strong><span>{category.stack_label}</span></div>
+                        <div><strong>{categoryDisplayName(category.name, category.stack_key)}</strong><span>{category.stack_label}</span></div>
                         <button type="button" className="secondary-button" disabled={action === `restore-category:${category.id}`} onClick={() => onRestoreCategory(category.id)}>
                           {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
                         </button>

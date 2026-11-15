@@ -1,3 +1,4 @@
+import { categoryDisplayName } from '../lib/categoryDisplayName'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import type { IgnoredTransactionDraft, RecentTransaction, SpendingReport, TransactionDraft } from '../api'
 import { transactionDraftFromIgnored, transactionDraftFromLedgerRow, transactionItemName } from '../lib/transactionReview'
@@ -59,7 +60,7 @@ export function IgnoredTransactionList({
             <li className="reviewed-transaction-row" key={row.id}>
               <span>{shortDate(row.occurred_on)}</span>
               <strong>{row.merchant}</strong>
-              <span>{row.category_name || 'Needs category'}</span>
+              <span>{row.category_name ? categoryDisplayName(row.category_name) : 'Needs category'}</span>
               <b>{formatReviewMoney(Math.round((typeof row.amount_cents === 'number' ? row.amount_cents / 100 : row.amount) * 100))}</b>
               <button
                 type="button"
@@ -108,7 +109,7 @@ export function ReviewedTransactionsPanel({
               <li className="reviewed-transaction-row" key={transaction.id}>
                 <span>{shortDate(transaction.occurred_on)}</span>
                 <strong>{transaction.merchant}</strong>
-                <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+                <span>{transaction.categories.map(name => categoryDisplayName(name)).join(', ') || 'Uncategorized'}</span>
                 <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
                 <TransactionReopenButton transaction={transaction} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
               </li>
