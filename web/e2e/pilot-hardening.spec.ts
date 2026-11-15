@@ -17862,6 +17862,41 @@ test('BOG UI F2 failed manual confirmation leaves one saved review and an inert 
   expect(creates).toBe(1)
 })
 
+test('BOG UI F2 a lost confirmation response is asked again with the same key and counts once', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  let creates = 0
+  const confirmationKeys: string[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    creates++
+    const input = route.request().postDataJSON().transaction_draft
+    const draft = { id: 7798, ...input, amount: 45.2, amount_cents: 4520, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 8802, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', stack_label: 'Flexible spending', amount: 45.2, amount_cents: 4520, notes: null, confidence: 1 }], matches: [] }
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  await page.route('http://api.test/api/v1/transaction_drafts/7798/confirm', async route => {
+    confirmationKeys.push(route.request().headers()['idempotency-key'])
+    // The first confirmation commits on the server and its response never arrives.
+    workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.budget.annual_plan.rows[0].months[10].actual = 45.2
+    workspace.dashboard.month_answer.spent_so_far_cents = 4520
+    f2SyncSnapshot(workspace)
+    if (confirmationKeys.length === 1) return route.abort('connectionreset')
+    await route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
+  await page.getByLabel('Merchant', { exact: true }).fill('Payless')
+  await page.getByLabel('Amount', { exact: true }).fill('45.20')
+  await page.getByRole('combobox', { name: 'Category', exact: true }).selectOption('2')
+  await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
+  await expect(page.locator('.manual-transaction-capture [data-review-result]')).toHaveText('Confirmed Payless for $45.20. It now counts as spent.')
+  await expect(page.locator('[data-review-item="7798"]').getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+  expect(confirmationKeys).toHaveLength(2)
+  expect(confirmationKeys[1]).toBe(confirmationKeys[0])
+  expect(creates).toBe(1)
+})
+
 async function fix1EnterPurchase(page: Page) {
   await page.getByRole('button', { name: 'Add a purchase', exact: true }).click()
   await page.getByLabel('Merchant', { exact: true }).fill('Market')

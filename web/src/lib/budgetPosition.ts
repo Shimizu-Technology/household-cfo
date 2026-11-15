@@ -56,6 +56,8 @@ export function budgetPositionsForMonth(
     ? new Map(spendingReport.categories.map((category) => [category.id, category]))
     : new Map<number, SpendingReport['categories'][number]>()
   const planCategoryIds = new Set(plan.rows.map((row) => row.id))
+  // One context for both lists, so a report-only category and a plan row never share a label.
+  const labelContext = [...plan.rows, ...Array.from(reportCategories.values()).filter((category) => !planCategoryIds.has(category.id))]
   const planPositions = plan.rows.map((row) => {
     const cell = row.months[monthIndex]
     const reportCategory = reportCategories.get(row.id)
@@ -65,7 +67,7 @@ export function budgetPositionsForMonth(
       id: row.id,
       neverPlanned: row.months.every(month => !month.allocation_missing && month.planned === 0),
       allocationMissing: !cell || cell.allocation_missing === true,
-      name: categoryDisplayName(row.name, row.stack_key, plan.rows),
+      name: categoryDisplayName(row.name, row.stack_key, labelContext),
       stackKey: row.stack_key,
       stackLabel: row.stack_label,
       planned,
@@ -80,7 +82,7 @@ export function budgetPositionsForMonth(
     .filter((category) => !planCategoryIds.has(category.id))
     .map((category) => ({
       id: category.id,
-      name: categoryDisplayName(category.name, category.stack_key, Array.from(reportCategories.values())),
+      name: categoryDisplayName(category.name, category.stack_key, labelContext),
       stackKey: category.stack_key,
       stackLabel: category.stack_label,
       planned: category.planned,

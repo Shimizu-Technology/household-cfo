@@ -3181,12 +3181,26 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
           transactionOperationKeysRef.current.complete(confirmSignature)
           rememberPurchase(response.transaction_draft, 'confirmed')
-        } catch {
+        } catch (caught) {
           confirmationFailed = true
+          // A lost response can hide a confirmation that went through. Ask once more with the same key:
+          // the server replays a finished confirmation and never counts the purchase twice.
+          if (!(caught instanceof ApiRequestError) || caught.status >= 500) {
+            try {
+              const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
+              response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
+              transactionOperationKeysRef.current.complete(confirmSignature)
+              rememberPurchase(response.transaction_draft, 'confirmed')
+              confirmationFailed = false
+            } catch {
+              // Still unknown: the purchase stays in Review, where Confirm uses the same key again.
+            }
+          }
         }
       }
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
-      setData({ type: 'financial_mutation', update: response.workspace })
+      // A new category changes every plan year, so cached years must be read again.
+      setData({ type: confirm && !possibleDuplicate && !confirmationFailed && values.splits?.some(split => split.category_name) ? 'shared_financial_mutation' : 'financial_mutation', update: response.workspace })
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       replaceMiaHistory(response.workspace.mia)
