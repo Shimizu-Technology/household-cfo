@@ -23,3 +23,6 @@
   .setup-support-heading .button, .setup-support-actions .button { width: 100%; }
   .setup-support-actions { display: grid; }
 }
+
+/* Preserve this existing dialog section face after narrowing shared title styling. */
+body :where([data-dialog-panel]) .setup-support-heading > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }

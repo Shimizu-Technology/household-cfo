@@ -4,13 +4,13 @@ Household CFO uses Look A: cream ground, paper cards, plum derived from the coac
 
 ## Styles and cascade
 
-`main.tsx` loads `styles/tokens.css`, `index.css`, then `appStyles.ts`. The latter loads `App.css`, `shell.css`, `cards.css`, `home.css`, `mia.css`, `charts.css`, `budgetReview.css`, `statementsWealth.css`, `moneyProfile.css`, `motion.css`, then **`ui.css`**. New shared primitives belong in `ui.css`, not the legacy `App.css`. `opening.css` follows at entry. `dialogViewportBase.css` supplies shared entry/exit motion and viewport variables; the workspace’s `dialogViewport.css` adds keyboard-aware sizing after component styles.
+`main.tsx` loads `styles/tokens.css`, `index.css`, then `appStyles.ts`. The latter loads `App.css`, `shell.css`, `cards.css`, `home.css`, `mia.css`, `charts.css`, `budgetReview.css`, `statementsWealth.css`, `moneyProfile.css`, `motion.css`, then **`ui.css`**. New shared primitives belong in `ui.css`, not the legacy `App.css`. `dialogViewportBase.css` follows at entry, then `opening.css`. The base supplies shared entry/exit motion and viewport variables. The lazy workspace loads component styles and `participantFlows.css`; its final `dialogViewport.css` import adds keyboard-aware sizing and reimports the base. Keep both the entry order and lazy-component specificity in mind before moving a rule.
 
 Component CSS may arrive later in a lazy chunk. Shared control rules deliberately use `body :is(#root, [role='dialog'], [role='alertdialog'])` so their visual contract wins over component classes, including portals. They preserve existing component dimensions. Do not compete with them by adding a more specific screen rule. `.ui-brand` recomputes the semantic aliases for locally scoped brand previews; production `BrandDocument` writes the root variables.
 
 ## Tokens and white label
 
-Every colour and font comes from the active `BrandDocument` brand. No Household CFO hex values in component CSS. The old names remain supported; use the honest name in new CSS.
+Use the active `BrandDocument` brand for colours and fonts. New component CSS must use tokens, without Household CFO colour literals. Legacy aliases still serve runtime branding and existing rules; use the semantic names below in new CSS.
 
 | New name | Existing source | Use |
 | --- | --- | --- |
@@ -38,7 +38,7 @@ Data marks have two sets: `--data-spent`, `--data-planned`, `--data-remainder` o
 - Spacing: `--space-1/2/3/4/5/6/8/10` = 4/8/12/16/20/24/32/40px. Radii: `--radius-sm/md/lg/pill` = 10/14/20/999px.
 - Elevation tokens are legacy values, not permission to add shadows. The floating phone navigation is the explicit navigation exception; its exact CSS policy entry belongs to the shell slice.
 
-The display face (`--font-display`, Household CFO’s Cormorant Garamond) is for the wordmark, page titles, the one answer figure, assistant’s name and monogram, numbered stack circles, dialog/sheet titles, and the existing Biba headline and brand closing line. Body, labels, buttons, forms, tables and all other money columns use `--font-body`. Page titles are 32px on phones; the answer figure is at most 56px. Serif figures always declare `font-variant-numeric: tabular-nums lining-nums` **after** any `font` shorthand, which resets it. Do not use custom properties inside `@font-face` descriptors.
+The display face (`--font-display`, Household CFO’s Cormorant Garamond) is for the wordmark, page titles, the one answer figure, assistant’s name and monogram, numbered stack circles, dialog/sheet titles, and the existing Biba headline and brand closing line. Body, labels, buttons, forms, tables and all other money columns use `--font-body`. Page titles are 32px on phones; the answer figure is at most 56px. Serif figures always declare `font-variant-numeric: tabular-nums lining-nums` **after** any `font` shorthand, which resets it. Shared dialog typography addresses only a panel’s direct title or its own header; the bulk-confirmation form owns its wrapped title rule. Existing Mia prompt/context, setup-help, dialog support-request, privacy-review and enterprise-settings section headings retain their display face through scoped compatibility rules; new section headings use the body face. Do not use custom properties inside `@font-face` descriptors.
 
 ## Primitives
 
@@ -115,7 +115,7 @@ More is a modal sheet above the phone bar, with a scrim, 44px close target, rows
 
 ## Preview and verification
 
-In opted-in development/test only, open `/ui-foundation-qa.html` with `VITE_E2E_AUTH=true`. It shows every primitive in Household CFO and a blue coach with different fonts, plus controls, disabled states, and a native dialog. It is a separate HTML entry, absent from the production build and routing. `e2e/ui-foundation.spec.ts` checks overflow, target sizes, contrast, keyboard behavior, forced colours and dialog dismissal across the browser matrix. The chosen-look references and six existing screen comparisons remain the visual acceptance, beyond test counts.
+In opted-in development/test only, open `/ui-foundation-qa.html` with `VITE_E2E_AUTH=true`. It shows every primitive in Household CFO and a blue coach with different fonts, plus controls, disabled states, and a native dialog. It is a separate HTML entry, absent from the production build and routing. `e2e/ui-foundation.spec.ts` checks overflow, target sizes, contrast, keyboard behavior, forced colours and dialog dismissal across the browser matrix. The chosen-look references and recorded screen comparisons remain the visual acceptance, beyond test counts. For cleanup, capture the same mocked states before and after at 390×844 and 1440×900 in Chromium, with fonts loaded and animations disabled. Compare decoded pixels with zero tolerance; document each authorized visible difference. Keep the viewport, fixture, time and scroll state identical. A green test count alone does not prove visual equivalence.
 
 ## Words and privacy
 
@@ -124,3 +124,7 @@ Write for a household, not an engineer. Keep approved visible copy when restylin
 The admin shell uses the same `shell-sidebar`, `shell-sidebar-link`, `tabs-shell`, `tabs-ground` and More-sheet rules as the participant shell. Its server-provided sections retain their labels and order: all sections in the laptop sidebar, the first four plus More below 1024px, with My household and account/help after the destinations. The shared `useShellTextEntryNavigation` hook keeps the exact typed-text focus and pointer hold policy in both shells. Admin More uses `usePilotDialog`, `dialogExit` and the shared body scroll lock, consuming a touch dismissal on the backdrop's own click.
 
 Admin program selection appears when there is more than one choice, in the laptop header or the first row of More. An administrator's All programs scope counts as a choice and is never replaced automatically by the shell. A coach with one program has no picker; the auth context supplies the server's active program and section list. Coaching samples remain empty until an explicit preview action; rendering the authoring rail, entering text and switching steps never generate samples. The rail reads voice rules from saved configuration, with `coaching.do_not` under its own “Do not” label.
+
+## Adding a screen
+
+Start with its participant task and approved copy. Use a screen file under `styles/`, the shared primitives, and brand tokens. Preserve manual entry, review before financial writes, unknown amounts, accessible headings and recovery paths. Test the actual available column after navigation takes its space, including phone tabs and dialog safe areas. A native select must retain its arrow space and pass the dropdown check described above. Move legacy CSS only when intervening rules cannot change the same element and property; validate the cascade with before/after pixels.

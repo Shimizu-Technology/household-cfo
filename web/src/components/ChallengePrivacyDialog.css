@@ -73,3 +73,6 @@
 .privacy-review { padding-inline: 0; border: 0; border-block: 1px solid var(--rule); border-radius: 0; background: transparent; }
 
 .challenge-privacy-dialog .savings-close-symbol { font-size: var(--text-2xl); line-height: 1; }
+
+/* Keep the existing section typography independent of shared dialog-title styling. */
+body :where(.challenge-privacy-dialog) .privacy-review > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }

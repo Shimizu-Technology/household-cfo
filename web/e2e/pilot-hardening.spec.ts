@@ -25,45 +25,6 @@ async function answerConfirm(page: Page, answer: 'accept' | 'dismiss', ...expect
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const longMonths = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
-
-async function r6MiaShot(page: Page, label: string, card?: Locator) {
-  const directory = process.env.HCFO_R6_P4_SHOTS
-  if (!directory) return
-  await page.evaluate(() => document.fonts.ready)
-  if (card) await card.scrollIntoViewIfNeeded()
-  const prefix = `${directory}/${test.info().project.name}-${label}`
-  if (process.env.HCFO_R6_P4_FIX2_DESKTOP && test.info().project.name === 'desktop-chrome') {
-    const original = page.viewportSize()!
-    await page.setViewportSize({ width: 1440, height: 900 })
-    if (card) await card.scrollIntoViewIfNeeded()
-    await page.screenshot({ path: `${prefix}-1440.png` })
-    await page.setViewportSize(original)
-    if (card) await card.scrollIntoViewIfNeeded()
-  }
-  await page.screenshot({ path: `${prefix}.png` })
-  if (card) {
-    const viewport = page.viewportSize()!
-    const box = await card.boundingBox()
-    // Keep the real viewport above. A separate card-only inspection expands
-    // height so overflow ancestors and the composer cannot clip its evidence.
-    await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.ceil(box!.height + 360)) })
-    await card.scrollIntoViewIfNeeded()
-    await card.screenshot({ path: `${prefix}-card.png`, style: '.chat-scroll-bottom-button { visibility: hidden !important; }' })
-    await page.setViewportSize(viewport)
-    const lastAction = card.getByRole('button').last()
-    if (await lastAction.count()) await lastAction.scrollIntoViewIfNeeded()
-    await page.screenshot({ path: `${prefix}-actions.png` })
-  }
-}
-
-async function r6MiaFrames(page: Page, label: string, target: Locator) {
-  const directory = process.env.HCFO_R6_P4_SHOTS
-  if (!directory) return
-  for (const time of [0, 50, 100, 200]) {
-    await target.evaluate((node, at) => node.getAnimations().forEach(animation => { animation.pause(); animation.currentTime = at }), time)
-    await page.screenshot({ path: `${directory}/${test.info().project.name}-${label}-${time}ms.png` })
-  }
-}
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
@@ -93,6 +54,8 @@ async function adminProgramPicker(page: Page) {
   await expect(page.locator('.admin-app')).toBeVisible()
   const picker = page.getByRole('combobox', { name: 'Program', exact: true })
   if (!(await picker.count()) && await page.locator('.admin-app').count()) {
+    await page.evaluate(() => document.fonts.ready)
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
     if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
     await page.getByRole('button', { name: 'More', exact: true }).click()
   }
@@ -104,6 +67,8 @@ async function closeAdminProgramPicker(page: Page) {
 }
 async function selectAdminProgram(page: Page, value: string) {
   await (await adminProgramPicker(page)).selectOption(value)
+  // The async change handler closes More and commits the new scope after returning.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
 }
 async function expectAdminProgramValue(page: Page, value: string) {
   await expect(await adminProgramPicker(page)).toHaveValue(value)
@@ -157,8 +122,11 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   }
   const section = page.getByRole('link', { name, exact: true })
   const more = page.getByRole('button', { name: 'More', exact: true })
-  if (!(await page.locator('.tabs-shell, .staff-navigation').isVisible()) && (page.viewportSize()?.width ?? 0) <= 620) {
+  if ((page.viewportSize()?.width ?? 0) <= 620) {
+    // The app restores composer focus after 80ms; dismiss its keyboard after that recovery.
+    await page.waitForTimeout(100)
     // Explicitly dismiss a text keyboard before navigating away from its draft.
+
     // Buttons, selects and checkboxes must never require this workaround.
     await page.evaluate(selector => { if (document.activeElement instanceof HTMLElement && document.activeElement.matches(selector)) document.activeElement.blur() }, TEXT_ENTRY_SELECTOR)
   }
@@ -175,6 +143,8 @@ async function openSection(page: Page, name: string, simpleCoach = false) {
   if (name === 'Coach Studio' && !simpleCoach) { await openCoachAdvanced(page); await page.getByRole('tab', { name: /Voice versions/ }).click() }
   if (await more.count()) await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
+  // Route heading focus and scroll restoration finish on the next render frames.
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
 }
 
 async function openMiaReviewDetails(page: Page) {
@@ -2518,7 +2488,6 @@ test('BOG UI mobile Ask Mia renders ordered read-only answers and isolates scena
     await expect(section).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
     await expect(section).toHaveCSS('border-radius', '0px')
   }
-  await r6MiaShot(page, 'read-only-answer', answer)
   await expect(structured.getByText('Answer basis')).toHaveCount(0)
   await expect(structured.getByText('Your saved numbers and the amount you asked about')).toBeVisible()
   await expect(structured.getByText(lead, { exact: true })).toHaveCount(1)
@@ -3667,7 +3636,6 @@ test('BOG UI Ask Mia preserves one request ID through a network failure and relo
   await expect(composer).toHaveValue('What should I focus on?')
   await expect(composer).toBeEnabled()
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
-  await r6MiaShot(page, 'failed-send')
 
   await page.reload()
   const restoredComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
@@ -6326,6 +6294,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: 'Review content draft' }).click()
   await page.getByRole('button', { name: 'Discard and review draft' }).click()
+  await page.waitForFunction(() => !window.history.state?.adminLeaveGuard)
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
   await itemPanel.getByLabel('Title').fill('Unsaved same-item title')
@@ -6337,6 +6306,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: 'Review content draft' }).click()
   await page.getByRole('button', { name: 'Discard and review draft' }).click()
+  await page.waitForFunction(() => !window.history.state?.adminLeaveGuard)
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
   await itemPanel.getByLabel('Title').fill('Keep this edit through a same-request refresh')
@@ -8841,7 +8811,6 @@ for (const setupComplete of [false, true]) {
     await fileInput.setInputFiles(files)
     await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
     await page.evaluate(() => document.fonts.ready)
-    await r6MiaShot(page, `attachments-${setupComplete ? 'established' : 'setup'}`)
     // The file name is a plain button in the card (no browser-grey fill).
     expect(await page.locator('.attachment-preview-button').first().evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
     await expect(page.getByRole('button', { name: 'Remove QA-statement-3.pdf', exact: true })).toHaveCount(1)
@@ -9195,7 +9164,6 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   expect(await card.evaluate(node => getComputedStyle(node).borderTopLeftRadius)).toBe('20px')
   const statementBox = await card.boundingBox(), headerBox = await page.locator('.chat-shell-header').boundingBox()
   expect(statementBox!.y).toBeGreaterThanOrEqual(headerBox!.y + headerBox!.height - 1)
-  await r6MiaShot(page, 'statement-pending', card)
   const sizes = await card.getByRole('button').evaluateAll((buttons) => buttons.map((button) => Math.round(button.getBoundingClientRect().height)))
   expect(Math.min(...sizes)).toBeGreaterThanOrEqual(44)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -9203,7 +9171,6 @@ test('BOG UI Mia posts a card for a statement she has read, and the participant 
   await expect(card.getByRole('status').filter({ hasText: /^Approved\./ })).toBeVisible()
   await expect(card.getByRole('heading')).toBeFocused()
   await expect.poll(() => card.evaluate(node => node.getAnimations().filter(animation => animation.playState === 'running').length)).toBe(0)
-  await r6MiaShot(page, 'statement-finished', card)
   // The counted result is exposed without opening a disclosure.
   await expect(card.getByText(/18 purchases, \$2,249\.65, now count in your spending\./)).toBeVisible()
   expect(saved).toMatchObject({ revision_id: 88, input: { paged: true } })
@@ -10311,11 +10278,9 @@ async function assertDailySaveUncovered(button: ReturnType<Page['getByRole']>) {
 test('BOG UI daily Mia report card saves every listed purchase once with one tap',async({page})=>{
   const{dialog,calls}=await openDaily(page);await dialog.getByRole('button',{name:'Close Today',exact:true}).click()
   const card=await sendMiaDailyReport(page);await expect(card).toContainText('Mon, Sep 28');await expect(card.getByLabel('Amount for Fictional fuel')).toHaveValue('8.00');await expect(card.getByLabel('How did you feel when you spent?')).toHaveValue('Fictional rushed');expect(calls).toHaveLength(0)
-  await r6MiaShot(page, 'daily-checkin', card)
   await assertDailySaveUncovered(card.getByRole('button',{name:'Save',exact:true}));await card.getByRole('button',{name:'Save',exact:true}).click();await expect(card).toContainText('Add where you spent this.');expect(calls).toHaveLength(0)
   await card.getByLabel('Place for purchase 2').fill('Fictional lunch');await card.getByRole('button',{name:'Save',exact:true}).click()
   await expect(card.getByRole('heading',{name:'Saved',exact:true})).toBeVisible();await expect(card.getByRole('button',{name:'Save',exact:true})).toHaveCount(0)
-  await r6MiaShot(page, 'daily-checkin-finished', card)
   expect(calls.map(row=>row.action)).toEqual(['purchase_stage','purchase_approve','purchase_stage','purchase_approve','check_in_save','reflection_save','reflection_save'])
   expect(calls[0].input).toEqual({amount_cents:800,merchant:'Fictional fuel',purchased_on:'2026-09-28',link_kind:'manual_new',expected_version_id:null,expected_head_lock_version:0});expect(calls[3].input).toMatchObject({accepted:true})
   const fits=await card.evaluate(root=>root.scrollWidth<=root.clientWidth+1);expect(fits).toBe(true)
@@ -11441,7 +11406,16 @@ test('BOG UI a sent photo keeps a readable caption inside the bubble', async ({ 
   await caption.scrollIntoViewIfNeeded()
   await expect(caption).toHaveText('Receipt screenshot')
   const contrast = await caption.evaluate((node) => {
-    const channels = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+    // Computed color-mix values serialize as color(srgb ...), not necessarily rgb(...).
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext('2d')!
+    const channels = (value: string) => {
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = value
+      context.fillRect(0, 0, 1, 1)
+      return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3)
+    }
     const luminance = (value: string) => {
       const [red, green, blue] = channels(value).map((channel) => {
         const share = channel / 255
@@ -12424,7 +12398,6 @@ test('BOG UI Ask Mia starters fill the composer without sending and stay out of 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ json: { ...ready, mia: { ...ready.mia, messages: [], oldest_message_id: null, older_message_count: 0, historical_message_count: 0 } } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await r6MiaShot(page, 'empty')
   await page.getByRole('group', { name: 'Ways to start' }).getByRole('button', { name: 'Update a debt', exact: true }).click()
   await expect(composer).toHaveValue('Help me update one of my household debts.')
   await expect(page.getByRole('heading', { name: 'Håfa adai, I’m Mia.', exact: true })).toBeVisible()
@@ -13098,7 +13071,6 @@ test('BOG UI mobile Ask Mia anchors the sent message above typing and never retu
   await expect.poll(sentAtTop).toBe('anchored')
   await expect(page.locator('.message-row.is-new-reply')).toHaveCount(1)
   await expect(page.locator('.is-new-reply .message')).toHaveCSS('animation-duration', '0.2s')
-  await r6MiaFrames(page, 'message-arrival', page.locator('.is-new-reply .message'))
   await expect(page.locator('.message-row.user').last()).toHaveCSS('animation-name', 'none')
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await expect(page.locator('.is-new-reply .message')).toHaveCSS('animation-name', 'mia-result-appear')
@@ -13234,7 +13206,6 @@ test('BOG UI mobile Ask Mia structured review figures match Review and short thr
   expect(change.x).toBeGreaterThanOrEqual(apply.x + apply.width)
   expect(later.x - change.x - change.width).toBeLessThanOrEqual(16)
   expect(later.x).toBeGreaterThanOrEqual(change.x + change.width)
-  await r6MiaShot(page, 'action-draft', card)
   await expect(page.getByRole('button', { name: /changes? to review|purchases? to review/ })).toHaveCount(0)
   await openSection(page, 'Review')
   await expect(page).toHaveURL(/#Review$/)
@@ -13712,7 +13683,6 @@ test('BOG UI mobile Ask Mia setup card updates a row in place and applies on one
   await expect(card.getByText('$20 a week')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
-  await r6MiaShot(page, 'setup', card)
   await card.getByRole('button', { name: /^Change Rent/ }).click()
   await card.getByRole('textbox').fill('1600')
   await card.getByRole('button', { name: 'Save', exact: true }).click()
@@ -14220,7 +14190,6 @@ test('BOG UI leave card waits for a tap, survives reload and confirms the chosen
   await expect(region).toBeVisible()
   await expect(page.getByRole('group', { name: /asks about today/ })).toHaveCount(0)
   expect(calls).toEqual([])
-  await r6MiaShot(page, 'leave', region)
   await page.reload()
   await openSection(page, 'Ask Mia')
   await expect(region).toBeVisible()
@@ -14641,7 +14610,6 @@ for (const [content, call, text] of [
     }
     await page.reload()
     await assertContacts()
-    if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-care-${Number(call)}${Number(text)}.png` })
   })
 }
 
@@ -14695,7 +14663,6 @@ test('BOG UI Mia compact purchase decisions, composer focus and completion prese
     await expect(composer).toBeInViewport()
     await expect(page.locator('.message-row.assistant').last()).toBeInViewport()
     await expect(page.locator('.tabs-shell')).toBeHidden()
-    await r6MiaShot(page, 'keyboard-viewport')
     await page.setViewportSize(original)
   }
   // Measure the deliberate review tap after its target is in view. Moving
@@ -14703,18 +14670,15 @@ test('BOG UI Mia compact purchase decisions, composer focus and completion prese
   await decisions.first().focus()
   await decisions.first().scrollIntoViewIfNeeded()
   const position = await page.locator('.message-row.assistant').last().boundingBox()
-  if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-purchase-before.png` })
   await decisions.first().click()
   await expect(card).toHaveClass(/is-finished/)
   const resultBox = await card.locator('[data-review-result]').boundingBox(), undoBox = await card.getByRole('button', { name: /Undo to edit/ }).boundingBox()
   expect(resultBox!.x + resultBox!.width).toBeLessThanOrEqual(undoBox!.x)
   await expect(page.locator('.chat-card > [data-review-result]')).toContainText('Confirmed')
-  await r6MiaFrames(page, 'card-completion', page.locator('.chat-card > [data-review-result]'))
   expect(confirms).toBe(1)
   await expect(composer).toHaveValue('An unsent thought')
   const after = await page.locator('.message-row.assistant').last().boundingBox()
   expect(Math.abs(after!.y - position!.y)).toBeLessThanOrEqual(1)
-  if (process.env.HCFO_R6_P4_SHOTS) await page.screenshot({ path: `${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-purchase-finished.png` })
   await page.reload()
   await expect(card).toHaveCount(0)
   expect(confirms).toBe(1)
@@ -14733,11 +14697,10 @@ test('BOG UI Mia savings review cards retain their consent and long action names
   await page.route(/http:\/\/api\.test\/api\/v1\/savings_challenge\/chat_cards\/\d+$/, route => { mutations++; return route.abort() })
   await page.reload()
   await openSection(page, 'Ask Mia')
-  for (const [name, label] of [['Your challenge goal', 'goal'], ['Savings to check', 'savings'], ['Talk with your coach', 'leave']] as const) {
+  for (const [name] of [['Your challenge goal', 'goal'], ['Savings to check', 'savings'], ['Talk with your coach', 'leave']] as const) {
     const card = page.getByRole('region', { name, exact: true })
     await expect(card).toBeVisible()
     expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
-    await r6MiaShot(page, label, card)
   }
   const savings = page.getByRole('region', { name: 'Savings to check', exact: true })
   await expect(savings.getByRole('button', { name: 'Yes, add $50' })).toBeDisabled()
@@ -14757,7 +14720,6 @@ test('BOG UI Mia joining stays a reviewed action in the shared card', async ({ p
   const card = page.getByRole('region', { name: 'Join the challenge', exact: true })
   await expect(card.getByRole('button', { name: 'Accept and join' })).toBeDisabled()
   expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
-  await r6MiaShot(page, 'join', card)
 })
 
 test('BOG UI Mia purchase-change review keeps its full before-and-after and a deliberate tap', async ({ page }) => {
@@ -14774,18 +14736,15 @@ test('BOG UI Mia purchase-change review keeps its full before-and-after and a de
   await expect(card).toContainText('$72 left')
   await expect(card.getByRole('button', { name: 'Yes, change it' })).toBeEnabled()
   expect(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1)).toBe(true)
-  await r6MiaShot(page, 'purchase-change', card)
 })
 
 test('BOG UI Mia checkpoint offer and review share the compact card with explicit approval', async ({ page }) => {
   const { calls } = await openDaily(page, { active: true, checkpoint: true })
   const card = page.getByRole('region', { name: 'Day 30 review', exact: true })
   await expect(card).toBeVisible()
-  await r6MiaShot(page, 'checkpoint-offer', card)
   await card.getByRole('button', { name: 'Look at Day 30', exact: true }).click()
   await expect(card.getByRole('button', { name: 'Approve Day 30', exact: true })).toBeDisabled()
   expect(calls.map(call => call.action)).toEqual(['checkpoint_stage'])
-  await r6MiaShot(page, 'checkpoint-review', card)
   await card.getByRole('checkbox', { name: /I checked the dates/ }).check()
   await expect(card.getByRole('button', { name: 'Approve Day 30', exact: true })).toBeEnabled()
   expect(calls.map(call => call.action)).toEqual(['checkpoint_stage'])
@@ -14807,10 +14766,8 @@ test('BOG UI Mia opens the remaining purchases without approving a change', asyn
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const cards = page.locator('.chat-card .transaction-draft-card')
   await expect(cards).toHaveCount(1)
-  await r6MiaShot(page, 'several-purchases-collapsed', cards.first())
   await page.getByRole('button', { name: '1 more purchase to check', exact: true }).click()
   await expect(cards).toHaveCount(2)
-  await r6MiaShot(page, 'several-purchases-expanded', page.locator('.chat-card .transaction-draft-stack'))
   await page.getByRole('button', { name: 'Show fewer purchases', exact: true }).click()
   await expect(cards).toHaveCount(1)
   expect(mutations).toBe(0)
@@ -14836,7 +14793,6 @@ test('BOG UI Mia finishing a long purchase keeps the thread and its result in vi
  expect(Math.abs(after!.y-before!.y)).toBeLessThanOrEqual(1)
  await expect(page.locator('.chat-card .is-finished [data-review-result]')).toBeInViewport()
  await expect(page.locator('.chat-card :focus')).toBeInViewport()
- if(process.env.HCFO_R6_P4_SHOTS) await page.screenshot({path:`${process.env.HCFO_R6_P4_SHOTS}/${test.info().project.name}-long-purchase-finished.png`})
 })
 
 test('Admin UI Coaching never previews on load, on typing, or on a step change; only the preview action spends a request', async ({ page }) => {
@@ -15089,11 +15045,6 @@ test('Admin UI safe-area padding survives phone, landscape tablet and laptop rul
   }
 })
 
-test.afterEach(async ({ page }, info) => {
-  const directory = process.env.HCFO_R6_P4_SHOTS
-  if (directory && info.status !== info.expectedStatus) await page.screenshot({ path: `${directory}/${info.project.name}-${info.title.replace(/[^a-z0-9]+/gi, '-').slice(0, 150)}-failed.png` }).catch(() => undefined)
-})
-
 // Fix-round regressions: exercise deliberate money decisions with real keyboard/pointer input.
 for (const resolution of ['apply', 'cancel'] as const) {
   test(`BOG UI Mia fix1 ${resolution} never hands Enter to another purchase`, async ({ page }) => {
@@ -15152,7 +15103,6 @@ test('BOG UI Mia fix1 repeated tap cannot confirm the next purchase and folding 
   await pending.getByLabel('Merchant', { exact: true }).fill('Unsaved merchant')
   await page.getByRole('button', { name: 'Show fewer purchases' }).click()
   await expect(pending.getByLabel('Merchant', { exact: true })).toHaveValue('Unsaved merchant')
-  await r6MiaShot(page, 'fix1-kept-edit')
 })
 
 test('BOG UI Mia fix1 a second deliberate purchase keeps focus on its own result', async ({ page }) => {
@@ -15210,7 +15160,6 @@ test('BOG UI Mia fix1 chips preserve text and composer errors stay visible outsi
   await page.evaluate(() => document.fonts.ready)
   const retry = error.getByRole('button', { name: 'Try again' })
   await expect(retry).toBeInViewport({ ratio: 1 })
-  await r6MiaShot(page, 'fix1-send-error-keyboard')
   await retry.click()
   await expect(page.locator('.chat-card')).toContainText('Your message arrived.')
   expect(sends).toBe(2)
@@ -15232,7 +15181,6 @@ test('BOG UI Mia fix1 Latest owns space outside the thread and the pill owns its
   await field.focus()
   expect(await field.evaluate(node => getComputedStyle(node).outlineStyle)).toBe('none')
   expect(await page.locator('.ask-row').evaluate(node => getComputedStyle(node).outlineStyle)).toBe('solid')
-  await r6MiaShot(page, 'fix1-latest-focus')
 })
 
 for (const kind of ['attachment', 'voice', 'length'] as const) {
@@ -15262,7 +15210,6 @@ for (const kind of ['attachment', 'voice', 'length'] as const) {
     await expect(error).toBeInViewport({ ratio: 1 })
     expect(await error.evaluate(node => Boolean(node.closest('.chat-card')))).toBe(false)
     if (kind === 'length') await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeDisabled()
-    await r6MiaShot(page, `fix1-${kind}-error`)
   })
 }
 
@@ -15288,7 +15235,6 @@ test('BOG UI Mia fix1 failed purchase confirm stays on its card and can retry', 
   await expect(error).toBeVisible()
   await expect(error).toBeInViewport({ ratio: 1 })
   await expect(page.locator('.mia-composer-notices [role="alert"]')).toHaveCount(0)
-  await r6MiaShot(page, 'fix1-confirm-error')
   await card.getByRole('button', { name: /^Confirm / }).click()
   await expect(card).toHaveClass(/is-finished/)
   expect(attempts).toBe(2)
@@ -15307,7 +15253,6 @@ for (const width of [320, 390, 1440]) {
     await expect(page.locator('.empty-chat-state h3')).toHaveText('Håfa adai, I’m Mia.')
     await expect(page.locator('.workspace-opening-panel')).toHaveCount(0)
     await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeInViewport()
-    await r6MiaShot(page, `fix1-real-empty-${width}`)
   })
 }
 
@@ -15322,13 +15267,11 @@ for (const width of [390, 1440]) {
     const opening = page.locator('.workspace-opening-panel')
     await expect(opening).toBeVisible()
     expect(await opening.evaluate(node => Number.parseFloat(getComputedStyle(node).paddingTop))).toBeGreaterThanOrEqual(20)
-    await r6MiaShot(page, `fix1-opening-${width}`)
     release!()
     const outlook = page.locator('.home-welcome-panel .year-outlook')
     await expect(outlook).toBeVisible()
     expect(await outlook.evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('0px')
     expect(await outlook.evaluate(node => getComputedStyle(node).paddingLeft)).toBe('0px')
-    await r6MiaShot(page, `fix1-home-first-run-${width}`)
   })
 }
 
@@ -15342,7 +15285,6 @@ for (const width of [390, 1440]) {
     await expect(ready).toBeVisible()
     expect(await ready.evaluate(node => getComputedStyle(node).paddingTop)).toBe('8px')
     expect(await ready.evaluate(node => getComputedStyle(node).paddingLeft)).toBe('14px')
-    await r6MiaShot(page, `fix1-savings-ready-${width}`)
   })
 }
 
@@ -15367,7 +15309,6 @@ test('BOG UI Mia fix1 failed Done is visible on a restored saved daily check-in'
   await expect(error).toContainText('We couldn’t close this card.')
   expect(await error.evaluate(node => Boolean(node.closest('details')))).toBe(false)
   await expect(error).toBeInViewport({ ratio: 1 })
-  await r6MiaShot(page, 'fix1-done-error')
 })
 
 // Final fix round: retained results must agree with the participant's current plan and decisions.
@@ -15452,9 +15393,9 @@ for (const status of ['confirmed', 'ignored'] as const) {
     await answerConfirm(page, 'accept')
     await expect(row.getByRole('alert')).toBeVisible()
     await expect(row.getByRole('button')).toBeEnabled()
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
     await row.getByRole('alert').evaluate(node => node.scrollIntoView({ block: 'center' }))
     await expect(row.getByRole('alert')).toBeInViewport({ ratio: 1 })
-    await r6MiaShot(page, `fix2-${status}-reversal-error`, row)
     expect(errors).toEqual([])
   })
 }
@@ -15515,7 +15456,6 @@ for (const count of [6, 11, 21]) {
     }
     expect(confirmed).toEqual(queue.slice(0, -1).map(row => row.id))
     await expect(page.locator('.chat-card .is-finished')).toHaveCount(count - 1)
-    await r6MiaShot(page, `fix2-queue-${count}-last`)
   })
 }
 
@@ -15544,7 +15484,6 @@ for (const suggestion of [undefined, [1]]) {
     await expect(disclosure).toHaveAttribute('open', '')
     await expect(card.getByRole('checkbox', { name: 'Include Suggested change 1' })).not.toBeChecked()
     await expect(card.getByRole('checkbox', { name: 'Include Suggested change 2' })).toBeChecked()
-    await r6MiaShot(page, 'fix2-revised-suggestion', card)
     await card.getByRole('button', { name: 'Apply 1 selected' }).click()
     await expect.poll(() => applied).toMatchObject({ item_ids: [2] })
   })
@@ -15573,7 +15512,6 @@ test('BOG UI Mia fix2 savings and goal completions expose status with inert focu
   await expect(goal.getByRole('status')).toBeVisible()
   await page.keyboard.press('Enter')
   expect(writes).toHaveLength(1)
-  await r6MiaShot(page, 'fix2-goal-result', goal)
   const savings = page.getByRole('region', { name: 'Savings to check', exact: true })
   await savings.getByRole('checkbox').check()
   await savings.getByRole('button', { name: 'Yes, add $50' }).click()
@@ -15584,7 +15522,6 @@ test('BOG UI Mia fix2 savings and goal completions expose status with inert focu
   expect(await saved.getByRole('status').evaluate(node => node.closest('details'))).toBeNull()
   await page.keyboard.press('Enter')
   expect(writes).toHaveLength(2)
-  await r6MiaShot(page, 'fix2-savings-result', saved)
 })
 
 test('BOG UI Budget redesign bars and column layouts preserve exact money at phone tablet and laptop widths', async ({ page }) => {
@@ -16736,4 +16673,37 @@ test('BOG UI P8a fix1 completed households reach setup corrections without Ask M
   await expect(dialog).toBeVisible()
   await expect(dialog.getByRole('button', { name: 'Request support review', exact: true })).toBeVisible()
   await expect(dialog.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+})
+
+
+test('BOG UI dialog titles use display type while snapshot and evidence sections use body type', async ({ page }) => {
+  const checkFaces = async (dialog: Locator) => {
+    const faces = await dialog.evaluate(panel => {
+      const title = panel.querySelector('header h2')!
+      const section = panel.querySelector('section > h3')!
+      const paragraph = panel.querySelector('p')!
+      const displayReference = document.createElement('span')
+      displayReference.style.fontFamily = 'var(--font-display)'
+      panel.append(displayReference)
+      const result = {
+        title: getComputedStyle(title).fontFamily,
+        display: getComputedStyle(displayReference).fontFamily,
+        section: getComputedStyle(section).fontFamily,
+        body: getComputedStyle(paragraph).fontFamily,
+      }
+      displayReference.remove()
+      return result
+    })
+    expect(faces.title).toBe(faces.display)
+    expect(faces.section).toBe(faces.body)
+    expect(faces.title).not.toBe(faces.section)
+  }
+  const { dialog } = await openBaseline(page)
+  await checkFaces(dialog)
+  await dialog.getByRole('button', { name: 'Close spending snapshot', exact: true }).click()
+  await page.goto('/e2e/fixtures/evidence.html')
+  await page.getByRole('button', { name: 'Review fictional savings evidence', exact: true }).click()
+  const evidence = page.getByRole('dialog', { name: 'Match to a statement', exact: true })
+  await expect(evidence.getByRole('heading', { name: 'Statement entries · page 1', exact: true })).toBeVisible()
+  await checkFaces(evidence)
 })

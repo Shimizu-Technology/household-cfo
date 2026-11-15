@@ -29,7 +29,7 @@
 .budget-screen .expense-stack-row-heading strong { display: block; position: relative; font-size: var(--text-md); font-weight: var(--weight-semibold); }
 .budget-screen .expense-stack-row-heading strong::before { position: absolute; inset: 0 auto auto -42px; width: 28px; height: 28px; border-color: var(--brand); color: var(--brand-strong); font: var(--weight-semibold) 21px/1 var(--font-display); font-variant-numeric: tabular-nums lining-nums; }
 .budget-screen .expense-stack-row-heading > div > span { display: block; margin-top: var(--space-1); padding: 0; font-size: var(--text-xs); color: var(--muted); overflow-wrap: anywhere; }
-.budget-screen .expense-group-money { text-align: end; max-width: 22ch; }
+.budget-screen .expense-group-money { text-align: end; }
 .budget-screen .expense-stack-row-heading b { display: block; margin: 0; padding: 0; font-size: var(--text-sm); font-weight: var(--weight-semibold); white-space: normal; overflow-wrap: anywhere; }
 .budget-screen .expense-stack-row .ui-track { margin-block: var(--space-3) var(--space-2); }
 .budget-screen .expense-stack-row .ui-track__fill { background: var(--group-color); }
@@ -130,7 +130,7 @@ body #root .budget-screen .budget-detail-disclosure > summary { padding: 0 32px 
 .activity-screen .transaction-draft-stack-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
 .activity-screen .transaction-draft-stack-heading > div { grid-column: 1; grid-row: 1 / 3; }
 .activity-screen .transaction-draft-stack-heading > strong { grid-column: 2; grid-row: 1; text-align: end; }
-.activity-screen .transaction-draft-stack-heading > .review-header-bulk { grid-column: 2; grid-row: 2; padding-inline: 0; font-size: var(--text-xs); }
+.activity-screen .transaction-draft-stack-heading > .review-header-bulk { padding-inline: 0; font-size: var(--text-xs); }
 @container review-layout (max-width: 350px) {
   .activity-screen .transaction-draft-stack-heading { grid-template-columns: minmax(0, 1fr); }
   .activity-screen .transaction-draft-stack-heading > div, .activity-screen .transaction-draft-stack-heading > strong, .activity-screen .transaction-draft-stack-heading > .review-header-bulk { grid-column: 1; grid-row: auto; text-align: start; justify-self: start; }
@@ -176,3 +176,6 @@ body #root .activity-screen .transaction-draft-actions > .ui-btn--text { width: 
   .budget-screen .annual-budget-panel.is-plan-unknown > .budget-rail { grid-column: 1; }
 }
 /* The native select's chevron needs its own space inside the period pill. */
+
+/* This dialog title is wrapped by its form rather than a header. */
+body :where(.bulk-confirm-dialog) form > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
