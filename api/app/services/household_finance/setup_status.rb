@@ -16,7 +16,7 @@ module HouseholdFinance
       primary_income: "Primary monthly income",
       fixed_expenses: "Fixed essentials",
       flexible_spend: "Flexible spending",
-      debt_payment: "Debt minimums"
+      debt_payment: "Monthly debt payments"
     }.freeze
 
     def initialize(household, additional_confirmed_fields: [], proposed_values: {})
@@ -26,10 +26,7 @@ module HouseholdFinance
     end
 
     def complete?
-      # Avoid loading debt records for households still missing earlier essentials.
-      return false unless (REQUIRED_FIELDS.map(&:to_s) - [ "debt_payment" ] - confirmed_setup_keys).empty?
-
-      missing_field_keys.empty?
+      (REQUIRED_FIELDS.map(&:to_s) - [ "debt_payment" ] - confirmed_setup_keys).empty?
     end
 
     def confirmed_field_keys

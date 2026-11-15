@@ -123,6 +123,36 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     assert HouseholdFinance::SetupStatus.new(@household).complete?
   end
 
+  test "fix1 completing five essentials offers balances once with its explanation" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Cruz", primary_goal: "A calm month", primary_income: 5200, fixed_expenses: 2050 }).call
+    body = say("flexible spending is 700", read(setup: changes(flexible_spend: money(total_amount: "700", total_cadence: "monthly", total_source: "flexible spending is 700"))))
+    apply(card_of(body))
+    message = ChatMessage.where(role: "assistant").order(:id).last
+    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
+    assert_includes message.content, "add what you owe under Debt in My Money"
+    assert_equal true, message.setup_help["debt_balances"]
+  end
+
+  test "fix1 choosing guided setup reopens skipped questions in order" do
+    @household.update!(name: "Cruz", confirmed_setup_fields: [ "household_name" ], setup_skipped_fields: %w[primary_goal primary_income])
+    body = say(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST, read)
+    assert_includes body.dig("assistant_message", "content"), "main thing you'd like your money to do"
+    assert_empty @household.reload.setup_skipped_fields
+    next_body = say("a calm month", read(setup: changes(primary_goal: "a calm month")))
+    assert_match(/bring home|income/i, next_body.dig("assistant_message", "content"))
+  end
+
+  test "fix1 later household changes do not repeat optional balances" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Cruz", primary_goal: "A calm month", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700, debt_payment: 350 }).call
+    body = say("our main goal is a vacation", read(setup: changes(primary_goal: "a vacation")))
+    apply(card_of(body))
+    message = ChatMessage.where(role: "assistant").order(:id).last
+    refute message.setup_help.to_h["debt_balances"]
+    refute_includes message.content, "add what you owe"
+  end
+
   test "a balance never becomes a minimum and a debt without a minimum stays open" do
     body = say("visa balance is 4000", read(setup: changes(debt_payment: debts(parts: [ debt("add", "visa", "4000", "4000", source: "visa balance is 4000") ]))))
     debt_row = row(body, "debt_payment")
@@ -218,7 +248,7 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     body = say("skip the debts", read(setup: changes(skips: [ "debt_payment" ])))
     assert_match(/later/, body.dig("assistant_message", "content"))
     assert_equal [ "debt_payment" ], @household.reload.setup_skipped_fields
-    assert_equal "That's everything for now. Still to add when you're ready: debt minimums.", HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message
+    assert_equal "That's everything for now. Still to add when you're ready: monthly debt payments.", HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message
   end
 
   test "care comes first and leaves the card untouched" do

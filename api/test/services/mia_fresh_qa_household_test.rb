@@ -13,7 +13,7 @@ class MiaFreshQaHouseholdTest < ActiveSupport::TestCase
 
   test "M3 five answers ask about debts while the month answer still names missing debt minimums" do
     status = HouseholdFinance::SetupStatus.new(@household)
-    refute status.complete?
+    assert status.complete?
     assert_equal [ "debt_payment" ], status.missing_field_keys
     refute_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "setup is complete"
     assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "debts"

@@ -179,7 +179,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
     assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
-    assert_equal({ "setup_complete" => false }, setup_audit.metadata)
+    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
     # Debt minimums are still unknown, so no CFO Filter amount can be calculated: each row says so.
     decisions = HouseholdFinance::DataPresenter.new(user.households.first.reload).cfo_filter.fetch(:decisions)
     assert_equal 3, decisions.size
@@ -232,7 +232,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.fetch("errors").join, "idempotency key"
   end
 
-  test "manual setup repairs a changed allocation even when the legacy expense total matches" do
+  test "manual setup preserves a changed allocation when the submitted base total matches" do
     user = create_user(email: "setup-allocation-drift@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     # This established household has covered the full year since January.
@@ -249,10 +249,10 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :success
-    assert_equal Array.new(12, 100_000), category.budget_allocations.joins(:budget_period)
+    assert_equal Array.new(12, 100_000).tap { |months| months[5] = 125_000 }, category.budget_allocations.joins(:budget_period)
       .where(budget_periods: { starts_on: Date.new(Date.current.year, 1, 1)..Date.new(Date.current.year, 12, 31) })
       .order("budget_periods.starts_on").pluck(:planned_amount_cents)
-    assert household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
+    refute household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
   end
 
   test "profile text edits save when a multi-category group has a one-month override" do
@@ -2696,7 +2696,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "atomic-mia@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     HouseholdFinance::WorkspaceSetupSaver.new(household, user: user, idempotency_key: SecureRandom.uuid,
-      attributes: { household_name: "Atomic household", primary_goal: "A cushion", primary_income: "3000", fixed_expenses: "1500", flexible_spend: "500", debt_payment: 0, credit_card_debt: 0 }).call
+      attributes: { household_name: "Atomic household", primary_goal: "A cushion", primary_income: "3000", fixed_expenses: "1500", flexible_spend: "500" }).call
 
     failing_responder = Class.new do
       def call(*)

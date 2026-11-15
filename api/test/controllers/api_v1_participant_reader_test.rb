@@ -70,7 +70,7 @@ class ApiV1ParticipantReaderTest < ActionDispatch::IntegrationTest
   end
 
   test "completed setup coaching explains optional prerequisites without restarting setup" do
-    begin_setup(primary_income: 3500, fixed_expenses: 1700, flexible_spend: 600, debt_payment: 0, credit_card_debt: 0)
+    begin_setup(primary_income: 3500, fixed_expenses: 1700, flexible_spend: 600)
     assert HouseholdFinance::SetupStatus.new(@household).complete?
     json = household_say("what should i do with my emergency cushion", reading.merge(question: true))
     refute_includes json.dig("assistant_message", "content"), "Still to add:"

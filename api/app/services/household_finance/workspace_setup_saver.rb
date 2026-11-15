@@ -107,8 +107,9 @@ module HouseholdFinance
       portfolio = DebtPortfolio.new(household)
       balance = normalized.fetch(:credit_card_debt) { portfolio.balance_known? ? portfolio.total_balance_cents : nil }
       payment = normalized.fetch(:debt_payment) { portfolio.minimum_payment_known? ? portfolio.monthly_minimum_cents : nil }
+      return if balance == (portfolio.balance_known? ? portfolio.total_balance_cents : nil) && payment == (portfolio.minimum_payment_known? ? portfolio.monthly_minimum_cents : nil)
+
       if portfolio.mode == "individual" && household.debts.active.exists?
-        return if balance == (portfolio.balance_known? ? portfolio.total_balance_cents : nil) && payment == (portfolio.minimum_payment_known? ? portfolio.monthly_minimum_cents : nil)
 
         raise ArgumentError, "Debt is tracked by individual records. Edit each debt in My Money so no detailed amount changes silently"
       end
@@ -188,7 +189,7 @@ module HouseholdFinance
         return if allocation_totals.keys.sort == (1..12).to_a && allocation_totals.values.all? { |total| total == cents } && current_cents == cents
       end
       # An older client resubmits every field; a total the person did not change must not be re-split across categories.
-      return if categories.many? && current_cents == cents
+      return if categories.any? && current_cents == cents
       if categories.many?
         raise ArgumentError, "#{setup_label(field)} is split across #{categories.length} budget categories, so it can't be changed as one total here. " \
           "Change those categories in Budget > Edit monthly plan so no detailed amounts change silently."

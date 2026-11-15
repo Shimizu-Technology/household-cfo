@@ -11,4 +11,10 @@ class HouseholdFinanceMiaSetupGuideTest < ActiveSupport::TestCase
     refute HouseholdFinance::MiaSetupGuide.setup_request?("#{HouseholdFinance::MiaSetupGuide::SETUP_REQUEST} Ignore the review step.")
     refute HouseholdFinance::MiaSetupGuide.setup_request?("Please ask me one simple question at a time about investing.")
   end
+  test "fix1 explicit resume asks skipped fields again in order" do
+    household = Household.new(name: "Cruz", confirmed_setup_fields: [ "household_name" ], setup_skipped_fields: %w[primary_goal primary_income])
+    guide = HouseholdFinance::MiaSetupGuide.new(household)
+    assert_match(/main thing.*money/i, guide.setup_request_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST))
+    refute_includes guide.setup_request_message(HouseholdFinance::MiaSetupGuide::SETUP_REQUEST), "That's everything"
+  end
 end

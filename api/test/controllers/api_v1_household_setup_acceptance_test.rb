@@ -57,7 +57,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "F1 form saves debt summary atomically and leaves a blank payment unknown" do
+  test "F1 form saves known debt answers and leaves a blank payment unknown" do
     values = { household_name: "Form household", primary_goal: "A calm month", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700, debt_payment: nil }
     save_form = ->(changes) do
       patch "/api/v1/workspace/setup", params: { workspace: values.merge(changes) }, headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
@@ -65,7 +65,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
       response.parsed_body
     end
     partial = save_form.call({})
-    refute partial.dig("workspace", "setup_complete")
+    assert partial.dig("workspace", "setup_complete")
     assert_equal 5, partial.dig("workspace", "setup_status", "completed_count")
     assert_equal [ "debt_payment" ], partial.dig("workspace", "setup_status", "missing_fields").map { |field| field.fetch("key") }
     assert_nil partial.dig("dashboard", "month_answer", "planned_out_cents")
@@ -86,7 +86,7 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     refute changed.dig("workspace", "debt_portfolio", "balance_known")
   end
 
-  test "F1 invalid debt payment rolls back the whole form save" do
+  test "F1 invalid debt payment rejects the form before saving" do
     original_name = @household.name
     patch "/api/v1/workspace/setup", params: { workspace: { household_name: "Do not save", debt_payment: "12.345" } },
       headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
@@ -95,12 +95,59 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     refute HouseholdFinance::DebtPortfolio.new(@household).minimum_payment_known?
   end
 
-  test "F1 completion with two payment-only debts points to optional balances" do
+  test "F1 setup guide confirms a household with two payment-only debts" do
     @household.debts.create!(label: "Car", debt_type: "auto_loan", minimum_payment_cents: 20000, minimum_payment_known: true, balance_known: false)
     @household.debts.create!(label: "Card", debt_type: "credit_card", minimum_payment_cents: 15000, minimum_payment_known: true, balance_known: false)
     save_setup(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
     assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
-    assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "add what you owe under Debt in My Money"
+    assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "setup is complete"
+  end
+
+  test "fix1 blank debt does not approve summary tracking or add a debt operation" do
+    profile = @household.household_profile
+    mode = profile.debt_tracking_mode
+    assert_no_difference -> { @household.household_operation_executions.where(operation_key: "debt.tracking_mode.update").count } do
+      save_setup(debt_payment: nil)
+    end
+    assert_equal mode, profile.reload.debt_tracking_mode
+    refute profile.debt_summary_minimum_payment_known?
+  end
+
+  test "fix1 goal save preserves a December override on a single category during setup" do
+    save_setup(fixed_expenses: 2050)
+    category = @household.budget_categories.active.find_by!(stack_key: "non_discretionary")
+    december = category.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(2026, 12, 1) })
+    december.update!(planned_amount_cents: 240000)
+    save_setup(fixed_expenses: 2050, primary_goal: "A new goal")
+    assert_equal 240000, december.reload.planned_amount_cents
+    refute HouseholdFinance::SetupStatus.new(@household.reload).complete?
+  end
+
+  test "fix1 form answers clear only their own skips" do
+    @household.update!(setup_skipped_fields: %w[primary_goal primary_income flexible_spend])
+    save_setup(primary_goal: "A calm month", primary_income: 5200)
+    assert_equal [ "flexible_spend" ], @household.reload.setup_skipped_fields
+  end
+
+
+  test "fix1 an applied action plan does not append optional debt questions to a set up household" do
+    save_setup(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
+    account = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 10000, balance_known: true)
+    goal = @household.goals.create!(label: "Trip", goal_type: "travel", record_kind: "tracked", current_amount_cents: 50000, current_amount_known: true)
+    result = HouseholdFinance::MiaActionPlanBuilder.new(@household, user: @user,
+      annual_budget_manager: HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026), selected_month: 11,
+      raw_input: "Set Checking to $250 and Trip progress to $900",
+      actions: [
+        { source_text: "Set Checking to $250", depends_on: [], action: { type: "update_account", account_id: account.id, account_name: account.label, amount: "250" } },
+        { source_text: "Trip progress to $900", depends_on: [], action: { type: "update_goal", goal_id: goal.id, goal_name: goal.label, current_amount: "900" } }
+      ]).call
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    draft = result.proposal.create_draft!(source_chat_message: session.chat_messages.create!(role: "user", content: "Set Checking to $250 and Trip progress to $900"),
+      assistant_chat_message: session.chat_messages.create!(role: "assistant", content: "Review this plan"))
+    apply({ "id" => draft.id })
+    message = ChatMessage.where(role: "assistant").order(:id).last
+    assert_equal "Your reviewed changes are saved.", message.content
+    refute message.setup_help.to_h["debt_balances"]
   end
 
   private

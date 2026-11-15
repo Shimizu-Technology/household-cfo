@@ -80,6 +80,16 @@ describe('profile base amounts', () => {
     expect(note).not.toContain('Flexible spending')
   })
 
+  it('routes an individual missing payment to its debt editor', () => {
+    const onFinishHere = vi.fn()
+    const originalScroll = HTMLElement.prototype.scrollIntoView
+    HTMLElement.prototype.scrollIntoView = vi.fn()
+    render(<WorkspaceSetupForm {...props} editing firstSession notice="Saved. Still to add: monthly debt payments." onFinishHere={onFinishHere} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Finish it here' }))
+    expect(onFinishHere).toHaveBeenCalledOnce()
+    HTMLElement.prototype.scrollIntoView = originalScroll
+  })
+
   it('keeps the first-run Save after every field', () => {
     render(<WorkspaceSetupForm {...props} editing firstSession monthPlan={null} />)
     const save = screen.getByRole('button', { name: /Save and talk to/ })

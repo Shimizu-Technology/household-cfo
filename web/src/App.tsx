@@ -637,6 +637,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [setupNotice, setSetupNotice] = useState<string | null>(null)
+  const [firstAnswerPending, setFirstAnswerPending] = useState(false)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const profileFocusSequenceRef = useRef(0)
@@ -1849,6 +1850,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
     if (options.source !== 'history') lastHandledLocationRef.current = ''
 
+    setSetupNotice(null)
     sectionScrollPositionsRef.current.set(activeSection, window.scrollY)
     if (options.source !== 'history') {
       captureAnalyticsEvent('section_selected', {
@@ -2185,6 +2187,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }))
   }
 
+  function finishSetupDebtPayment() {
+    const debt = data?.workspace.debts.find(record => record.active && record.minimum_payment === null)
+    if (!debt || !switchSection('My Money', { focusHeading: false })) return
+    setMoneyTopic('debt')
+    setDebtFocusRequest({ key: ++debtFocusSequenceRef.current, actionType: 'update_debt', debtId: debt.id, payload: {} })
+  }
+
   function focusDebtManager() {
     const disclosure = debtManagerRef.current?.closest('details'); if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
     const target = debtManagerRef.current?.querySelector<HTMLButtonElement>('[data-manager-add]')
@@ -2252,10 +2261,32 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
     : undefined
 
+  const miaRequestBusyRef = useRef(false)
+  const firstAnswerSenderRef = useRef<() => void>(() => {})
+  useLayoutEffect(() => {
+    firstAnswerSenderRef.current = () => {
+      if (question.trim() || pendingMiaAttachments.length > 0) {
+        setMiaError('Your message and files are waiting here. Your first answer is one tap away: ask “How am I doing this month?”')
+      } else void handleAskMia('How am I doing this month?', 'heading')
+    }
+  })
+  useLayoutEffect(() => {
+    if (firstAnswerPending) document.querySelector<HTMLElement>('main [data-page-heading]')?.focus({ preventScroll: true })
+  }, [firstAnswerPending])
+  useEffect(() => {
+    if (!firstAnswerPending || miaLoading || budgetYearLoading || setupSaving || budgetAction) return
+    // Wait for the latest render and the route's inert heading before sending.
+    const frame = requestAnimationFrame(() => {
+      setFirstAnswerPending(false)
+      firstAnswerSenderRef.current()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [firstAnswerPending, miaLoading, budgetYearLoading, setupSaving, budgetAction])
+
   async function handleAskMia(prompt = question, focusAfterReply: 'composer' | 'heading' = 'composer') {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
-    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading || budgetActionRef.current) return
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaRequestBusyRef.current || budgetYearLoading || budgetActionRef.current) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`${assistantName} messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
@@ -2270,6 +2301,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       return
     }
 
+    setSetupNotice(null)
     miaHistoryGenerationRef.current += 1
     const transportGuard = captureApiOperation()
     const assertOriginalWorkspace = () => {
@@ -2283,6 +2315,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     setCheckInPromptScope(null)
     setMiaWaitLong(false)
     setFreshMiaReplyId(null)
+    miaRequestBusyRef.current = true
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -2447,6 +2480,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
+      miaRequestBusyRef.current = false
       if (workspaceMounted.current) {
         setMiaAttachmentNotice(null)
         setMiaLoading(false)
@@ -3765,13 +3799,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       if (!wasSetupComplete && savedNoDebt && setupDraft.credit_card_debt.trim() === '' && (
         setupDraft.debt_payment.trim() === '' || Number(setupDraft.debt_payment) !== 0 || savedDebtDraft?.credit_card_debt === '0'
       )) setupValues.credit_card_debt = null
-      const allSetupValues = activeSection === 'My Profile' && wasSetupComplete ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
+      const allSetupValues = !isFirstSessionSetup ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
       // A profile edit sends only what the person changed. Re-sending untouched
       // totals would ask the API to flatten detailed monthly category amounts.
-      const submittedSetupValues = wasSetupComplete && profileEditBaseline
-        ? changedWorkspaceSetupValues(allSetupValues, profileEditBaseline)
-        : allSetupValues
-      const problem = workspaceSetupDraftProblem(setupDraft, Object.keys(submittedSetupValues), !wasSetupComplete)
+      const baseline = (wasSetupComplete ? profileEditBaseline : null) ?? (data?.workspace.setup_values ? workspaceSetupBaseline(data.workspace.setup_values, data.workspace.setup_status) : {})
+      const submittedSetupValues = changedWorkspaceSetupValues(allSetupValues, baseline)
+      const validationFields = isFirstSessionSetup ? ['household_name', 'primary_goal', ...Object.keys(submittedSetupValues)] : Object.keys(submittedSetupValues)
+      const problem = workspaceSetupDraftProblem(setupDraft, validationFields, isFirstSessionSetup)
       if (problem) {
         setSetupError(problem.message)
         setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${problem.field}"]`)?.focus()
@@ -3795,17 +3829,15 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         return current ?? { year: responseYear, monthIndex: selectedBudgetMonthIndex }
       })
       setIsProfileEditing(false)
-      replaceMiaHistory(payload.mia)
+      // A form save does not write chat. Keep any request or reply that arrived while it waited.
       captureAnalyticsEvent('workspace_setup_saved', {
         setup_complete: payload.workspace?.setup_complete ?? false,
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
       if (!wasSetupComplete && payload.workspace?.setup_complete) {
-        if (!switchSection('Ask Mia', { focusHeading: false })) return
-        if (question.trim() || pendingMiaAttachments.length > 0) {
-          setMiaError(`Your message and files are waiting here. Send or clear them, then ask “How am I doing this month?”`)
-        } else void handleAskMia('How am I doing this month?', 'heading')
-      } else if (!wasSetupComplete) {
+        if (!switchSection('Ask Mia')) return
+        setFirstAnswerPending(true)
+      } else if (!wasSetupComplete && activeSectionRef.current === 'My Profile') {
         const missing = payload.workspace?.setup_status.missing_fields.map(field => field.label.toLowerCase()).join(', ')
         setSetupNotice(`Saved your household details and the amounts you entered. Still to add: ${missing}.`)
       }
@@ -4213,6 +4245,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   />
                 </div>
               </div>
+
+              {!isFirstSessionSetup && !isSavingsExperience && data.workspace.setup_status.missing_fields.some(field => field.key === 'debt_payment') && <p className="mia-setup-note">Monthly debt payments still to add: they complete your “what’s left” figure.</p>}
 
               {isFirstSessionSetup && isChatExpanded && (
                 <FirstSessionSetupProgress
@@ -4689,6 +4723,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               error={setupError}
               notice={setupNotice}
               onContinueWithMia={startChatFirstSession}
+              onFinishHere={data.workspace.debts.some(debt => debt.active && debt.minimum_payment === null) && data.workspace.setup_status.missing_fields.some(field => field.key === 'debt_payment') ? finishSetupDebtPayment : undefined}
               onReviewLatest={setupConflict ? reviewLatestSetup : undefined}
               onBeginEdit={beginProfileEditing}
               onCancel={cancelProfileEditing}
@@ -4877,7 +4912,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   </div>
                 )}
                 <p>{milestoneSummary(milestone)}</p>
-                {milestone.label === 'Debt details needed' && visibleSections.includes('My Money') && <Button variant="secondary" onClick={() => handleProfileSectionEdit('debt')}>Add what you owe</Button>}
+                {milestone.action === 'debt_details' && visibleSections.includes('My Money') && <Button variant="secondary" onClick={() => handleProfileSectionEdit('debt')}>Add what you owe</Button>}
               </article>
             ))}
           </div>
@@ -5253,7 +5288,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }
       <div className="first-session-progress-heading">
         <div>
           <span className="group-label">Starting picture</span>
-          <strong id="first-session-progress-title">{status.completed_count} of {status.required_count} answers saved</strong>
+          <strong id="first-session-progress-title">{status.complete ? 'Starting picture saved' : `${status.completed_count} of ${status.required_count} answers saved`}</strong>
         </div>
         <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
       </div>
@@ -6830,6 +6865,7 @@ export function WorkspaceSetupForm({
   error,
   notice,
   onContinueWithMia,
+  onFinishHere,
   firstSession,
   personalOnly = false,
   monthPlan,
@@ -6846,6 +6882,7 @@ export function WorkspaceSetupForm({
   error: string | null
   notice?: string | null
   onContinueWithMia?: () => void
+  onFinishHere?: () => void
   firstSession: boolean
   personalOnly?: boolean
   monthPlan?: { label: string; fixed: number; flexible: number } | null
@@ -6973,7 +7010,7 @@ export function WorkspaceSetupForm({
         <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
         {notice && <>
           <p ref={noticeRef} className="setup-save-notice" tabIndex={-1}>{notice}</p>
-          <button type="button" className="ui-btn ui-btn--tonal" disabled={saving} onClick={(event) => event.currentTarget.form?.querySelector<HTMLInputElement>('input:not([type=checkbox])[value=""]')?.focus()}>Finish it here</button>
+          <button type="button" className="ui-btn ui-btn--tonal" disabled={saving} onClick={(event) => onFinishHere ? onFinishHere() : event.currentTarget.form?.querySelector<HTMLInputElement>('input:not([type=checkbox])[value=""]')?.focus()}>Finish it here</button>
           <button type="button" className="ui-btn ui-btn--tonal" disabled={saving} onClick={onContinueWithMia}>Let {assistantName} ask for the rest</button>
         </>}
       </div>}

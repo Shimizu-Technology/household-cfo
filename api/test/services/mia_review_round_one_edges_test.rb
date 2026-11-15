@@ -13,7 +13,9 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
   end
   teardown { travel_back }
 
-  test "review one roster loads debt records without multiplying its participant join" do
+  test "review one roster keeps five essential households setup done without debt reads" do
+    @household.household_profile.update!(debt_summary_minimum_payment_known: false)
+    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "debt_payment" ])
     coach = User.create!(clerk_id: "coach_#{SecureRandom.hex(8)}", email: "#{SecureRandom.hex(8)}@example.invalid", role: "coach", invitation_status: "accepted")
     workspace = CoachWorkspaces::Resolver.new(user: coach).call
     cohort = Cohort.create!(name: "Review roster", status: "active", created_by_user: coach, coach_workspace: workspace)
@@ -22,15 +24,16 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
     capture = ->(*args) { queries << args.last[:sql] }
     result = ActiveSupport::Notifications.subscribed(capture, "sql.active_record") { ChallengePrivacy::CoachDailyRoster.new(cohort, user: coach).call }
     assert_equal 1, result[:counts]["setup_done"]
-    refute queries.any? { |sql| sql.match?(/JOIN "debts"/) }, queries.grep(/JOIN "debts"/).join("\n")
+    refute queries.any? { |sql| sql.match?(/FROM "(?:debts|household_profiles)"/) }, queries.join("\n")
   end
 
-  test "completion requires known debt payments as the sixth essential" do
-    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
-    @household.household_profile.update!(debt_summary_minimum_payment_known: false)
-    status = HouseholdFinance::SetupStatus.new(@household.reload)
-    refute status.complete?
-    assert_equal [ "debt_payment" ], status.missing_field_keys
+  test "five essential completion does not read optional debt records" do
+    @household.reload
+    queries = []
+    capture = ->(*args) { queries << args.last[:sql] }
+    complete = ActiveSupport::Notifications.subscribed(capture, "sql.active_record") { HouseholdFinance::SetupStatus.new(@household).complete? }
+    assert complete
+    refute queries.any? { |sql| sql.match?(/FROM "(?:debts|household_profiles)"/) }, queries.join("\n")
   end
 
   test "recurring bills savings and job changes never become a one time purchase" do
