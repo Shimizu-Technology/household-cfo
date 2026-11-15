@@ -44,19 +44,19 @@ describe('quick capture', () => {
 
   it('closes with Escape pressed on the opening button and keeps focus there', () => {
     render(<ManualTransactionCapture categories={[category]} busy={false} onCreate={vi.fn()} />)
-    const toggle = screen.getByRole('button', { name: 'Add transaction' })
+    const toggle = screen.getByRole('button', { name: 'Add a purchase' })
     fireEvent.click(toggle)
     expect(screen.getByRole('textbox', { name: 'Merchant' })).toBeTruthy()
     toggle.focus()
     fireEvent.keyDown(toggle, { key: 'Escape' })
     expect(screen.queryByRole('textbox', { name: 'Merchant' })).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add transaction' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a purchase' }))
   })
 
   it('confirms an added transaction in a polite status message', async () => {
     const onCreate = vi.fn().mockResolvedValue(undefined)
     render(<ManualTransactionCapture categories={[category]} busy={false} onCreate={onCreate} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add transaction' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Merchant' }), { target: { value: 'Pay-Less' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '12.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))

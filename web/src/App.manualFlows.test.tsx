@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, BudgetCategoryRow, MiaActionDraft, SpendingReport, TransactionDraft } from './api'
+import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, MiaActionDraftReviewStack, TransactionDraftReviewStack } from './App'
 
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+beforeAll(() => { Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }) })
+afterAll(() => {
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+})
 afterEach(cleanup)
 
 function draft(overrides: Partial<TransactionDraft> = {}): TransactionDraft {
@@ -216,12 +224,12 @@ describe('budget table and quick capture', () => {
 
   it('closes the Add transaction panel with Escape and returns focus to its toggle', () => {
     render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} />)
-    const toggle = screen.getByRole('button', { name: 'Add transaction' })
+    const toggle = screen.getByRole('button', { name: 'Add a purchase' })
     fireEvent.click(toggle)
     const merchant = screen.getByRole('textbox', { name: 'Merchant' })
     fireEvent.keyDown(merchant, { key: 'Escape' })
     expect(screen.queryByRole('textbox', { name: 'Merchant' })).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add transaction' }))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a purchase' }))
   })
 })
 
@@ -394,4 +402,247 @@ it('keeps proposal identity through completion so its live result still fades', 
   const { container, rerender } = render(<MiaActionDraftReviewStack {...props} drafts={[draft]} />)
   rerender(<MiaActionDraftReviewStack {...props} drafts={[{ ...draft, status: 'applied', suggested_selected_item_ids: undefined }]} />)
   expect(container.querySelector('.mia-action-draft-card.is-live-result')).not.toBeNull()
+})
+
+it('requires a category for one-step confirmation but lets an uncertain purchase wait in review', async () => {
+  const onCreate = vi.fn().mockResolvedValue(undefined)
+  render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  expect(onCreate).not.toHaveBeenCalled()
+  expect(screen.getByRole('alert').textContent).toContain('Choose a category before confirming.')
+  fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))
+  await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ budget_category_id: null }), false))
+})
+
+it('adds and confirms a deliberately selected new category in one action and focuses the result', async () => {
+  const onCreate = vi.fn().mockResolvedValue(undefined)
+  render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
+  fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Groceries' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ splits: [{ amount: '45.20', category_name: 'Groceries', stack_key: 'discretionary' }] }), true))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
+})
+
+it('opens an unplanned finished category in the purchase month', () => {
+  const category = row({ months: Array.from({ length: 12 }, (_, index) => ({ allocation_id: index + 1, period_id: index + 1, planned: 0, actual: 0, remaining: 0 })) })
+  const onPlanCategory = vi.fn()
+  render(<TransactionDraftReviewStack drafts={[]} completedDrafts={[draft({ status: 'confirmed', category_id: category.id })]} isRealWorkspace action={null} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} plan={{ year: 2026, rows: [category], pending_transaction_drafts: [], months: Array.from({ length: 12 }, (_, index) => ({ starts_on: `2026-${String(index + 1).padStart(2, '0')}-01`, ends_on: `2026-${String(index + 1).padStart(2, '0')}-28` })) } as unknown as AnnualBudgetPlan} onPlanCategory={onPlanCategory} />)
+  fireEvent.click(screen.getByRole('button', { name: `Set amount for ${category.name}` }))
+  expect(onPlanCategory).toHaveBeenCalledWith(category.id, 10, 2026)
+})
+
+
+it('edits the saved catch-all name while showing its display label separately', () => {
+  const onChange = vi.fn()
+  render(<CategoryEditCell row={row({ name: 'Flexible spending' })} draft={{ name: 'Flexible spending', stack_key: 'discretionary' }} hasPendingDrafts={false} action={null} onChange={onChange} onArchive={vi.fn()} />)
+  expect(screen.getByLabelText('Category name').getAttribute('value')).toBe('Flexible spending')
+  expect(screen.getByText('Shown as Other flexible spending')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Category name'), { target: { value: 'Flexible spending extra' } })
+  expect(onChange).toHaveBeenCalledWith({ name: 'Flexible spending extra' })
+})
+
+it('does not repeat a category name that is shown as it is saved', () => {
+  render(<CategoryEditCell row={row({ name: 'Groceries' })} draft={{ name: 'Groceries', stack_key: 'discretionary' }} hasPendingDrafts={false} action={null} onChange={vi.fn()} onArchive={vi.fn()} />)
+  expect(screen.getByLabelText('Category name').getAttribute('value')).toBe('Groceries')
+  expect(screen.queryByText(/Shown as/)).toBeNull()
+})
+
+function ProductionCapture(props: React.ComponentProps<typeof ManualTransactionCapture>) {
+  const [notice, setNotice] = useState<{ text: string; warning: boolean } | null>(null)
+  return <ManualTransactionCapture {...props} resolutionNotice={props.resolutionNotice ?? notice?.text} resolutionWarning={props.resolutionWarning ?? notice?.warning} onNotice={(text, warning) => setNotice({ text, warning })} />
+}
+
+it('keeps one latest notice after adding to review and then confirming or undoing', async () => {
+  const props = { categories: [row()], busy: false, onCreate: vi.fn().mockResolvedValue(undefined) }
+  const view = render(<ProductionCapture {...props} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('actuals stay unchanged'))
+  view.rerender(<ProductionCapture {...props} resolutionNotice="Confirmed Market. It now counts as spent." />)
+  expect(screen.getAllByRole('status')).toHaveLength(1)
+  expect(screen.getByRole('status').textContent).toBe('Confirmed Market. It now counts as spent.')
+  view.rerender(<ProductionCapture {...props} resolutionNotice="Market returned to review. It no longer counts as spent." />)
+  expect(screen.getByRole('status').textContent).not.toContain('It now counts')
+})
+
+it('focuses the new category name and prevents a second in-flight submission', async () => {
+  let finish!: () => void
+  const onCreate = vi.fn(() => new Promise<void>(resolve => { finish = resolve }))
+  render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  expect(document.activeElement).toBe(screen.getByLabelText('New category name'))
+  expect(screen.getByLabelText('New category name').getAttribute('aria-describedby')).toBe('manual-category-error')
+  expect(screen.getByLabelText('Category').getAttribute('aria-invalid')).toBe('false')
+  fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Groceries' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  expect(onCreate).toHaveBeenCalledTimes(1)
+  finish()
+  await waitFor(() => expect(screen.getByRole('status')).toBeTruthy())
+})
+
+it('uses a warning style when a saved purchase still needs checking', async () => {
+  render(<ProductionCapture categories={[row()]} busy={false} initiallyOpen onCreate={vi.fn().mockResolvedValue('Possible duplicate. Your purchase is in Review. Check the existing purchase before confirming.')} />)
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: '7' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  await waitFor(() => expect(screen.getByRole('status').classList.contains('warning')).toBe(true))
+})
+
+it('does not offer a dead planning action for missing allocations or repeat it for one category', () => {
+  const category = row({ months: row().months.map(cell => ({ ...cell, planned: 0, allocation_missing: true })) })
+  const props = { ...stackProps([]), completedDrafts: [draft({ status: 'confirmed' }), draft({ id: 221, status: 'confirmed' })], plan: { year: 2026, months: [], pending_transaction_drafts: [], rows: [category] } as unknown as AnnualBudgetPlan, onPlanCategory: vi.fn() }
+  const view = render(<TransactionDraftReviewStack {...props} />)
+  expect(screen.queryByRole('button', { name: /Set amount/ })).toBeNull()
+  view.rerender(<TransactionDraftReviewStack {...props} plan={{ year: 2026, months: [], pending_transaction_drafts: [], rows: [{ ...category, months: category.months.map(cell => ({ ...cell, allocation_missing: false })) }] } as unknown as AnnualBudgetPlan} />)
+  expect(screen.getAllByRole('button', { name: /Set amount/ })).toHaveLength(1)
+})
+
+it('does not read this years zero as the plan for a purchase in another year', () => {
+  const category = row({ months: row().months.map(cell => ({ ...cell, planned: 0 })) })
+  const onPlanCategory = vi.fn()
+  render(<TransactionDraftReviewStack {...stackProps([])} completedDrafts={[draft({ status: 'confirmed', occurred_on: '2025-12-04' })]} plan={{ year: 2026, months: [], pending_transaction_drafts: [], rows: [category] } as unknown as AnnualBudgetPlan} onPlanCategory={onPlanCategory} />)
+  expect(screen.queryByText(/No amount planned yet/)).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: /View plan for Dining out/ }))
+  expect(onPlanCategory).toHaveBeenCalledWith(7, 12, 2025)
+})
+
+
+it('counts distinct new categories by name and group in a split summary', () => {
+  render(<PurchaseReviewSummary draft={draft({ splits: [
+    { budget_category_id: null, category_name: 'Groceries', stack_key: 'discretionary', amount: 10 },
+    { budget_category_id: null, category_name: 'Fuel', stack_key: 'discretionary', amount: 15 },
+  ] as TransactionDraft['splits'] })} date="Oct 4" needsCategory={false} />)
+  expect(screen.getByText('2 categories')).toBeTruthy()
+})
+
+
+it('does not claim unknown debt payments count in Planned out', () => {
+  const plan = { year: 2026, months: [], rows: [], pending_transaction_drafts: [], monthly_debt_minimums_known: false } as unknown as AnnualBudgetPlan
+  const view = render(<CurrentMonthActivityPanel plan={plan} currentMonthIndex={0} spendingReport={null} loading={false} error={null} />)
+  expect(view.container.textContent).not.toContain('are counted in Planned out')
+})
+
+
+it('uses the shared result owner so starting another review action clears old manual success', async () => {
+  const onNotice = vi.fn()
+  const props = { categories: [row()], busy: false, onCreate: vi.fn().mockResolvedValue(undefined), onNotice }
+  const view = render(<ManualTransactionCapture {...props} initiallyOpen />)
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: '7' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+  await waitFor(() => expect(onNotice).toHaveBeenCalledWith('Confirmed Market for $45.20. It now counts as spent.', false))
+  view.rerender(<ManualTransactionCapture {...props} resolutionNotice="Confirmed Market for $45.20. It now counts as spent." />)
+  expect(screen.getByRole('status').textContent).toContain('It now counts')
+  view.rerender(<ManualTransactionCapture {...props} resolutionNotice={null} />)
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.getByRole('heading', { name: 'Purchase entry' })).toBeTruthy()
+})
+
+
+it('compacts finished Review slots without changing the default Mia and statement slots', async () => {
+  const purchase = draft()
+  const props = stackProps([purchase])
+  const view = render(<TransactionDraftReviewStack {...props} compactFinished />)
+  vi.spyOn(view.container.querySelector<HTMLElement>('[data-review-item]')!, 'getBoundingClientRect').mockReturnValue({ height: 240, top: 0 } as DOMRect)
+  vi.spyOn(view.container.querySelector<HTMLElement>('.transaction-draft-actions')!, 'getBoundingClientRect').mockReturnValue({ top: 160 } as DOMRect)
+  fireEvent.click(screen.getByRole('button', { name: /^Confirm / }))
+  view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[{ ...purchase, status: 'confirmed' }]} compactFinished />)
+  expect(view.container.querySelector<HTMLElement>('[data-review-item]')?.style.minHeight).toBe('')
+  expect(view.container.querySelector<HTMLElement>('.terminal')?.style.paddingTop).toBe('')
+  view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[{ ...purchase, status: 'confirmed' }]} />)
+  expect(view.container.querySelector<HTMLElement>('[data-review-item]')?.style.minHeight).toBe('240px')
+  expect(view.container.querySelector<HTMLElement>('.terminal')?.style.paddingTop).toBe('152px')
+})
+
+it('requires a chosen new category name for Add to review and keeps action order visual', () => {
+  const onCreate = vi.fn()
+  const view = render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={onCreate} initiallyOpen />)
+  fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '25' } })
+  fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add to review' }))
+  expect(onCreate).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(screen.getByLabelText('New category name'))
+  expect(Array.from(view.container.querySelectorAll('.manual-transaction-actions button')).map(button => button.textContent)).toEqual(['Add and confirm', 'Add to review', 'Cancel'])
+})
+
+it('keeps Ask Mia header text description count and status condition while its last finished card remains', () => {
+  const props = { ...stackProps([draft()]), description: 'Check your purchase.' }
+  const view = render(<TransactionDraftReviewStack {...props} />)
+  const before = view.container.querySelector('.transaction-draft-stack-heading')!.outerHTML
+  view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[draft({ status: 'confirmed' })]} />)
+  expect(view.container.querySelector('.transaction-draft-stack-heading')!.outerHTML).toBe(before)
+})
+
+it('hides finished-card planning before the household plan starts and for deliberately zero months', () => {
+  const category = row({ months: row().months.map((cell, index) => ({ ...cell, planned: index === 11 ? 100 : 0 })) })
+  const props = { ...stackProps([]), completedDrafts: [draft({ status: 'confirmed' })], plan: { year: 2026, plan_starts_on: '2026-11-01', months: [], rows: [category] } as unknown as AnnualBudgetPlan, onPlanCategory: vi.fn() }
+  render(<TransactionDraftReviewStack {...props} />)
+  expect(screen.queryByRole('button', { name: /Set amount/ })).toBeNull()
+})
+
+it('does not turn a later household category into the remainder when the original row is archived', () => {
+  render(<ManualTransactionCapture categories={[row({ id: 1, name: 'Flexible spending', active: false }), row({ id: 7, name: 'Everyday spending' })]} busy={false} onCreate={vi.fn()} initiallyOpen />)
+  expect(screen.getByRole('option', { name: 'Everyday spending' })).toBeTruthy()
+  expect(screen.queryByRole('option', { name: 'Other flexible spending' })).toBeNull()
+})
+
+it('shows the deliberately zero month in purchase impact instead of saying no amount was planned', () => {
+  const category = row({ months: row().months.map((cell, index) => ({ ...cell, actual: 0, planned: index === 11 ? 100 : 0 })) })
+  render(<TransactionDraftReviewStack {...stackProps([draft()])} plan={{ year: 2026, months: row().months.map((_, index) => ({ id: index + 1, starts_on: `2026-${String(index + 1).padStart(2, '0')}-01`, ends_on: `2026-${String(index + 1).padStart(2, '0')}-31` })), pending_transaction_drafts: [], rows: [category] } as unknown as AnnualBudgetPlan} />)
+  expect(screen.queryByText('No amount planned yet.')).toBeNull()
+  const impact = screen.getByRole('region', { name: 'Budget impact if approved for Oct' })
+  expect(impact.textContent).toContain('Planned$0')
+  expect(impact.textContent).toContain('$25 over plan if approved.')
+})
+
+it('keeps a later household category named in the purchase summary when its group has an older remainder', () => {
+  render(<PurchaseReviewSummary categoryRows={[row({ id: 1, name: 'Flexible spending' }), row({ id: 2, name: 'Everyday spending' })]} draft={draft({ category_id: 2, category_name: 'Everyday spending', splits: [{ id: 11, budget_category_id: 2, category_name: 'Everyday spending', stack_key: 'discretionary', stack_label: 'Flexible spending', amount: 25, amount_cents: 2500, notes: null, confidence: null }] })} date="Nov 15" needsCategory={false} />)
+  expect(screen.getByText('Everyday spending')).toBeTruthy()
+  expect(screen.queryByText('Other flexible spending')).toBeNull()
+})
+
+it('opens on the merchant field but never pulls her out of a field she is already in', () => {
+  const frames: FrameRequestCallback[] = []
+  const frame = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    const first = render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} initiallyOpen />)
+    frames.splice(0).forEach(callback => callback(0))
+    expect(document.activeElement).toBe(screen.getByLabelText('Merchant'))
+    first.unmount()
+    // A late frame: she has already moved to Amount.
+    render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn()} initiallyOpen />)
+    screen.getByLabelText('Amount').focus()
+    frames.splice(0).forEach(callback => callback(0))
+    expect(document.activeElement).toBe(screen.getByLabelText('Amount'))
+  } finally { frame.mockRestore() }
+})
+
+it('focuses the inert purchase result even when an animation frame runs before its commit', async () => {
+  const frame = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(callback => { callback(0); return 1 })
+  try {
+    render(<ManualTransactionCapture categories={[row()]} busy={false} onCreate={vi.fn().mockResolvedValue(undefined)} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add a purchase' }))
+    fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '25' } })
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: '7' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
+  } finally { frame.mockRestore() }
 })

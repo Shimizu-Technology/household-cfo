@@ -55,3 +55,25 @@ describe('ReviewedTransactionsPanel', () => {
     expect(container.innerHTML).toBe('')
   })
 })
+
+it('keeps saved names on ledger rows whose group is unknown', () => {
+  const fixture = report()
+  fixture.transactions[0].categories = ['Flexible spending']
+  fixture.ignored_drafts![0].category_name = 'Fixed essentials'
+  const onReopen = vi.fn()
+  render(<ReviewedTransactionsPanel report={fixture} action={null} onReopen={onReopen} />)
+  expect(screen.getByText('Flexible spending')).toBeTruthy()
+  expect(screen.getByText('Fixed essentials')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: "Reopen McDonald's $25 on Oct 4" }))
+  expect(onReopen).toHaveBeenCalledWith(expect.objectContaining({ category_name: 'Flexible spending' }))
+  expect(fixture.transactions[0].categories).toEqual(['Flexible spending'])
+})
+
+it('uses plan group context for confirmed and ignored category labels without changing saved names', () => {
+  const fixture = report()
+  fixture.transactions[0].categories = ['Fixed essentials']
+  const categories = [{ id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary' as const, stack_label: 'Must-pay bills', active: true, months: [], planned_total: 0, actual_total: 0 }]
+  render(<ReviewedTransactionsPanel report={fixture} categories={categories} action={null} onReopen={vi.fn()} />)
+  expect(screen.getByText('Other must-pay bills')).toBeTruthy()
+  expect(fixture.transactions[0].categories).toEqual(['Fixed essentials'])
+})

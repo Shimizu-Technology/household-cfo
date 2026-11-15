@@ -91,7 +91,7 @@ function plannerProps() {
 }
 it('keeps the year on Home and starts Budget with this month’s groups and a Review link', () => {
   const props = plannerProps()
-  const pendingPlan = { ...plan, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
+  const pendingPlan = { ...plan, pending_transaction_drafts_meta: { total_count: 0, returned_count: 0, limit: 500, truncated: false }, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
   const { container } = render(<AnnualBudgetPlanner {...props} plan={pendingPlan} />)
   expect(container.querySelector('.annual-outlook')).toBeNull()
   expect(container.querySelector('.expense-stack-overview')).toBeTruthy()
@@ -99,6 +99,7 @@ it('keeps the year on Home and starts Budget with this month’s groups and a Re
   fireEvent.click(screen.getByRole('button', { name: 'Review' }))
   expect(props.onReviewTransactions).toHaveBeenCalledOnce()
   expect(screen.getByText(/1 purchase waiting for review/)).toBeTruthy()
+  expect(screen.getByText('1 awaiting review')).toBeTruthy()
 })
 it('links Mia plan changes waiting for review to Ask Mia, separately from purchases', () => {
   const props = plannerProps()
@@ -182,10 +183,11 @@ it('explains identical irregular costs once for grouped months', () => {
 })
 it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown debt minimums', () => {
  const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
- const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={null} />)
+ const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100},{...position,id:4,name:'Never planned',planned:0,neverPlanned:true}]} debtMinimums={null} />)
  const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
+ expect(within(group).getByText('Never planned').parentElement?.textContent).toBe('Never plannedNo amount planned yet')
  expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero bill$0')
- expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billNot entered')
+ expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billPlanned amount needs repair')
  expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')
  expect(within(group).getByText('Add your debt minimums.')).toBeTruthy()
@@ -365,4 +367,13 @@ it('fills Home tracks once per page lifetime and removes movement for reduced mo
     Element.prototype.animate = originalAnimate
     vi.unstubAllGlobals()
   }
+})
+
+
+it('does not claim debt payments are counted when Planned out needs an allocation repaired', () => {
+  const incomplete = { ...plan, monthly_debt_minimums_known: true, rows: plan.rows.map((row, index) => index === 0 ? { ...row, months: row.months.map((cell, month) => month === 9 ? { ...cell, allocation_missing: true } : cell) } : row) }
+  const view = render(<AnnualBudgetPlanner {...plannerProps()} plan={incomplete} focusRequest={{ key: 1, operationKey: 'budget.allocation.set', actionType: 'update_category', categoryId: incomplete.rows[0].id, months: [10], incomeScheduleEntryId: null, payload: {} }} />)
+  expect(view.container.querySelector('.budget-plan-strip')?.textContent).toContain('Planned outNot entered')
+  expect(view.container.textContent).not.toContain('are counted in Planned out above')
+  expect(view.container.querySelector(`[data-budget-category-id="${incomplete.rows[0].id}"] .annual-planned-readonly`)?.textContent).toBe('Not entered')
 })

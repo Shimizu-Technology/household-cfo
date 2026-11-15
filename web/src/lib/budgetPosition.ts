@@ -5,6 +5,7 @@ import type {
   SpendingReport,
   TransactionDraft,
 } from '../api'
+import { categoryDisplayName } from './categoryDisplayName'
 import { addMoney, dollarsFromCents, moneyCents, subtractMoney } from './moneyMath'
 
 export type BudgetPosition = {
@@ -17,6 +18,7 @@ export type BudgetPosition = {
   pending: number
   remaining: number
   active: boolean
+  neverPlanned?: boolean
   allocationMissing?: boolean
 }
 
@@ -28,6 +30,7 @@ export type BudgetPositionTotals = {
 }
 
 export type TransactionDraftBudgetImpact = {
+  neverPlanned?: boolean
   categoryId: number | null
   categoryName: string
   draftAmount: number
@@ -53,6 +56,8 @@ export function budgetPositionsForMonth(
     ? new Map(spendingReport.categories.map((category) => [category.id, category]))
     : new Map<number, SpendingReport['categories'][number]>()
   const planCategoryIds = new Set(plan.rows.map((row) => row.id))
+  // One context for both lists, so a report-only category and a plan row never share a label.
+  const labelContext = [...plan.rows, ...Array.from(reportCategories.values()).filter((category) => !planCategoryIds.has(category.id))]
   const planPositions = plan.rows.map((row) => {
     const cell = row.months[monthIndex]
     const reportCategory = reportCategories.get(row.id)
@@ -60,8 +65,9 @@ export function budgetPositionsForMonth(
     const actual = reportCategory?.actual ?? cell?.actual ?? 0
     return {
       id: row.id,
+      neverPlanned: row.months.every(month => !month.allocation_missing && month.planned === 0),
       allocationMissing: !cell || cell.allocation_missing === true,
-      name: row.name,
+      name: categoryDisplayName(row.name, row.stack_key, labelContext),
       stackKey: row.stack_key,
       stackLabel: row.stack_label,
       planned,
@@ -76,7 +82,7 @@ export function budgetPositionsForMonth(
     .filter((category) => !planCategoryIds.has(category.id))
     .map((category) => ({
       id: category.id,
-      name: category.name,
+      name: categoryDisplayName(category.name, category.stack_key, labelContext),
       stackKey: category.stack_key,
       stackLabel: category.stack_label,
       planned: category.planned,
@@ -156,7 +162,7 @@ export function transactionDraftBudgetImpacts(
     if (!row || !cell || cell.allocation_missing === true) {
       return {
         categoryId,
-        categoryName: allocation.categoryName || 'Unknown category',
+        categoryName: row ? categoryDisplayName(row.name, row.stack_key, plan.rows) : allocation.categoryName || 'Unknown category',
         draftAmount: allocation.amount,
         planned: null,
         actual: null,
@@ -170,8 +176,9 @@ export function transactionDraftBudgetImpacts(
     const projectedIfApproved = addMoney(cell.actual, allocation.amount)
     return {
       categoryId,
-      categoryName: row.name,
+      categoryName: categoryDisplayName(row.name, row.stack_key, plan.rows),
       draftAmount: allocation.amount,
+      neverPlanned: row.months.every(month => !month.allocation_missing && month.planned === 0),
       planned: cell.planned,
       actual: cell.actual,
       otherPending,
