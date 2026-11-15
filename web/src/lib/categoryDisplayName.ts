@@ -11,9 +11,9 @@ export function categoryDisplayName(name: string, stack?: BudgetStackKey) {
   if (!stack) return name
   if ((catchAllNames[stack] ?? []).some(candidate => candidate.toLowerCase() === name.toLowerCase())) return `Other ${name.toLowerCase()}`
   // Keep an explicitly named category distinct from the group's remainder.
-  if ((catchAllNames[stack] ?? []).some(candidate => `other ${candidate.toLowerCase()}` === name.toLowerCase())) return `${name} (category)`
+  if (Object.values(catchAllNames).flat().some(candidate => `other ${candidate.toLowerCase()}` === name.toLowerCase().replace(/(?: \(category\))+$/, ''))) return `${name} (category)`
   return name
 }
 export function isCatchAllCategory(name: string, stack?: BudgetStackKey) {
-  return categoryDisplayName(name, stack) !== name
+  return Boolean(stack && catchAllNames[stack].some(candidate => candidate.toLowerCase() === name.toLowerCase()))
 }

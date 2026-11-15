@@ -18063,3 +18063,19 @@ test('BOG UI F2 fix1 catch-all name and amount edits send saved names without a 
   expect(categoryWrites).toBe(1)
   expect(allocationWrites).toBe(1)
 })
+
+test('BOG UI F2 fix1 catch-all and separately named Other categories keep unique labels across groups', async ({ page }) => {
+  const workspace = f2Workspace()
+  const template = workspace.budget.annual_plan.rows[0]
+  workspace.budget.annual_plan.rows.push(
+    { ...template, id: 3, name: 'Other flexible spending', stack_key: 'non_discretionary', stack_label: 'Must-pay bills', months: categoryMonths(3, 300, 0) },
+    { ...template, id: 4, name: 'Other flexible spending (category)', months: categoryMonths(4, 100, 0) },
+  )
+  await f2Mock(page, workspace)
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Spending')
+  for (const label of ['Other flexible spending', 'Other flexible spending (category)', 'Other flexible spending (category) (category)']) {
+    await expect(page.getByRole('button', { name: `Edit ${label}`, exact: true })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: `Edit ${label}`, exact: true })).toContainText(label)
+  }
+})
