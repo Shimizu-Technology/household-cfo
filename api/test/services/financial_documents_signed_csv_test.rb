@@ -321,6 +321,16 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     end
   end
 
+  test "all out reads the sign from a row that has an amount, not from a blank first row" do
+    { "all_out" => [ -1000, -2000 ], "all_in" => [ 1000, 2000 ] }.each do |choice, expected|
+      user, document = sign_document("zero-first.csv")
+      original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract("Date,Description,Amount\n2026-10-01,Opening entry,0.00\n2026-10-02,Store,-10\n2026-10-03,Shop,-20\n", account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+      assert original.coverage["signed_amount_single_sign"]
+      changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: choice, user: user)
+      assert_equal expected, changed.financial_source_events.order(:position).pluck(:signed_amount_cents).compact
+    end
+  end
+
   test "not sure withdraws the mixed sign question and shows individual questions" do
     user, document = sign_document("mixed.csv")
     original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]

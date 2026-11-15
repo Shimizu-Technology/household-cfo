@@ -41,7 +41,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
       <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
         {line.directionRequired && <fieldset><legend>Was this money out or money in?</legend>
-          <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant="secondary" aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (!kind || line.kind === 'spending' || line.kind === 'money_in') setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
+          <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant="secondary" aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (!kind || line.kind === 'spending' || line.kind === 'money_in' || (value === 'out' && kind === 'refund') || (value === 'in' && (kind === 'spending' || kind === 'cash'))) setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
         </fieldset>}
         <label>What was this?
           <select value={kind} onChange={(event) => setKind(event.target.value as LineKind)}>

@@ -1947,11 +1947,11 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
-        if HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
+        if HouseholdFinance::AttachedDocumentQuestionAnswerer.read_acknowledgement_request?(content)
           read_reply = HouseholdFinance::UploadReadReply.call(current_household, attached_imports)
           return read_reply if read_reply
         end
-        if content.present? && !HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
+        if content.present? && !HouseholdFinance::AttachedDocumentQuestionAnswerer.read_acknowledgement_request?(content)
           processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
           if processing.empty?
             answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(

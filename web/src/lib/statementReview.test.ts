@@ -1,11 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, lineKindFor, parseLineAmount, readyCategoryLabel, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, lineKindFor, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
   attention: [1, 2, 3].map((id) => ({ event_id: 100 + id, kind: 'refund' as const, event_type: 'refund' as const, question: 'Is this a refund?', answers: [], merchant: 'Amazon', posted_on: '2026-09-24', signed_amount_cents: 1299, category_id: null, category_name: null })), ...patch })
 afterEach(() => vi.useRealTimers())
+
+describe('a line whose direction she supplies', () => {
+  const unsigned = (eventType: 'refund' | 'transfer' | 'cash_withdrawal') => ({ ...plan().attention[0], kind: 'direction' as never, event_type: eventType, signed_amount_cents: null, amount_cents: 10_000 })
+  it('keeps a refund only as money in: the server refuses a refund that is money out', () => {
+    expect(lineSheetWithDirection(unsigned('refund'), 'in')).toMatchObject({ kind: 'refund', moneyDirection: 'in' })
+    expect(lineSheetWithDirection(unsigned('refund'), 'out')).toMatchObject({ kind: 'spending', moneyDirection: 'out' })
+    expect(lineSheetWithDirection(unsigned('cash_withdrawal'), 'in')).toMatchObject({ kind: 'money_in', moneyDirection: 'in' })
+  })
+  it('opens an unsigned transfer from its row with the amount filled in and no direction chosen', () => {
+    const sheet = lineSheetFromAttention(unsigned('transfer'))
+    expect(sheet).toMatchObject({ directionRequired: true, amountCents: 10_000, kind: 'moved' })
+    expect(sheet.moneyDirection).toBeUndefined()
+  })
+})
 
 describe('statement review wording', () => {
   it('names the lines, account and dates in one sentence', () => {

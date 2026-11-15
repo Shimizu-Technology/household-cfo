@@ -32,8 +32,11 @@ module FinancialDocuments
         negative_is_money_out = StructuredSpreadsheetExtractor.negative_is_money_out(factor: factor, basis: bases.first, negative_balances: revision.coverage["signed_amount_negative_balances"] == true)
       elsif choice.in?(%w[all_out all_in])
         raise ArgumentError, "Review each line individually when amounts use both signs." unless revision.coverage["signed_amount_single_sign"] == true
-        first = originals.find { |event| target_rows.include?(event.row_identity) }
-        negative = first.financial_source_evidence.payload["source_amount_text"].to_s.strip.start_with?("-", "(")
+        # A blank or zero row has no sign to read: take it from the first row that has an amount.
+        amounts = originals.select { |event| target_rows.include?(event.row_identity) }.map { |event| event.financial_source_evidence&.payload.to_h["source_amount_text"].to_s.strip }
+        first = amounts.find { |text| text.match?(/[1-9]/) }
+        raise ArgumentError, "We could not apply that answer. Nothing changed." unless first
+        negative = first.start_with?("-", "(")
         negative_is_money_out = choice == "all_out" ? negative : !negative
       end
       target_accounts = originals.select { |event| target_rows.include?(event.row_identity) }.map(&:financial_source_account_id).uniq

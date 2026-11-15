@@ -1356,7 +1356,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     text = response.parsed_body.dig("assistant_message", "content")
     assert_includes text, "You described this as receipt, but I detected statement"
     assert_includes text, "I read a receipt from Fictional shop"
-    [ "Show transactions", "List purchases" ].each do |message|
+    [ "Show transactions", "List purchases", "Review and show transactions" ].each do |message|
       post "/api/v1/mia/messages", params: { message: message, document_import_ids: [ document.id ] }, headers: auth_headers(user), as: :json
       assert_response :created
       text = response.parsed_body.dig("assistant_message", "content")

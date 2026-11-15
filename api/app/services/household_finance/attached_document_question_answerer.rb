@@ -12,7 +12,13 @@ module HouseholdFinance
     MONTH_PATTERN = /(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)/i
     GENERIC_REVIEW_PATTERN = /\A(?:please\s+)?(?:review|read|check|process|summarize)\b/i
     SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|add up|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
+    LIST_REQUEST_PATTERN = /\b(?:list|show)\b.{0,40}\b(?:transactions?|purchases?|charges?|merchants?)\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
+
+    # "Review and show transactions" opens like a plain review but asks for the list.
+    def self.read_acknowledgement_request?(message)
+      generic_review_request?(message) && !message.to_s.squish.match?(LIST_REQUEST_PATTERN)
+    end
 
     def self.generic_review_request?(message)
       normalized = message.to_s.squish
@@ -33,7 +39,7 @@ module HouseholdFinance
       return unless document_imports.all? { |document_import| document_import.household_id == household.id }
       return evidence_bound_answer if evidence_exceeds_complete_bound?
 
-      if self.class.generic_review_request?(message)
+      if self.class.read_acknowledgement_request?(message)
         read_reply = UploadReadReply.call(household, document_imports)
         return read_reply if read_reply
       end

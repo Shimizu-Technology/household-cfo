@@ -31,7 +31,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
   test "structured lists take priority over receipt acknowledgements" do
     @document_import.update!(document_kind: "receipt")
     create_draft!(merchant: "Pay-Less", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))
-    [ "Show transactions", "List purchases" ].each do |question|
+    [ "Show transactions", "List purchases", "Review and show transactions" ].each do |question|
       answer = answer_for(question)
       assert_includes answer, "Attached transactions:"
       assert_includes answer, "Pay-Less"
