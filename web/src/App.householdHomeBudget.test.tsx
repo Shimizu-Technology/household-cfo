@@ -91,7 +91,7 @@ function plannerProps() {
 }
 it('keeps the year on Home and starts Budget with this month’s groups and a Review link', () => {
   const props = plannerProps()
-  const pendingPlan = { ...plan, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
+  const pendingPlan = { ...plan, pending_transaction_drafts_meta: { total_count: 0, returned_count: 0, limit: 500, truncated: false }, pending_transaction_drafts: [{ id: 1, occurred_on: '2026-10-15', amount: 135.90, category_id: 1, status: 'pending' }] } as AnnualBudgetPlan
   const { container } = render(<AnnualBudgetPlanner {...props} plan={pendingPlan} />)
   expect(container.querySelector('.annual-outlook')).toBeNull()
   expect(container.querySelector('.expense-stack-overview')).toBeTruthy()
@@ -99,6 +99,7 @@ it('keeps the year on Home and starts Budget with this month’s groups and a Re
   fireEvent.click(screen.getByRole('button', { name: 'Review' }))
   expect(props.onReviewTransactions).toHaveBeenCalledOnce()
   expect(screen.getByText(/1 purchase waiting for review/)).toBeTruthy()
+  expect(screen.getByText('1 awaiting review')).toBeTruthy()
 })
 it('links Mia plan changes waiting for review to Ask Mia, separately from purchases', () => {
   const props = plannerProps()
@@ -185,7 +186,7 @@ it('distinguishes confirmed zero, missing category amounts, mixed subtotals and 
  const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={null} />)
  const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
  expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero billNo amount planned yet')
- expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billNot entered')
+ expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billPlanned amount needs repair')
  expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')
  expect(within(group).getByText('Add your debt minimums.')).toBeTruthy()
