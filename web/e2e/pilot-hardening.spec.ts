@@ -8034,7 +8034,7 @@ test('BOG UI manual transaction capture joins the unified review queue without c
 
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'Review')
-  await expect(page.getByRole('heading', { name: 'Add a purchase', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Purchase entry', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Add a purchase' }).click()
   await page.getByLabel('Merchant').fill('Village Market')
   await page.getByLabel('Amount').fill('17.42')
@@ -9124,7 +9124,8 @@ test('BOG UI completing a statement refreshes Home purchase counts without a pag
   await openSection(page, 'Home')
   await expect(page.getByRole('button', { name: /Review \d+ purchases/ })).toHaveCount(0)
   await openSection(page, 'Review')
-  await expect(page.getByText('Nothing to check right now.', { exact: false })).toBeVisible()
+  await expect(page.getByText('No purchases to review', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: /1 file waiting for review/ })).toBeVisible()
 })
 
 test('BOG UI Mia posts a card for a statement she has read, and the participant approves it without leaving the chat', async ({ page }) => {
@@ -11445,7 +11446,7 @@ test('BOG UI compact savings chat preserves room for five files and the complete
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Review these files.\nHelp me understand my spending.')
   await page.locator('.ask-row input[type="file"]').setInputFiles(Array.from({ length: 5 }, (_, index) => ({ name: `QA-statement-${index + 1}.pdf`, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\nQA') })))
   await expect(page.getByText('5 files ready to send', { exact: true })).toBeVisible()
-  expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
+  await expect.poll(() => page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeInViewport()
   // The compact footer stays visible; About keeps the complete program disclosure.
   await expect(page.locator('.brand-footer .mia-disclaimer')).toBeVisible()
