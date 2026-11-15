@@ -717,7 +717,9 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
   test "real numeric provider errors distinguish file decoding from our invalid requests" do
     image_error = { type: "error", error: { type: "invalid_request_error", message: "Could not process image" }, request_id: "fictional" }
     media_error = { type: "error", error: { type: "invalid_request_error", message: "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'" } }
-    bodies = [ image_error, image_error, media_error ].map { |raw| { error: { message: "Provider returned error", code: 400, metadata: { raw: raw.to_json, provider_name: "Anthropic", previous_errors: [] } } }.to_json }
+    # The path names where the image sits in our request; a later page has another index.
+    later_media_error = { type: "error", error: { type: "invalid_request_error", message: "messages.0.content.3.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'" } }
+    bodies = [ image_error, image_error, media_error, later_media_error ].map { |raw| { error: { message: "Provider returned error", code: 400, metadata: { raw: raw.to_json, provider_name: "Anthropic", previous_errors: [] } } }.to_json }
     bodies << { error: { message: "Failed to parse the file", code: 400, metadata: { provider_name: nil, previous_errors: [] } } }.to_json
     bodies.each do |body|
       response = http_error(400)

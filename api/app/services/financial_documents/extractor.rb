@@ -749,7 +749,7 @@ module FinancialDocuments
       raw = error.dig("metadata", "raw")
       provider = raw.is_a?(String) ? JSON.parse(raw).fetch("error", {}) : {}
       type, message = provider.values_at("type", "message")
-      image_decode = type == "invalid_request_error" && (message == "Could not process image" || message.to_s.start_with?("messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'"))
+      image_decode = type == "invalid_request_error" && (message == "Could not process image" || message.to_s.match?(/\Amessages\.\d+\.content\.\d+\.image\.source\.base64\.media_type: Input should be /))
       file_parse = error["message"] == "Failed to parse the file"
       { rejected: image_decode || file_parse, reason: image_decode ? "image_decode_failed" : file_parse ? "file_parse_failed" : nil,
         provider_type: type, provider_message: message }
