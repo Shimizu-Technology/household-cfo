@@ -6853,7 +6853,7 @@ export function WorkspaceSetupForm({
       if (!active || active === document.body || form?.contains(active)) savedHeadingRef.current?.focus({ preventScroll: true })
     }
     wasEditingRef.current.editing = editing
-  }, [editing])
+  }, [editing, firstSession])
   return (
     // noValidate: the save handler explains problems in plain words instead of
     // browser bubbles. Blank amounts stay unknown.
