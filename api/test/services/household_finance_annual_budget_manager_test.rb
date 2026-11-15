@@ -100,7 +100,7 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     end
   end
 
-  test "plan data scopes pending transaction drafts to the viewed budget year" do
+  test "plan data keeps pending transaction drafts visible across budget years" do
     household = create_household
     household.transaction_drafts.create!(
       occurred_on: Date.new(2026, 7, 1),
@@ -110,7 +110,7 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
       status: "pending",
       raw_input: "I spent $11 at Current Cafe"
     )
-    household.transaction_drafts.create!(
+    prior_draft = household.transaction_drafts.create!(
       occurred_on: Date.new(2025, 7, 1),
       merchant: "Prior Cafe",
       total_amount_cents: 1_200,
@@ -119,11 +119,25 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
       raw_input: "I spent $12 at Prior Cafe"
     )
 
+    prior_manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2025)
+    category = prior_manager.create_category!(name: "Cafe", stack_key: "discretionary", monthly_amount: 20)
+    transaction = household.household_transactions.create!(
+      budget_period: prior_manager.current_period_for(prior_draft.occurred_on),
+      occurred_on: prior_draft.occurred_on, merchant: prior_draft.merchant,
+      total_amount_cents: 1_200, source_type: "manual_ui", status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_200)
+    match = prior_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.99, status: "proposed", match_reason: "same purchase")
+
     current_plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
     prior_plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2025).plan_data
 
-    assert_equal [ "Current Cafe" ], current_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
-    assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal [ "Prior Cafe", "Current Cafe" ], current_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal [ "Prior Cafe", "Current Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    prior_in_current = current_plan.fetch(:pending_transaction_drafts).find { |draft| draft.fetch(:id) == prior_draft.id }
+    assert_equal match.id, prior_in_current.fetch(:matches).first.fetch(:id)
+    assert_equal "proposed", prior_in_current.fetch(:matches).first.fetch(:status)
+    assert_equal 2, current_plan.fetch(:pending_transaction_drafts_meta).fetch(:total_count)
   end
 
   test "plan data discloses when the pending transaction queue is capped" do

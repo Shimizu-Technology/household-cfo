@@ -617,10 +617,9 @@ module HouseholdFinance
       }
     end
 
-    def pending_drafts_scope(budget_year)
+    def pending_drafts_scope(_budget_year)
       household.transaction_drafts.pending.excluding_non_spending_plaid
         .where(financial_source_event_id: nil)
-        .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
     end
 
     def pending_mia_action_drafts_payload(budget_year)
