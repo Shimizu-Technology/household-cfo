@@ -3804,6 +3804,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       // totals would ask the API to flatten detailed monthly category amounts.
       const baseline = (wasSetupComplete ? profileEditBaseline : null) ?? (data?.workspace.setup_values ? workspaceSetupBaseline(data.workspace.setup_values, data.workspace.setup_status) : {})
       const submittedSetupValues = changedWorkspaceSetupValues(allSetupValues, baseline)
+      // Prefilled household text still needs its first confirmation. Money totals
+      // are sent only when edited, so a save cannot flatten an untouched plan.
+      if (isFirstSessionSetup) {
+        for (const field of ['household_name', 'primary_goal'] as const) {
+          if (!data?.workspace.setup_status.confirmed_fields.includes(field)) submittedSetupValues[field] = setupValues[field]
+        }
+      }
       const validationFields = isFirstSessionSetup ? ['household_name', 'primary_goal', ...Object.keys(submittedSetupValues)] : Object.keys(submittedSetupValues)
       const problem = workspaceSetupDraftProblem(setupDraft, validationFields, isFirstSessionSetup)
       if (problem) {

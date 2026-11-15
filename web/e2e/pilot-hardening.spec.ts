@@ -3443,8 +3443,6 @@ test('BOG UI a confirmed zero remains available when the rest of setup is comple
     primary_goal: 'Keep a calm plan.',
     primary_income: 6200,
     fixed_expenses: 2800,
-    flexible_spend: 0,
-    debt_payment: null,
   })
 })
 
@@ -4885,13 +4883,14 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
 test('BOG UI household incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
   const guidedSetupPrompt = 'Help me set up my household. Please ask me one simple question at a time.'
   const guidedSetupReply = 'What would you like to call this household?'
+  let nextMessageId = 801
   await page.route('http://api.test/api/v1/mia/messages', async (route) => {
     if (route.request().method() === 'POST') {
       return route.fulfill({
         status: 201,
         json: {
-          user_message: { id: 801, role: 'user', author: 'You', content: route.request().postDataJSON().message, attachments: [], created_at: '2026-10-01T00:00:00Z' },
-          assistant_message: { id: 802, role: 'assistant', author: 'Mia', content: route.request().postDataJSON().message === guidedSetupPrompt ? guidedSetupReply : 'Your plan leaves room this month.', attachments: [], created_at: '2026-10-01T00:00:01Z' },
+          user_message: { id: nextMessageId++, role: 'user', author: 'You', content: route.request().postDataJSON().message, attachments: [], created_at: '2026-10-01T00:00:00Z' },
+          assistant_message: { id: nextMessageId++, role: 'assistant', author: 'Mia', content: route.request().postDataJSON().message === guidedSetupPrompt ? guidedSetupReply : 'Your plan leaves room this month.', attachments: [], created_at: '2026-10-01T00:00:01Z' },
           transaction_draft: null,
           mia_action_draft: null,
         },
@@ -5089,7 +5088,6 @@ test('BOG UI first-run setup leaves blank money unknown, accepts cents, and expl
     household_name: 'Cents Household',
     primary_goal: 'Keep a calm plan.',
     primary_income: 1234.56,
-    debt_payment: null,
   })
 })
 
@@ -16990,4 +16988,20 @@ test('BOG UI F1 fix1 finish here opens the individual missing payment', async ({
   await expect(page).toHaveURL(/#My%20Money$/)
   await expect(page.getByRole('textbox', { name: /^Debt name/ })).toHaveValue('Visa')
   await expect(page.getByRole('textbox', { name: /^Debt name/ })).toBeFocused()
+})
+
+test('BOG UI F1 fix1 first save confirms prefilled household text without blank debt', async ({ page }) => {
+  const w = await f1Workspace(page)
+  Object.assign(w.workspace.setup_values, { household_name: 'Cruz household', primary_goal: 'A calm month' })
+  await page.reload()
+  await page.getByRole('button', { name: 'Enter my numbers', exact: true }).click()
+  await expect(page.getByLabel('Household name')).toHaveValue('Cruz household')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('A calm month')
+  await page.getByLabel('Primary monthly income').fill('5200')
+  await page.getByLabel('Fixed essentials').fill('2050')
+  await page.getByLabel('Flexible spending').fill('700')
+  const saving = page.waitForRequest(request => request.url().endsWith('/workspace/setup'))
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  expect((await saving).postDataJSON().workspace).toEqual({ household_name: 'Cruz household', primary_goal: 'A calm month', primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700 })
+  await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
 })
