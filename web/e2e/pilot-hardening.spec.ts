@@ -17574,3 +17574,14 @@ test('BOG UI F4 fix2 a newer legacy statement keeps its purchase cards without a
   await expect(page.getByRole('button', { name: /Fictional-bank-1205.csv · Still waiting/ })).toHaveCount(0)
   await f4Evidence(page, 'fix2-newer-legacy-than-receipt')
 })
+
+
+test('BOG UI F4 fix2 a new receipt promotes only its purchases and keeps older statements before proposed changes', async ({ page }) => {
+  await f4Chat(page, [f4Source()], 1204, true, 15, false, workspace => { workspace.budget.annual_plan.pending_mia_action_drafts = [miaBudgetDraft] })
+  const queue = page.locator('.chat-review-queue')
+  await expect(queue.locator('.mia-action-draft-card')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Fictional-bank-1203.csv · Still waiting/ })).toBeVisible()
+  expect(await queue.evaluate(element => Boolean(element.querySelector('[data-review-item="99001"]')!.compareDocumentPosition(element.querySelector('.mia-statement-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  expect(await queue.evaluate(element => Boolean(element.querySelector('.mia-statement-cards')!.compareDocumentPosition(element.querySelector('.mia-action-draft-card')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  await f4Evidence(page, 'fix2-receipt-statement-changes-order')
+})

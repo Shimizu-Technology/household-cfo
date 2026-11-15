@@ -4117,6 +4117,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
 
 
   const currentUploadIds = (currentMessages.findLast(message => message.role === 'user')?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id])
+  const latestHasStatement = statementCardEntries(documentImports, Date.now()).some(entry => currentUploadIds.includes(entry.documentImport.id))
   const latestHasPurchases = chatPurchaseDrafts.some(draft => draft.financial_document_import_id != null && currentUploadIds.includes(draft.financial_document_import_id))
   const chatPurchaseCards = (chatPurchaseDrafts.length > 0 || completedPurchases.scope === purchaseScope && completedPurchases.drafts.length > 0) && (
   <TransactionDraftReviewStack key="chat-purchases"
@@ -4382,9 +4383,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   reviewCount={safetyHold ? 0 : pendingMiaActionDrafts.length + pendingTransactionDrafts.filter((draft) => draft.status === 'pending').length}
                   emptyReviewContent={isSavingsExperience || statementCards ? <>{isSavingsExperience ? challengeReviewContent : null}{statementCards}</> : undefined}
                   reviewContent={!safetyHold ? <>
-                    {!latestHasPurchases && statementCards}
+                    {latestHasStatement && statementCards}
                     {latestHasPurchases && chatPurchaseCards}
                     {challengeReviewContent}
+                    {!latestHasStatement && statementCards}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack
                         errors={reviewErrors}
@@ -4401,7 +4403,6 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                       />
                     )}
 
-                    {latestHasPurchases && statementCards}
                     {!latestHasPurchases && chatPurchaseCards}
                     {olderLegacyStatements.map(document => <button type="button" className="chat-pending-line" key={document.id} onClick={() => openDocumentReview(document.id)}>{document.filename} · Still waiting for your review <span aria-hidden="true">→</span></button>)}
 
