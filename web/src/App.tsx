@@ -4095,8 +4095,10 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   </> : dailyCheckInPrompt
 
   const latestUploadIds = (currentMessages.findLast(message => message.role === 'user')?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id])
-  const latestStatementIds = documentImports.filter(document => document.document_kind === 'statement').map(document => document.id)
-  const chatPurchaseDrafts = latestUploadIds.length ? pendingTransactionDrafts.filter(draft => draft.financial_document_import_id != null && latestUploadIds.includes(draft.financial_document_import_id) && !latestStatementIds.includes(draft.financial_document_import_id)) : pendingTransactionDrafts
+  const statementIds = documentImports.filter(document => document.document_kind === 'statement').map(document => document.id)
+  const typedStatementIds = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'typed').map(document => document.id)
+  const olderLegacyStatements = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'legacy' && documentNeedsReview(document) && !latestUploadIds.includes(document.id))
+  const chatPurchaseDrafts = latestUploadIds.length ? pendingTransactionDrafts.filter(draft => draft.financial_document_import_id != null && latestUploadIds.includes(draft.financial_document_import_id) && !typedStatementIds.includes(draft.financial_document_import_id)) : pendingTransactionDrafts.filter(draft => draft.financial_document_import_id == null || !statementIds.includes(draft.financial_document_import_id))
 
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
   const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards
@@ -4362,6 +4364,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                       />
                     )}
                     {statementCards}
+                    {olderLegacyStatements.map(document => <button type="button" className="chat-pending-line" key={document.id} onClick={() => openDocumentReview(document.id)}>{document.filename} · Still waiting for your review <span aria-hidden="true">→</span></button>)}
                     {challengeReviewContent}
                     {pendingMiaActionDrafts.length > 0 && (
                       <MiaActionDraftReviewStack

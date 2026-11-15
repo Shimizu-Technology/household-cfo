@@ -17211,3 +17211,17 @@ test('BOG UI F4 an iPhone photo converts before it joins the chat tray and an un
   await f4Evidence(page, 'heic-converted')
   expect(presigns).toBe(0)
 })
+
+
+test('BOG UI F4 a newly attached legacy statement keeps its purchase review card', async ({ page }) => {
+  await f4Chat(page, [{ ...f4Source(1204), metadata: {} }], 1204, true)
+  await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Pay-Less Supermarkets$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Confirm Pay-Less Supermarkets/ })).toBeVisible()
+})
+
+test('BOG UI F4 an older legacy statement is an opening line beside the newest receipt', async ({ page }) => {
+  await f4Chat(page, [{ ...f4Source(), metadata: {} }], 1204, true)
+  await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Pay-Less Supermarkets$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Fictional-bank-1203.csv · Still waiting for your review/ })).toBeVisible()
+  await expect(page.getByRole('region', { name: /^Statement:/ })).toHaveCount(0)
+})
