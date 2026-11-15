@@ -9913,7 +9913,7 @@ test('BOG UI normal chat adapts to a reduced phone viewport and preserves a keyb
   await expect.poll(() => composer.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(500)
   const send = page.getByRole('button', { name: 'Send message to Mia' })
   await expect.poll(() => send.evaluate(node => node.getBoundingClientRect().bottom)).toBeLessThanOrEqual(500)
-  expect(await page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
+  await expect.poll(() => page.locator('.chat-card-wrap').evaluate(node => node.getBoundingClientRect().height)).toBeGreaterThan(100)
   await page.setViewportSize({ width: 640, height: 360 })
   await expect(composer).toHaveValue('A draft before viewport resize.')
   await send.scrollIntoViewIfNeeded()
