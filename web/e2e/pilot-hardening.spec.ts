@@ -17648,7 +17648,7 @@ test('BOG UI F2 Home adds and confirms a purchase once with saved spending on Bu
   await page.getByLabel('Merchant', { exact: true }).fill('Payless')
   await page.getByLabel('Amount', { exact: true }).fill('45.20')
   await page.getByRole('combobox', { name: 'Category', exact: true }).selectOption('2')
-  await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
+  await page.getByLabel('Amount', { exact: true }).press('Enter')
   await expect(page.locator('.manual-transaction-capture [data-review-result]')).toHaveText('Confirmed Payless for $45.20. It now counts as spent.')
   await expect(page.locator('.manual-transaction-capture [data-review-result]')).toBeFocused()
   expect(creates).toBe(1); expect(confirms).toBe(1)

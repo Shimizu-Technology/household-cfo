@@ -2057,7 +2057,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
-  function openBudgetMoneyTool(tool: 'category' | 'monthly', categoryId: number | null = null) {
+  function openBudgetMoneyTool(tool: 'category' | 'monthly', categoryId: number | null = null, monthNumber = selectedBudgetMonthIndex + 1) {
     if (!switchSection('Budget', { focusHeading: false })) return
     budgetFocusSequenceRef.current += 1
     setBudgetFocusRequest({
@@ -2065,7 +2065,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       operationKey: tool === 'category' ? 'budget.category.create' : 'budget.allocation.set',
       actionType: tool === 'category' ? 'create_category' : 'update_category',
       categoryId,
-      months: tool === 'category' ? [] : [selectedBudgetMonthIndex + 1],
+      months: tool === 'category' ? [] : [monthNumber],
       incomeScheduleEntryId: null,
       payload: {},
     })
@@ -4566,7 +4566,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     title="Purchases to review"
                     emptyTitle="Nothing to check right now."
                     description="Check the date, amount and category before confirming."
-                    onPlanCategory={categoryId => openBudgetMoneyTool('monthly', categoryId)}
+                    onPlanCategory={(categoryId, monthNumber) => openBudgetMoneyTool('monthly', categoryId, monthNumber)}
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
@@ -7901,8 +7901,8 @@ export function ManualTransactionCapture({
         {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
         <div className="manual-transaction-actions">
           <button type="button" className="ui-btn ui-btn--text" disabled={locked} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
-          <button type="submit" value="review" className="ui-btn ui-btn--tonal" disabled={locked}>Add to review</button>
           <button type="submit" value="confirm" className="ui-btn ui-btn--primary" disabled={locked}>{busy ? 'Saving purchase' : 'Add and confirm'}</button>
+          <button type="submit" value="review" className="ui-btn ui-btn--tonal" disabled={locked}>Add to review</button>
         </div>
       </form>}
     </section>
@@ -7956,7 +7956,7 @@ export function TransactionDraftReviewStack({
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
-  onPlanCategory?: (categoryId: number) => void
+  onPlanCategory?: (categoryId: number, monthNumber?: number) => void
   onBulkIgnore?: (drafts: TransactionDraft[]) => void
   eyebrow?: string
   title?: string
@@ -8219,7 +8219,7 @@ function TransactionDraftReviewCard({
 }: {
   draft: TransactionDraft
   error?: string
-  onPlanCategory?: (categoryId: number) => void
+  onPlanCategory?: (categoryId: number, monthNumber?: number) => void
   onEditingChange: (editing: boolean) => void
   isRealWorkspace: boolean
   action: string | null
@@ -8517,7 +8517,7 @@ function TransactionDraftReviewCard({
           </button>
         </div>
       )}
-      {!isPending && ['confirmed', 'corrected'].includes(draft.status) && plan && onPlanCategory && plan.rows.filter(row => row.active && row.months[monthIndexFromIsoDate(draft.occurred_on)]?.planned === 0 && (row.id === draft.category_id || (draft.splits ?? []).some(split => split.budget_category_id === row.id || split.category_name === row.name))).map(row => <div className="ui-row" key={row.id}><span className="ui-row__body">{row.name} · No amount planned yet</span><button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(row.id)}>Set amount for {row.name}</button></div>)}
+      {!isPending && ['confirmed', 'corrected'].includes(draft.status) && plan && onPlanCategory && plan.rows.filter(row => row.active && row.months[monthIndexFromIsoDate(draft.occurred_on)]?.planned === 0 && (row.id === draft.category_id || (draft.splits ?? []).some(split => split.budget_category_id === row.id || split.category_name === row.name))).map(row => <div className="ui-row" key={row.id}><span className="ui-row__body">{row.name} · No amount planned yet</span><button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(row.id, monthIndexFromIsoDate(draft.occurred_on) + 1)}>Set amount for {row.name}</button></div>)}
       {isPending && (
         <details className="transaction-review-details" open={editing || undefined}><summary>Purchase details</summary><p>{transactionDraftSourceLabel(draft.source_type, assistantName)}</p>
         {(draft.splits ?? []).length > 0 && (
@@ -8682,7 +8682,7 @@ export function CurrentMonthActivityPanel({
   planKnown = true,
   onPlanCategory,
 }: {
-  onPlanCategory?: (categoryId: number) => void
+  onPlanCategory?: (categoryId: number, monthNumber?: number) => void
   plan: AnnualBudgetPlan
   currentMonthIndex: number
   spendingReport: SpendingReport | null

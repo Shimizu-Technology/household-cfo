@@ -421,3 +421,11 @@ it('adds and confirms a deliberately selected new category in one action and foc
   await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ splits: [{ amount: '45.20', category_name: 'Groceries', stack_key: 'discretionary' }] }), true))
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
 })
+
+it('opens an unplanned finished category in the purchase month', () => {
+  const category = row({ months: Array.from({ length: 12 }, (_, index) => ({ allocation_id: index + 1, period_id: index + 1, planned: 0, actual: 0, remaining: 0 })) })
+  const onPlanCategory = vi.fn()
+  render(<TransactionDraftReviewStack drafts={[]} completedDrafts={[draft({ status: 'confirmed', category_id: category.id })]} isRealWorkspace action={null} onConfirm={vi.fn()} onIgnore={vi.fn()} onReopen={vi.fn()} plan={{ year: 2026, rows: [category], pending_transaction_drafts: [], months: Array.from({ length: 12 }, (_, index) => ({ starts_on: `2026-${String(index + 1).padStart(2, '0')}-01`, ends_on: `2026-${String(index + 1).padStart(2, '0')}-28` })) } as AnnualBudgetPlan} onPlanCategory={onPlanCategory} />)
+  fireEvent.click(screen.getByRole('button', { name: `Set amount for ${category.name}` }))
+  expect(onPlanCategory).toHaveBeenCalledWith(category.id, 10)
+})
