@@ -17400,3 +17400,18 @@ test('BOG UI F4 fix1 opening an unsigned row never defaults it to spending', asy
   await f4Evidence(page, 'direct-row-direction-required')
   await sheet.getByRole('button', { name: 'Close', exact: true }).click()
 })
+
+test('BOG UI F4 fix1 every photo picker leaves native iPhone conversion available', async ({ page }) => {
+  await f4Chat(page, [], 0)
+  const check = async (input: Locator) => {
+    const accept = await input.getAttribute('accept')
+    expect(accept).toContain('image/*')
+    expect(accept).not.toMatch(/\.hei[cf]|image\/hei[cf]/i)
+  }
+  await check(page.locator('.ask-row input[type="file"]'))
+  await openSection(page, 'Statements')
+  await openDetails(page, 'Other files and options')
+  const inputs = page.locator('.document-upload-card input[type="file"][accept*="image/*"]')
+  await expect(inputs).toHaveCount(3)
+  for (const input of await inputs.all()) await check(input)
+})
