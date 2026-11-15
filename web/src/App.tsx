@@ -8274,10 +8274,13 @@ function TransactionDraftReviewCard({
   const [editing, setEditing] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const [slotHeight, setSlotHeight] = useState<number>()
+  const [resultTop, setResultTop] = useState<number>()
   function keepSlot() {
     const card = cardRef.current
     if (!card || draft.status !== 'pending') return
     setSlotHeight(card.getBoundingClientRect().height)
+    const actions = card.querySelector<HTMLElement>('.transaction-draft-actions')
+    if (actions) setResultTop(Math.max(0, actions.getBoundingClientRect().top - card.getBoundingClientRect().top - 8))
   }
   const [merchant, setMerchant] = useState(draft.merchant)
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
@@ -8541,7 +8544,7 @@ function TransactionDraftReviewCard({
           </button>
         </div>
       ) : (
-        <div className="transaction-draft-actions terminal">
+        <div className="transaction-draft-actions terminal" style={!compactFinished && resultTop ? { paddingTop: resultTop } : undefined}>
           <MiaReviewError message={error || actionError} />
           <span data-review-result tabIndex={-1}><strong title={draft.merchant}>{draft.merchant}</strong>{formatReviewMoney(moneyCents(exactMoneyNumber(draft.amount, draft.amount_cents)))} · {formatShortDate(draft.occurred_on)} · {transactionDraftTerminalCopy(draft.status)}</span>
           <button type="button" className="secondary-button" aria-label={`${reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)} ${itemName}`} disabled={reopenDisabled || reopening} onClick={event => void runAction(() => onReopen(draft), event.currentTarget)}>
