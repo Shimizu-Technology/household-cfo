@@ -1270,7 +1270,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     body = JSON.parse(response.body)
     assistant_content = body.fetch("assistant_message").fetch("content")
-    assert_includes assistant_content, "I found Resend for $20"
+    assert_includes assistant_content, "I read a receipt from Resend for $20, on Jul 3, 2026."
     assert_equal "needs_review", document_import.reload.status
     assert_equal "Resend", document_import.transaction_drafts.first.merchant
   end
@@ -1345,6 +1345,31 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes assistant_content, "no household numbers changed"
   end
 
+  test "receipt acknowledgements retain routing differences and structured list requests still list" do
+    user = create_user(email: "fix1-routing-list@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "receipt", status: "needs_review", filename: "receipt.png", content_type: "image/png", byte_size: 128,
+      s3_key: "fictional/fix1-routing", metadata: { "routing_requires_confirmation" => true, "routing_resolved_kind" => "receipt", "routing_detected_kind" => "statement" })
+    document.transaction_drafts.create!(household: household, occurred_on: Date.new(2026, 7, 3), merchant: "Fictional shop", total_amount_cents: 2000, source_type: "receipt", status: "pending", raw_input: "Fictional receipt")
+    post "/api/v1/mia/messages", params: { message: "Please read this receipt", document_import_ids: [ document.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    text = response.parsed_body.dig("assistant_message", "content")
+    assert_includes text, "You described this as receipt, but I detected statement"
+    assert_includes text, "I read a receipt from Fictional shop"
+    [ "Show transactions", "List purchases", "Review and show transactions" ].each do |message|
+      post "/api/v1/mia/messages", params: { message: message, document_import_ids: [ document.id ] }, headers: auth_headers(user), as: :json
+      assert_response :created
+      text = response.parsed_body.dig("assistant_message", "content")
+      assert_includes text, "Attached transactions:"
+      assert_not_includes text, "I read a receipt"
+    end
+    post "/api/v1/mia/messages", params: { message: "Review and tell me the amount I paid", document_import_ids: [ document.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    text = response.parsed_body.dig("assistant_message", "content")
+    assert_includes text, "totaling $20."
+    assert_not_includes text, "I read a receipt"
+  end
+
   test "mia chat persists attached document imports with a single contextual reply" do
     user = create_user(email: "mia-attachments@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1378,9 +1403,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
     assistant_content = body.fetch("assistant_message").fetch("content")
-    assert_includes assistant_content, "routed it to pending transaction review"
+    assert_includes assistant_content, "purchase card below is waiting for your tap to review and approve it"
     assert_not_includes assistant_content, "I used your note as context"
-    assert_includes assistant_content, "I found Resend for $20"
+    assert_includes assistant_content, "I read a receipt from Resend for $20, on Jul 3, 2026."
     attachment = body.fetch("user_message").fetch("attachments").first
     assert_equal document_import.id, attachment.fetch("document_import_id")
     assert_equal "receipt.png", attachment.fetch("filename")

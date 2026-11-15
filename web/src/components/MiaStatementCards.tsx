@@ -1,11 +1,12 @@
+import { StatementSignQuestion } from './StatementSignQuestion'
 import { MiaCardResult } from './MiaCardResult'
 import { useLiveMiaResult } from '../lib/useLiveMiaResult'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries, waitsOnMissingLines } from '../lib/statementCards'
 import {
-  APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetFromAttention, statementPeriodText,
+  APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetFromAttention, lineSheetWithDirection, statementPeriodText,
   type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementPlan,
 } from '../lib/statementReview'
 import { formatMonthDay } from '../lib/plainDates'
@@ -22,6 +23,7 @@ const INLINE_QUESTIONS = 3
 
 type Props = {
   imports: FinancialDocumentImport[]
+  expandedImportIds?: number[]
   assistantName: string
   /** Challenge participants are offered patterns in words; households get the existing "See what Mia notices" step. */
   challenge: boolean
@@ -36,27 +38,41 @@ type Props = {
 }
 
 /** One compact card per statement Mia has read, then one line to move on once they are all approved. */
-export function MiaStatementCards({ imports, assistantName, challenge, onReview, onRetry, onSaved, onAskPatterns, disabled = false }: Props) {
+export function MiaStatementCards({ imports, expandedImportIds, assistantName, challenge, onReview, onRetry, onSaved, onAskPatterns, disabled = false }: Props) {
   const [now] = useState(() => Date.now())
   const [askedNow, setAskedNow] = useState(false)
+  // A sign answer remounts its card with a new revision. Keep only that target until its inert heading is ready.
+  const [signFocus, setSignFocus] = useState<{ importId: number; revisionId: number } | null>(null)
   // Statements from one account share what is known about it, so a save on one card changes what the others must show.
   const [saves, setSaves] = useState(0)
+  const [workingIds, setWorkingIds] = useState<number[]>([])
+  const markWorking = useCallback((id: number, working: boolean) => setWorkingIds(ids => working === ids.includes(id) ? ids : working ? [...ids, id] : ids.filter(value => value !== id)), [])
+  const expandedIds = expandedImportIds ? [...new Set([...expandedImportIds, ...workingIds])] : undefined
   const entries = useMemo(() => statementCardEntries(imports, now), [imports, now])
-  const shown = entries.slice(-MAX_STATEMENT_CARDS)
+  const priority = expandedIds ? entries.filter(entry => expandedIds.includes(entry.documentImport.id)).sort((left, right) => expandedIds.indexOf(left.documentImport.id) - expandedIds.indexOf(right.documentImport.id)) : []
+  const shown = expandedIds
+    ? [...priority, ...entries.filter(entry => !expandedIds.includes(entry.documentImport.id)).reverse().slice(0, Math.max(0, MAX_STATEMENT_CARDS - priority.length))]
+    : entries.slice(-MAX_STATEMENT_CARDS)
   if (shown.length === 0) return null
   // Once she has asked, the offer is not made again for these statements in this browser session.
   const askedKey = `statement-patterns-asked:${shown.map((entry) => entry.documentImport.id).join(',')}`
   const asked = askedNow || readFlag(askedKey)
-  const allApproved = shown.every((entry) => entry.stage === 'approved')
+  const allApproved = entries.every((entry) => entry.stage === 'approved')
   // Every line is approved but she said something is missing: the offer waits, and she is told when it will come.
   const waitingOnMissing = !allApproved && shown.some(waitsOnMissingLines) && shown.every((entry) => entry.stage === 'approved' || waitsOnMissingLines(entry))
   const months = monthsCovered(shown.map((entry) => entry.documentImport))
   const scope = months >= 2 ? `your last ${months} months` : shown.length > 1 ? `these ${shown.length} statements` : 'this statement'
   return <div className="mia-statement-cards">
-    {entries.length > shown.length && <p className="mia-statement-more">Your {entries.length - shown.length} older {entries.length - shown.length === 1 ? 'statement is' : 'statements are'} on the Statements screen.</p>}
-    {shown.map(({ documentImport, stage }) => stage === 'reading' || stage === 'failed'
+
+    {shown.map(({ documentImport, stage }) => expandedIds && !expandedIds.includes(documentImport.id)
+      ? <button className="chat-pending-line" type="button" key={documentImport.id} onClick={() => onReview(documentImport.id)}>{documentImport.filename} · {stage === 'approved' ? 'Approved' : stage === 'failed' ? 'Couldn’t read this file' : stage === 'reading' ? 'Still reading' : 'Still waiting for your review'} <span aria-hidden="true">→</span></button>
+      : stage === 'reading' || stage === 'failed'
       ? <StatementProgressCard key={documentImport.id} documentImport={documentImport} failed={stage === 'failed'} onRetry={onRetry} onReview={onReview} />
-      : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} waiting={disabled} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
+      : <MiaStatementCard key={`${documentImport.id}:${documentImport.metadata.source_accounting_revision_id}`} documentImport={documentImport} onReview={onReview} saves={saves} waiting={disabled}
+        focusAfterSign={signFocus?.importId === documentImport.id && signFocus.revisionId === documentImport.metadata.source_accounting_revision_id}
+        onWorking={markWorking}
+        onSignAnswered={revisionId => { setSignFocus({ importId: documentImport.id, revisionId }) }} onSignFocusDone={() => { setSignFocus(null) }} onSaved={() => { setSaves((value) => value + 1); onSaved() }} />)}
+    {entries.filter(entry => !shown.includes(entry)).reverse().map(({ documentImport, stage }) => <button className="chat-pending-line" type="button" key={documentImport.id} onClick={() => onReview(documentImport.id)}>{documentImport.filename} · {stage === 'approved' ? 'Approved' : stage === 'failed' ? 'Couldn’t read this file' : stage === 'reading' ? 'Still reading' : 'Still waiting for your review'} <span aria-hidden="true">→</span></button>)}
     {waitingOnMissing && !asked && onAskPatterns && <p className="mia-statement-muted" role="status">I’ll offer to look for patterns once the missing lines are in.</p>}
     {allApproved && !asked && onAskPatterns && <section className="mia-statement-next ui-card" aria-label={`Next step with ${assistantName}`}>
       <p>{shown.length > 1 ? `All ${shown.length} statements are approved. ` : ''}Want me to look for patterns in {scope}?</p>
@@ -88,20 +104,20 @@ function StatementProgressCard({ documentImport, failed, onRetry, onReview }: { 
   return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label={`Could not read ${documentImport.filename}`}>
     <h3>{documentImport.filename}</h3>
     <p role="alert">{documentImport.extraction_error || 'I couldn’t read reliable lines from this file.'}</p>
-    <p className="mia-statement-muted">{documentImport.source_available ? 'Nothing was saved. You can try reading it again, or upload a clearer copy.' : 'The original file has been removed, so please upload it again. Nothing was saved.'}</p>
+    <p className="mia-statement-muted">{documentImport.source_available ? documentImport.metadata.extraction_failure_permanent ? 'Upload a screenshot, a JPEG, or a fresh PDF or CSV export. Nothing changed.' : 'Nothing was saved. You can try reading it again, or upload a clearer copy.' : 'The original file has been removed, so please upload it again. Nothing was saved.'}</p>
     {retryFailed && <p role="alert">I couldn’t start reading it again just now. Try again in a moment, or open it in Statements.</p>}
     <div className="mia-statement-actions ui-actions">
-      {documentImport.source_available && <Button disabled={retrying} onClick={async () => { setRetryFailed(false); setRetrying(true); try { if (await onRetry(documentImport) === false) setRetryFailed(true) } finally { setRetrying(false) } }}>Try reading it again</Button>}
+      {documentImport.source_available && !documentImport.metadata.extraction_failure_permanent && <Button disabled={retrying} onClick={async () => { setRetryFailed(false); setRetrying(true); try { if (await onRetry(documentImport) === false) setRetryFailed(true) } finally { setRetrying(false) } }}>Try reading it again</Button>}
       <Button variant="secondary" onClick={() => onReview(documentImport.id)}>Open in Statements</Button>
     </div>
   </section>
 }
 
-function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }: { documentImport: FinancialDocumentImport; saves: number; waiting: boolean; onReview: Props['onReview']; onSaved: () => void }) {
+function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, focusAfterSign, onSignAnswered, onSignFocusDone, onWorking }: { onWorking: (importId: number, working: boolean) => void; documentImport: FinancialDocumentImport; saves: number; waiting: boolean; onReview: Props['onReview']; onSaved: () => void; focusAfterSign: boolean; onSignAnswered: (revisionId: number) => void; onSignFocusDone: () => void }) {
   const importId = documentImport.id
   // Each saved answer moves her spending, so the uploads and numbers refresh as she goes; a card that opens already approved changes nothing.
   const state = useStatementReview({
-    importId, revisionId: documentImport.metadata.source_accounting_revision_id!, onChanged: onSaved,
+    importId, revisionId: documentImport.metadata.source_accounting_revision_id!, onChanged: onSaved, onSignAnswered,
     refreshKey: `${documentImport.updated_at}:${JSON.stringify(documentImport.statement_review ?? null)}:${saves}`,
   })
   const liveResult = useLiveMiaResult(state.finished, Boolean(state.data))
@@ -110,6 +126,10 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
   const busy = state.busy || state.refreshing || waiting
   const [sheet, setSheet] = useState<SheetLine | null>(null)
   const [note, setNote] = useState<string | null>(null)
+  useEffect(() => {
+    onWorking(importId, Boolean(sheet || unsavedAnswer || state.busy || (coverage.said && coverage.said !== coverage.recorded)))
+    return () => onWorking(importId, false)
+  }, [importId, sheet, unsavedAnswer, state.busy, coverage.said, coverage.recorded, onWorking])
   const heading = useRef<HTMLHeadingElement>(null)
   const questions = useRef<HTMLUListElement>(null)
   const { focusAfterRef } = state
@@ -120,9 +140,14 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     if (!data || focusAfterRef.current === undefined) return
     const index = focusAfterRef.current
     focusAfterRef.current = undefined
-    const next = index == null ? null : questions.current?.children[index]?.querySelector<HTMLElement>('select, button:not([disabled])')
+    const next = index == null ? null : questions.current?.children[index]?.querySelector<HTMLElement>('.statement-question')
     ;(next ?? heading.current)?.focus()
   }, [data, focusAfterRef])
+
+  // Keep remount focus separate: a new parent callback must not consume a line's pending focus before refreshed rows arrive.
+  useEffect(() => {
+    if (data && focusAfterSign) { heading.current?.focus(); onSignFocusDone() }
+  }, [data, focusAfterSign, onSignFocusDone])
 
   if (!data || !review || !plan || !counts) {
     if (error) return <section className="mia-statement-card ui-card" data-import-id={documentImport.id} aria-label="Statement"><h3>{documentImport.filename}</h3><p role="alert">{error}</p><Button variant="secondary" onClick={state.reload}>Try again</Button></section>
@@ -147,6 +172,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     if (await state.save({ lines: [entry] })) setSheet(null)
   }
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
+    if (id === 'money_out' || id === 'money_in') return setSheet(lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in'))
     if (id === 'edit' && categoryId == null) return setSheet(lineSheetFromAttention(item))
     state.answer(item, index, id, categoryId)
   }
@@ -198,18 +224,19 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     </div>}
     {needBasis.length > 1 && <Button disabled={busy} onClick={() => onReview(importId)}>Say what each account is</Button>}
 
-    {needBasis.length === 0 && inline.length > 0 && <ul className="mia-statement-exceptions" ref={questions} aria-label="Lines that need a quick look">
+    <StatementSignQuestion state={state} disabled={waiting} />
+    {needBasis.length === 0 && !plan.signed_amount_question && inline.length > 0 && <ul className="mia-statement-exceptions" ref={questions} aria-label="Lines that need a quick look">
       {inline.map((item, index) => <li key={item.event_id}>
-        <p className="mia-statement-line"><span className="mia-statement-merchant">{item.merchant ?? 'Unreadable line'}</span> <span className="mia-statement-amount">{item.signed_amount_cents == null ? 'Unknown' : sourceMoney(Math.abs(item.signed_amount_cents))}</span>
+        <p className="mia-statement-line"><span className="mia-statement-merchant">{item.merchant ?? 'Unreadable line'}</span> <span className="mia-statement-amount">{item.signed_amount_cents == null ? sourceMoney(item.amount_cents) : sourceMoney(Math.abs(item.signed_amount_cents))}</span>
           <span className="mia-statement-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span></p>
-        <p className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
+        <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
         <StatementAnswers item={item} categories={categories} disabled={busy} unsaved={unsavedAnswer} inlineCategory onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
       </li>)}
     </ul>}
-    {needBasis.length === 0 && more > 0 && <Button variant="secondary" onClick={() => onReview(importId)}>{`and ${more} more — review ${more === 1 ? 'it' : 'them'}`}</Button>}
+    {needBasis.length === 0 && !plan.signed_amount_question && more > 0 && <Button variant="secondary" onClick={() => onReview(importId)}>{`and ${more} more — review ${more === 1 ? 'it' : 'them'}`}</Button>}
     {unsavedAnswer && !mutation.pendingRequest && <Button variant="secondary" disabled={busy} onClick={state.retryUnsaved}>Try saving this answer again</Button>}
 
-    {needBasis.length === 0 && coverage.ask && <div className="mia-statement-question">
+    {needBasis.length === 0 && !plan.signed_amount_question && coverage.ask && <div className="mia-statement-question">
       <p className="statement-question" id={`statement-coverage-${importId}`}>{plan.coverage.question}</p>
       <div className="statement-answers" role="group" aria-labelledby={`statement-coverage-${importId}`}>
         <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
@@ -220,7 +247,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     </div>}
 
     <div className="mia-statement-actions ui-actions">
-      {needBasis.length === 0 && counts.action && <Button disabled={busy} onClick={() => { void approve() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
+      {needBasis.length === 0 && !plan.signed_amount_question && counts.action && <Button disabled={busy} onClick={() => { void approve() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
       <Button variant="secondary" onClick={() => onReview(importId)}>See every line</Button>
     </div>
 

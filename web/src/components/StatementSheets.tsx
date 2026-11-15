@@ -16,7 +16,8 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
   onSave: (edit: LineEdit) => void; onLeaveOut: () => void; onClose: () => void
 }) {
   const { dialogRef: ref, requestClose } = usePilotDialog(() => { if (canClose) onClose() })
-  const [kind, setKind] = useState<LineKind>(line.kind)
+  const [direction, setDirection] = useState(line.moneyDirection)
+  const [kind, setKind] = useState<LineKind | ''>(line.directionRequired && line.kind === 'spending' && !line.moneyDirection ? '' : line.kind)
   const [merchant, setMerchant] = useState(line.merchant)
   const [postedOn, setPostedOn] = useState(line.postedOn)
   const [amount, setAmount] = useState(amountInputText(line.amountCents))
@@ -25,20 +26,26 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
 
   function save(event: FormEvent) {
     event.preventDefault()
+    if (line.directionRequired && !direction) return setProblem('Choose whether this was money out or money in.')
+    if (!kind) return setProblem('Choose what this line was.')
     const cents = parseLineAmount(amount)
     if (cents == null) return setProblem('Enter the amount, like 12.50.')
     if (!postedOn) return setProblem('Choose the date.')
     if (kind === 'spending' && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: kind === 'spending' && categoryId ? Number(categoryId) : null })
+    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: kind === 'spending' && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
     <section ref={ref} data-dialog-panel="true" data-dialog-private="true" className="pilot-dialog statement-sheet" role="dialog" aria-modal="true" aria-labelledby="statement-line-title" tabIndex={-1}>
       <header><h2 id="statement-line-title">{line.merchant || 'This line'}</h2><Button variant="secondary" disabled={!canClose} onClick={requestClose}>Close</Button></header>
       <form className="statement-sheet-form" onSubmit={save}>
+        {line.directionRequired && <fieldset><legend>Was this money out or money in?</legend>
+          <div className="statement-answers">{(['out', 'in'] as const).map(value => <Button key={value} variant="secondary" aria-pressed={direction === value} disabled={busy} onClick={() => { setDirection(value); if (!kind || line.kind === 'spending' || line.kind === 'money_in' || (value === 'out' && kind === 'refund') || (value === 'in' && (kind === 'spending' || kind === 'cash'))) setKind(value === 'in' ? 'money_in' : 'spending') }}>{value === 'out' ? 'Money out' : 'Money in'}</Button>)}</div>
+        </fieldset>}
         <label>What was this?
           <select value={kind} onChange={(event) => setKind(event.target.value as LineKind)}>
+            {!kind && <option value="">Choose what this was</option>}
             {LINE_KIND_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>

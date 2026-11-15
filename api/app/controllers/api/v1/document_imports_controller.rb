@@ -18,6 +18,7 @@ module Api
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_content source_preview source_review destroy_source]
       before_action :prevent_source_caching, only: %i[source_url source_content source_preview source_review]
 
+      HEIF_CONVERSION_REQUIRED = "We couldn’t convert this photo. Take a screenshot of it, or save it as JPEG, then choose that file.".freeze
       ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp .heic .heif].freeze
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
@@ -445,8 +446,9 @@ module Api
 
       def direct_upload_validation_error(metadata)
         extension = File.extname(metadata.fetch(:filename)).downcase
+        return HEIF_CONVERSION_REQUIRED if extension.in?(%w[.heic .heif])
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" unless metadata.fetch(:byte_size).positive?
         size_error = FinancialDocuments::UploadLimits.validation_error(
           byte_size: metadata.fetch(:byte_size),
@@ -585,8 +587,9 @@ module Api
       def upload_validation_error(file)
         filename = file.original_filename.to_s
         extension = File.extname(filename).downcase
+        return HEIF_CONVERSION_REQUIRED if extension.in?(%w[.heic .heif])
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         size_error = FinancialDocuments::UploadLimits.validation_error(
           byte_size: File.size(file.tempfile.path),
@@ -939,7 +942,7 @@ module Api
           error: attempt.error,
           started_at: attempt.started_at,
           completed_at: attempt.completed_at,
-          metadata: attempt.metadata || {}
+          metadata: (attempt.metadata || {}).except("provider_type", "provider_message")
         }
       end
 
@@ -954,7 +957,7 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "document_kind_explicit", "extraction_model", "extraction_progress", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_conflict_reason", "routing_requires_confirmation", "routing_destination", "source_accounting_revision_id", "source_accounting_contract_version", "source_accounting_review_pending", "source_reconciliation")
+        (metadata || {}).slice("extraction_failure_permanent", "confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "document_kind_explicit", "extraction_model", "extraction_progress", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_conflict_reason", "routing_requires_confirmation", "routing_destination", "source_accounting_revision_id", "source_accounting_contract_version", "source_accounting_review_pending", "source_reconciliation")
       end
 
       def safe_draft_payload(payload)

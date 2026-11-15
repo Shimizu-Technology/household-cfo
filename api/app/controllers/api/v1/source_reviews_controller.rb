@@ -74,6 +74,20 @@ module Api
         render json: { errors: [ "Statement review request is missing required fields" ] }, status: :unprocessable_entity
       end
 
+      def sign_answer
+        body = request.request_parameters.to_h.deep_symbolize_keys
+        raise ArgumentError, "Sign answer contains unsupported fields" unless (body.keys - %i[revision_id negative_is_money_out]).empty?
+        result = with_locked_revision(body, sign_replay: true) do |revision|
+          %w[source_review.draft.stage source_review.account.link].each do |key|
+            CohortReleases::OperationAccess.require!(household: current_household, user: current_user, key: key, membership: current_cohort_membership)
+          end
+          updated = (revision.id.to_s == body[:revision_id].to_s || document_answer_changed?(revision, body)) ? FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: body[:negative_is_money_out], user: current_user) : revision
+          { revision_id: updated.id }
+        end
+        response.set_header("Cache-Control", "no-store")
+        render json: result
+      end
+
       def accounts
         cursor = params.fetch(:cursor, "0").to_s
         raise ArgumentError, "Invalid account cursor" unless cursor.match?(/\A\d+\z/)
@@ -159,7 +173,7 @@ module Api
 
       private
 
-      def with_locked_revision(body, bounded_wait: false)
+      def with_locked_revision(body, bounded_wait: false, sign_replay: false)
         ApplicationRecord.transaction do
           ApplicationRecord.connection.execute("SET LOCAL lock_timeout = '5s'") if bounded_wait
           current_household.lock!
@@ -167,11 +181,19 @@ module Api
           document = current_household.financial_document_imports.lock.find(params[:document_import_id])
           HouseholdFinance::FinancialGenerationGuard.source!(document)
           revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
-          unless revision && revision.id.to_s == body[:revision_id].to_s
+          answer = document.metadata["signed_amount_answer"].to_h
+          replay = sign_replay && revision && [ true, false, nil, "all_out", "all_in", "individual" ].include?(body[:negative_is_money_out]) && answer["user_id"] == current_user.id &&
+            answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id
+          unless revision && (revision.id.to_s == body[:revision_id].to_s || replay)
             raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
           end
           yield revision
         end
+      end
+
+      def document_answer_changed?(revision, body)
+        answer = revision.financial_document_import.metadata["signed_amount_answer"].to_h
+        answer.fetch("choice", answer["negative_is_money_out"]) != body[:negative_is_money_out]
       end
 
       def domain

@@ -1,8 +1,9 @@
+import { StatementSignQuestion } from './StatementSignQuestion'
 import { useEffect, useRef, useState } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetFromAttention, readyCategoryLabel, statementHeadline,
+  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
   type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
@@ -13,8 +14,11 @@ import './StatementSourceReview.css'
 
 type Sheet = { kind: 'line'; line: SheetLine } | { kind: 'account' } | null
 
-export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved }: {
+export function StatementSourceReview({ importId, revisionId, refreshKey, next, onSaved, onSignAnswered, focusAfterSign, onSignFocusDone }: {
   importId: number; revisionId: number; refreshKey: string
+  onSignAnswered?: (revisionId: number) => void
+  focusAfterSign?: boolean
+  onSignFocusDone?: () => void
   onSaved?: () => void
   /** Where she goes once every line is saved. The first is the main step (what Mia notices); the rest are quieter. */
   next?: Array<{ label: string; run: () => void }>
@@ -25,7 +29,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const recoveryControls = useRef<HTMLDivElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const exceptions = useRef<HTMLUListElement>(null)
-  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved })
+  const state = useStatementReview({ importId, revisionId, refreshKey, page, onSaved, onSignAnswered: revision => { onSignAnswered?.(revision); onSaved?.() } })
   const { data, error, review, plan, categories, names, needBasis, counts, mutation, busy, coverage, savingLines, unsavedAnswer, focusAfterRef, save } = state
   const pageData = data && data.pagination.page === page ? data : undefined
 
@@ -34,9 +38,13 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (!data || focusAfterRef.current === undefined) return
     const index = focusAfterRef.current
     focusAfterRef.current = undefined
-    const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('select, button:not([disabled])')
+    const next = index == null ? null : exceptions.current?.children[index]?.querySelector<HTMLElement>('.statement-question')
     ;(next ?? heading.current)?.focus()
   }, [data, focusAfterRef])
+
+  useEffect(() => {
+    if (data && focusAfterSign) { heading.current?.focus(); onSignFocusDone?.() }
+  }, [data, focusAfterSign, onSignFocusDone])
 
   const pendingRequest = mutation.pendingRequest
   useEffect(() => {
@@ -47,6 +55,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
+    if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in') })
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetFromAttention(item) })
     state.answer(item, index, id, categoryId)
   }
@@ -67,11 +76,11 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
     if (planned) return lineSheetFromAttention(planned)
     const ready = !facts ? readyById.get(event.id) : undefined
     if (ready) {
-      return { eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
+      return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: ready.expected_head, merchant: sourceEventTitle(event), postedOn: event.posted_on ?? '', amountCents: event.signed_amount_cents == null ? null : Math.abs(event.signed_amount_cents),
         kind: lineKindFor(ready.event_type, event.signed_amount_cents), categoryId: ready.category_id, leftOut: false }
     }
     const signed = facts ? facts.signed_amount_cents : event.signed_amount_cents
-    return { eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
+    return { directionRequired: event.signed_amount_cents == null, eventId: event.id, expectedHead: row?.head ? { approved_version_id: row.head.approved_version_id, lock_version: row.head.lock_version, account_version_id: review?.accounts.find((account) => account.source_account_id === event.financial_source_account_id)?.head?.approved_version_id ?? null } : undefined, merchant: facts?.merchant ?? sourceEventTitle(event), postedOn: (facts ? facts.posted_on : event.posted_on) ?? '',
       amountCents: signed == null ? null : Math.abs(signed), kind: lineKindFor(facts?.event_type ?? event.event_type, signed),
       categoryId: facts ? facts.budget_category_id : event.transaction_draft?.category_id ?? null, leftOut: facts?.disposition === 'exclude' }
   }
@@ -102,7 +111,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
           <p role="status">{counts.sentence}</p>
           {savingLines >= APPROVE_PAGE && busy && <p className="statement-muted" role="status">Saving {savingLines} lines. This can take a minute.</p>}
           {asBeforeNote(plan) && <p className="statement-muted">{asBeforeNote(plan)}</p>}
-          {coverage.ask && <div className="statement-question-row">
+          {!plan.signed_amount_question && coverage.ask && <div className="statement-question-row">
             <p className="statement-question" id="statement-coverage-question">{plan.coverage.question}</p>
             <div className="statement-answers" role="group" aria-labelledby="statement-coverage-question">
               <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
@@ -119,8 +128,9 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
               <Button variant="secondary" aria-pressed={unsavedAnswer?.accountId === needBasis[0].id && unsavedAnswer.basis === 'liability'} disabled={busy} onClick={() => state.chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
             </div>
           </div>}
+          <StatementSignQuestion state={state} />
           {needBasis.length > 1 && <Button disabled={busy} onClick={() => setSheet({ kind: 'account' })}>Say what each account is</Button>}
-          {needBasis.length === 0 && counts.action && <>
+          {needBasis.length === 0 && !plan.signed_amount_question && counts.action && <>
             <ul className="statement-ready" aria-label="Lines to approve together">
               {plan.ready.slice(0, APPROVE_PAGE).map(line => <li key={line.event_id}>
                 <span>{line.merchant || 'Statement line'}</span>
@@ -132,14 +142,14 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
           {needBasis.length === 0 && counts.attention === 0 && counts.open === 0 && plan.total > 0 && (!coverage.ask || coverage.recorded) && next?.map((step, index) => <Button key={step.label} variant={index === 0 ? 'primary' : 'secondary'} onClick={step.run}>{step.label}</Button>)}
         </header>
 
-        {plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
+        {!plan.signed_amount_question && plan.attention.length > 0 && <ul className="statement-exceptions" ref={exceptions} aria-label="Lines that need a quick look">
           {plan.attention.map((item, index) => <li key={item.event_id} className="statement-exception">
             <button type="button" className="statement-line" disabled={busy} aria-label={`Edit ${item.merchant ?? 'this line'}`} onClick={() => setSheet({ kind: 'line', line: lineSheetFromAttention(item) })}>
               <span className="statement-line-name">{item.merchant ?? 'Unreadable line'}</span>
-              <span className="statement-line-amount">{money(item.signed_amount_cents)}</span>
+              <span className="statement-line-amount">{money(item.signed_amount_cents ?? item.amount_cents ?? null)}</span>
               <span className="statement-line-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span>
             </button>
-            <p className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
+            <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
             <StatementAnswers item={item} categories={categories} disabled={busy || needBasis.length > 0} unsaved={unsavedAnswer} onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
           </li>)}
         </ul>}

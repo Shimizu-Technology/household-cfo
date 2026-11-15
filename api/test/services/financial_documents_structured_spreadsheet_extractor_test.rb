@@ -172,19 +172,19 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
 
     assert result.success?, result.error
     drafts = result.data.fetch(:transaction_drafts)
-    assert_equal 2, drafts.length
-    assert_equal 4, result.data.fetch(:source_accounting).fetch(:events).length
-    assert_equal 2, result.data.fetch(:source_accounting).fetch(:events).count { |event| event[:row_kind] == "unresolved" }
+    assert_empty drafts
+    events = result.data.fetch(:source_accounting).fetch(:events)
+    assert_equal 4, events.length
+    assert_equal 4, events.count { |event| event[:row_kind] == "unresolved" }
+    assert events.all? { |event| event[:limitations].include?("transaction_direction_unclear") }
     assert_equal "statement", result.data.fetch(:document_kind)
     assert_equal Date.new(2026, 5, 12), result.data.fetch(:period_start_on)
     assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
-    assert_equal "Ross", drafts.first.fetch(:merchant)
-    assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
-    assert_equal BigDecimal("0.90"), drafts.first.fetch(:confidence)
-    assert_equal "Penny Cafe", drafts.second.fetch(:merchant)
-    assert_equal 1_357, drafts.second.fetch(:total_amount_cents)
-    assert_equal "Dining Out", drafts.second.fetch(:splits).first.fetch(:category_name)
-    assert_equal BigDecimal("0.90"), drafts.second.fetch(:splits).first.fetch(:confidence)
+    assert_equal "Ross", events.second.fetch(:evidence).fetch(:merchant)
+    assert_equal Date.new(2026, 5, 12), events.second.fetch(:posted_on)
+    assert_equal "Penny Cafe", events.third.fetch(:evidence).fetch(:merchant)
+    assert_equal "1357", events.third.fetch(:evidence).fetch(:source_fields).fetch(:amount_column_cents)
+    assert_equal "Dining Out", events.third.fetch(:evidence).fetch(:category_name)
   ensure
     file&.close!
   end
@@ -555,7 +555,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     events = result.data[:source_accounting][:events]
     assert_equal 6, events.length
     assert_equal %w[unresolved unresolved posted posted posted posted], events.pluck(:row_kind)
-    assert_equal %w[unknown purchase transfer debt_payment refund purchase], events.pluck(:event_type)
+    assert_equal %w[refund purchase transfer debt_payment refund purchase], events.pluck(:event_type)
     assert_equal 2_500, events[4][:signed_amount_cents]
     assert_equal "bad-date", events[1][:evidence][:source_fields][:source_posted_on]
     assert_equal [ "Groceries" ], result.data[:transaction_drafts].pluck(:merchant)

@@ -4,6 +4,19 @@ require "tempfile"
 require "zip"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
+  test "file rejection is permanent while outages and timeouts remain temporary" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "")
+    [ 400, 413, 415, 422 ].each do |status|
+      message = extractor.send(:provider_failure_message, status, rejected: true)
+      assert_includes message, "can’t accept this file"
+      assert_not_includes message, "temporary"
+      assert_not_includes message, "few minutes"
+    end
+    [ 408, 429, 500, 503, 504 ].each do |status|
+      assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, extractor.send(:provider_failure_message, status)
+    end
+  end
+
   test "qualified native statement succeeds without provider credentials or model calls" do
     document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "native.pdf", content_type: "application/pdf", s3_key: "test/native")
     extractor = FinancialDocuments::Extractor.new(api_key: "")
@@ -666,7 +679,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     pdf&.close!
   end
 
-  test "provider failures show plain temporary copy and keep the technical cause for admins" do
+  test "provider failures distinguish rejected files from outages and keep technical causes private" do
     { 400 => 1, 402 => 1, 503 => FinancialDocuments::Extractor::PROVIDER_ATTEMPTS }.each do |status, expected_calls|
       calls = 0
       extractor = provider_extractor
@@ -675,15 +688,79 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
 
         refute result.success?
-        assert_equal(status == 402 ? FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error)
+        expected = { 400 => "The reader couldn’t finish this request. Please try again later. Nothing changed.", 402 => FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE }.fetch(status, FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
+        assert_equal expected, result.error
         assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
-        assert_match(status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
-        assert_match(/Reprocess/, result.error)
+        assert_match(status == 400 ? /couldn’t finish this request/ : status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
+        assert_match(status == 400 ? /try again later/ : /Reprocess/, result.error)
         assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
         assert_equal status, result.metadata.fetch(:status_code)
         assert_equal expected_calls, calls, "HTTP #{status} retry count"
       end
     end
+  end
+
+  test "explicit input rejections and request failures carry structured classes" do
+    [ [ 400, "invalid_image", false ], [ 422, "bad_request", false ], [ 403, "forbidden", false ], [ 415, "", true ] ].each do |status, reason, rejected|
+      response = http_error(status)
+      response.instance_variable_set(:@body, { error: { code: reason } }.to_json)
+      with_net_http_start(->(*_args, **_options, &_block) { response }) do
+        result = provider_extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+        assert_equal rejected ? "input_rejected" : "provider_request_failed", result.metadata[:failure_class]
+        assert_equal status, result.metadata[:status_code]
+        assert_equal rejected, result.error == FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE
+        assert_not_includes result.error, "temporary" unless status >= 500
+      end
+    end
+  end
+
+  test "real numeric provider errors distinguish file decoding from our invalid requests" do
+    image_error = { type: "error", error: { type: "invalid_request_error", message: "Could not process image" }, request_id: "fictional" }
+    media_error = { type: "error", error: { type: "invalid_request_error", message: "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'" } }
+    # The path names where the image sits in our request; a later page has another index.
+    later_media_error = { type: "error", error: { type: "invalid_request_error", message: "messages.0.content.3.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'" } }
+    bodies = [ image_error, image_error, media_error, later_media_error ].map { |raw| { error: { message: "Provider returned error", code: 400, metadata: { raw: raw.to_json, provider_name: "Anthropic", previous_errors: [] } } }.to_json }
+    bodies << { error: { message: "Failed to parse the file", code: 400, metadata: { provider_name: nil, previous_errors: [] } } }.to_json
+    bodies.each do |body|
+      response = http_error(400)
+      response.instance_variable_set(:@body, body)
+      with_net_http_start(->(*_args, **_options, &_block) { response }) do
+        result = provider_extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+        assert_equal "input_rejected", result.metadata[:failure_class]
+        assert_equal FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE, result.error
+        raw = JSON.parse(body).dig("error", "metadata", "raw")
+        if raw
+          assert_equal JSON.parse(raw).dig("error", "type"), result.metadata[:provider_type]
+          assert_equal JSON.parse(raw).dig("error", "message"), result.metadata[:provider_message]
+        end
+      end
+    end
+    [ "unparseable", { error: { code: 400, metadata: { raw: "unparseable" } } }.to_json,
+      { error: { code: 400, metadata: { raw: { error: { type: "invalid_request_error", message: "Invalid model parameter" } }.to_json } } }.to_json ].each do |body|
+      response = http_error(400)
+      response.instance_variable_set(:@body, body)
+      with_net_http_start(->(*_args, **_options, &_block) { response }) do
+        assert_equal "provider_request_failed", provider_extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png").metadata[:failure_class]
+      end
+    end
+  end
+
+  test "PDF batch failure retains input rejection class and status" do
+    file = Tempfile.new([ "rejected-batch", ".pdf" ])
+    file.binmode; file.write(blank_pdf_bytes(3)); file.flush
+    document = FinancialDocumentImport.new(document_kind: "statement", filename: "batch.pdf", content_type: "application/pdf")
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_args, **_options|
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE,
+        metadata: { failure_class: "input_rejected", failure_reason: "invalid_image", status_code: 422 })
+    end
+    result = extractor.send(:batched_pdf_result, document, file.path)
+    assert_not result.success?
+    assert_equal "input_rejected", result.metadata[:failure_class]
+    assert_equal "invalid_image", result.metadata[:failure_reason]
+    assert_equal 422, result.metadata[:status_code]
+  ensure
+    file&.close!
   end
 
   test "a dropped connection is retried before the extraction fails" do
@@ -932,7 +1009,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         if calls == 1
           FinancialDocuments::Extractor::Result.new(success: true, data: { items: [], transaction_drafts: [], source_accounting: FinancialDocuments::AccountingContract.legacy([]) }, error: nil, metadata: {})
         else
-          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "temporary outage", metadata: {})
+          FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "input refused", metadata: { failure_class: "input_rejected", failure_reason: "invalid_image", status_code: 422 })
         end
       end
       result = extractor.send(:batched_spreadsheet_result, document, path)
@@ -940,6 +1017,9 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       assert_nil result.data
       assert_equal 2, calls
       assert_match(/section.*didn’t finish/, result.error)
+      assert_equal "input_rejected", result.metadata[:failure_class]
+      assert_equal "invalid_image", result.metadata[:failure_reason]
+      assert_equal 422, result.metadata[:status_code]
     end
   end
 

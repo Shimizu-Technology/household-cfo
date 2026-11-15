@@ -4,11 +4,12 @@ import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
 // The server decides which is which (ParticipantPlan), so this screen and "approve the rest" cannot disagree.
-export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep'
+export type PlanAnswerId = 'as_read' | 'different' | 'leave_out' | 'edit' | 'keep' | 'money_out' | 'money_in'
 export type ExpectedLineHead = { approved_version_id: number | null; lock_version: number; account_version_id?: number | null }
 export type PlanAttention = {
   event_id: number
-  kind: 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
+  amount_cents?: number | null
+  kind: 'direction' | 'unclear' | 'duplicate' | 'transfer' | 'card_payment' | 'refund' | 'no_category' | 'still_category' | 'suggested_category'
   event_type: SourceEvent['event_type']
   question: string
   answers: Array<{ id: PlanAnswerId; label: string }>
@@ -25,6 +26,11 @@ export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
 export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
 export type StatementPlan = {
+  signed_amount_single_sign?: boolean
+  signed_amount_balance_factor?: number | null
+  signed_amount_answerable?: boolean
+  sign_effect?: string | null
+  signed_amount_question?: boolean
   total: number
   done: number
   without_category?: number
@@ -39,7 +45,7 @@ export type StatementPlan = {
 }
 
 export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 'refund'
-export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
+export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
@@ -62,6 +68,7 @@ export function approveRestInput(plan: StatementPlan): { input: ApproveLinesInpu
 
 /** What an answer to one question saves. "Yes" to "Still Dining out?" confirms that category and nothing else: the line keeps what kind of line it is. */
 export function answerInput(item: PlanAttention, id: PlanAnswerId, categoryId?: number): ApproveLinesInput {
+  if (id === 'money_out' || id === 'money_in') throw new Error('Open the line review before saving its direction.')
   const shown = { event_type: item.event_type, category_id: item.category_id }
   const entry: LineDecision = id === 'keep'
     ? { event_id: item.event_id, decision: 'as_read', shown }
@@ -83,6 +90,8 @@ export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdi
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  directionRequired?: boolean
+  moneyDirection?: 'in' | 'out'
   expectedHead?: ExpectedLineHead
   eventId: number
   merchant: string
@@ -93,9 +102,15 @@ export type SheetLine = {
   leftOut: boolean
 }
 
+/** Keep a known non-spending movement as that kind when she supplies its missing direction. */
+export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'out'): SheetLine {
+  const line = lineSheetFromAttention(item)
+  return { ...line, moneyDirection: direction, kind: (item.event_type === 'refund' && direction === 'in') || item.event_type === 'transfer' || item.event_type === 'debt_payment' || (item.event_type === 'cash_withdrawal' && direction === 'out') ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
+}
+
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */
 export function lineSheetFromAttention(item: PlanAttention): SheetLine {
-  return { eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? null : Math.abs(item.signed_amount_cents),
+  return { directionRequired: item.signed_amount_cents == null, eventId: item.event_id, expectedHead: item.expected_head, merchant: item.merchant ?? '', postedOn: item.posted_on ?? '', amountCents: item.signed_amount_cents == null ? item.amount_cents ?? null : Math.abs(item.signed_amount_cents),
     kind: lineKindFor(item.event_type, item.signed_amount_cents), categoryId: item.category_id, leftOut: false }
 }
 

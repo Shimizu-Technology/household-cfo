@@ -1,3 +1,4 @@
+import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
 import type { StatementProgress } from './lib/statementReview'
 import { checkedSavingsChallenge } from './lib/savingsChallenge'
 import type { SavingsChallenge, SavingsEnrollment, SavingsPlanVersion, SavingsPlanDraft, SavingsEntry, SavingsEntryDraft, SavingsEntryVersion, SavingsPage, SavingsMutation, SavingsPlanInput, SavingsPlanApproval, SavingsEntryInput, SavingsEntryApproval } from './lib/savingsChallenge'
@@ -333,6 +334,7 @@ export type FinancialDocumentImport = {
   applied_by: DocumentImportUserReference | null
   source_deleted_by: DocumentImportUserReference | null
   metadata: {
+    extraction_failure_permanent?: boolean
     extraction_progress?: { stage?: string; page?: number; page_count?: number }
     confidence?: DocumentImportConfidence
     warnings?: string[]
@@ -4836,6 +4838,10 @@ export async function mutateStatementReview(importId: number, revisionId: number
   return fetchJson(`/api/v1/document_imports/${importId}/review/${action}`, { method: 'POST', signal,
     headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId }, body: JSON.stringify({ revision_id: revisionId, input }) })
 }
+export async function answerSpreadsheetSign(importId: number, revisionId: number, negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual'): Promise<{ revision_id: number }> {
+  return postJson(`/api/v1/document_imports/${importId}/sign_answer`, { revision_id: revisionId, ...(negativeIsMoneyOut == null ? {} : { negative_is_money_out: negativeIsMoneyOut }) })
+}
+
 export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
   const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${id}`)
   return payload.document_import
@@ -4843,6 +4849,8 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
 
 export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = '', documentKindExplicit = origin === 'profile'): Promise<FinancialDocumentImport> {
   const assertCurrentContext = captureApiOperation()
+  file = await prepareFinancialUpload(file)
+  assertCurrentContext()
   const uploadRequestId = clientRequestId()
   const contentType = uploadContentType(file)
   const checksumSha256 = await fileSha256(file)

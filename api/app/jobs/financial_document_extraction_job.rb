@@ -57,7 +57,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       )
       # Reclaiming a stale import changes no other column, so set updated_at
       # explicitly; otherwise a duplicate worker would still see it as stale.
-      document_import.update!(status: "processing", extraction_error: nil, metadata: document_import.metadata.except("extraction_progress"), updated_at: Time.current)
+      document_import.update!(status: "processing", extraction_error: nil, metadata: document_import.metadata.except("extraction_progress", "extraction_failure_permanent", "extraction_failure_class", "extraction_failure_reason"), updated_at: Time.current)
       @dispatch.update!(status: "processing", lease_token: nil,
         lease_expires_at: STALE_PROCESSING_AFTER.from_now, next_attempt_at: STALE_PROCESSING_AFTER.from_now,
         processing_attempts: @dispatch.processing_attempts + 1)
@@ -131,6 +131,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
 
       metadata = (document_import.metadata || {}).except(*EXTRACTION_SUCCESS_METADATA_KEYS).merge(
+        "extraction_failure_permanent" => false,
         "source_accounting_revision_id" => source_result.fetch(:revision).id,
         "source_accounting_contract_version" => accounting[:contract_version],
         "source_accounting_review_pending" => typed_accounting,
@@ -198,7 +199,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
         period_start_on: nil,
         period_end_on: nil,
         processed_at: Time.current,
-        metadata: extraction_failure_metadata(document_import.metadata)
+        metadata: extraction_failure_metadata(document_import.metadata).merge("extraction_failure_permanent" => metadata_value(metadata, :failure_class, "failure_class") == "input_rejected",
+          "extraction_failure_class" => metadata_value(metadata, :failure_class, "failure_class"), "extraction_failure_reason" => metadata_value(metadata, :failure_reason, "failure_reason"))
       )
       # Participants see the plain-language error; the attempt keeps the
       # technical cause (provider status, exception class) for admins.
@@ -222,7 +224,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       status: "failed",
       extraction_error: FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE,
       processed_at: Time.current,
-      metadata: extraction_failure_metadata(document_import.metadata)
+      metadata: extraction_failure_metadata(document_import.metadata).merge("extraction_failure_permanent" => false)
     )
     finish_dispatch!("attempts_exhausted")
   end
@@ -329,6 +331,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
       "usage" => sanitized_usage(metadata_value(payload, :usage, "usage")),
       "finish_reason" => sanitized_metadata_string(metadata_value(payload, :finish_reason, "finish_reason")),
       "provider" => sanitized_provider(metadata_value(payload, :provider, "provider")),
+      "provider_type" => sanitized_metadata_string(metadata_value(payload, :provider_type, "provider_type")),
+      "provider_message" => sanitized_metadata_string(metadata_value(payload, :provider_message, "provider_message"), limit: 1000),
       "status_code" => sanitized_status_code(metadata_value(payload, :status_code, "status_code")),
       "extraction_mode" => sanitized_metadata_string(metadata_value(payload, :extraction_mode, "extraction_mode")),
       "parser_version" => sanitized_metadata_string(metadata_value(payload, :parser_version, "parser_version")),
@@ -360,8 +364,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
     nil
   end
 
-  def sanitized_metadata_string(value)
-    value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(ATTEMPT_METADATA_STRING_LENGTH, omission: "…").presence
+  def sanitized_metadata_string(value, limit: ATTEMPT_METADATA_STRING_LENGTH)
+    value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(limit, omission: "…").presence
   end
 
   def metadata_value(payload, *keys)

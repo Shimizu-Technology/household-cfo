@@ -14,6 +14,12 @@ module HouseholdFinance
     SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|add up|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
 
+    # "Review and show transactions" or "Review and tell me the amount I paid" opens
+    # like a plain review but asks a question this class answers from the rows.
+    def self.read_acknowledgement_request?(message)
+      generic_review_request?(message) && !new(nil, message: message, document_imports: []).answerable_transaction_question?
+    end
+
     def self.generic_review_request?(message)
       normalized = message.to_s.squish
       (normalized.match?(GENERIC_REVIEW_PATTERN) && !normalized.match?(SUBSTANTIVE_QUESTION_PATTERN)) || normalized.match?(SETUP_REQUEST_PATTERN)
@@ -33,15 +39,27 @@ module HouseholdFinance
       return unless document_imports.all? { |document_import| document_import.household_id == household.id }
       return evidence_bound_answer if evidence_exceeds_complete_bound?
 
+      if self.class.read_acknowledgement_request?(message)
+        read_reply = UploadReadReply.call(household, document_imports)
+        return read_reply if read_reply
+      end
       rows = transaction_rows
       setup = setup_rows
-      return no_evidence_answer if rows.empty? && setup.empty?
+      return UploadReadReply.call(household, document_imports) || no_evidence_answer if rows.empty? && setup.empty?
 
       parts = direct_answer_parts(rows, setup)
-      parts << unsupported_question_answer if parts.empty?
+      if parts.empty?
+        read_reply = UploadReadReply.call(household, document_imports)
+        return (message.include?("?") ? "#{read_reply} I can’t tell anything more from this file." : read_reply) if read_reply
+        parts << unsupported_question_answer
+      end
       parts << failed_import_notice
       parts << review_boundary(rows, setup)
       parts.compact.join(" ")
+    end
+
+    def answerable_transaction_question?
+      transaction_question?
     end
 
     private
@@ -196,7 +214,7 @@ module HouseholdFinance
     end
 
     def unsupported_question_answer
-      "I cannot answer that question reliably from the structured values in these attachments. I can check totals, merchants, categories, dates, exact duplicate charges, setup values, and whether pending spending fits an approved plan. Review the import for anything else; I will not guess from the file name or extracted prose."
+      "I can’t answer that question from this file. Check the review card before deciding what to approve; I won’t guess."
     end
 
     def review_boundary(rows, setup)
@@ -214,7 +232,7 @@ module HouseholdFinance
       if confirmed_transactions.positive? && parts.any?
         parts << (confirmed_transactions == 1 ? "One purchase from it is already approved." : "#{confirmed_transactions} purchases from it are already approved.")
       end
-      parts << (parts.any? ? "Nothing from this message was saved." : "Nothing from #{source} is waiting for your approval, and nothing from this message was saved or changed.")
+      parts << "Nothing from #{source} is waiting for your approval, and nothing from this message was saved or changed." if parts.empty?
       parts.join(" ")
     end
 

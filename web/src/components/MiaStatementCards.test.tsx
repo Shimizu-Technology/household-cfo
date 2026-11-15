@@ -1,17 +1,17 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiRequestError, fetchDocumentSourceReview, mutateStatementReview, type FinancialDocumentImport } from '../api'
+import { ApiRequestError, answerSpreadsheetSign, fetchDocumentSourceReview, mutateStatementReview, type FinancialDocumentImport } from '../api'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
 import { bindStatementReviewActor, setStatementReviewExpectedUser } from '../lib/statementReviewRecovery'
 import type { PlanAttention, StatementPlan } from '../lib/statementReview'
 import { MiaStatementCards } from './MiaStatementCards'
 
-vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDocumentSourceReview: vi.fn(), mutateStatementReview: vi.fn() }))
+vi.mock('../api', async (original) => ({ ...await original<typeof import('../api')>(), fetchDocumentSourceReview: vi.fn(), answerSpreadsheetSign: vi.fn(), mutateStatementReview: vi.fn() }))
 const fetchReview = vi.mocked(fetchDocumentSourceReview)
 const mutate = vi.mocked(mutateStatementReview)
 
-const NOW = new Date().toISOString()
+const NOW = '2026-11-15T03:00:00Z'
 const head = { approved_version_id: null, lock_version: 0 }
 const SPENDING = { read_count: 18, read_cents: 224965, counted_count: 0, counted_cents: 0 }
 const progress = (done: number, total = 27) => ({ total, done, spending: SPENDING, coverage: { question: null, answer: null } })
@@ -54,9 +54,11 @@ const mount = (imports: FinancialDocumentImport[], extra: Partial<Parameters<typ
   return props
 }
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 beforeEach(() => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse(NOW))
   sessionStorage.clear(); setStatementReviewExpectedUser(null); setStatementReviewExpectedUser(901); bindStatementReviewActor({ user_id: 901, household_id: 77 })
+  vi.mocked(answerSpreadsheetSign).mockReset()
   fetchReview.mockReset(); mutate.mockReset(); mutate.mockResolvedValue({ result: { approved: 2, left_out: 0, unchanged: 0, complete: false } })
 })
 
@@ -91,14 +93,14 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ event_id: 4002, decision: 'as_read', shown: { event_type: 'purchase', category_id: null } }] })
   })
 
-  it('moves focus to the next question after one is answered, so a keyboard user does not start over', async () => {
+  it('moves focus to the next inert question after one is answered', async () => {
     serve(review(planWith([question(4002, 'Own savings', 'transfer'), question(4003, 'Rent transfer', 'transfer')])))
     mount([statement(1)])
     const answer = await screen.findByRole('button', { name: 'Yes: Own savings' }) as HTMLButtonElement
     await waitFor(() => expect(answer.disabled).toBe(false))
     fireEvent.click(answer)
     serve(review(planWith([question(4003, 'Rent transfer', 'transfer')])))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Yes: Rent transfer' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Did this move between your own accounts?')))
   })
 
   it('offers her own categories for a suggestion she wants to change, without a sheet', async () => {
@@ -267,4 +269,155 @@ it('fix2 final statement answer exposes completion and focuses the inert heading
   expect(status.closest('details')).toBeNull()
   expect(document.activeElement).toBe(within(region).getByRole('heading'))
   expect(document.activeElement?.matches('button, summary')).toBe(false)
+})
+
+for (const answer of [true, false]) it(`asks once for a file sign convention and rederives the file after ${answer}`, async () => {
+  const data = review(planWith([question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })], { signed_amount_question: true }))
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockImplementation(async () => {
+    serve(review(planWith([], { signed_amount_question: false })))
+    return { revision_id: 202 }
+  })
+  mount([statement(1)])
+  const yes = await screen.findByRole('button', { name: 'Yes, spending is negative' })
+  expect(screen.getAllByText(/is money you spent shown as a negative amount/)).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: 'Money out: Readable amount' })).toBeNull()
+  fireEvent.click(answer ? yes : screen.getByRole('button', { name: 'No, spending is positive' }))
+  await waitFor(() => expect(screen.queryByText(/is money you spent shown as a negative amount/)).toBeNull())
+  expect(vi.mocked(answerSpreadsheetSign).mock.calls.at(-1)).toEqual([1, 101, answer])
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('states known amount and unknown direction and opens a review with Money out or Money in', async () => {
+  serve(review(planWith([question(4001, 'Readable amount', 'direction', { signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })])))
+  mount([statement(1)])
+  await screen.findByText('Was this money out or money in?')
+  expect(screen.getByText('$25')).toBeTruthy()
+  expect(screen.queryByText('We couldn’t read this line clearly.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Money in: Readable amount' }))
+  expect(await screen.findByRole('dialog')).toBeTruthy()
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+it('condenses an older statement to one opening line while the newest file stays full', async () => {
+  serve(review(planWith([])))
+  const props = mount([statement(1), statement(2)], { expandedImportIds: [2] })
+  const older = screen.getByRole('button', { name: /statement-1.pdf · Still waiting for your review/ })
+  fireEvent.click(older)
+  expect(props.onReview).toHaveBeenCalledWith(1)
+  await screen.findByText(/I read 18 purchases/)
+  expect(fetchReview.mock.calls.map(call => call[0])).toEqual([2])
+})
+
+for (const permanent of [true, false]) it(`shows ${permanent ? 'permanent' : 'temporary'} failure recovery honestly`, () => {
+  mount([statement(1, { status: 'failed', extraction_error: permanent ? 'The reader can’t accept this file. Take a screenshot of it.' : 'This is usually temporary. Try Reprocess in a few minutes.', metadata: { extraction_failure_permanent: permanent } })])
+  expect(Boolean(screen.queryByRole('button', { name: 'Try reading it again' }))).toBe(!permanent)
+  expect(Boolean(screen.queryByText(/few minutes/))).toBe(!permanent)
+})
+
+it('phrases the file question for the credit card she already chose and keeps a failed answer beside it', async () => {
+  const data = review(planWith([], { signed_amount_question: true }))
+  data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'liability'
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockRejectedValueOnce(new Error('We couldn’t save that answer. Please try again.'))
+  mount([statement(1)])
+  await screen.findByText(/In this credit card file/)
+  fireEvent.click(screen.getByRole('button', { name: 'Yes, spending is negative' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'We couldn’t save that answer. Please try again.')
+  expect(screen.getByText(/In this credit card file/)).toBeTruthy()
+  expect(mutate).not.toHaveBeenCalled()
+})
+
+for (const type of ['transfer', 'debt_payment', 'cash_withdrawal'] as const) it(`keeps a known ${type} when she supplies direction`, async () => {
+  serve(review(planWith([question(4001, 'Known movement', 'direction', { event_type: type, signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })])))
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: type === 'cash_withdrawal' ? 'Money out: Known movement' : 'Money in: Known movement' }))
+  const dialog = await screen.findByRole('dialog')
+  expect((within(dialog).getByRole('combobox', { name: 'What was this?' }) as HTMLSelectElement).value).toBe(type === 'transfer' ? 'moved' : type === 'cash_withdrawal' ? 'cash' : 'card')
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
+  await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
+  expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: type === 'transfer' ? 'moved' : type === 'cash_withdrawal' ? 'cash' : 'card', money_direction: type === 'cash_withdrawal' ? 'out' : 'in', amount_cents: 2500 } }] })
+})
+
+it('uses the bank basis she chose over a different basis read from the file', async () => {
+  const data = review(planWith([], { signed_amount_question: true }))
+  data.accounts[0].account_basis = 'liability'
+  data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'asset'
+  serve(data)
+  mount([statement(1)])
+  await screen.findByText(/In this bank account file/)
+  expect(screen.queryByText(/In this credit card file/)).toBeNull()
+})
+
+
+it('keeps an unfinished answer open when another attachment becomes newest', async () => {
+  serve(review(planWith([question(4001, 'Unclear', 'direction', { signed_amount_cents: null, amount_cents: 2500, answers: [{ id: 'money_in', label: 'Money in' }] })])))
+  const props = { imports: [statement(1), statement(2)], expandedImportIds: [1], assistantName: 'Mia', challenge: false, onReview: vi.fn(), onRetry: vi.fn(), onSaved: vi.fn() }
+  const mounted = render(<MiaStatementCards {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Money in: Unclear' }))
+  const sheet = await screen.findByRole('dialog')
+  fireEvent.change(within(sheet).getByLabelText('Name'), { target: { value: 'Keep this answer' } })
+  mounted.rerender(<MiaStatementCards {...props} expandedImportIds={[2]} />)
+  expect((within(screen.getByRole('dialog')).getByLabelText('Name') as HTMLInputElement).value).toBe('Keep this answer')
+})
+
+it('shows the sign effect and holds sign buttons while Mia is replying', async () => {
+  serve(review(planWith([], { signed_amount_answerable: true, sign_effect: '13 lines are money out, 2 lines are money in' })))
+  mount([statement(1)], { disabled: true })
+  await screen.findByText('13 lines are money out, 2 lines are money in')
+  expect((screen.getByRole('button', { name: 'Yes, spending is negative' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+
+it('keeps every pending statement reachable and retains the newest four full cards', async () => {
+  serve(review(planWith([])))
+  mount([1, 2, 3, 4, 5, 6].map(id => statement(id)))
+  await waitFor(() => expect(fetchReview).toHaveBeenCalledTimes(4))
+  expect(fetchReview.mock.calls.map(call => call[0]).sort()).toEqual([3, 4, 5, 6])
+  expect(screen.getByRole('button', { name: /statement-1.pdf · Still waiting/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /statement-2.pdf · Still waiting/ })).toBeTruthy()
+})
+
+it('keeps a known refund when its direction is money in', async () => {
+  serve(review(planWith([question(4001, 'Shop refund', 'direction', { event_type: 'refund', signed_amount_cents: null, amount_cents: 5000, answers: [{ id: 'money_in', label: 'Money in' }] })])))
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'Money in: Shop refund' }))
+  const sheet = await screen.findByRole('dialog')
+  expect((within(sheet).getByLabelText('What was this?') as HTMLSelectElement).value).toBe('refund')
+})
+
+
+it('uses sound balance arithmetic only after she establishes the account basis', async () => {
+  const data = review(planWith([], { signed_amount_question: true, signed_amount_balance_factor: 1 }))
+  data.accounts[0].account_basis = 'unknown'
+  data.participant_review!.accounts[0].approved = null
+  serve(data)
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'Credit card' }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, null))
+})
+
+it.each(['all_out', 'all_in', 'individual'] as const)('offers a truthful one-sign answer: %s', async choice => {
+  serve(review(planWith([], { signed_amount_question: true, signed_amount_single_sign: true })))
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  expect(await screen.findByText('Every amount in this file is shown the same way. Is it all money out, all money in, or a mix?')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: { all_out: 'All money out', all_in: 'All money in', individual: 'A mix' }[choice] }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, choice))
+})
+
+it('offers individual review when she is not sure about mixed signs', async () => {
+  serve(review(planWith([], { signed_amount_question: true })))
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'I’m not sure' }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, 'individual'))
+})
+
+it('shows the balance-derived effect even when there was no sign question', async () => {
+  serve(review(planWith([], { signed_amount_question: false, signed_amount_answerable: false, sign_effect: 'The balance column shows spending as positive. That set the direction of 1 line.' })))
+  mount([statement(1)])
+  expect(await screen.findByText('The balance column shows spending as positive. That set the direction of 1 line.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Yes, spending is negative' })).toBeNull()
 })
