@@ -17103,9 +17103,10 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
 })
 
 test('BOG UI F4 a read amount asks money out or money in truthfully', async ({ page }) => {
+  let movementType: 'unknown' | 'transfer' | 'debt_payment' = 'unknown'
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
     const data = f4Review(true)
-    data.participant_review!.plan.attention = [{ event_id: 4000, event_type: 'unknown', kind: 'direction', merchant: 'Fictional shop', posted_on: '2026-10-03', signed_amount_cents: null, amount_cents: 12642, category_id: null, category_name: null, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
+    data.participant_review!.plan.attention = [{ event_id: 4000, event_type: movementType, kind: 'direction', merchant: 'Fictional shop', posted_on: '2026-10-03', signed_amount_cents: null, amount_cents: 12642, category_id: null, category_name: null, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
     return route.fulfill({ json: { source_review: data } })
   })
   await f4Chat(page, [f4Source()])
@@ -17117,6 +17118,14 @@ test('BOG UI F4 a read amount asks money out or money in truthfully', async ({ p
   await expect(page.getByRole('combobox', { name: 'What was this?' })).toHaveValue('money_in')
   await f4Evidence(page, 'row-money-in')
   await page.getByRole('button', { name: 'Close', exact: true }).click()
+  for (const type of ['transfer', 'debt_payment'] as const) {
+    movementType = type
+    await page.reload()
+    await page.getByRole('button', { name: 'Money in: Fictional shop' }).click()
+    await expect(page.getByRole('combobox', { name: 'What was this?' })).toHaveValue(type === 'transfer' ? 'moved' : 'card')
+    await f4Evidence(page, type === 'transfer' ? 'row-transfer-money-in' : 'row-card-money-in')
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+  }
 })
 
 test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad photos are refused', async ({ page }) => {

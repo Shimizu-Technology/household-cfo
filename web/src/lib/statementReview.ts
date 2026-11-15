@@ -41,7 +41,7 @@ export type StatementPlan = {
 }
 
 export type LineKind = 'spending' | 'money_in' | 'moved' | 'card' | 'cash' | 'refund'
-export type LineEdit = { kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
+export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchant: string; posted_on: string; amount_cents: number; category_id: number | null }
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
@@ -86,6 +86,7 @@ export function attentionEdit(item: PlanAttention, categoryId?: number): LineEdi
 
 /** What the line sheet opens on. */
 export type SheetLine = {
+  moneyDirection?: 'in' | 'out'
   expectedHead?: ExpectedLineHead
   eventId: number
   merchant: string
@@ -94,6 +95,12 @@ export type SheetLine = {
   kind: LineKind
   categoryId: number | null
   leftOut: boolean
+}
+
+/** Keep a known transfer or debt payment as that kind when she supplies its missing direction. */
+export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'out'): SheetLine {
+  const line = lineSheetFromAttention(item)
+  return { ...line, moneyDirection: direction, kind: item.event_type === 'transfer' || item.event_type === 'debt_payment' ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
 }
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */

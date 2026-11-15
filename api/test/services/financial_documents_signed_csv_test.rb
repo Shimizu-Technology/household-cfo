@@ -101,6 +101,23 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal [ "Store" ], data[:transaction_drafts].pluck(:merchant)
   end
 
+  test "a participant supplied incoming direction preserves a known transfer without staging spending" do
+    user = User.create!(clerk_id: "f4-direction-#{SecureRandom.hex(4)}", email: "f4-direction-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "statement", status: "needs_review", filename: "bank.csv", content_type: "text/csv", byte_size: 100, s3_key: "fictional/f4-direction.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract("Date,Description,Amount\n2026-10-01,Own transfer,-30\n", account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    event = revision.financial_source_events.sole
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(household, revision)
+    assert_equal :direction, plan.attention.sole.kind
+    domain = FinancialDocuments::SourceReview::Domain.new(household, user: user)
+    input = { lines: [ { event_id: event.id, decision: "edited", edit: { kind: "moved", amount_cents: 3000, money_direction: "in", merchant: "Own transfer", posted_on: "2026-10-01" } } ] }
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, input).call
+    version = SourceReviewHead.find_by!(financial_source_event: event).approved_version
+    assert_equal "transfer", version.event_type
+    assert_equal 3000, version.signed_amount_cents
+    assert_empty household.household_transactions
+  end
+
   private
 
   def csv = File.read(Rails.root.join("test/fixtures/files/r7_bank_statement.csv"))

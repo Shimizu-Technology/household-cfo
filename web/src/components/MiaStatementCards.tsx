@@ -6,7 +6,7 @@ import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries, waitsOnMissingLines } from '../lib/statementCards'
 import {
-  APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetFromAttention, statementPeriodText,
+  APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetFromAttention, lineSheetWithDirection, statementPeriodText,
   type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementPlan,
 } from '../lib/statementReview'
 import { formatMonthDay } from '../lib/plainDates'
@@ -153,7 +153,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved }:
     if (await state.save({ lines: [entry] })) setSheet(null)
   }
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
-    if (id === 'money_out' || id === 'money_in') return setSheet({ ...lineSheetFromAttention(item), kind: id === 'money_out' ? 'spending' : 'money_in' })
+    if (id === 'money_out' || id === 'money_in') return setSheet(lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in'))
     if (id === 'edit' && categoryId == null) return setSheet(lineSheetFromAttention(item))
     state.answer(item, index, id, categoryId)
   }

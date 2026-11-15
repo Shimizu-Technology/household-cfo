@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatMonthDay } from '../lib/plainDates'
 import { sourceEventTitle, sourceMoney, type SourceEvent } from '../lib/sourceReview'
 import {
-  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetFromAttention, readyCategoryLabel, statementHeadline,
+  APPROVE_PAGE, LINE_KIND_OPTIONS, accountSentence, asBeforeNote, coverageMissingNote, lineKindFor, lineSheetFromAttention, lineSheetWithDirection, readyCategoryLabel, statementHeadline,
   type AccountChange, type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine,
 } from '../lib/statementReview'
 import { useStatementReview } from '../lib/useStatementReview'
@@ -48,7 +48,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   const readyById = new Map((plan?.ready ?? []).map((line) => [line.event_id, line]))
 
   function answer(item: PlanAttention, index: number, id: PlanAnswerId, categoryId?: number) {
-    if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: { ...lineSheetFromAttention(item), kind: id === 'money_out' ? 'spending' : 'money_in' } })
+    if (id === 'money_out' || id === 'money_in') return setSheet({ kind: 'line', line: lineSheetWithDirection(item, id === 'money_out' ? 'out' : 'in') })
     if (id === 'edit' && categoryId == null) return setSheet({ kind: 'line', line: lineSheetFromAttention(item) })
     state.answer(item, index, id, categoryId)
   }

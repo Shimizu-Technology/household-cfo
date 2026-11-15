@@ -183,7 +183,10 @@ module FinancialDocuments
         raise ArgumentError, "Enter the amount for this line" unless cents.is_a?(Integer) && cents.positive?
         signed = case kind
         when "spending", "cash" then -cents
-        when "moved", "card" then (event.signed_amount_cents.to_i.positive? ? cents : -cents)
+        when "moved", "card"
+          direction = edit[:money_direction]
+          raise ArgumentError, "Choose money in or money out." if direction && !direction.in?(%w[in out])
+          direction == "in" || (direction.nil? && event.signed_amount_cents.to_i.positive?) ? cents : -cents
         else cents
         end
         merchant = edit[:merchant].to_s.squish.presence || base[:merchant]

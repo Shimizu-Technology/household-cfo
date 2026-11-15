@@ -30,7 +30,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
     if (!postedOn) return setProblem('Choose the date.')
     if (kind === 'spending' && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: kind === 'spending' && categoryId ? Number(categoryId) : null })
+    onSave({ ...(line.moneyDirection ? { money_direction: line.moneyDirection } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: kind === 'spending' && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
