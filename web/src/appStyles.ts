@@ -8,6 +8,7 @@ import './styles/mia.css'
 import './styles/charts.css'
 import './styles/budgetReview.css'
 import './styles/statementsWealth.css'
+import './styles/moneyProfile.css'
 import './styles/motion.css'
 
 // Primitives and scoped native-control overrides follow legacy screen styles.

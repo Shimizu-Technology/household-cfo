@@ -300,14 +300,17 @@ export function AnnualIncomePlanner({
                   <strong>{source.label}</strong>
                 </div>
                   <div className="income-schedule-list">
-                    {source.schedule_entries.map((entry) => (
-                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
-                        <div>
+                    {source.schedule_entries.map((entry) => {
+                      const content = <><i className="ui-dot ui-dot--neutral" aria-hidden="true" /><span id={`income-change-${entry.id}-details`}>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'New pay amount'}</strong>
-                          <span>{formatMonthYear(entry.effective_on)} · {formatReviewMoney(Math.round((entry.amount) * 100))}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
                           {entry.retained_after_transition && <small>Confirmed to continue after transition</small>}
                           {entry.active === false && <small>Not counted because this income has not started or has already ended.</small>}
-                        </div>
+                      </span><span id={`income-change-${entry.id}-amount`}>
+                          <strong>{formatMonthYear(entry.effective_on)} · {formatReviewMoney(Math.round((entry.amount) * 100))}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</strong>
+                      </span></>
+                      return (
+                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
+                        {isRealWorkspace ? <button type="button" className="secondary-button ui-row money-edit-row" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} aria-describedby={`income-change-${entry.id}-details income-change-${entry.id}-amount`} disabled={incomeOperationPending || editorBlocked || removingId === entry.id} onClick={(event) => editEntry(source.id, entry, event.currentTarget)}>{content}<span className="money-edit-label">Edit</span></button> : <div className="ui-row money-edit-row">{content}</div>}
                         {isRealWorkspace && (
                           <div>
                             {removingId === entry.id ? (
@@ -320,14 +323,13 @@ export function AnnualIncomePlanner({
                               </>
                             ) : (
                               <>
-                                <button type="button" className="secondary-button" aria-label={`Edit ${source.label} income change from ${formatMonthYear(entry.effective_on)}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => editEntry(source.id, entry, event.currentTarget)}>Edit</button>
                                 <button type="button" data-income-entry-action="remove" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before removing a change.'); return }; cancelEdit(); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
                           </div>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
               </article>
             ))}
@@ -352,7 +354,7 @@ export function AnnualIncomePlanner({
                 <div hidden={step !== 1} className="income-question-fields">
                   <label>
                     <span>Starting month</span>
-                    <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => {
+                    <input className="ui-field" type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => {
                       const effectiveOn = event.currentTarget.value ? `${event.currentTarget.value}-01` : ''
                       const nextEligible = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, effectiveOn))
                       const keepsSource = nextEligible.some((source) => String(source.id) === draft.income_source_id)
@@ -374,7 +376,7 @@ export function AnnualIncomePlanner({
                       <span>Amount</span>
                       <div className="income-schedule-money-input">
                         <span aria-hidden="true">$</span>
-                        <input ref={amountInputRef} aria-label="Amount" inputMode="decimal" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'one_time' ? '500' : '1200'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
+                        <input className="ui-field" ref={amountInputRef} aria-label="Amount" inputMode="decimal" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'one_time' ? '500' : '1200'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
                       </div>
                     </label>
                     {draft.entry_type === 'recurring_change' ? <label>
@@ -384,7 +386,7 @@ export function AnnualIncomePlanner({
                       </select>
                     </label> : <label>
                       <span>Label (optional)</span>
-                      <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
+                      <input className="ui-field" maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
                     </label>}
                   </div>}
                   <div className="income-schedule-preview" aria-live="polite">

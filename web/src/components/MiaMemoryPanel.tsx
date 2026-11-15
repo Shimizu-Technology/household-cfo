@@ -184,7 +184,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       <form className="mia-memory-form" onSubmit={submit}>
         <label>
           <span>What should {assistantName} remember?</span>
-          <textarea
+          <textarea className="ui-field"
             aria-label={`Memory for ${assistantName}`}
             value={form.display_value}
             maxLength={500}

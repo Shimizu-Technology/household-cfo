@@ -110,15 +110,12 @@ body #root .home-plan-link .ui-btn { padding-inline: 0; border-radius: 0; }
 .expense-debt-note { font-size: var(--text-sm); }
 .expense-stack-row.stack-non_discretionary { background: var(--paper); }
 .expense-stack-row.stack-discretionary { background: var(--emerald-soft); }
-.money-topic-picker { display: none; }
 .wealth-screen { align-content: start; }
 .wealth-screen > .metric-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .statements-screen .document-review-panel { border: 0; border-radius: 0; background: none; padding-inline: 0; }
 .money-screen .money-topics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 @media (max-width: 620px) {
   .money-topics { display: none; }
-  .money-topic-picker { display: grid; gap: 8px; }
-  .money-topic-picker select { width: 100%; min-height: 44px; min-width: 0; padding: 10px; font: inherit; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink); }
   .wealth-screen > .metric-row { grid-template-columns: 1fr; }
 }
 @media (min-width: 900px) {

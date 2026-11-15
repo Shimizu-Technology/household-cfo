@@ -100,3 +100,14 @@ it('returns to the account summary when its menu closed behind the dialog', asyn
   fireEvent.keyDown(document, { key: 'Escape' })
   await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Account and help')))
 })
+
+
+it('keeps household privacy open after a backdrop click and closes with Close', async () => {
+  render(<ParticipantPrivacyAccess userId={7} participant savingsChallenge={false} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Privacy' }))
+  await screen.findByRole('dialog', { name: 'Your household privacy' })
+  fireEvent.click(document.querySelector('.household-privacy-backdrop')!)
+  expect(screen.getByRole('dialog', { name: 'Your household privacy' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Close privacy controls' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+})

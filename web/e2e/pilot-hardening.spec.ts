@@ -11371,7 +11371,8 @@ test('BOG UI account-save reload preserves a Profile edit begun while its respon
   await name.fill('Personal details stay separate from financial records')
   await expect(name).toHaveValue('Personal details stay separate from financial records')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(name).toHaveValue('Test Participant Household')
+  await expect(name).toHaveCount(0)
+  await expect(page.locator('.profile-saved-value').first()).toHaveText('Test Participant Household')
 })
 
 test('BOG UI income-save reload preserves a new Profile edit while refreshing calculated income', async ({ page }) => {
@@ -11414,7 +11415,8 @@ test('BOG UI income-save reload preserves a new Profile edit while refreshing ca
   await name.fill('Personal details stay separate from financial records')
   await expect(name).toHaveValue('Personal details stay separate from financial records')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(name).toHaveValue('Test Participant Household')
+  await expect(name).toHaveCount(0)
+  await expect(page.locator('.profile-saved-value').first()).toHaveText('Test Participant Household')
 })
 
 test('BOG UI participant navigation remains available with one Home load and no hidden reads in compact phone layouts', async ({ page }) => {
@@ -12063,7 +12065,8 @@ test('BOG UI setup help guides participants from Context and My Money to their i
   await expect(dialog).toHaveCount(0)
   await expectMoneyTopic(page, 'Income')
   await expect(page.locator('.income-source-manager-heading')).toBeVisible()
-  await page.getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Fix my setup', exact: true })).toBeVisible()
+  await page.locator('.money-setup-help').click()
   dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
   await dialog.locator('.setup-help-topics').getByRole('button', { name: 'Debt', exact: true }).click()
   await expectMoneyTopic(page, 'Debt')
@@ -12096,7 +12099,7 @@ test('BOG UI unfinished setup restart requires an owner review and starts a fres
 test('BOG UI saved setup support shares metadata only with explicit consent and retries a lost reply using the same reference', async ({ page }) => {
   const flow = await mockSetupHelpBrowser(page, { lostCreate: true })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
-  await page.getByRole('button', { name: 'Fix my setup', exact: true }).click()
+  await page.locator('.money-setup-help').click()
   const help = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
   const send = help.getByRole('button', { name: 'Request support review', exact: true })
   await expect(send).toBeDisabled()
@@ -12316,6 +12319,7 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await help.getByRole('button', { name: 'Close', exact: true }).click()
   await openSection(page, 'Coach Studio')
   await selectAdminProgram(page, '2')
+  if (page.viewportSize()!.width < 1024) await expect(page.getByRole('dialog', { name: 'More', exact: true })).toHaveCount(0)
   await expectAdminProgramValue(page, '2')
   await openSection(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
@@ -12332,6 +12336,7 @@ test('BOG UI changing a selected coach workspace ignores late own-help state and
   await expect(review).toHaveCount(0)
   await openSection(page, 'Coach Studio')
   await selectAdminProgram(page, '1')
+  if (page.viewportSize()!.width < 1024) await expect(page.getByRole('dialog', { name: 'More', exact: true })).toHaveCount(0)
   await expectAdminProgramValue(page, '1')
   await openSection(page, 'Ask Mia')
   help = await openFixSetupFromChat(page)
@@ -13263,7 +13268,7 @@ test('BOG UI My Money returns from Statements setup help with matching income co
  const workspace=realWorkspaceData(true)
  await page.route('http://api.test/api/v1/workspace',route=>route.fulfill({json:workspace}))
  await page.goto('/?pilot_e2e_role=participant#My%20Money')
- await page.getByRole('button',{name:'Fix my setup',exact:true}).click()
+ await page.locator('.money-setup-help').click()
  await page.getByRole('dialog',{name:'Fix my setup'}).getByRole('button',{name:'Statements',exact:true}).click()
  await openSection(page,'My Money')
  await expectMoneyTopic(page,'Income')
@@ -14579,14 +14584,19 @@ test('BOG UI shell More exit holds the backdrop at its finished opacity', async 
     ;(node.querySelector('.tabs-tools-close') as HTMLElement).click()
     const copy = document.querySelector<HTMLElement>('[data-dialog-exit-copy]')!
     const dim = copy.querySelector<HTMLElement>('.tabs-tools-backdrop')!
-    const values = []
-    while (copy.isConnected) {
+    const values: Array<{ dim: number; root: number }> = []
+    const deadline = performance.now() + 1000
+    // Observe elapsed real time, without pausing or seeking the animation.
+    while (copy.isConnected && performance.now() < deadline) {
       values.push({ dim: Number(getComputedStyle(dim).opacity), root: Number(getComputedStyle(copy).opacity) })
-      await new Promise(requestAnimationFrame)
+      await new Promise(resolve => setTimeout(resolve, 10))
     }
+    if (copy.isConnected) throw new Error('More exit copy was not removed')
     return values
   })
+  await expect(page.locator('[data-dialog-exit-copy]')).toHaveCount(0)
   expect(samples.length).toBeGreaterThan(2)
+  expect(samples[samples.length - 1].root).toBeLessThan(samples[0].root)
   for (const [index, sample] of samples.entries()) {
     expect(sample.dim).toBe(1)
     if (index) expect(sample.root).toBeLessThanOrEqual(samples[index - 1].root)
@@ -16185,4 +16195,545 @@ test('BOG UI P8b fix1 setup help topic rows have one divider', async ({ page }) 
   const rows = dialog.locator('.setup-help-topics button')
   await expect(rows.first()).toBeVisible()
   expect(await rows.evaluateAll(nodes => nodes.every(node => getComputedStyle(node).borderTopWidth === '0px' && getComputedStyle(node).borderBottomWidth === '1px'))).toBe(true)
+})
+
+test('BOG UI P8a keeps topic pills on phones and separates saved profile values from editing', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/workspace/setup', route => {
+    expect(route.request().postDataJSON().workspace).toEqual({ primary_goal: 'An intentional household goal.' })
+    workspace.workspace.setup_values.primary_goal = 'An intentional household goal.'
+    workspace.profile.household.primary_goal = 'An intentional household goal.'
+    return route.fulfill({ json: workspace })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const topics = page.getByRole('navigation', { name: 'My Money topics' })
+  await expect(topics).toBeVisible()
+  await expect(topics.getByRole('button')).toHaveCount(5)
+  await expect(page.getByRole('combobox', { name: 'Show:', exact: true })).toHaveCount(0)
+  await topics.getByRole('button', { name: 'Income', exact: true }).focus()
+  for (const topic of ['Income', 'Spending', 'Debt', 'Accounts', 'Goals']) {
+    const button = topics.getByRole('button', { name: topic, exact: true })
+    await expect(button).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(button).toHaveAttribute('aria-pressed', 'true')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    if (topic !== 'Goals') await page.keyboard.press('Tab')
+  }
+  await expect(page.getByRole('button', { name: 'Fix my setup', exact: true })).toBeVisible()
+  await openSection(page, 'My Profile')
+  await expect(page.locator('.profile-screen [data-page-heading]')).toBeFocused()
+  await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
+  await expect(page.locator('.setup-form').getByRole('textbox')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Edit profile' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.setup-form')).toHaveClass(/is-editing/)
+  // The opener is gone, so the keyboard's place moves to the form heading and Tab reaches the first field.
+  await expect(page.locator('.setup-form h3').first()).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('textbox', { name: 'Household name' })).toBeFocused()
+  await page.getByLabel('Primary goal').focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.getByLabel('Primary goal').pressSequentially('An intentional household goal.', { delay: 20 })
+  await expect(page.getByLabel('Primary goal')).toHaveValue('An intentional household goal.')
+  await page.getByRole('button', { name: 'Save details', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
+  await expect(page.locator('.profile-saved-value').last()).toHaveText('An intentional household goal.')
+})
+
+
+test('BOG UI P8a money edit row supports keyboard review and intentional save', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const goal = { id: 83, label: 'Family trip', goal_type: 'travel', target_amount: 4000, current_amount: null, target_on: null, priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
+  workspace.workspace.goals = [goal]
+  workspace.workspace.goal_portfolio = { ...workspace.workspace.goal_portfolio, active_count: 1, target_total: 4000, target_known_count: 1, unknown_progress_goal_ids: [83] }
+  let saves = 0
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/goals/83', route => {
+    expect(route.request().method()).toBe('PATCH')
+    const values = route.request().postDataJSON().goal
+    expect(values.label).toBe('Family holiday')
+    expect(values.current_amount).toBeNull()
+    goal.label = values.label
+    saves++
+    return route.fulfill({ json: { goal } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Goals')
+  const edit = page.getByRole('button', { name: 'Edit Family trip', exact: true })
+  await edit.focus()
+  await page.keyboard.press('Enter')
+  const name = page.getByLabel('Goal name', { exact: true })
+  await name.focus()
+  await page.keyboard.press('ControlOrMeta+A')
+  await page.keyboard.type('Family holiday')
+  expect(saves).toBe(0)
+  await page.getByRole('button', { name: 'Save goal', exact: true }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.goal-form')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Edit Family holiday', exact: true })).toBeVisible()
+  expect(saves).toBe(1)
+})
+
+
+test('BOG UI P8a first-run fields form a readable column without overlapping targets', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(false) }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await expect(page.getByRole('heading', { name: 'Start with what you know today.' })).toBeVisible()
+  const fields = await page.locator('.setup-field-grid > .setup-field').all()
+  expect(fields).toHaveLength(5)
+  let bottom = 0
+  for (const field of fields) {
+    const rect = (await field.boundingBox())!
+    expect(rect.width).toBeGreaterThanOrEqual(220)
+    expect(rect.y).toBeGreaterThanOrEqual(bottom - 1)
+    bottom = rect.y + rect.height
+  }
+})
+
+
+test('BOG UI P8a spending rows open their exact category editor without writes', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const category = workspace.budget.annual_plan.rows[1]
+  const writes: string[] = []
+  page.on('request', request => { if (['POST', 'PATCH', 'DELETE'].includes(request.method()) && request.url().startsWith('http://api.test/api/v1/')) writes.push(request.url()) })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Spending')
+  await page.getByRole('button', { name: `Edit ${category.name}`, exact: true }).click()
+  await expect(page).toHaveURL(/#Budget$/)
+  const name = page.locator(`[data-budget-category-id="${category.id}"] [data-budget-category-action="name"]`)
+  await expect(name).toBeFocused()
+  await expect(name).toHaveValue(category.name)
+  expect(writes).toEqual([])
+})
+
+
+test('BOG UI P8a optional card dismissal returns to its pointer opener in My Money', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  const workspace = { ...base, workspace: { ...base.workspace, experience_mode: 'savings_challenge' } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/savings_challenge/debt**', route => route.fulfill({ status: 503, json: { error: 'Card terms are unavailable in this fictional focus check.' } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Debt')
+  const opener = page.getByRole('button', { name: 'Open optional card review', exact: true })
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Card & debt review', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toHaveAttribute('data-dialog-private', 'true')
+  await dialog.getByRole('button', { name: 'Close card review', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
+})
+
+test('BOG UI P8a delayed review focus cannot consume a later purchase result', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFrame = window.requestAnimationFrame.bind(window)
+    const held: FrameRequestCallback[] = []
+    let schedulingRecovery = false
+    let heldId = 0
+    const controls = window as typeof window & { heldReviewFrames: () => number; releaseReviewFrames: () => void }
+    controls.heldReviewFrames = () => held.length
+    controls.releaseReviewFrames = () => { for (const frame of held.splice(0)) frame(performance.now()) }
+    window.requestAnimationFrame = callback => {
+      if (schedulingRecovery) { held.push(callback); return --heldId }
+      if (new Error().stack?.includes('recoverReviewFocus')) return nativeFrame(time => {
+        schedulingRecovery = true
+        try { callback(time) } finally { schedulingRecovery = false }
+      })
+      return nativeFrame(callback)
+    }
+  })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const drafts = [0, 1].map(index => ({ ...template, id: 99880 + index, merchant: `Delayed focus shop ${index + 1}` }))
+  workspace.budget.annual_plan.pending_transaction_drafts = drafts
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    const id = Number(route.request().url().split('/').at(-2))
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const heldCount = () => page.evaluate(() => (window as typeof window & { heldReviewFrames: () => number }).heldReviewFrames())
+  for (const [index, draft] of drafts.entries()) {
+    const row = page.locator(`[data-review-item="${draft.id}"]`)
+    await row.locator('[data-review-confirm]').click()
+    await expect(row.locator('[data-review-result]')).toBeFocused()
+    await expect.poll(heldCount).toBe(index + 1)
+  }
+  await page.evaluate(() => (window as typeof window & { releaseReviewFrames: () => void }).releaseReviewFrames())
+  await expect(page.locator('[data-review-item="99881"] [data-review-result]')).toBeFocused()
+})
+
+test('BOG UI P8a purchase result focus survives an early recovery frame and pointer activation', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFrame = window.requestAnimationFrame.bind(window)
+    let immediateId = 0
+    const controls = window as typeof window & { suppressReviewPointerFocus?: boolean; earlyReviewFrames?: number }
+    controls.earlyReviewFrames = 0
+    document.addEventListener('mousedown', event => {
+      if (controls.suppressReviewPointerFocus && event.target instanceof Element && event.target.closest('[data-review-confirm]')) event.preventDefault()
+    })
+    // Deliver recovery before React can commit. Other animation frames stay native.
+    window.requestAnimationFrame = callback => {
+      if (new Error().stack?.includes('recoverReviewFocus')) { controls.earlyReviewFrames! += 1; callback(performance.now()); return --immediateId }
+      return nativeFrame(callback)
+    }
+  })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const drafts = [0, 1, 2].map(index => ({ ...template, id: 99890 + index, merchant: `Commit focus shop ${index + 1}` }))
+  workspace.budget.annual_plan.pending_transaction_drafts = drafts
+  const confirmed: number[] = []
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    const id = Number(route.request().url().split('/').at(-2))
+    confirmed.push(id)
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  for (const [index, draft] of drafts.slice(0, 2).entries()) {
+    if (index === 1) await page.evaluate(() => { (window as typeof window & { suppressReviewPointerFocus?: boolean }).suppressReviewPointerFocus = true })
+    const row = page.locator(`[data-review-item="${draft.id}"]`)
+    await row.locator('[data-review-confirm]').click()
+    await expect(row.locator('[data-review-result]')).toBeFocused()
+  }
+  expect(await page.evaluate(() => (window as typeof window & { earlyReviewFrames: number }).earlyReviewFrames)).toBeGreaterThan(0)
+  expect(confirmed).toEqual(drafts.slice(0, 2).map(draft => draft.id))
+})
+
+// P8a fix1: the participant keeps the same information, destinations and focus.
+function p8aFixRecords(long = false) {
+  const base = realWorkspaceData(true)
+  const suffix = long ? ' — household record with a deliberately long descriptive name for review' : ''
+  return { ...base, workspace: { ...base.workspace,
+    debt_portfolio: { ...base.workspace.debt_portfolio, total_balance: 1234.56, monthly_minimum: 45.67, active_count: 1 },
+    asset_portfolio: { ...base.workspace.asset_portfolio, liquid_balance: 2500, total_balance: 2500, liquid_balance_known: true, total_balance_known: true, active_count: 1, liquid_known_count: 1, total_known_count: 1 },
+    goal_portfolio: { ...base.workspace.goal_portfolio, target_total: 5000, progress_total: 500, active_count: 1, target_known_count: 1, progress_known_count: 1 },
+    debts: [{ id: 501, label: `Family card${suffix}`, debt_type: 'credit_card', balance: 1234.56, minimum_payment: 45.67, interest_rate_percent: 18.5, active: true, source_type: 'manual_ui', source_metadata: {}, archived_at: null }],
+    accounts: [{ id: 502, label: `Rainy day${suffix}`, account_type: 'savings', balance: 2500, active: true, source_type: 'manual_ui', source_metadata: {}, archived_at: null }],
+    goals: [{ id: 503, label: `Family trip${suffix}`, goal_type: 'travel', target_amount: 5000, current_amount: 500, target_on: null, priority: 1, active: true, source_type: 'manual_ui', source_metadata: {}, archived_at: null }],
+  } }
+}
+
+for (const complete of [false, true]) test(`BOG UI P8a fix1 My Money setup help remains reachable when complete=${complete}`, async ({ page }) => {
+  await mockSetupHelpBrowser(page, { selfEligible: !complete })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const opener = page.locator('.money-setup-help')
+  await expect(opener).toBeVisible()
+  await expect(opener.locator('i')).toHaveClass(complete ? /ui-dot--neutral/ : /ui-dot--attention/)
+  // A quiet row on paper, the same surface as the cards below it, not a filled button.
+  expect(await opener.evaluate(node => getComputedStyle(node).backgroundColor)).toBe(await page.locator('.money-screen .ui-card').first().evaluate(node => getComputedStyle(node).backgroundColor))
+  await opener.click()
+  const dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
+})
+
+test('BOG UI P8a fix1 debt descriptions and record typography preserve every figure', async ({ page }) => {
+  const workspace = p8aFixRecords()
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const income = page.getByRole('button', { name: 'Edit Primary income', exact: true })
+  const dot = await income.locator('i').boundingBox()
+  const title = await income.locator('strong').boundingBox()
+  const figure = await income.locator('b').boundingBox()
+  expect(dot!.x).toBeLessThan(title!.x)
+  expect(figure!.x).toBeGreaterThan(title!.x)
+  expect(Math.abs(dot!.y + dot!.height / 2 - figure!.y - figure!.height / 2)).toBeLessThan(4)
+  for (const [topic, name] of [['Income', 'Primary income'], ['Spending', workspace.budget.annual_plan.rows[1].name], ['Debt', 'Family card'], ['Accounts', 'Rainy day'], ['Goals', 'Family trip']]) {
+    await openMoneyTopic(page, topic)
+    const row = page.getByRole('button', { name: `Edit ${name}`, exact: true })
+    const sizes = await row.evaluate(node => {
+      const title = node.querySelector('strong')!, detail = node.querySelector('strong + span')!, amount = node.querySelector('b') ?? node.querySelectorAll('strong')[1]
+      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize, getComputedStyle(amount).fontWeight]
+    })
+    console.log(`P8a row measurements ${topic}: ${JSON.stringify(sizes)}`)
+    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px', '600'])
+    if (topic === 'Debt') {
+      await expect(row).toHaveAccessibleDescription(/Credit Card.*18.5% APR.*Manual.*\$45.67 minimum.*\$1,234.56/i)
+      const balance = await row.locator('strong').nth(1).boundingBox(), name = await row.locator('strong').first().boundingBox()
+      expect(Math.abs(balance!.y - name!.y)).toBeLessThan(2)
+    }
+    if (['Debt', 'Accounts', 'Goals'].includes(topic)) {
+      const archive = page.getByRole('button', { name: `Archive ${name}`, exact: true })
+      await expect(archive).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+      const actionBox = await archive.boundingBox(), rowBox = await row.boundingBox()
+      expect(actionBox!.y).toBeLessThan(rowBox!.y + rowBox!.height)
+      await archive.click()
+      const confirm = page.getByRole('button', { name: `Confirm archive ${name}`, exact: true })
+      await expect(confirm).toBeVisible()
+      if (page.viewportSize()!.width <= 620) {
+        const action = await confirm.boundingBox(), edit = await row.locator('.money-edit-label').boundingBox()
+        expect(action!.x).toBeGreaterThanOrEqual(edit!.x + edit!.width)
+        const detail = await row.locator('strong + span').first().boundingBox()
+        expect(action!.y).toBeGreaterThanOrEqual(detail!.y + detail!.height)
+        const cancel = await page.getByRole('button', { name: `Cancel archiving ${name}`, exact: true }).boundingBox()
+        expect(cancel!.x).toBeGreaterThanOrEqual(action!.x + action!.width)
+        expect(cancel!.x + cancel!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+        expect(await confirm.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      }
+      await page.getByRole('button', { name: `Cancel archiving ${name}`, exact: true }).click()
+    }
+  }
+  await openMoneyTopic(page, 'Income')
+  const change = page.locator('.income-schedule-row').first()
+  await expect(change.locator('strong').first()).toHaveCSS('font-size', '16px')
+  const remove = change.getByRole('button', { name: 'Remove', exact: true })
+  await expect(remove).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
+  const a = await remove.boundingBox(), b = await change.locator('.money-edit-row').boundingBox()
+  expect(a!.y).toBeLessThan(b!.y + b!.height)
+  await remove.click()
+  await expect(change.getByRole('button', { name: 'Confirm remove', exact: true })).toBeVisible()
+  const confirming = await change.locator('.money-edit-row').boundingBox()
+  expect(confirming!.width).toBeGreaterThanOrEqual(b!.width)
+  expect(await change.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  await change.getByRole('button', { name: 'Keep', exact: true }).click()
+})
+
+for (const demo of [false, true]) test(`BOG UI P8a fix1 noneditable category rows are plain full strength demo=${demo}`, async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const modules = workspace.workspace.capabilities.modules
+  if (!demo) modules.find(module => module.id === 'budget')!.enabled = false
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, ...(demo ? { mode: 'demo' } : {}) } } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Spending')
+  const row = page.locator('.money-record-list li').nth(1)
+  await expect(row.getByRole('button')).toHaveCount(0)
+  await expect(row.locator('.money-edit-row')).toHaveCSS('opacity', '1')
+  await expect(row).toContainText('Dining out')
+  await expect(row).toContainText('$450 planned')
+  await expect(row).not.toContainText('Edit')
+})
+
+test('BOG UI P8a fix1 ended income stays plain and readable', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  // Fixed terms and no scheduled change, so the figure does not depend on today's date.
+  const source = { ...workspace.workspace.income_sources[0], label: 'Ended pay', base_amount: 15_000, schedule_entries: [], timeline_status: 'archived', ends_on: '2020-01-01' }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: { ...workspace, workspace: { ...workspace.workspace, income_sources: [source] } } }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const row = page.locator('.income-source-manager-card-heading')
+  expect(await row.evaluate(node => node.tagName)).toBe('DIV')
+  await expect(page.getByRole('button', { name: 'Edit Ended pay', exact: true })).toHaveCount(0)
+  await expect(row).toHaveCSS('opacity', '1')
+  await expect(row).toContainText('Ended pay')
+  await expect(row).toContainText('$15,000')
+  await expect(row.getByText('Edit', { exact: true })).toHaveCount(0)
+})
+
+for (const records of [false, true]) for (const [type, add] of [['debt_plan', 'Add a debt'], ['asset_plan', 'Add an account'], ['goal_plan', 'Add a goal']]) test(`BOG UI P8a fix1 manual ${type} focuses Add with records=${records}`, async ({ page }) => {
+  const base = records ? p8aFixRecords() : realWorkspaceData(true)
+  const draft = { ...miaAssetDraft, draft_type: type, title: `Review ${type}`, items: [{ ...miaAssetDraft.items[0], target_record_type: type === 'asset_plan' ? 'Account' : 'Goal', operation_key: type === 'asset_plan' ? 'account.legacy' : 'goal.record.legacy', action_type: 'legacy', payload: {} }] }
+  if (type === 'debt_plan') {
+    base.workspace.setup_complete = false
+    base.workspace.setup_status.missing_fields.push({ key: 'debt_payment', label: 'Debt minimums', confirmed: false })
+  }
+  const workspace = { ...base, budget: { ...base.budget, annual_plan: { ...base.budget.annual_plan, pending_mia_action_drafts: [draft] } } }
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto(type === 'debt_plan' ? '/?pilot_e2e_role=participant#Home' : '/?pilot_e2e_role=participant#Ask%20Mia')
+  if (type === 'debt_plan') await page.getByRole('button', { name: 'Add debt minimums', exact: true }).click()
+  else {
+    await openMiaReviewDetails(page)
+    await page.getByRole('article', { name: draft.title, exact: true }).getByRole('button', { name: 'Change', exact: true }).click()
+  }
+  await expect(page.getByRole('button', { name: add, exact: true })).toBeFocused()
+})
+
+for (const mode of ['outside', 'save', 'cancel']) test(`BOG UI P8a fix1 profile delayed ${mode} keeps focus with its owner`, async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  let release!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  let saving = false
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/workspace/setup', async route => { saving = true; await barrier; workspace.workspace.setup_values.primary_goal = 'Review my goal'; workspace.profile.household.primary_goal = 'Review my goal'; await route.fulfill({ json: workspace }) })
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await page.getByRole('button', { name: 'Edit profile', exact: true }).click()
+  if (mode === 'cancel') {
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit profile', exact: true })).toBeFocused()
+    return
+  }
+  await page.getByRole('textbox', { name: 'Primary goal' }).fill('Review my goal')
+  await page.getByRole('button', { name: 'Save details', exact: true }).click()
+  await expect.poll(() => saving).toBe(true)
+  if (mode === 'outside') {
+    await page.getByText('Memory & personalization', { exact: true }).click()
+    await page.getByRole('textbox', { name: 'Memory for Mia' }).fill('Keep my draft here')
+  }
+  release()
+  await expect(page.locator('.setup-form')).toHaveClass(/is-viewing/)
+  if (mode === 'outside') {
+    await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toBeFocused()
+    await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toHaveValue('Keep my draft here')
+  } else await expect(page.locator('.setup-form h3')).toBeFocused()
+})
+
+for (const width of [320, 390]) test(`BOG UI P8a fix1 restart foot keeps room at ${width}px and ignores backdrop`, async ({ page }) => {
+  await page.setViewportSize({ width, height: width === 320 ? 568 : 844 })
+  await mockSetupHelpBrowser(page, { selfEligible: true })
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.locator('.money-setup-help').click()
+  await page.getByRole('dialog', { name: 'Fix my setup', exact: true }).getByRole('button', { name: 'Review starting setup again' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Start setup again', exact: true })
+  const apply = dialog.getByRole('button', { name: 'Start setup again', exact: true })
+  await apply.scrollIntoViewIfNeeded()
+  const gap = await apply.evaluate(node => node.closest('[role="dialog"]')!.getBoundingClientRect().bottom - node.getBoundingClientRect().bottom)
+  expect(gap).toBeGreaterThanOrEqual(16)
+  await page.locator('.financial-restart-overlay').dispatchEvent('click')
+  await expect(dialog).toBeVisible()
+})
+
+test('BOG UI P8a fix1 privacy backdrop preserves the dialog', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.getByLabel('Account and help').click()
+  await page.getByRole('button', { name: 'Privacy', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Your household privacy' })
+  await page.locator('.household-privacy-backdrop').dispatchEvent('click')
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+})
+
+test('BOG UI P8a fix1 optional debt backdrop preserves typed terms', async ({ page }) => {
+  await page.goto('/optional-debt-qa.html')
+  await page.getByRole('button', { name: 'Open optional card review' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Card & debt review' })
+  await dialog.getByRole('button', { name: 'Add a card', exact: true }).click()
+  await dialog.getByLabel('How will you review these terms?').selectOption('manual')
+  await dialog.getByLabel('Card label', { exact: true }).fill('Still typing my terms')
+  await page.locator('.optional-debt-overlay').dispatchEvent('click')
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByLabel('Card label', { exact: true })).toHaveValue('Still typing my terms')
+})
+
+test('BOG UI P8a fix1 failed review restores the heading when a disabled action drops focus', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  let release!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  let received = false
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', async route => { received = true; await barrier; await route.fulfill({ status: 422, json: { error: 'Please review this purchase again.' } }) })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const row = page.locator('[data-review-item="91"]')
+  await row.locator('[data-review-confirm]').click()
+  await expect.poll(() => received).toBe(true)
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+  release()
+  await expect(row.getByRole('alert')).toBeVisible()
+  await expect(page.locator('[data-page-heading]')).toBeFocused()
+})
+
+test('BOG UI P8a fix1 null chat snapshots cannot share a review focus owner', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFrame = window.requestAnimationFrame.bind(window)
+    const held: FrameRequestCallback[] = []
+    let schedulingRecovery = false
+    let heldId = 0
+    const controls = window as typeof window & { heldReviewFrames: () => number; releaseReviewFrames: () => void; releaseOldestReviewFrame: () => void }
+    controls.releaseOldestReviewFrame = () => held.shift()?.(performance.now())
+    controls.heldReviewFrames = () => held.length
+    controls.releaseReviewFrames = () => { for (const frame of held.splice(0)) frame(performance.now()) }
+    window.requestAnimationFrame = callback => {
+      if (schedulingRecovery) { held.push(callback); return --heldId }
+      if (new Error().stack?.includes('recoverReviewFocus')) return nativeFrame(time => {
+        schedulingRecovery = true
+        try { callback(time) } finally { schedulingRecovery = false }
+      })
+      return nativeFrame(callback)
+    }
+  })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = []
+  const template = workspace.budget.annual_plan.pending_transaction_drafts[0]
+  const drafts = [0, 1].map(index => ({ ...template, id: 99880 + index, merchant: `Delayed focus shop ${index + 1}` }))
+  workspace.budget.annual_plan.pending_transaction_drafts = drafts
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/*/confirm', route => {
+    const id = Number(route.request().url().split('/').at(-2))
+    workspace.budget.annual_plan.pending_transaction_drafts = workspace.budget.annual_plan.pending_transaction_drafts.filter(row => row.id !== id)
+    return route.fulfill({ json: { workspace } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  const heldCount = () => page.evaluate(() => (window as typeof window & { heldReviewFrames: () => number }).heldReviewFrames())
+  for (const [index, draft] of drafts.entries()) {
+    const row = page.locator(`[data-review-item="${draft.id}"]`)
+    await row.locator('[data-review-confirm]').click()
+    await expect(row.locator('[data-review-result]')).toBeFocused()
+    await expect.poll(heldCount).toBe(index + 1)
+  }
+  await page.evaluate(() => {
+    (document.activeElement as HTMLElement)?.blur();
+    (window as typeof window & { releaseOldestReviewFrame: () => void }).releaseOldestReviewFrame()
+  })
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
+  await page.evaluate(() => (window as typeof window & { releaseReviewFrames: () => void }).releaseReviewFrames())
+  await expect(page.locator('[data-review-item="99881"] [data-review-result]')).toBeFocused()
+})
+
+
+test('BOG UI P8a fix1 selected topics remain distinct in forced colours', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  const selected = page.locator('.money-topics [aria-pressed="true"]')
+  await expect(selected).toHaveCSS('outline-style', 'solid')
+  await expect(selected).toHaveCSS('outline-width', '2px')
+  await expect(selected).toHaveCSS('text-decoration-line', 'underline')
+})
+
+test('BOG UI P8a fix1 profile styles leave Ask Mia memory and admin team surfaces alone', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await (await chatHeaderAction(page, 'Memory')).click()
+  await expect(page.locator('.mia-memory-item').first()).toHaveCSS('border-left-width', '1px')
+  await mockProgramSettings(page)
+  await mockProgramTeam(page)
+  await openOwnerProgram(page, /Name and look/)
+  await openDetails(page, /Your team/)
+  await expect(page.locator('.workspace-collaborator').first()).toHaveCSS('border-left-width', '1px')
+})
+
+
+test('BOG UI P8a fix1 debt accessible description includes type APR source balance and minimum', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: p8aFixRecords() }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await openMoneyTopic(page, 'Debt')
+  await expect(page.getByRole('button', { name: 'Edit Family card', exact: true })).toHaveAccessibleDescription(/Credit Card.*18.5% APR.*Manual.*\$45.67 minimum.*\$1,234.56/i)
+})
+
+
+test('BOG UI P8a fix1 all six record types use the shared row title and readable details', async ({ page }) => {
+  const workspace = p8aFixRecords()
+  Object.assign(workspace.budget.annual_plan.income_sources[0].schedule_entries[0], { retained_after_transition: true })
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  for (const [topic, selector] of [['Income', '.income-source-manager-card-heading'], ['Income', '.income-schedule-row .money-edit-row'], ['Spending', '.money-record-list .money-edit-row'], ['Debt', '.debt-row .money-edit-row'], ['Accounts', '.account-row .money-edit-row'], ['Goals', '.goal-row .money-edit-row']]) {
+    await openMoneyTopic(page, topic)
+    const sizes = await page.locator(selector).first().evaluate(node => {
+      const title = node.querySelector('strong')!, detail = node.querySelector('.ui-row__body > span, strong + span, small')!, amount = node.querySelector('b') ?? node.querySelectorAll('strong')[1]
+      return [getComputedStyle(title).fontSize, getComputedStyle(title).fontWeight, getComputedStyle(detail).fontSize, getComputedStyle(amount).fontSize, getComputedStyle(amount).fontWeight]
+    })
+    console.log(`P8a type ${selector}: ${JSON.stringify(sizes)}`)
+    expect.soft(sizes).toEqual(['16px', '500', '14px', '16px', '600'])
+  }
+})
+
+test('BOG UI P8a fix1 completed households reach setup corrections without Ask Mia', async ({ page }) => {
+  await mockSetupHelpBrowser(page)
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities.modules.find(module => module.id === 'ask_mia')!.enabled = false
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#My%20Money')
+  await page.locator('.money-setup-help').click()
+  const dialog = page.getByRole('dialog', { name: 'Fix my setup', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Request support review', exact: true })).toBeVisible()
+  await expect(dialog.locator('.setup-help-topics').getByRole('button')).toHaveCount(6)
 })

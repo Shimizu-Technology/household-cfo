@@ -138,6 +138,8 @@ export function IncomeSourceManager({
   function beginEdit(source: IncomeTimelineSource, trigger?: HTMLButtonElement) {
     if (editorBlocked) return
     if (hasUnsavedChanges) { setFormError('Save or cancel this income draft before editing another source.'); return }
+    trigger?.focus({ preventScroll: true })
+    const origin = document.activeElement
     setFormOpen(true)
     lastActionTriggerRef.current = trigger ?? null
     setEndingId(null)
@@ -146,6 +148,7 @@ export function IncomeSourceManager({
     setDraft(incomeSourceDraftFor(source))
     setFormError(null)
     requestAnimationFrame(() => {
+      if (document.activeElement !== origin && document.activeElement !== document.body) return
       sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       sourceNameRef.current?.focus({ preventScroll: true })
       sourceNameRef.current?.select()
@@ -241,7 +244,7 @@ export function IncomeSourceManager({
   const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
 
   return (
-    <section ref={sectionRef} className="panel income-source-manager" aria-labelledby="income-source-manager-title">
+    <section ref={sectionRef} className="panel income-source-manager ui-card" aria-labelledby="income-source-manager-title">
       <div className="income-source-manager-heading">
         <div>
           <h3 id="income-source-manager-title">Your income</h3>
@@ -269,6 +272,7 @@ export function IncomeSourceManager({
               && source.starts_on.slice(0, 7) === source.ends_on.slice(0, 7),
             )
             const effectiveTerms = effectiveIncomeTerms(source)
+            const Row = ended ? 'div' : 'button'
             return (
               <article
                 ref={(node) => {
@@ -279,14 +283,15 @@ export function IncomeSourceManager({
                 key={source.id}
                 tabIndex={-1}
               >
-                <div className="income-source-manager-card-heading">
-                  <div>
-                    <span>{titleize(source.source_type)}</span>
+                <Row type={ended ? undefined : "button"} className="income-source-manager-card-heading ui-row" aria-label={ended ? undefined : `Edit ${source.label}`} aria-describedby={`income-${source.id}-amount income-${source.id}-details`} disabled={ended ? undefined : incomeOperationPending || editorBlocked} onClick={ended ? undefined : (event) => beginEdit(source, event.currentTarget as HTMLButtonElement)}><i className="ui-dot ui-dot--neutral" aria-hidden="true" />
+                  <span className="ui-row__body">
                     <strong>{source.label}</strong>
-                  </div>
-                  <b>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
-                </div>
-                <dl>
+                    <span>{titleize(source.source_type)}</span>
+                  </span>
+                  <b id={`income-${source.id}-amount`}>{formatReviewMoney(Math.round((effectiveTerms.amount) * 100))} · {titleize(effectiveTerms.cadence)}</b>
+                  {!ended && <span className="money-edit-label">Edit</span>}
+                </Row>
+                <dl id={`income-${source.id}-details`}>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
                   <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
                   <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${formatReviewMoney(Math.round((upcoming.amount) * 100))}` : 'None scheduled'}</dd></div>
@@ -302,7 +307,7 @@ export function IncomeSourceManager({
                     <div className="income-source-end-confirmation">
                       <label>
                         <span>First month without this income</span>
-                        <input ref={endMonthRef} disabled={incomeOperationPending} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
+                        <input className="ui-field" ref={endMonthRef} disabled={incomeOperationPending} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
                       </label>
                       {formError && <p className="setup-error" role="alert">{formError}</p>}
                       <button type="button" className="secondary-button" aria-label={`Cancel ending ${source.label}`} disabled={incomeOperationPending} onClick={cancelEnd}>Cancel</button>
@@ -315,7 +320,6 @@ export function IncomeSourceManager({
                       <details className="income-advanced">
                         <summary aria-label={`More options for ${source.label}`}>More options</summary>
                         <div className="income-source-advanced-actions">
-                      <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
                       <button type="button" className="secondary-button" aria-label={`End ${source.label}`} disabled={incomeOperationPending || editorBlocked} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
                         </div>
                       </details>
@@ -328,7 +332,7 @@ export function IncomeSourceManager({
         </div>
       )}
 
-      {!formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={() => { setFormOpen(true); requestAnimationFrame(() => sourceNameRef.current?.focus()) }}>Add income source</button>}
+      {!formOpen && <button type="button" disabled={incomeOperationPending || editorBlocked} className="secondary-button" onClick={(event) => { const trigger = event.currentTarget; trigger.focus({ preventScroll: true }); setFormOpen(true); requestAnimationFrame(() => { if (document.activeElement === trigger || document.activeElement === document.body) sourceNameRef.current?.focus() }) }}>Add income source</button>}
       {formOpen && <form ref={sourceFormRef} className="income-source-form" onSubmit={(event) => void submit(event)}>
         <div className="income-source-form-heading">
           <div>
@@ -340,7 +344,7 @@ export function IncomeSourceManager({
         <fieldset className="income-source-fields budget-loading-boundary" style={{ border: 0 }} disabled={incomeOperationPending}><legend className="sr-only">Income source fields</legend>
           <label>
             <span>Name</span>
-            <input ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
+            <input className="ui-field" ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
           </label>
           <label>
             <span>Type</span>
@@ -352,7 +356,7 @@ export function IncomeSourceManager({
             <span>Starting amount</span>
             <div className="income-schedule-money-input">
               <span aria-hidden="true">$</span>
-              <input aria-label="Starting amount" type="number" min="0" step="0.01" value={draft.amount} placeholder="5000" onChange={(event) => updateSourceDraft({ amount: event.currentTarget.value })} />
+              <input className="ui-field" aria-label="Starting amount" type="number" min="0" step="0.01" value={draft.amount} placeholder="5000" onChange={(event) => updateSourceDraft({ amount: event.currentTarget.value })} />
             </div>
           </label>
           <label>
@@ -363,7 +367,7 @@ export function IncomeSourceManager({
           </label>
           <label>
             <span>Starting month</span>
-            <input type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
+            <input className="ui-field" type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
           </label>
         </fieldset>
         {formError && <p className="setup-error" role="alert">{formError}</p>}

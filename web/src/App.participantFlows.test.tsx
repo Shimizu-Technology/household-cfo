@@ -99,7 +99,9 @@ it('keeps unknown money blank and removes financial fields in the personal edito
   expect((screen.getByLabelText(/^Primary monthly income/) as HTMLInputElement).value).toBe('')
   expect(view.container.textContent).not.toContain('blank amount saves as $0')
   view.rerender(<WorkspaceSetupForm {...form} firstSession={false} personalOnly />)
-  expect(screen.getByLabelText(/^Household name/)).toBeTruthy()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(screen.getByText('Cruz')).toBeTruthy()
+  expect(screen.getByText('Save', { exact: true })).toBeTruthy()
   expect(screen.queryAllByRole('spinbutton')).toHaveLength(0)
   expect(view.container.textContent).toContain('Your household name and the goal your assistant helps you work toward.')
 })
@@ -184,4 +186,56 @@ it('keeps approval explicit when a statement includes a selected account value',
   expect(screen.getByRole('button', { name: 'Delete upload & record' }).hasAttribute('disabled')).toBe(true)
   view.rerender(<DocumentReviewPanel {...actions} documentImport={{ ...applied, items: [...applied.items, { ...applied.items[0], id: 6, label: 'Other checking' }] }} />)
   expect(screen.getByRole('heading', { name: '2 saved values already feed your assistant' })).toBeTruthy()
+})
+
+
+it('keeps a deliberate amount focus when the income opener frame runs later', () => {
+  const frames: FrameRequestCallback[] = []
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    render(<IncomeSourceManager sources={[]} action={null} error={null} onSave={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add income source' }))
+    const amount = screen.getByRole('spinbutton', { name: 'Starting amount' })
+    amount.focus()
+    act(() => { for (const frame of frames.splice(0)) frame(0) })
+    expect(document.activeElement).toBe(amount)
+    fireEvent.change(amount, { target: { value: '200' } })
+    expect((amount as HTMLInputElement).value).toBe('200')
+  } finally { raf.mockRestore() }
+})
+
+
+it('beginEdit preserves a deliberate later field focus and preloads the exact source', () => {
+  const frames: FrameRequestCallback[] = []
+  const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { frames.push(callback); return frames.length })
+  try {
+    render(<IncomeSourceManager sources={[{ id: 5, label: 'Side business', source_type: 'business', base_amount: 210, base_cadence: 'monthly', schedule_entries: [] }]} action={null} error={null} onSave={vi.fn()} onArchive={vi.fn()} onRestore={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Side business' }))
+    const amount = screen.getByRole('spinbutton', { name: 'Starting amount' })
+    amount.focus()
+    act(() => { for (const frame of frames.splice(0)) frame(0) })
+    expect(document.activeElement).toBe(amount)
+    expect((amount as HTMLInputElement).value).toBe('210')
+    expect((screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement).value).toBe('Side business')
+  } finally { raf.mockRestore() }
+})
+
+for (const mode of ['save', 'outside', 'cancel'] as const) it(`profile ${mode} respects the current focus owner`, () => {
+  const values = { household_name: 'Cruz', primary_goal: 'Save', primary_income: '', fixed_expenses: '', flexible_spend: '', emergency_fund: '', other_assets: '', expected_sinking_fund: '', unexpected_sinking_fund: '', business_income: '', target_runway_months: '', debt_payment: '', credit_card_debt: '' }
+  const form = { values, saving: false, error: null, firstSession: false, personalOnly: true, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
+  const view = render(<><WorkspaceSetupForm {...form} editing /><input aria-label="Memory draft" /></>)
+  screen.getByRole('textbox', { name: /^Primary goal/ }).focus()
+  if (mode === 'outside') screen.getByLabelText('Memory draft').focus()
+  if (mode === 'cancel') fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  view.rerender(<><WorkspaceSetupForm {...form} editing={false} /><input aria-label="Memory draft" /></>)
+  expect(document.activeElement).toBe(mode === 'outside' ? screen.getByLabelText('Memory draft') : mode === 'cancel' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByRole('heading', { name: 'Household details' }))
+})
+
+for (const mode of ['opener', 'outside'] as const) it(`profile editing entry ${mode === 'opener' ? 'moves focus from the opener to the form heading' : 'leaves focus that is outside the form'}`, () => {
+  const values = { household_name: 'Cruz', primary_goal: 'Save', primary_income: '', fixed_expenses: '', flexible_spend: '', emergency_fund: '', other_assets: '', expected_sinking_fund: '', unexpected_sinking_fund: '', business_income: '', target_runway_months: '', debt_payment: '', credit_card_debt: '' }
+  const form = { values, saving: false, error: null, firstSession: false, personalOnly: true, onBeginEdit: vi.fn(), onCancel: vi.fn(), onChange: vi.fn(), onSubmit: vi.fn() }
+  const view = render(<><WorkspaceSetupForm {...form} editing={false} /><input aria-label="Memory draft" /></>)
+  ;(mode === 'opener' ? screen.getByRole('button', { name: 'Edit profile' }) : screen.getByLabelText('Memory draft')).focus()
+  view.rerender(<><WorkspaceSetupForm {...form} editing /><input aria-label="Memory draft" /></>)
+  expect(document.activeElement).toBe(mode === 'opener' ? screen.getByRole('heading', { name: 'Household details' }) : screen.getByLabelText('Memory draft'))
 })

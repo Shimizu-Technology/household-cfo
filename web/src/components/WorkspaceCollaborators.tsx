@@ -161,7 +161,7 @@ function CollaboratorPanel({ workspaceId, mutationLifecycle, onDirtyChange }: Pr
     {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
     {data?.permissions.manage && <>
       <form className="workspace-collaborator-form" onSubmit={add}>
-        <label><span>Collaborator email</span><input type="email" autoComplete="email" maxLength={254} required value={email} disabled={Boolean(pending)} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label><span>Collaborator email</span><input className="ui-field" type="email" autoComplete="email" maxLength={254} required value={email} disabled={Boolean(pending)} onChange={(event) => setEmail(event.target.value)} /></label>
         <label><span>Access role</span><select aria-label="Access role" aria-describedby={roleHelpId} value={role} disabled={Boolean(pending)} onChange={(event) => setRole(event.target.value as WorkspaceCollaboratorRole)}>{roles.map((item) => <option key={item} value={item}>{item[0].toUpperCase() + item.slice(1)}</option>)}</select><small id={roleHelpId}>{roleDescriptions[role]}</small></label>
         <label className="workspace-collaborator-email"><input type="checkbox" checked={sendEmail} disabled={Boolean(pending)} onChange={(event) => setSendEmail(event.target.checked)} /><span>Send an access email</span></label>
         <Button aria-describedby="team-add-help" type="submit" disabled={Boolean(pending) || !email.trim()}>{pending === 'add' ? 'Saving access' : 'Add collaborator'}</Button>
