@@ -17562,3 +17562,15 @@ for (const choice of ['all_out', 'all_in', 'individual'] as const) test(`BOG UI 
   await expect(page.getByText(/Your answer:/)).toBeVisible()
   await f4Evidence(page, `fix2-one-sign-${choice}`)
 })
+
+
+test('BOG UI F4 fix2 a newer legacy statement keeps its purchase cards without an older-file reminder', async ({ page }) => {
+  const source = { ...f4Source(1205), metadata: {} }
+  await f4Chat(page, [source], 1204, true, 15, false, workspace => {
+    workspace.budget.annual_plan.pending_transaction_drafts.push({ ...workspace.budget.annual_plan.pending_transaction_drafts[0], id: 99002, merchant: 'Newest statement shop', source_type: 'statement', financial_document_import_id: 1205 })
+  })
+  await page.getByRole('button', { name: '1 more purchase to check', exact: true }).click()
+  await expect(page.locator('.chat-review-queue strong').filter({ hasText: /^Newest statement shop$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Fictional-bank-1205.csv · Still waiting/ })).toHaveCount(0)
+  await f4Evidence(page, 'fix2-newer-legacy-than-receipt')
+})

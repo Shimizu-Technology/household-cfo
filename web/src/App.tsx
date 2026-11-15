@@ -4112,7 +4112,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const latestUploadMessage = currentMessages.findLast(message => message.role === 'user' && message.attachments?.length)
   const latestUploadIds = (latestUploadMessage?.attachments ?? []).flatMap(attachment => attachment.document_import_id == null ? [] : [attachment.document_import_id]).filter(id => documentImports.some(document => document.id === id))
   const typedStatementIds = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'typed').map(document => document.id)
-  const olderLegacyStatements = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'legacy' && documentNeedsReview(document) && !latestUploadIds.includes(document.id))
+  const olderLegacyStatements = documentImports.filter(document => document.document_kind === 'statement' && sourceReviewMode(document) === 'legacy' && documentNeedsReview(document) && latestUploadIds.length > 0 && !latestUploadIds.includes(document.id) && document.id < Math.max(...latestUploadIds))
   const chatPurchaseDrafts = pendingTransactionDrafts.filter(draft => draft.financial_document_import_id == null || !typedStatementIds.includes(draft.financial_document_import_id)).sort((left, right) => Number(right.financial_document_import_id != null && latestUploadIds.includes(right.financial_document_import_id)) - Number(left.financial_document_import_id != null && latestUploadIds.includes(left.financial_document_import_id)))
 
 
@@ -4144,7 +4144,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   // Mia's card for each statement she has read: approve it here, without leaving the chat.
   const statementCards = isRealWorkspace && !safetyHold && hasStatementCards ? <MiaStatementCards key="mia-statements"
     imports={documentImports}
-    expandedImportIds={latestUploadMessage ? [...latestUploadIds, ...documentImports.filter(document => latestUploadIds.length > 0 && document.id > Math.max(...latestUploadIds)).map(document => document.id)] : undefined}
+    expandedImportIds={latestUploadIds.length ? [...latestUploadIds, ...documentImports.filter(document => latestUploadIds.length > 0 && document.id > Math.max(...latestUploadIds)).map(document => document.id)] : undefined}
     assistantName={assistantName}
     challenge={Boolean(isSavingsExperience)}
     onReview={openDocumentReview}
