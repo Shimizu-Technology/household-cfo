@@ -5,9 +5,13 @@ module FinancialDocuments
   # answer appends a revision; it neither edits old facts nor approves purchases.
   class SpreadsheetSignAnswer
     def self.call(revision, negative_is_money_out:, user:)
-      raise ArgumentError, "Choose yes or no for how amounts are shown." unless [ true, false ].include?(negative_is_money_out)
+      raise ArgumentError, "Choose how amounts are shown." unless [ true, false, nil, "all_out", "all_in", "individual" ].include?(negative_is_money_out)
+      choice = negative_is_money_out
+      derived = choice.nil?
+      negative_is_money_out = nil if choice == "individual"
       document = revision.financial_document_import
-      raise ArgumentError, "This file does not need a sign answer." unless (revision.coverage["signed_amount_question"] == true || revision.coverage["signed_amount_answerable"] == true) && document.spreadsheet? && document.source_available?
+      raise ArgumentError, "The original file is no longer available. Review each line’s money out or money in question." unless document&.source_available?
+      raise ArgumentError, "This file does not need a sign answer." unless (revision.coverage["signed_amount_question"] == true || revision.coverage["signed_amount_answerable"] == true) && document&.spreadsheet? && document.source_available?
       raise ArgumentError, "This file already has approved lines. Review those lines individually." if SourceReviewHead.where(financial_source_event_id: revision.financial_source_events.select(:id)).where.not(approved_version_id: nil).exists?
       accounts = revision.financial_source_accounts.includes(:financial_source_evidence).order(:id).to_a
       identities = SourceAccountReviewHead.where(financial_source_account_id: accounts.map(&:id)).includes(approved_version: :source_tracked_account).index_by(&:financial_source_account_id)
@@ -15,7 +19,19 @@ module FinancialDocuments
       raise ArgumentError, "Say whether this is a bank account or a credit card first." unless bases.one? && bases.first.in?(%w[asset liability])
       target_rows = revision.coverage["signed_amount_target_rows"]
       originals = revision.financial_source_events.includes(:financial_source_evidence).order(:position).to_a
+      # Earlier revisions did not retain the exact file-question target set.
+      # Do not reinterpret already-established directions in those histories.
       target_rows ||= originals.select { |event| event.limitations.include?("transaction_direction_unclear") }.map(&:row_identity)
+      if derived
+        factor = revision.coverage["signed_amount_balance_factor"]
+        return revision unless [ 1, -1 ].include?(factor)
+        negative_is_money_out = StructuredSpreadsheetExtractor.negative_is_money_out(factor: factor, basis: bases.first, negative_balances: revision.coverage["signed_amount_negative_balances"] == true)
+      elsif choice.in?(%w[all_out all_in])
+        raise ArgumentError, "Review each line individually when amounts use both signs." unless revision.coverage["signed_amount_single_sign"] == true
+        first = originals.find { |event| target_rows.include?(event.row_identity) }
+        negative = first.financial_source_evidence.payload["source_amount_text"].to_s.strip.start_with?("-", "(")
+        negative_is_money_out = choice == "all_out" ? negative : !negative
+      end
       target_accounts = originals.select { |event| target_rows.include?(event.row_identity) }.map(&:financial_source_account_id).uniq
       raise ArgumentError, "Review each account’s money out or money in lines individually." unless target_accounts.one?
       file = Tempfile.new([ "spreadsheet-sign", ".csv" ])
@@ -29,10 +45,10 @@ module FinancialDocuments
       end)
       file.flush
       result = StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "sign-answer.csv", document_kind: document.document_kind,
-        negative_is_money_out: negative_is_money_out, account_basis: bases.first).call
+        negative_is_money_out: choice == "individual" ? nil : negative_is_money_out, account_basis: bases.first).call
       raise ArgumentError, "We could not apply that answer. Nothing changed." unless result.success?
       accounting = result.data.fetch(:source_accounting)
-      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false, signed_amount_answerable: true, signed_amount_target_rows: target_rows)
+      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false, signed_amount_answerable: choice != "individual", signed_amount_target_rows: target_rows, signed_amount_choice: choice, signed_amount_derived_convention: nil, signed_amount_convention: negative_is_money_out, signed_amount_convention_source: derived ? "balance" : "answer")
       raise ArgumentError, "We could not account for every line. Nothing changed." unless accounting[:events].length == originals.length
       accounting[:accounts].each do |account|
         original = accounts.find { |row| Digest::SHA256.hexdigest(row.id.to_s) == account[:source_key] }
@@ -48,6 +64,13 @@ module FinancialDocuments
       accounting[:events].zip(originals).each do |event, original|
         unless target_rows.include?(original.row_identity)
           event.merge!(original.attributes.except("id", "household_id", "financial_extraction_revision_id", "financial_source_account_id", "created_at", "updated_at").symbolize_keys)
+        end
+        if choice == "individual" && target_rows.include?(original.row_identity)
+          event[:signed_amount_cents] = nil
+          event[:expense_amount_cents] = nil
+          event[:event_type] = "unknown"
+          event[:row_kind] = "unresolved"
+          event[:limitations] = (event[:limitations] + [ "transaction_direction_unclear" ]).uniq
         end
         if original.row_kind == "informational"
           event[:row_kind] = "informational"
@@ -78,8 +101,8 @@ module FinancialDocuments
       HouseholdFinance::DocumentTransactionDraftPersister.new(document, persisted.fetch(:transaction_drafts)).call
       document.update!(metadata: document.metadata.merge("source_accounting_revision_id" => persisted[:revision].id,
         "source_accounting_review_pending" => true, "source_reconciliation" => persisted[:reconciliation],
-        "signed_amount_answer" => { "negative_is_money_out" => negative_is_money_out, "user_id" => user.id, "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id, "answered_at" => Time.current.iso8601 },
-        "signed_amount_answers" => Array(document.metadata["signed_amount_answers"]) + [ { "negative_is_money_out" => negative_is_money_out, "user_id" => user.id,
+        "signed_amount_answer" => { "choice" => choice, "source" => derived ? "balance" : "answer", "negative_is_money_out" => negative_is_money_out, "user_id" => user.id, "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id, "answered_at" => Time.current.iso8601 },
+        "signed_amount_answers" => Array(document.metadata["signed_amount_answers"]) + [ { "choice" => choice, "source" => derived ? "balance" : "answer", "negative_is_money_out" => negative_is_money_out, "user_id" => user.id,
           "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id, "answered_at" => Time.current.iso8601 } ]))
       persisted[:revision]
     ensure

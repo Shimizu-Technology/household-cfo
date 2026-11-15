@@ -116,7 +116,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
     void save(pending.input).then(async (saved) => {
       setUnsavedAnswer(saved ? null : pending)
       const factor = plan?.signed_amount_balance_factor
-      if (saved && data?.accounts.length === 1 && (factor === 1 || factor === -1)) await answerSign((factor === 1) === (basis === 'asset'))
+      if (saved && data?.accounts.length === 1 && (factor === 1 || factor === -1)) await answerSign(null)
     })
   }
   /** One tap on a question's answer. A line she wants to rewrite ("edit" with no category) is for the line sheet, not this. */
@@ -127,7 +127,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   function retryUnsaved() {
     if (unsavedAnswer) void save(unsavedAnswer.input, unsavedAnswer.index).then((saved) => { if (saved) setUnsavedAnswer(null) })
   }
-  async function answerSign(negativeIsMoneyOut: boolean) {
+  async function answerSign(negativeIsMoneyOut: boolean | null | 'all_out' | 'all_in' | 'individual') {
     const actor = review?.actor_scope
     if (!actor || !isStatementReviewActor(actor)) return
     const assertContext = captureApiOperation()

@@ -331,6 +331,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
       "usage" => sanitized_usage(metadata_value(payload, :usage, "usage")),
       "finish_reason" => sanitized_metadata_string(metadata_value(payload, :finish_reason, "finish_reason")),
       "provider" => sanitized_provider(metadata_value(payload, :provider, "provider")),
+      "provider_type" => sanitized_metadata_string(metadata_value(payload, :provider_type, "provider_type")),
+      "provider_message" => sanitized_metadata_string(metadata_value(payload, :provider_message, "provider_message"), limit: 1000),
       "status_code" => sanitized_status_code(metadata_value(payload, :status_code, "status_code")),
       "extraction_mode" => sanitized_metadata_string(metadata_value(payload, :extraction_mode, "extraction_mode")),
       "parser_version" => sanitized_metadata_string(metadata_value(payload, :parser_version, "parser_version")),
@@ -362,8 +364,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
     nil
   end
 
-  def sanitized_metadata_string(value)
-    value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(ATTEMPT_METADATA_STRING_LENGTH, omission: "…").presence
+  def sanitized_metadata_string(value, limit: ATTEMPT_METADATA_STRING_LENGTH)
+    value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(limit, omission: "…").presence
   end
 
   def metadata_value(payload, *keys)

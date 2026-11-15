@@ -20,7 +20,7 @@ export function MiaDisclaimer({ assistantName, fullText }: { assistantName: stri
           </button>
         </>}
       </p>
-      {full && <><p id={detailsId} className="mia-disclaimer-details" hidden={!open}>{full}</p><p className="mia-disclaimer-details" hidden={!open}><a href="/third-party/heic-to-NOTICE.txt">Photo converter notices</a>{' · '}<a href="/third-party/heic-to-LICENSE.txt">LGPL licence</a>{' · '}<a href="/third-party/GPL-3.0.txt">GPL licence</a></p></>}
+      {full && <><p id={detailsId} className="mia-disclaimer-details" hidden={!open}>{full}</p><p className="mia-disclaimer-details" hidden={!open}><a target="_blank" rel="noopener noreferrer" href="/third-party/heic-to-NOTICE.txt">Photo converter notices</a>{' · '}<a target="_blank" rel="noopener noreferrer" href="/third-party/heic-to-LICENSE.txt">LGPL licence</a>{' · '}<a target="_blank" rel="noopener noreferrer" href="/third-party/GPL-3.0.txt">GPL licence</a>{' · '}<a target="_blank" rel="noopener noreferrer" href="/third-party/libheif-COPYING.txt">libheif licence</a>{' · '}<a target="_blank" rel="noopener noreferrer" href="/third-party/libde265-COPYING.txt">libde265 licence</a>{' · '}<a target="_blank" rel="noopener noreferrer" href="/third-party/Emscripten-LICENSE.txt">Emscripten licence</a></p></>}
     </div>
   )
 }

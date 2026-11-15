@@ -743,6 +743,20 @@ module FinancialDocuments
       nil
     end
 
+    # These are file-decoding failures, not arbitrary invalid requests from us.
+    def rejected_file_details(body)
+      error = JSON.parse(body).fetch("error", {})
+      raw = error.dig("metadata", "raw")
+      provider = raw.is_a?(String) ? JSON.parse(raw).fetch("error", {}) : {}
+      type, message = provider.values_at("type", "message")
+      image_decode = type == "invalid_request_error" && (message == "Could not process image" || message.to_s.start_with?("messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'"))
+      file_parse = error["message"] == "Failed to parse the file"
+      { rejected: image_decode || file_parse, reason: image_decode ? "image_decode_failed" : file_parse ? "file_parse_failed" : nil,
+        provider_type: type, provider_message: message }
+    rescue JSON::ParserError, TypeError, NoMethodError
+      { rejected: false }
+    end
+
     def provider_failure_message(status, rejected: false)
       return PROVIDER_CREDIT_MESSAGE if status == 402
       return REJECTED_FILE_MESSAGE if rejected
@@ -769,11 +783,11 @@ module FinancialDocuments
         status_code = response.code.to_i
         # Only explicit input errors establish that the participant's file is
         # rejected. Authentication, policy and malformed requests are ours.
-        provider_error = JSON.parse(response.body).dig("error") rescue nil
-        reason = provider_error.is_a?(Hash) ? provider_error["code"].to_s : ""
-        rejected = status_code.in?([ 413, 415 ]) || (status_code.in?([ 400, 422 ]) && reason.in?(%w[unsupported_media_type unsupported_file_type invalid_image unreadable_document image_parse_error]))
+        details = rejected_file_details(response.body)
+        reason = details[:reason]
+        rejected = status_code.in?([ 413, 415 ]) || (status_code.in?([ 400, 422 ]) && details[:rejected])
         return failure(provider_failure_message(status_code, rejected: rejected), metadata: { failure_class: rejected ? "input_rejected" : "provider_request_failed", failure_reason: reason.presence || "http_#{status_code}", status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
-          retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
+          provider_type: details[:provider_type], provider_message: details[:provider_message], retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
       end
 
       json = JSON.parse(response.body)

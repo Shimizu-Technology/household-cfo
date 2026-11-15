@@ -17036,7 +17036,7 @@ function f4Review(answer?: boolean) {
   const plan = data.participant_review!.plan
   plan.total = 15; plan.ready = []; plan.ready_event_ids = []; plan.signed_amount_question = answer === undefined
   plan.signed_amount_answerable = answer !== undefined
-  plan.sign_effect = answer === undefined ? null : answer ? '13 lines are money out, 2 lines are money in' : '2 lines are money out, 13 lines are money in'
+  plan.sign_effect = answer === undefined ? null : answer ? 'Your answer: spending is negative. This set the direction of 15 lines.' : 'Your answer: spending is positive. This set the direction of 15 lines.'
   plan.first_on = '2026-10-01'; plan.last_on = '2026-10-28'
   data.accounts[0].period_start_on='2026-10-01'; data.accounts[0].period_end_on='2026-10-31'
   const facts = data.participant_review!.accounts[0].approved!.statement_facts
@@ -17062,7 +17062,7 @@ function f4Review(answer?: boolean) {
   return data
 }
 
-async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false, lineCount = 15, legacyStatement = false) {
+async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, receipt = false, lineCount = 15, legacyStatement = false, configure?: (workspace: ReturnType<typeof realWorkspaceData>) => void) {
   const width = Number(process.env.F4_EVIDENCE_WIDTH)
   if (width) await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
   await page.clock.setFixedTime(new Date('2026-11-15T03:00:00Z'))
@@ -17073,6 +17073,7 @@ async function f4Chat(page: Page, imports: unknown[], latestImportId = 1203, rec
     { id: 101, role: 'user', author: 'You', content: receipt ? 'Here is my grocery receipt from yesterday.' : 'Here is my bank file.', attachments: [{ document_import_id: latestImportId, filename: receipt && !legacyStatement ? 'receipt.jpg' : 'bank.csv', content_type: receipt && !legacyStatement ? 'image/jpeg' : 'text/csv', document_kind: receipt && !legacyStatement ? 'receipt' : 'statement', status: 'needs_review', source_available: true }] },
     { id: 102, role: 'assistant', author: 'Mia', content: receipt ? 'I read a receipt from Pay-Less Supermarkets for $69.51, on Nov 14, 2026. The purchase card below is waiting for your tap to review and approve it. It won’t count in your spending until you approve it.' : `I read ${lineCount} ${lineCount === 1 ? 'line' : 'lines'} from your statement. 0 look right and ${lineCount} ${lineCount === 1 ? 'needs' : 'need'} a look. The card below is waiting for you to review and approve it. Nothing counts in your spending until you approve it.` },
   ]
+  configure?.(workspace)
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
   await page.route('http://api.test/api/v1/document_imports', route => route.fulfill({ json: { document_imports: receipt && !legacyStatement && !imports.some(document => (document as { id: number }).id === latestImportId) ? [...imports, { ...f4Source(latestImportId), document_kind: 'receipt', filename: 'receipt.jpg', metadata: {} }] : imports } }))
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
@@ -17110,7 +17111,7 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
   await f4Evidence(page, 'sign-question')
   await expect(question).toHaveCount(1)
   await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
-  await expect(page.getByText(negative ? '13 lines are money out, 2 lines are money in' : '2 lines are money out, 13 lines are money in', { exact: true })).toBeVisible()
+  await expect(page.getByText(negative ? 'Your answer: spending is negative. This set the direction of 15 lines.' : 'Your answer: spending is positive. This set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeFocused()
   await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
   await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
@@ -17173,7 +17174,7 @@ test('BOG UI F4 HEIC and HEIF bytes convert locally to a readable JPEG and bad p
   expect(result.name).toBe('receipt.jpg')
   expect(result.dimensions).toEqual([600, 700])
   expect(result.bytes).toEqual([255, 216, 255])
-  expect(result.refusal).toContain('Take a screenshot of it, or save it as JPEG')
+  expect(result.refusal).toContain('Send a screenshot of the photo, or choose “Most Compatible”')
 })
 
 for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent' : 'temporary'} file failure gives the right next step`, async ({ page }) => {
@@ -17183,6 +17184,11 @@ for (const permanent of [true, false]) test(`BOG UI F4 ${permanent ? 'permanent'
   await f4Evidence(page, permanent ? 'permanent-failure' : 'temporary-failure')
   await expect(page.getByRole('button', { name: 'Try reading it again' })).toHaveCount(permanent ? 0 : 1)
   await expect(page.getByText(/usually temporary/)).toHaveCount(permanent ? 0 : 1)
+  await page.route('http://api.test/api/v1/document_imports/1203', route => route.fulfill({ json: { document_import: { ...source, metadata: { extraction_failure_permanent: permanent } } } }))
+  await openSection(page, 'Statements')
+  await expect(page.getByText('Try reading it again from File options', { exact: false })).toHaveCount(0)
+  await expect(page.getByText(source.extraction_error, { exact: true })).toHaveCount(1)
+  await f4Evidence(page, permanent ? 'fix2-statements-permanent-failure' : 'fix2-statements-temporary-failure')
 })
 
 test('BOG UI F4 the newest receipt is directly below the reply and an older statement is one opening line', async ({ page }) => {
@@ -17207,7 +17213,7 @@ test('BOG UI F4 an iPhone photo converts before it joins the chat tray and an un
   await page.route('http://api.test/api/v1/document_imports/presign', route => { presigns += 1; return route.fulfill({ status: 500, json: {} }) })
   const input = page.locator('.ask-row input[type="file"]')
   await input.setInputFiles({ name: 'bad.heic', mimeType: 'image/heic', buffer: Buffer.from('not a photo') })
-  await expect(page.getByText('We couldn’t convert this photo. Take a screenshot of it, or save it as JPEG, then choose that file.', { exact: true })).toBeVisible()
+  await expect(page.getByText('We couldn’t convert this photo. Send a screenshot of the photo, or choose “Most Compatible” in your camera’s format settings and take a new photo.', { exact: true })).toBeVisible()
   await f4Evidence(page, 'heic-refused')
   expect(presigns).toBe(0)
   await input.setInputFiles({ name: 'receipt.heic', mimeType: 'image/heic', buffer: readFileSync(new URL('./fixtures/r7-receipt.heic', import.meta.url)) })
@@ -17339,12 +17345,12 @@ test('BOG UI F4 fix1 Statements refreshes the answered revision before reopening
   const review = page.getByRole('region', { name: 'Statement review', exact: true })
   await expect(review.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
   await review.getByRole('button', { name: 'Yes, spending is negative' }).click()
-  await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
+  await expect(review.getByText('Your answer: spending is negative. This set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(review.getByRole('heading', { level: 5 })).toBeFocused()
   await f4Evidence(page, 'statements-sign-effect')
   await openSection(page, 'Ask Mia')
   await openSection(page, 'Statements')
-  await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
+  await expect(review.getByText('Your answer: spending is negative. This set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(review.getByRole('alert')).toHaveCount(0)
 })
 
@@ -17371,6 +17377,13 @@ test('BOG UI F4 fix1 About links the converter notices and both licence texts', 
   await expect(about.getByRole('link', { name: 'Photo converter notices', exact: true })).toHaveAttribute('href', '/third-party/heic-to-NOTICE.txt')
   await expect(about.getByRole('link', { name: 'LGPL licence', exact: true })).toHaveAttribute('href', '/third-party/heic-to-LICENSE.txt')
   await expect(about.getByRole('link', { name: 'GPL licence', exact: true })).toHaveAttribute('href', '/third-party/GPL-3.0.txt')
+  for (const [name, file] of [['libheif licence', 'libheif-COPYING.txt'], ['libde265 licence', 'libde265-COPYING.txt'], ['Emscripten licence', 'Emscripten-LICENSE.txt']]) {
+    await expect(about.getByRole('link', { name, exact: true })).toHaveAttribute('href', `/third-party/${file}`)
+  }
+  for (const link of await about.locator('a[href^="/third-party/"]').all()) {
+    await expect(link).toHaveAttribute('target', '_blank')
+    await expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+  }
   await f4Evidence(page, 'about-converter-licences')
   await about.getByRole('button', { name: 'Close', exact: true }).click()
 })
@@ -17414,4 +17427,123 @@ test('BOG UI F4 fix1 every photo picker leaves native iPhone conversion availabl
   const inputs = page.locator('.document-upload-card input[type="file"][accept*="image/*"]')
   await expect(inputs).toHaveCount(3)
   for (const input of await inputs.all()) await check(input)
+})
+
+
+for (const stage of ['processing', 'failed', 'needs_review'] as const) test(`BOG UI F4 fix2 newest statement comes before proposed changes while ${stage}`, async ({ page }) => {
+  const source = { ...f4Source(), status: stage, extraction_error: stage === 'failed' ? 'The reader can’t accept this file.' : null }
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review() } }))
+  await f4Chat(page, [source], 1203, false, 15, false, workspace => { workspace.budget.annual_plan.pending_mia_action_drafts = [miaBudgetDraft] })
+  const queue = page.locator('.chat-review-queue')
+  await expect(queue.locator('.mia-statement-cards')).toBeVisible()
+  await expect(queue.locator('.mia-action-draft-card')).toBeVisible()
+  expect(await queue.evaluate(element => Boolean(element.querySelector('.mia-statement-cards')!.compareDocumentPosition(element.querySelector('.mia-action-draft-card')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  await f4Evidence(page, `fix2-newest-${stage}`)
+})
+
+test('BOG UI F4 fix2 without a new upload statements retain main order before proposed changes', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => route.fulfill({ json: { source_review: f4Review() } }))
+  await f4Chat(page, [f4Source()], 1203, false, 15, false, workspace => {
+    workspace.budget.annual_plan.pending_mia_action_drafts = [miaBudgetDraft]
+    workspace.mia.messages = [{ id: 103, role: 'user', author: 'You', content: 'Please explain my plan.', attachments: [] }]
+  })
+  const queue = page.locator('.chat-review-queue')
+  await expect(queue.locator('.mia-action-draft-card')).toBeVisible()
+  expect(await queue.evaluate(element => Boolean(element.querySelector('.mia-statement-cards')!.compareDocumentPosition(element.querySelector('.mia-action-draft-card')!) & Node.DOCUMENT_POSITION_FOLLOWING))).toBe(true)
+  await f4Evidence(page, 'fix2-no-new-upload')
+})
+
+test('BOG UI F4 fix2 statement newer than the last receipt stays expanded', async ({ page }) => {
+  await page.route('http://api.test/api/v1/document_imports/1205/source_review?*', route => {
+    const data = f4Review(); data.document_import_id = 1205; data.revision.financial_document_import_id = 1205
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source(1205), f4Source(1203)], 1204, true)
+  await expect(page.getByRole('region', { name: /^Statement:/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Fictional-bank-1203.csv · Still waiting/ })).toBeVisible()
+  await f4Evidence(page, 'fix2-newer-than-receipt')
+})
+
+test('BOG UI F4 fix2 choosing account kind sends no sign for a balance proof', async ({ page }) => {
+  let basis = false
+  let signBody: Record<string, unknown> | undefined
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    basis = true
+    return route.fulfill({ json: { result: { approved: 0, left_out: 0, unchanged: 0, complete: false } } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', route => {
+    signBody = route.request().postDataJSON()
+    return route.fulfill({ json: { revision_id: 89 } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review(basis ? true : undefined)
+    data.participant_review!.plan.signed_amount_balance_factor = -1
+    if (!basis) { data.accounts[0].account_basis = 'unknown'; data.participant_review!.accounts[0].approved = null }
+    if (basis) { data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 }); data.participant_review!.plan.sign_effect = 'The balance column and account kind: spending is negative. This set the direction of 15 lines.' }
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  await page.getByRole('button', { name: 'Credit card', exact: true }).click()
+  await expect.poll(() => signBody).toEqual({ revision_id: 88 })
+  await expect(page.getByText('The balance column and account kind: spending is negative. This set the direction of 15 lines.')).toBeVisible()
+  await f4Evidence(page, 'fix2-balance-derived')
+})
+
+test('BOG UI F4 fix2 saved line withdraws the file question and reveals the remaining review', async ({ page }) => {
+  let saved = false
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+    saved = true
+    return route.fulfill({ json: { result: { approved: 0, left_out: 1, unchanged: 0, complete: false } } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review()
+    if (saved) { data.participant_review!.plan.signed_amount_question = false; data.participant_review!.plan.done = 1 }
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  await openSection(page, 'Statements')
+  const review = page.getByRole('region', { name: 'Statement review', exact: true })
+  await review.locator('summary').filter({ hasText: 'See all 15 lines' }).click()
+  await review.getByRole('button', { name: /PAYROLL DEPOSIT/ }).first().click()
+  await page.getByRole('button', { name: 'Leave this line out', exact: true }).click()
+  await expect(review.getByText(/is money you spent shown as a negative amount/)).toHaveCount(0)
+  await expect(review.getByRole('button', { name: /Money out:/ }).first()).toBeVisible()
+  await f4Evidence(page, 'fix2-saved-line')
+})
+
+test('BOG UI F4 fix2 CSV and PDF preparation never claim to prepare a photo', async ({ page }) => {
+  await f4Chat(page, [], 0)
+  await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'bank.csv', mimeType: 'text/csv', buffer: Buffer.from('Date,Description,Amount\n2026-10-01,Store,10') })
+  await expect(page.getByText('1 file ready to send', { exact: true })).toBeVisible()
+  await expect(page.getByText('Preparing your photo…', { exact: true })).toHaveCount(0)
+  await page.locator('.ask-row input[type="file"]').setInputFiles({ name: 'bank.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-fictional') })
+  await expect(page.getByText('2 files ready to send', { exact: true })).toBeVisible()
+  await expect(page.getByText('Preparing your photo…', { exact: true })).toHaveCount(0)
+  await f4Evidence(page, 'fix2-files-ready')
+})
+
+for (const choice of ['all_out', 'all_in', 'individual'] as const) test(`BOG UI F4 fix2 one-sign file can truthfully answer ${choice}`, async ({ page }) => {
+  let answered = false
+  await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', route => {
+    expect(route.request().postDataJSON().negative_is_money_out).toBe(choice)
+    answered = true
+    return route.fulfill({ json: { revision_id: 89 } })
+  })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review()
+    const plan = data.participant_review!.plan
+    plan.signed_amount_single_sign = true
+    if (answered) {
+      data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 })
+      plan.signed_amount_question = false; plan.signed_amount_answerable = false
+      plan.sign_effect = choice === 'individual' ? 'Your answer: each line needs its own money out or money in answer.' : `Your answer: all amounts are money ${choice === 'all_out' ? 'out' : 'in'}. This set the direction of 15 lines.`
+    }
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()])
+  await expect(page.getByText('Every amount in this file is shown the same way. Is it all money out, all money in, or a mix?')).toBeVisible()
+  await f4Evidence(page, 'fix2-one-sign-question')
+  await page.getByRole('button', { name: { all_out: 'All money out', all_in: 'All money in', individual: 'A mix' }[choice], exact: true }).click()
+  await expect(page.getByText(/Your answer:/)).toBeVisible()
+  await f4Evidence(page, `fix2-one-sign-${choice}`)
 })

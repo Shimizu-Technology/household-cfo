@@ -182,7 +182,7 @@ module Api
           HouseholdFinance::FinancialGenerationGuard.source!(document)
           revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
           answer = document.metadata["signed_amount_answer"].to_h
-          replay = sign_replay && revision && [ true, false ].include?(body[:negative_is_money_out]) && answer["user_id"] == current_user.id &&
+          replay = sign_replay && revision && [ true, false, nil, "all_out", "all_in", "individual" ].include?(body[:negative_is_money_out]) && answer["user_id"] == current_user.id &&
             answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id
           unless revision && (revision.id.to_s == body[:revision_id].to_s || replay)
             raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
@@ -192,7 +192,8 @@ module Api
       end
 
       def document_answer_changed?(revision, body)
-        revision.financial_document_import.metadata.dig("signed_amount_answer", "negative_is_money_out") != body[:negative_is_money_out]
+        answer = revision.financial_document_import.metadata["signed_amount_answer"].to_h
+        answer.fetch("choice", answer["negative_is_money_out"]) != body[:negative_is_money_out]
       end
 
       def domain

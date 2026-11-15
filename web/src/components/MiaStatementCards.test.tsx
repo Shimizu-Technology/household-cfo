@@ -395,5 +395,29 @@ it('uses sound balance arithmetic only after she establishes the account basis',
   vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
   mount([statement(1)])
   fireEvent.click(await screen.findByRole('button', { name: 'Credit card' }))
-  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, false))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, null))
+})
+
+it.each(['all_out', 'all_in', 'individual'] as const)('offers a truthful one-sign answer: %s', async choice => {
+  serve(review(planWith([], { signed_amount_question: true, signed_amount_single_sign: true })))
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  expect(await screen.findByText('Every amount in this file is shown the same way. Is it all money out, all money in, or a mix?')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: { all_out: 'All money out', all_in: 'All money in', individual: 'A mix' }[choice] }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, choice))
+})
+
+it('offers individual review when she is not sure about mixed signs', async () => {
+  serve(review(planWith([], { signed_amount_question: true })))
+  vi.mocked(answerSpreadsheetSign).mockResolvedValueOnce({ revision_id: 102 })
+  mount([statement(1)])
+  fireEvent.click(await screen.findByRole('button', { name: 'I’m not sure' }))
+  await waitFor(() => expect(answerSpreadsheetSign).toHaveBeenCalledWith(1, 101, 'individual'))
+})
+
+it('shows the balance-derived effect even when there was no sign question', async () => {
+  serve(review(planWith([], { signed_amount_question: false, signed_amount_answerable: false, sign_effect: 'The balance column and account kind: spending is positive. This set the direction of 1 line.' })))
+  mount([statement(1)])
+  expect(await screen.findByText('The balance column and account kind: spending is positive. This set the direction of 1 line.')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Yes, spending is negative' })).toBeNull()
 })

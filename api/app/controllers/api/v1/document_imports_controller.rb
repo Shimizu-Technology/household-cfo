@@ -942,7 +942,7 @@ module Api
           error: attempt.error,
           started_at: attempt.started_at,
           completed_at: attempt.completed_at,
-          metadata: attempt.metadata || {}
+          metadata: (attempt.metadata || {}).except("provider_type", "provider_message")
         }
       end
 

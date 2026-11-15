@@ -32,7 +32,7 @@ it('refuses failed conversion with a way forward and terminates its worker', asy
     postMessage = vi.fn(() => queueMicrotask(() => this.onerror?.()))
   }
   vi.stubGlobal('Worker', FailedWorker)
-  await expect(prepareFinancialUpload(new File(['\0\0\0\x18ftypheic'], 'photo.heic', { type: 'image/heic' }))).rejects.toThrow('Take a screenshot of it, or save it as JPEG')
+  await expect(prepareFinancialUpload(new File(['\0\0\0\x18ftypheic'], 'photo.heic', { type: 'image/heic' }))).rejects.toThrow('Send a screenshot of the photo, or choose “Most Compatible”')
   expect(workers[0].terminate).toHaveBeenCalledOnce()
 })
 
@@ -44,4 +44,15 @@ it('leaves a supported JPEG unchanged and rejects oversize source before decodin
   Object.defineProperty(file, 'size', { value: 13 * 1024 * 1024 })
   await expect(prepareFinancialUpload(file)).rejects.toThrow('too large')
   expect(workers).toHaveLength(0)
+})
+
+it('reports preparation only during photo conversion, never for CSV or PDF', async () => {
+  vi.stubGlobal('Worker', FakeWorker)
+  const status = vi.fn()
+  for (const [name, type] of [['bank.csv', 'text/csv'], ['bank.pdf', 'application/pdf']]) {
+    await prepareFinancialUpload(new File(['content'], name, { type }), status)
+  }
+  expect(status).not.toHaveBeenCalled()
+  await prepareFinancialUpload(new File(['\0\0\0\x18ftypheic'], 'photo.heic', { type: 'image/heic' }), status)
+  expect(status.mock.calls).toEqual([[true], [false]])
 })

@@ -192,6 +192,7 @@ module FinancialDocuments
         header = rows.find { |row| transaction_header?(row[:values]) }
         next unless header
         map = header_map_for(header[:values])
+        mixed_signs = rows.filter_map { |entry| money_cents(cell(entry[:values], map, "amount"), allow_negative: true) }.map { |amount| amount <=> 0 }.reject(&:zero?).uniq.length > 1
         rows.drop_while { |row| row[:row] <= header[:row] }.each do |row|
           values = row[:values]
           next if transaction_header?(values)
@@ -207,6 +208,7 @@ module FinancialDocuments
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
+          @mixed_signs = mixed_signs
           amount, limitations = signed_row_amount(values, map, file_direction: directions[[ sheet_index, key ]])
           kind = cell(values, map, "status").to_s.match?(/\Apending\z/i) ? "informational" : "posted"
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
@@ -216,6 +218,7 @@ module FinancialDocuments
           warnings << "Retained #{merchant.presence || 'unlabeled row'} (row #{row[:row]}): transaction direction is unclear; provide debit/credit direction before review." if limitations.include?("transaction_direction_unclear")
           warnings << "Retained incoming credit/deposit for #{merchant} (row #{row[:row]}); incoming money is not staged as spending." if amount.to_i.positive?
           raw_events << {
+            sign_target: (directions[[ sheet_index, key ]].nil? || !@sign_question) && !map.key?("debit") && !map.key?("credit") && recognized_direction(normalized_token(cell(values, map, "direction") || cell(values, map, "type"))).nil?,
             account_key: key, row_kind: kind, event_type: type,
             signed_amount_cents: amount, amount_column_cents: money_cents(cell(values, map, "amount"), negative_as_magnitude: true) || amount&.abs,
             posted_on: parsed_date(cell(values, map, "date")), authorized_on: parsed_date(cell(values, map, "authorized_on")),
@@ -230,11 +233,17 @@ module FinancialDocuments
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
-        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary), signed_amount_question: @sign_question, signed_amount_balance_factor: @balance_factor })
+        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary), signed_amount_question: @sign_question, signed_amount_balance_factor: @balance_factor, signed_amount_negative_balances: @negative_balances, signed_amount_single_sign: @single_sign, signed_amount_derived_convention: @derived_convention }).tap do |accounting|
+          accounting[:coverage][:signed_amount_target_rows] = accounting[:events].zip(raw_events).filter_map { |event, raw| event[:row_identity] if raw[:sign_target] }
+        end
     end
 
     # Arithmetic establishes how the column moves a balance, never what an
     # increase means. That requires the account basis as well.
+    def self.negative_is_money_out(factor:, basis:, negative_balances:)
+      (factor == 1) == (basis == "asset" || negative_balances)
+    end
+
     def signed_file_directions(summary)
       groups = Array(summary[:sheets]).each_with_index.flat_map do |sheet, index|
         rows = Array(sheet[:rows])
@@ -248,8 +257,10 @@ module FinancialDocuments
       end
       unresolved = []
       directions = groups.to_h do |key, group, map|
+        @mixed_signs = group.filter_map { |row| money_cents(cell(row[:values], map, "amount"), allow_negative: true) }.map { |amount| amount <=> 0 }.reject(&:zero?).uniq.length > 1
+        @single_sign = !@mixed_signs if groups.one?
         eligible = group.select do |row|
-          signed_row_amount(row[:values], map).last.include?("transaction_direction_unclear")
+          recognized_direction(normalized_token(cell(row[:values], map, "direction") || cell(row[:values], map, "type"))).nil? && money_cents(cell(row[:values], map, "amount"), allow_negative: true).to_i.nonzero?
         end
         direction = nil
         if eligible.any?
@@ -268,10 +279,14 @@ module FinancialDocuments
               readings = ordered ? [ 1, -1 ].select do |factor|
                 observations.sort_by(&:first).each_cons(2).all? { |before, after| before[2] + factor * after[1] == after[2] }
               end : []
-              if readings.one?
+              balances = observations.map(&:last)
+              same_side = balances.all? { |balance| balance >= 0 } || balances.all? { |balance| balance <= 0 }
+              if readings.one? && (basis == "asset" || same_side)
                 @balance_factor = readings.first if groups.one?
+                @negative_balances = balances.all? { |balance| balance <= 0 } if groups.one?
                 next [ key, nil ].tap { unresolved << key } unless basis.in?(%w[asset liability])
-                negative_out = (readings.first == 1) == (basis == "asset")
+                negative_out = self.class.negative_is_money_out(factor: readings.first, basis: basis, negative_balances: balances.all? { |balance| balance <= 0 })
+                @derived_convention = negative_out if groups.one?
                 direction = negative_out ? :signed : :reversed
               end
             end
@@ -299,7 +314,9 @@ module FinancialDocuments
       return [ nil, [ "amount_over_limit" ] ] if %w[debit credit].any? { |column| HouseholdFinance::Money.document_amount_over_limit?(cell(values, map, column)) }
 
       explicit = normalized_token(cell(values, map, "direction") || cell(values, map, "type"))
+      explicit_direction = recognized_direction(explicit)
       direction = transaction_direction(values, map)
+      direction = explicit_direction if @mixed_signs && !map.key?("debit") && !map.key?("credit")
       return [ nil, [ "conflicting_debit_credit" ] ] if debit.positive? && (credit.positive? || direction == :credit)
       return [ nil, [ "conflicting_debit_credit" ] ] if credit.positive? && explicit.present? && direction == :debit
       return [ -debit, [] ] if debit.positive?
@@ -308,11 +325,12 @@ module FinancialDocuments
       raw = cell(values, map, "amount")
       magnitude = money_cents(raw, negative_as_magnitude: true)
       return [ nil, [ "amount_missing_or_invalid" ] ] unless magnitude&.positive?
-      if file_direction && explicit.blank? && !map.key?("debit") && !map.key?("credit")
+      if file_direction && explicit_direction.nil? && !map.key?("debit") && !map.key?("credit")
         signed = money_cents(raw, allow_negative: true)
         if signed
           signed = -signed if file_direction == :reversed
-          return [ nil, [ "conflicting_debit_credit" ] ] if direction == :credit && signed.negative?
+          category_direction = recognized_direction(normalized_token(cell(values, map, "category")))
+          return [ nil, [ "conflicting_debit_credit" ] ] if category_direction == :credit && signed.negative?
           return [ signed, [] ]
         end
       end
@@ -320,7 +338,7 @@ module FinancialDocuments
       # A negative amount plus a spending category alone can be a refund
       # reversal. Category is not a debit/credit sign convention.
       negative = raw.to_s.strip.start_with?("-", "(")
-      return [ nil, [ "transaction_direction_unclear" ] ] if direction.nil? || (negative && explicit.blank?)
+      return [ nil, [ "transaction_direction_unclear" ] ] if direction.nil? || (negative && explicit_direction.nil?)
 
       [ -magnitude, [] ]
     end
@@ -385,8 +403,7 @@ module FinancialDocuments
 
     def transaction_direction(values, header_map)
       explicit_direction = normalized_token(cell(values, header_map, "direction") || cell(values, header_map, "type"))
-      return :credit if incoming_transaction_direction?(explicit_direction)
-      return :debit if explicit_direction.match?(/\A(?:debit|dr|withdrawal|withdraw|purchase|charge|expense|expense_item|payment_sent|ach_debit)\z/)
+      return recognized_direction(explicit_direction) if recognized_direction(explicit_direction)
 
       category = normalized_token(cell(values, header_map, "category"))
       return :credit if incoming_transaction_direction?(category)
@@ -395,9 +412,16 @@ module FinancialDocuments
       nil
     end
 
+    def recognized_direction(value)
+      return :credit if incoming_transaction_direction?(value)
+      return :debit if value.match?(/\A(?:debit|dr|withdrawal|withdraw|purchase|charge|expense|expense_item|payment_sent|ach_debit)\z/)
+
+      nil
+    end
+
     def incoming_transaction_direction?(direction)
       return false if direction.blank?
-      return true if direction.in?(%w[credit cr direct_deposit transfer_in ach_credit payment_received cashback cash_back interest])
+      return true if direction.in?(%w[credit cr paycheck direct_deposit transfer_in ach_credit payment_received cashback cash_back interest])
 
       direction.match?(/(?:\A|_)(?:refund(?:ed|s)?|deposit(?:ed|s)?|payroll|reimburse(?:d|ment|ments)?|reversal|income|cashback|cash_back)(?:_|\z)/) ||
         direction.match?(/(?:\A|_)interest_(?:earned|income|credit)(?:_|\z)/) ||

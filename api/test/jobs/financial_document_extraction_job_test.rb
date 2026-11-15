@@ -736,7 +736,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
   test "provider failure shows the participant plain copy and keeps the technical cause on the attempt" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE,
-        metadata: { status_code: 402, retryable: false, error_detail: "OpenRouter extraction failed with HTTP 402" })
+        metadata: { status_code: 402, provider_type: "invalid_request_error", provider_message: "Could not process image", retryable: false, error_detail: "OpenRouter extraction failed with HTTP 402" })
     )
 
     with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
@@ -748,6 +748,8 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     attempt = @document_import.attempts.last
     assert_includes attempt.error, "OpenRouter extraction failed with HTTP 402"
     assert_equal 402, attempt.metadata.fetch("status_code")
+    assert_equal "invalid_request_error", attempt.metadata.fetch("provider_type")
+    assert_equal "Could not process image", attempt.metadata.fetch("provider_message")
     assert_not attempt.metadata.key?("error_detail")
   end
 

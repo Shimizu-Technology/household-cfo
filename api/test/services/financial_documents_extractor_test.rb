@@ -701,7 +701,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
   end
 
   test "explicit input rejections and request failures carry structured classes" do
-    [ [ 400, "invalid_image", true ], [ 422, "bad_request", false ], [ 403, "forbidden", false ], [ 415, "", true ] ].each do |status, reason, rejected|
+    [ [ 400, "invalid_image", false ], [ 422, "bad_request", false ], [ 403, "forbidden", false ], [ 415, "", true ] ].each do |status, reason, rejected|
       response = http_error(status)
       response.instance_variable_set(:@body, { error: { code: reason } }.to_json)
       with_net_http_start(->(*_args, **_options, &_block) { response }) do
@@ -710,6 +710,35 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         assert_equal status, result.metadata[:status_code]
         assert_equal rejected, result.error == FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE
         assert_not_includes result.error, "temporary" unless status >= 500
+      end
+    end
+  end
+
+  test "real numeric provider errors distinguish file decoding from our invalid requests" do
+    image_error = { type: "error", error: { type: "invalid_request_error", message: "Could not process image" }, request_id: "fictional" }
+    media_error = { type: "error", error: { type: "invalid_request_error", message: "messages.0.content.1.image.source.base64.media_type: Input should be 'image/jpeg', 'image/png', 'image/gif' or 'image/webp'" } }
+    bodies = [ image_error, image_error, media_error ].map { |raw| { error: { message: "Provider returned error", code: 400, metadata: { raw: raw.to_json, provider_name: "Anthropic", previous_errors: [] } } }.to_json }
+    bodies << { error: { message: "Failed to parse the file", code: 400, metadata: { provider_name: nil, previous_errors: [] } } }.to_json
+    bodies.each do |body|
+      response = http_error(400)
+      response.instance_variable_set(:@body, body)
+      with_net_http_start(->(*_args, **_options, &_block) { response }) do
+        result = provider_extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
+        assert_equal "input_rejected", result.metadata[:failure_class]
+        assert_equal FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE, result.error
+        raw = JSON.parse(body).dig("error", "metadata", "raw")
+        if raw
+          assert_equal JSON.parse(raw).dig("error", "type"), result.metadata[:provider_type]
+          assert_equal JSON.parse(raw).dig("error", "message"), result.metadata[:provider_message]
+        end
+      end
+    end
+    [ "unparseable", { error: { code: 400, metadata: { raw: "unparseable" } } }.to_json,
+      { error: { code: 400, metadata: { raw: { error: { type: "invalid_request_error", message: "Invalid model parameter" } }.to_json } } }.to_json ].each do |body|
+      response = http_error(400)
+      response.instance_variable_set(:@body, body)
+      with_net_http_start(->(*_args, **_options, &_block) { response }) do
+        assert_equal "provider_request_failed", provider_extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png").metadata[:failure_class]
       end
     end
   end

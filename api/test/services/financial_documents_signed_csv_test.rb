@@ -284,6 +284,112 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal expected, context.events.map(&:id).sort
   end
 
+  test "negative card balances prove both amount conventions" do
+    [ 1, -1 ].each do |factor|
+      content = "Date,Description,Amount,Balance\n2026-10-01,Store,#{126.42 * factor},-626.42\n2026-10-02,Store two,#{65 * factor},-691.42\n2026-10-03,Payment,#{-300 * factor},-391.42\n"
+      result = extract(content, account_basis: "liability")[:source_accounting]
+      assert_equal [ -12642, -6500, 30000 ], result[:events].pluck(:signed_amount_cents)
+      assert_not result[:coverage][:signed_amount_question]
+    end
+  end
+
+  test "a liability balance crossing zero cannot prove a convention" do
+    result = extract("Date,Description,Amount,Balance\n2026-10-01,Store,10,-20\n2026-10-02,Store two,30,10\n2026-10-03,Payment,-5,5\n", account_basis: "liability")[:source_accounting]
+    assert result[:coverage][:signed_amount_question]
+    assert_equal [ nil, nil, nil ], result[:events].pluck(:signed_amount_cents)
+  end
+
+  test "unrecognized types and categories do not establish a mixed sign convention" do
+    content = "Date,Description,Amount,Type,Category\n2026-10-01,PAYROLL DEPOSIT,2600,POS,Paycheck\n2026-10-02,Store,-10,DEBIT_CARD,Groceries\n2026-10-03,Other,-20,CHECK,Shopping\n"
+    result = extract(content, account_basis: "asset")[:source_accounting]
+    assert result[:coverage][:signed_amount_question]
+    assert_equal [ nil, nil, nil ], result[:events].pluck(:signed_amount_cents)
+    assert_equal [ 260000, -1000, -2000 ], extract(content, account_basis: "asset", negative_is_money_out: true)[:source_accounting][:events].pluck(:signed_amount_cents)
+  end
+
+  test "one sign offers all out all in or individual questions without approving anything" do
+    %w[all_out all_in individual].each do |choice|
+      user, document = sign_document("one-sign.csv")
+      original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract("Date,Description,Amount\n2026-10-01,Store,10\n2026-10-02,Paycheck,20\n", account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+      assert original.coverage["signed_amount_single_sign"]
+      changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: choice, user: user)
+      expected = { "all_out" => [ -1000, -2000 ], "all_in" => [ 1000, 2000 ], "individual" => [ nil, nil ] }.fetch(choice)
+      assert_equal expected, changed.financial_source_events.order(:position).pluck(:signed_amount_cents)
+      plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed, user: user).plan_summary
+      assert_not plan[:signed_amount_question]
+      assert_empty document.household.household_transactions
+    end
+  end
+
+  test "not sure withdraws the mixed sign question and shows individual questions" do
+    user, document = sign_document("mixed.csv")
+    original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: "individual", user: user)
+    plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed, user: user).plan_summary
+    assert_not plan[:signed_amount_question]
+    assert_not plan[:signed_amount_answerable]
+    assert_equal 15, changed.financial_source_events.where(signed_amount_cents: nil).count
+  end
+
+  test "saving a line or removing the original withdraws the file question" do
+    user, document = sign_document("mixed.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    presenter = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, revision, user: user)
+    assert presenter.plan_summary[:signed_amount_question]
+    event = revision.financial_source_events.order(:position).first
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: event.id, decision: "leave_out" } ] }).call
+    assert_not presenter.plan_summary[:signed_amount_question]
+    assert presenter.plan_summary[:attention].any?
+    remaining = revision.financial_source_events.where.not(id: event.id).map { |line| { event_id: line.id, decision: "leave_out" } }
+    result = FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: remaining, coverage_answer: "nothing_missing" }).call
+    assert result[:complete]
+    user, document = sign_document("removed.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    document.update!(source_deleted_at: Time.current)
+    assert_not FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, revision, user: user).plan_summary[:signed_amount_question]
+  end
+
+  test "derived history names balance evidence and counts only affected lines" do
+    user, document = sign_document("card.csv")
+    content = "Date,Description,Amount,Balance\n2026-10-01,Store,126.42,-626.42\n2026-10-02,Store two,65,-691.42\n2026-10-03,Payment,-300,-391.42\n"
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content)[:source_accounting], structured_spreadsheet: true).call[:revision]
+    account = revision.financial_source_accounts.sole
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [], accounts: [ { source_account_id: account.id, account_basis: "liability" } ] }).call
+    changed = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: nil, user: user)
+    assert_equal [ -12642, -6500, 30000 ], changed.financial_source_events.order(:position).pluck(:signed_amount_cents)
+    assert_equal "balance", document.reload.metadata.dig("signed_amount_answer", "source")
+    effect = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed).plan_summary[:sign_effect]
+    assert_equal "The balance column and account kind: spending is positive. This set the direction of 3 lines.", effect
+  end
+
+  test "mixed sign categories never silently override the convention" do
+    content = "Date,Description,Amount,Category\n2026-10-01,PAYROLL DEPOSIT,2600,Paycheck\n2026-10-02,Store,-10,Groceries\n"
+    original = extract(content, account_basis: "asset")[:source_accounting]
+    assert_equal [ nil, nil ], original[:events].pluck(:signed_amount_cents)
+    [ true, false ].each do |answer|
+      rows = extract(content, account_basis: "asset", negative_is_money_out: answer)[:source_accounting][:events]
+      if answer
+        assert_equal 260000, rows.first[:signed_amount_cents]
+      else
+        assert_nil rows.first[:signed_amount_cents]
+        assert_includes rows.first[:limitations], "conflicting_debit_credit"
+      end
+    end
+  end
+
+  test "answer effects count only the lines set and use singular and plural" do
+    [ 1, 2 ].each do |count|
+      user, document = sign_document("effect.csv")
+      content = "Date,Description,Amount,Direction\n2026-10-01,Known,50,Credit\n" + count.times.map { |index| "2026-10-0#{index + 2},Store,-10,POS\n" }.join
+      original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+      changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: true, user: user)
+      effect = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed).plan_summary[:sign_effect]
+      assert_equal "Your answer: spending is negative. This set the direction of #{count} #{count == 1 ? 'line' : 'lines'}.", effect
+    end
+  end
+
   private
 
   def sign_document(filename)

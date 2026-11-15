@@ -52,14 +52,32 @@ module FinancialDocuments
         end
         target_rows = revision.coverage["signed_amount_target_rows"]
         target_accounts = plan.lines.select { |line| target_rows ? target_rows.include?(line.event.row_identity) : line.event.limitations.include?("transaction_direction_unclear") }.map { |line| line.event.financial_source_account_id }.uniq
-        { signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && bases.uniq.length == 1 && target_accounts.one?,
-          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && plan.lines.none?(&:done),
-          sign_effect: revision.coverage["signed_amount_answerable"] == true ? "#{plan.lines.count { |line| line.event.signed_amount_cents.to_i.negative? }} lines are money out, #{plan.lines.count { |line| line.event.signed_amount_cents.to_i.positive? }} lines are money in" : nil, total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
+        { signed_amount_single_sign: revision.coverage["signed_amount_single_sign"], signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && plan.lines.none?(&:done) && revision.financial_document_import&.source_available? && bases.uniq.length == 1 && target_accounts.one?,
+          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && plan.lines.none?(&:done) && revision.financial_document_import&.source_available?,
+          sign_effect: sign_effect(plan), total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },
           first_on: dates.min&.iso8601, last_on: dates.max&.iso8601,
           attention: plan.attention.map { |line| attention_row(line, names) } }
+      end
+
+      def sign_effect(plan)
+        coverage = revision.coverage
+        return "Your answer: each line needs its own money out or money in answer." if coverage["signed_amount_choice"] == "individual"
+        convention = coverage["signed_amount_convention"]
+        convention = coverage["signed_amount_derived_convention"] if convention.nil?
+        return if convention.nil?
+        source = coverage["signed_amount_convention_source"] == "answer" ? "Your answer" : "The balance column and account kind"
+        targets = coverage["signed_amount_target_rows"]
+        lines = plan.lines.select { |line| (!targets || targets.include?(line.event.row_identity)) && line.event.signed_amount_cents.present? }
+        count = lines.length
+        rule = case coverage["signed_amount_choice"]
+        when "all_out" then "all amounts are money out"
+        when "all_in" then "all amounts are money in"
+        else "spending is #{convention ? 'negative' : 'positive'}"
+        end
+        "#{source}: #{rule}. This set the direction of #{count} #{count == 1 ? 'line' : 'lines'}."
       end
 
       def record(subject, include_matched_target: true)

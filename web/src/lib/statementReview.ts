@@ -26,6 +26,7 @@ export type CoverageAnswer = 'nothing_missing' | 'something_missing'
 /** The purchases the statement shows, and the ones she has approved so far; only approved ones count toward her spending. */
 export type StatementSpending = { read_count: number; read_cents: number; counted_count: number; counted_cents: number }
 export type StatementPlan = {
+  signed_amount_single_sign?: boolean
   signed_amount_balance_factor?: number | null
   signed_amount_answerable?: boolean
   sign_effect?: string | null

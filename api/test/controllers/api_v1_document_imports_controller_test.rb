@@ -23,6 +23,19 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     @household.household_memberships.create!(user: @user, role: "owner")
   end
 
+  test "provider file failure diagnostics stay private on participant uploads" do
+    document = create_import!(status: "failed")
+    document.attempts.create!(provider: "synthetic", model: "synthetic", status: "failed", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current, completed_at: Time.current,
+      metadata: { provider_type: "invalid_request_error", provider_message: "Could not process image", status_code: 400 })
+    get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    assert_response :success
+    metadata = response.parsed_body.fetch("document_import").fetch("attempts").sole.fetch("metadata")
+    assert_equal 400, metadata["status_code"]
+    assert_not metadata.key?("provider_type")
+    assert_not metadata.key?("provider_message")
+    assert_equal "Could not process image", document.attempts.sole.metadata["provider_message"]
+  end
+
   test "a pre-restart direct upload token cannot enter a new financial picture" do
     deleted = []
     with_s3_stubs(configured?: true, presigned_upload: ->(*) { { url: "https://storage.example/upload", headers: {}, expires_in: 900 } }, delete: ->(key) { deleted << key; true }) do
