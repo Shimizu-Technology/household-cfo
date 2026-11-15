@@ -2314,6 +2314,7 @@ test('BOG UI Home keeps one working Mia action with and without purchases waitin
     if (count > 0) await expect(home.getByRole('region', { name: 'Needs you' }).getByRole('button').first()).toHaveAccessibleName('Review 2 purchases')
     const mia = home.getByRole('button', { name: 'Tell Mia what changed' })
     await expect(mia).toHaveCount(1)
+    await expect(home.getByRole('button', { name: 'Add a purchase', exact: true })).toHaveCount(0)
     await mia.click()
     await expect(page).toHaveURL(/#Ask%20Mia$/)
     await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
