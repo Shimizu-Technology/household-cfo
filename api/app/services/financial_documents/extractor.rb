@@ -36,6 +36,7 @@ module FinancialDocuments
     PROVIDER_CREDIT_MESSAGE = "Our file-reading service is unavailable because of a billing problem on our side. Your file is saved and nothing changed. Contact your program team; try Reprocess after service is restored."
     STORAGE_FAILURE_MESSAGE = "We couldn’t open your saved file because our storage service is unavailable. Nothing changed. Try Reprocess in a few minutes."
     TEMPORARY_FAILURE_MESSAGE = "We couldn't read this file right now. This is usually temporary. Your file is saved and nothing changed, so try Reprocess in a few minutes."
+    REJECTED_FILE_MESSAGE = "The reader can’t accept this file. Take a screenshot of it, save it as JPEG, or upload a fresh PDF or CSV export. Nothing changed."
     UNREADABLE_RESULT_MESSAGE = "We couldn't turn this file into reviewable results. Your file is saved and nothing changed. Try Reprocess, or upload a clearer copy, a CSV export or a screenshot."
     SPREADSHEET_LIMIT_MESSAGE = "This workbook is too large to read in one pass. Split it into smaller files so every row can be reviewed."
     OUTPUT_LIMIT_MESSAGE = "This document has more rows than Mia can read in one pass. Split it into smaller date ranges so every transaction can be reviewed."
@@ -742,6 +743,13 @@ module FinancialDocuments
       nil
     end
 
+    def provider_failure_message(status)
+      return PROVIDER_CREDIT_MESSAGE if status == 402
+      return REJECTED_FILE_MESSAGE if status.in?([ 400, 413, 415, 422 ])
+
+      TEMPORARY_FAILURE_MESSAGE
+    end
+
     def perform_openrouter_request(payload)
       uri = URI(OPENROUTER_URL)
       request = Net::HTTP::Post.new(uri)
@@ -758,7 +766,7 @@ module FinancialDocuments
       ProviderOutageAlert.check(response, service: "document_extraction")
       unless response.is_a?(Net::HTTPSuccess)
         status_code = response.code.to_i
-        return failure(status_code == 402 ? PROVIDER_CREDIT_MESSAGE : TEMPORARY_FAILURE_MESSAGE, metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
+        return failure(provider_failure_message(status_code), metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
           retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
       end
 

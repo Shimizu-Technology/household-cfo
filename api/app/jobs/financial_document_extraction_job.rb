@@ -131,6 +131,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
 
       metadata = (document_import.metadata || {}).except(*EXTRACTION_SUCCESS_METADATA_KEYS).merge(
+        "extraction_failure_permanent" => false,
         "source_accounting_revision_id" => source_result.fetch(:revision).id,
         "source_accounting_contract_version" => accounting[:contract_version],
         "source_accounting_review_pending" => typed_accounting,
@@ -198,7 +199,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         period_start_on: nil,
         period_end_on: nil,
         processed_at: Time.current,
-        metadata: extraction_failure_metadata(document_import.metadata)
+        metadata: extraction_failure_metadata(document_import.metadata).merge("extraction_failure_permanent" => error == FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE)
       )
       # Participants see the plain-language error; the attempt keeps the
       # technical cause (provider status, exception class) for admins.

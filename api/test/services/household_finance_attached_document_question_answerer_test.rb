@@ -17,6 +17,17 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     )
   end
 
+  test "acknowledges a receipt with only its read facts and pending approval without a model" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "Pay-Less Supermarkets", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))
+    answer = answer_for("Here is my grocery receipt from yesterday.")
+    assert_includes answer, "Pay-Less Supermarkets for $69.51, on Nov 14, 2026"
+    assert_includes answer, "purchase card below is waiting for your tap"
+    assert_includes answer, "won’t count in your spending until you approve it"
+    assert_not_includes answer, "structured values"
+    assert_not_includes answer, "Nothing from this message was saved"
+  end
+
   test "answers totals and largest transaction from structured attached rows" do
     create_draft!(merchant: "Pay-Less", amount_cents: 12_345, occurred_on: Date.new(2026, 8, 2))
     create_draft!(merchant: "Cost U Less", amount_cents: 20_00, occurred_on: Date.new(2026, 8, 5))
@@ -119,8 +130,8 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     ]
 
     answers.each do |answer|
-      assert_includes answer, "cannot answer that question reliably"
-      assert_includes answer, "I will not guess from the file name or extracted prose"
+      assert_includes answer, "I can’t answer that question from this file."
+      assert_includes answer, "I won’t guess."
       assert_not_includes answer, "1 transaction row totaling"
       assert_not_includes answer, "$50"
       assert_not_includes answer, "Attached transactions"
@@ -334,7 +345,7 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "Primary salary: $6,200, monthly (pending review)"
     assert_includes answer, "Visa: balance $1,750, payment $80, 19.5% APR (pending review)"
-    assert_includes answer, "Nothing from this message was saved"
+    assert_not_includes answer, "Nothing from this message was saved"
   end
 
   test "describes pending setup values apart from spending, and never as spending" do

@@ -704,27 +704,16 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
   end
 
-  test "create accepts mobile HEIC photos" do
-    with_s3_stubs(
-      configured?: true,
-      upload: ->(key, _io, content_type:) { content_type && key }
-    ) do
-      with_singleton_stub(Marcel::MimeType, :for, ->(*, **) { "image/heic" }) do
-        assert_difference("FinancialDocumentImport.count", 1) do
-          assert_enqueued_with(job: FinancialDocumentExtractionJob) do
-            post "/api/v1/document_imports",
-              params: { file: uploaded_heic, document_kind: "receipt" },
-              headers: auth_headers(@user)
-          end
+  test "raw HEIC is refused before upload because the browser must convert it first" do
+    with_s3_stubs(configured?: true) do
+      assert_no_difference("FinancialDocumentImport.count") do
+        assert_no_enqueued_jobs only: FinancialDocumentExtractionJob do
+          post "/api/v1/document_imports", params: { file: uploaded_heic, document_kind: "receipt" }, headers: auth_headers(@user)
         end
       end
     end
-
-    assert_response :created
-    document_import = FinancialDocumentImport.last
-    assert_equal "receipt", document_import.document_kind
-    assert_equal "receipt-photo.heic", document_import.filename
-    assert_equal "image/heic", document_import.content_type
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Take a screenshot of it, or save it as JPEG"
   end
 
   test "create accepts valid docx files when Marcel reports application zip" do

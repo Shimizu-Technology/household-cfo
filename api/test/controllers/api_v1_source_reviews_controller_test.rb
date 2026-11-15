@@ -227,6 +227,40 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     { draft_id: draft.fetch("id"), draft_lock_version: draft.fetch("lock_version"), draft_digest: draft.fetch("digest") }
   end
 
+  test "a file sign answer immediately creates a new review revision without approving its lines" do
+    document = @source[:import]
+    document.update!(filename: "bank.csv", content_type: "text/csv")
+    file = Tempfile.new([ "signed", ".csv" ])
+    file.write("Date,Description,Amount\n2026-10-01,Pay,2600\n2026-10-02,Rent,-1450\n")
+    file.flush
+    extraction = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank.csv", document_kind: "statement").call
+    @source = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extraction.data[:source_accounting], structured_spreadsheet: true).call.merge(import: document)
+    post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [], accounts: [ { source_account_id: @source[:revision].financial_source_accounts.sole.id, account_basis: "asset" } ] } }, headers: auth_headers(@user).merge("Idempotency-Key" => "r7-f4-basis"), as: :json
+    assert_response :success
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: true }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    revision = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    assert_equal [ -145_000, 260_000 ], revision.financial_source_events.pluck(:signed_amount_cents).sort
+    assert_equal 2, revision.financial_source_events.where(row_kind: "posted").count
+    assert_empty @household.household_transactions
+    assert_equal 0, SourceReviewVersion.where(household: @household).count
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: true }, headers: auth_headers(@user), as: :json
+    assert_response :success
+    assert_equal revision.id, response.parsed_body.fetch("revision_id")
+    post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: false }, headers: auth_headers(@user), as: :json
+    assert_response :conflict
+  ensure
+    file&.close!
+  end
+
+  test "a file sign answer cannot access another household or accept a nonboolean answer" do
+    outsider = User.create!(clerk_id: "outside-#{SecureRandom.hex(4)}", email: "outside-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
+    post "/api/v1/document_imports/#{@source[:import].id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: true }, headers: auth_headers(outsider), as: :json
+    assert_response :not_found
+    post "/api/v1/document_imports/#{@source[:import].id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: "yes" }, headers: auth_headers(@user), as: :json
+    assert_response :unprocessable_entity
+  end
+
   private
 
   def auth_headers(user)

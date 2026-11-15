@@ -28,6 +28,7 @@ module FinancialDocuments
         end
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
+        raise ArgumentError, "Answer how spending amounts are shown before approving lines." if revision.coverage["signed_amount_question"] == true && entries.any?
         domain.overlap_context = OverlapDetector::Context.new(household)
         check_account_heads!(entries)
         link_accounts!

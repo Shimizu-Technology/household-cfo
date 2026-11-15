@@ -22,6 +22,19 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     )
   end
 
+  test "a rejected file stores permanent recovery while an outage retains temporary recovery" do
+    [ true, false ].each do |permanent|
+      document = @document_import.dup
+      document.s3_key = "fictional/f4-#{permanent}.pdf"
+      document.save!
+      message = permanent ? FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
+      result = FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: message, metadata: { status_code: permanent ? 400 : 503 })
+      with_extractor_stub(fake_extractor(result)) { FinancialDocumentExtractionJob.perform_now(document.id) }
+      assert_equal permanent, document.reload.metadata["extraction_failure_permanent"]
+      assert_equal message, document.extraction_error
+    end
+  end
+
   test "successful extraction creates review items and attempt audit" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(

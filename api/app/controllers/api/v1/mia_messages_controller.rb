@@ -1947,6 +1947,10 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
+        if (!content.to_s.include?("?") && !content.to_s.match?(/\A(?:is|are|can|could|should|will|do|does|why|how)\b/i) && !content.to_s.match?(HouseholdFinance::AttachedDocumentQuestionAnswerer::SUBSTANTIVE_QUESTION_PATTERN)) || HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
+          read_reply = HouseholdFinance::UploadReadReply.call(current_household, attached_imports)
+          return read_reply if read_reply
+        end
         if content.present? && !HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
           processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
           if processing.empty?

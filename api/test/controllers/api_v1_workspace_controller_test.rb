@@ -1270,7 +1270,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     body = JSON.parse(response.body)
     assistant_content = body.fetch("assistant_message").fetch("content")
-    assert_includes assistant_content, "I found Resend for $20"
+    assert_includes assistant_content, "I read a receipt from Resend for $20, on Jul 3, 2026."
     assert_equal "needs_review", document_import.reload.status
     assert_equal "Resend", document_import.transaction_drafts.first.merchant
   end
@@ -1378,9 +1378,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
     assistant_content = body.fetch("assistant_message").fetch("content")
-    assert_includes assistant_content, "routed it to pending transaction review"
+    assert_includes assistant_content, "purchase card below is waiting for your tap to review and approve it"
     assert_not_includes assistant_content, "I used your note as context"
-    assert_includes assistant_content, "I found Resend for $20"
+    assert_includes assistant_content, "I read a receipt from Resend for $20, on Jul 3, 2026."
     attachment = body.fetch("user_message").fetch("attachments").first
     assert_equal document_import.id, attachment.fetch("document_import_id")
     assert_equal "receipt.png", attachment.fetch("filename")

@@ -4,6 +4,19 @@ require "tempfile"
 require "zip"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
+  test "file rejection is permanent while outages and timeouts remain temporary" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "")
+    [ 400, 413, 415, 422 ].each do |status|
+      message = extractor.send(:provider_failure_message, status)
+      assert_includes message, "can’t accept this file"
+      assert_not_includes message, "temporary"
+      assert_not_includes message, "few minutes"
+    end
+    [ 408, 429, 500, 503, 504 ].each do |status|
+      assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, extractor.send(:provider_failure_message, status)
+    end
+  end
+
   test "qualified native statement succeeds without provider credentials or model calls" do
     document_import = FinancialDocumentImport.new(document_kind: "statement", filename: "native.pdf", content_type: "application/pdf", s3_key: "test/native")
     extractor = FinancialDocuments::Extractor.new(api_key: "")
@@ -666,7 +679,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     pdf&.close!
   end
 
-  test "provider failures show plain temporary copy and keep the technical cause for admins" do
+  test "provider failures distinguish rejected files from outages and keep technical causes private" do
     { 400 => 1, 402 => 1, 503 => FinancialDocuments::Extractor::PROVIDER_ATTEMPTS }.each do |status, expected_calls|
       calls = 0
       extractor = provider_extractor
@@ -675,10 +688,11 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
         result = extractor.send(:extract_openrouter_document, provider_import, "/tmp/unused.png")
 
         refute result.success?
-        assert_equal(status == 402 ? FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, result.error)
+        expected = { 400 => FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE, 402 => FinancialDocuments::Extractor::PROVIDER_CREDIT_MESSAGE }.fetch(status, FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE)
+        assert_equal expected, result.error
         assert_no_match(/HTTP|OpenRouter|\d{3}/, result.error)
-        assert_match(status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
-        assert_match(/Reprocess/, result.error)
+        assert_match(status == 400 ? /can’t accept this file/ : status == 402 ? /billing problem on our side/ : /temporary/i, result.error)
+        assert_match(status == 400 ? /screenshot/ : /Reprocess/, result.error)
         assert_equal "OpenRouter extraction failed with HTTP #{status}", result.metadata.fetch(:error_detail)
         assert_equal status, result.metadata.fetch(:status_code)
         assert_equal expected_calls, calls, "HTTP #{status} retry count"

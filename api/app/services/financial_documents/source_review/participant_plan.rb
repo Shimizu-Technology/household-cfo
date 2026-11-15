@@ -13,6 +13,7 @@ module FinancialDocuments
       EXPENSE_TYPES = FinancialSourceEvent::EXPENSE_TYPES
       QUESTIONS = {
         unclear: "We couldn’t read this line clearly.",
+        direction: "Was this money out or money in?",
         duplicate: "Is this the same charge as one you already have?",
         transfer: "Did this move between your own accounts?",
         card_payment: "Is this a payment on your own card or loan?",
@@ -23,6 +24,7 @@ module FinancialDocuments
         still_category: nil
       }.freeze
       ANSWERS = {
+        direction: [ { id: "money_out", label: "Money out" }, { id: "money_in", label: "Money in" } ],
         unclear: [ { id: "edit", label: "Fix it" }, { id: "leave_out", label: "Leave it out" } ],
         duplicate: [ { id: "leave_out", label: "Same charge" }, { id: "different", label: "Different charge" } ],
         transfer: [ { id: "as_read", label: "Yes" }, { id: "edit", label: "No" } ],
@@ -135,6 +137,9 @@ module FinancialDocuments
       def classify(event, merchant, category_id, overlaps, account, disagrees: false, confirm_suggestion: false)
         return nil if event.row_kind == "informational"
         amount = event.signed_amount_cents
+        if event.limitations.include?("transaction_direction_unclear") && HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true).to_i.positive?
+          return :direction
+        end
         return :unclear if event.row_kind != "posted" || event.event_type.in?(%w[unknown adjustment]) || amount.nil? || amount.zero? || event.posted_on.nil?
         return :unclear if event.posted_on > Date.current || outside_period?(event, account)
         return :unclear if event.event_type.in?(%w[purchase fee]) && !amount.negative? || event.event_type.in?(%w[refund income]) && !amount.positive?
