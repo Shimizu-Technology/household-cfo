@@ -201,7 +201,10 @@ module Api
       def narrate_applied(draft)
         carried = carry_unresolved_setup(draft)
         status_message = applied_message(draft, carried)
-        append_chat_status_message(status_message)
+        message = append_chat_status_message(status_message)
+        if message && draft.draft_type.in?(%w[household_setup debt_plan]) && HouseholdFinance::SetupStatus.new(draft.household).complete? && !HouseholdFinance::DebtPortfolio.new(draft.household).balance_known?
+          message.update!(setup_help: { available: false, debt_balances: true })
+        end
         update_conversation_action_status(draft.status, status_message)
         remember_setup_question(draft, carried)
       rescue StandardError => e

@@ -484,6 +484,8 @@ const firstSessionSetupKeys = new Set<keyof WorkspaceSetupValues>([
   'primary_income',
   'fixed_expenses',
   'flexible_spend',
+  'debt_payment',
+  'credit_card_debt',
 ])
 
 function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupDraft {
@@ -515,11 +517,11 @@ function workspaceSetupDraftWithProposal(current: WorkspaceSetupDraft, payload: 
 
 const profileExcludedSetupKeys = new Set<keyof WorkspaceSetupValues>(['primary_income', 'business_income', 'credit_card_debt', 'debt_payment'])
 
-// The setup fields a save may send: the five first-session fields, or every
+// The setup fields a save may send: first-session essentials, or every
 // editable profile field once setup is complete (income and debt have their own editors).
 function submittableWorkspaceSetupValues(draft: WorkspaceSetupDraft, setupComplete: boolean): Partial<WorkspaceSetupValues> {
   return Object.fromEntries(Object.entries(workspaceSetupValuesFromDraft(draft)).filter(([key]) => (
-    (setupComplete ? !profileExcludedSetupKeys.has(key as keyof WorkspaceSetupValues) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)) && (!(workspaceSetupMoneyKeys as string[]).includes(key) || draft[key as WorkspaceSetupMoneyKey].trim() !== '' || nullableWorkspaceSetupMoneyKeys.has(key as WorkspaceSetupMoneyKey))
+    (setupComplete ? !profileExcludedSetupKeys.has(key as keyof WorkspaceSetupValues) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)) && (key !== 'credit_card_debt' || draft.credit_card_debt.trim() !== '') && (!(workspaceSetupMoneyKeys as string[]).includes(key) || draft[key as WorkspaceSetupMoneyKey].trim() !== '' || nullableWorkspaceSetupMoneyKeys.has(key as WorkspaceSetupMoneyKey))
   ))) as Partial<WorkspaceSetupValues>
 }
 
@@ -531,6 +533,7 @@ const setupMoneyFieldLabels: Partial<Record<WorkspaceSetupMoneyKey, string>> = {
   primary_income: 'Primary monthly income',
   fixed_expenses: 'Fixed essentials',
   flexible_spend: 'Flexible spending',
+  debt_payment: 'Monthly debt payments',
   expected_sinking_fund: 'Expected sinking fund',
   unexpected_sinking_fund: 'Unexpected sinking fund',
   emergency_fund: 'Emergency fund',
@@ -633,6 +636,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   const [selectedMoneyTopic, setMoneyTopic] = useState<MoneyTopic>(() => hasPendingPlaidOAuthReturn() ? 'accounts' : 'income')
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
+  const [setupNotice, setSetupNotice] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [manualSetupFocusRequest, setManualSetupFocusRequest] = useState(0)
   const profileFocusSequenceRef = useRef(0)
@@ -2207,6 +2211,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     manualSetupFocusOriginRef.current = document.activeElement
     setManualSetupFocusRequest((current) => current + 1)
     setFirstSessionUploadOpen(false)
+    setSetupNotice(null)
     beginProfileEditing()
   }
 
@@ -2247,7 +2252,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       }
     : undefined
 
-  async function handleAskMia(prompt = question) {
+  async function handleAskMia(prompt = question, focusAfterReply: 'composer' | 'heading' = 'composer') {
     const cleanPrompt = prompt.trim()
     const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading || budgetYearLoading || budgetActionRef.current) return
@@ -2450,7 +2455,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
           // Completing a request must not take focus from Latest or from a
           // history/review control the participant chose while waiting.
           if (activeSectionRef.current === 'Ask Mia' && chatAnchorModeRef.current === 'sent' && !chatScrolledAwayRef.current) {
-            composerRef.current?.focus({ preventScroll: true })
+            if (focusAfterReply === 'heading') document.querySelector<HTMLElement>('main [data-page-heading]')?.focus({ preventScroll: true })
+            else composerRef.current?.focus({ preventScroll: true })
           }
         })
       }
@@ -3748,6 +3754,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     const wasSetupComplete = Boolean(data?.workspace?.setup_complete)
     setSetupSaving(true)
     setSetupError(null)
+    setSetupNotice(null)
     try {
       if (setupConflict) return
       const setupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
@@ -3787,9 +3794,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
       if (!wasSetupComplete && payload.workspace?.setup_complete) {
-        setQuestion('Based on my income, spending, and goal, what should I focus on first this month?')
-        switchSection('Ask Mia', { focusHeading: false })
-        window.setTimeout(() => composerRef.current?.focus(), 80)
+        if (!switchSection('Ask Mia', { focusHeading: false })) return
+        if (question.trim() || pendingMiaAttachments.length > 0) {
+          setMiaError(`Your message and files are waiting here. Send or clear them, then ask “How am I doing this month?”`)
+        } else void handleAskMia('How am I doing this month?', 'heading')
+      } else if (!wasSetupComplete) {
+        const missing = payload.workspace?.setup_status.missing_fields.map(field => field.label.toLowerCase()).join(', ')
+        setSetupNotice(`Saved your household details and the amounts you entered. Still to add: ${missing}.`)
       }
     } catch (caught) {
       trackPilotWorkflowFailure('setup', 'save')
@@ -3883,6 +3894,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     if (!isProfileEditing && !isFirstSessionSetup) return
 
     setSetupError(null)
+    setSetupNotice(null)
     setupSaveIdempotencyKeyRef.current = null
     setSetupDraft((current) => {
       if (!current) return current
@@ -4668,6 +4680,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
               editing={isProfileEditing || isFirstSessionSetup}
               saving={setupSaving}
               error={setupError}
+              notice={setupNotice}
+              onContinueWithMia={startChatFirstSession}
               onReviewLatest={setupConflict ? reviewLatestSetup : undefined}
               onBeginEdit={beginProfileEditing}
               onCancel={cancelProfileEditing}
@@ -4856,6 +4870,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                   </div>
                 )}
                 <p>{milestoneSummary(milestone)}</p>
+                {milestone.label === 'Debt details needed' && visibleSections.includes('My Money') && <Button variant="secondary" onClick={() => handleProfileSectionEdit('debt')}>Add what you owe</Button>}
               </article>
             ))}
           </div>
@@ -5207,7 +5222,7 @@ export function HomeWelcomePanel({ onPrimaryAction, onManualSetup, onOpenDebt, p
     {answer?.plan_left_cents != null && <p className="home-plan-caveat">This is your plan, not your bank balance.</p>}
     {answer?.main_income_missing && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: your main income.</span></p>}
     {missingFields.length > 0 && <p className="ui-row home-setup-missing"><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Still to add: {missingFields.map(field => field.label.toLowerCase()).join(', ')}.</span></p>}
-    {missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="ui-row text-button" onClick={onOpenDebt}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Add debt minimums</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
+    {started && missingFields.some(field => field.key === 'debt_payment') && onOpenDebt && <button type="button" className="ui-row text-button" onClick={onOpenDebt}><span className="ui-dot ui-dot--neutral" aria-hidden="true" /><span className="ui-row__body">Add debt minimums</span><span className="ui-row__chevron" aria-hidden="true">›</span></button>}
     {!started && <p className="home-welcome-note">Takes about 3 minutes. You can skip anything.</p>}
     <FirstSessionCard onChat={onPrimaryAction} onManual={onManualSetup} />
     {plan && <YearOutlook plan={plan} moneyKnown={answer?.money_in_cents != null && answer?.planned_out_cents != null} />}
@@ -6806,6 +6821,8 @@ export function WorkspaceSetupForm({
   editing,
   saving,
   error,
+  notice,
+  onContinueWithMia,
   firstSession,
   personalOnly = false,
   monthPlan,
@@ -6820,6 +6837,8 @@ export function WorkspaceSetupForm({
   editing: boolean
   saving: boolean
   error: string | null
+  notice?: string | null
+  onContinueWithMia?: () => void
   firstSession: boolean
   personalOnly?: boolean
   monthPlan?: { label: string; fixed: number; flexible: number } | null
@@ -6831,6 +6850,13 @@ export function WorkspaceSetupForm({
 }) {
   const { assistantName } = useBrand()
   const savedHeadingRef = useRef<HTMLHeadingElement>(null)
+  const noticeRef = useRef<HTMLParagraphElement>(null)
+  useLayoutEffect(() => {
+    if (notice) {
+      noticeRef.current?.focus({ preventScroll: true })
+      noticeRef.current?.scrollIntoView({ block: 'start' })
+    }
+  }, [notice])
   const wasEditingRef = useRef({ editing, firstSession })
   const canceledRef = useRef(false)
   const editProfileRef = useRef<HTMLButtonElement>(null)
@@ -6897,6 +6923,10 @@ export function WorkspaceSetupForm({
           <MoneyInput disabled={!editing || !firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
           <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
           <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+          {firstSession && <>
+            <MoneyInput disabled={saving} name="debt_payment" label="Monthly debt payments" value={values.debt_payment} help="What do you pay on debts each month? Leave blank if unknown, or choose no debts below." onChange={(value) => { onChange('debt_payment', value); if (value !== '0') onChange('credit_card_debt', '') }} />
+            <label className="ui-check"><input type="checkbox" checked={values.credit_card_debt === '0' && values.debt_payment === '0'} disabled={saving} onChange={(event) => { onChange('credit_card_debt', event.target.checked ? '0' : ''); onChange('debt_payment', event.target.checked ? '0' : '') }} />Our household has no debts</label>
+          </>}
           </>}
         </div>
       </fieldset>
@@ -6933,6 +6963,11 @@ export function WorkspaceSetupForm({
       {/* After the fields, so keyboard and screen-reader order reach Save last. */}
       {firstSession && <div className="setup-form-actions setup-form-actions-end">
         <button type="submit" disabled={saving || Boolean(onReviewLatest)}>{saving ? 'Saving' : `Save and talk to ${assistantName}`}</button>
+        {notice && <>
+          <p ref={noticeRef} className="setup-save-notice" tabIndex={-1}>{notice}</p>
+          <button type="button" className="ui-btn ui-btn--tonal" disabled={saving} onClick={(event) => event.currentTarget.form?.querySelector<HTMLInputElement>('input:not([type=checkbox])[value=""]')?.focus()}>Finish it here</button>
+          <button type="button" className="ui-btn ui-btn--tonal" disabled={saving} onClick={onContinueWithMia}>Let {assistantName} ask for the rest</button>
+        </>}
       </div>}
     </form>
   )
@@ -7434,7 +7469,7 @@ function MiaActionDraftReviewCard({
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
   const reviewValueCount = proposedSetupKeys.size || draft.items.length
-  // Debts are not part of `complete`, so it alone can't say nothing is left.
+  // Every essential must be known before the starting picture is finished.
   const coverageFinished = Boolean(setupCoverage?.complete && setupCoverage.missing_fields.length === 0)
   const applyLabel = coverageFinished
     ? `Apply ${reviewValueCount === 1 ? 'change' : 'changes'}`

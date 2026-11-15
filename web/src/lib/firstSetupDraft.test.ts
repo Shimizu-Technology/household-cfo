@@ -23,3 +23,9 @@ it('refreshes untouched setup fields from chat approvals and preserves unsaved i
   expect(refreshSetupDraft(current, before, approved)).toEqual({ ...approved, primary_goal: 'My unsaved goal' })
   expect(refreshSetupDraft(null, before, approved)).toEqual(approved)
 })
+
+it.each(['debt_payment', 'credit_card_debt'] as const)('warns for an unsaved %s and clears after save', key => {
+  const edited = { ...saved, [key]: '0' }
+  expect(firstSetupHasUnsavedChanges(edited, saved)).toBe(true)
+  expect(firstSetupHasUnsavedChanges(edited, edited)).toBe(false)
+})

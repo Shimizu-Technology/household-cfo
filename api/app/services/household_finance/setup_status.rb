@@ -26,7 +26,10 @@ module HouseholdFinance
     end
 
     def complete?
-      (REQUIRED_FIELDS.map(&:to_s) - [ "debt_payment" ] - confirmed_setup_keys).empty?
+      # Avoid loading debt records for households still missing earlier essentials.
+      return false unless (REQUIRED_FIELDS.map(&:to_s) - [ "debt_payment" ] - confirmed_setup_keys).empty?
+
+      missing_field_keys.empty?
     end
 
     def confirmed_field_keys

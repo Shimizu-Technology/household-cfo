@@ -57,6 +57,49 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "F1 form saves debt summary atomically and leaves a blank payment unknown" do
+    values = { household_name: "Form household", primary_goal: "A calm month", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700, debt_payment: nil }
+    save_form = ->(changes) do
+      patch "/api/v1/workspace/setup", params: { workspace: values.merge(changes) }, headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+      assert_response :success
+      response.parsed_body
+    end
+    partial = save_form.call({})
+    refute partial.dig("workspace", "setup_complete")
+    assert_equal 5, partial.dig("workspace", "setup_status", "completed_count")
+    assert_equal [ "debt_payment" ], partial.dig("workspace", "setup_status", "missing_fields").map { |field| field.fetch("key") }
+    assert_nil partial.dig("dashboard", "month_answer", "planned_out_cents")
+
+    paid = save_form.call(debt_payment: 350)
+    assert paid.dig("workspace", "setup_complete")
+    assert_equal 310000, paid.dig("dashboard", "month_answer", "planned_out_cents")
+    refute paid.dig("workspace", "debt_portfolio", "balance_known")
+    post_message("How am I doing this month?")
+    assert_includes reply, "$2,100"
+
+    none = save_form.call(debt_payment: 0, credit_card_debt: 0)
+    assert none.dig("workspace", "setup_complete")
+    assert none.dig("workspace", "debt_portfolio", "balance_known")
+    assert_equal 275000, none.dig("dashboard", "month_answer", "planned_out_cents")
+  end
+
+  test "F1 invalid debt payment rolls back the whole form save" do
+    original_name = @household.name
+    patch "/api/v1/workspace/setup", params: { workspace: { household_name: "Do not save", debt_payment: "12.345" } },
+      headers: headers.merge(setup_revision_header(@user)).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :unprocessable_entity
+    assert_equal original_name, @household.reload.name
+    refute HouseholdFinance::DebtPortfolio.new(@household).minimum_payment_known?
+  end
+
+  test "F1 completion with two payment-only debts points to optional balances" do
+    @household.debts.create!(label: "Car", debt_type: "auto_loan", minimum_payment_cents: 20000, minimum_payment_known: true, balance_known: false)
+    @household.debts.create!(label: "Card", debt_type: "credit_card", minimum_payment_cents: 15000, minimum_payment_known: true, balance_known: false)
+    save_setup(primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700)
+    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
+    assert_includes HouseholdFinance::MiaSetupGuide.new(@household).after_apply_message, "add what you owe under Debt in My Money"
+  end
+
   private
 
   def save_setup(**values)

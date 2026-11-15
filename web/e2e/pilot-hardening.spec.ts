@@ -3287,7 +3287,7 @@ test('first-session review states what it completes and what Mia still needs', a
   await expect(card.getByRole('button', { name: 'Apply 1 value' })).toBeEnabled()
 })
 
-test('a confirmed zero remains available when the rest of setup is completed manually', async ({ page }) => {
+test('BOG UI a confirmed zero remains available when the rest of setup is completed manually', async ({ page }) => {
   const setupStatus = {
     complete: false, completed_count: 1, required_count: 5,
     required_fields: [
@@ -3444,6 +3444,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
     primary_income: 6200,
     fixed_expenses: 2800,
     flexible_spend: 0,
+    debt_payment: null,
   })
 })
 
@@ -4889,8 +4890,8 @@ test('BOG UI household incomplete participants get a short first session, privat
       return route.fulfill({
         status: 201,
         json: {
-          user_message: { id: 801, role: 'user', author: 'You', content: guidedSetupPrompt, attachments: [], created_at: '2026-10-01T00:00:00Z' },
-          assistant_message: { id: 802, role: 'assistant', author: 'Mia', content: guidedSetupReply, attachments: [], created_at: '2026-10-01T00:00:01Z' },
+          user_message: { id: 801, role: 'user', author: 'You', content: route.request().postDataJSON().message, attachments: [], created_at: '2026-10-01T00:00:00Z' },
+          assistant_message: { id: 802, role: 'assistant', author: 'Mia', content: route.request().postDataJSON().message === guidedSetupPrompt ? guidedSetupReply : 'Your plan leaves room this month.', attachments: [], created_at: '2026-10-01T00:00:01Z' },
           transaction_draft: null,
           mia_action_draft: null,
         },
@@ -4978,6 +4979,7 @@ test('BOG UI household incomplete participants get a short first session, privat
   await expect(fixedExpensesInput).toHaveValue('2500')
   const flexibleSpendingInput = page.getByLabel('Flexible spending')
   await flexibleSpendingInput.fill('600')
+  await page.getByRole('checkbox', { name: 'Our household has no debts' }).check()
   await expect(flexibleSpendingInput).toHaveValue('600')
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
@@ -4988,12 +4990,14 @@ test('BOG UI household incomplete participants get a short first session, privat
     primary_income: 7200,
     fixed_expenses: 2500,
     flexible_spend: 600,
+    debt_payment: 0,
+    credit_card_debt: 0,
   })
   await expect(page.locator('.shell-header')).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
-  await expect(miaComposer).toBeFocused()
+  await expect(miaComposer).toHaveValue('')
+  await expect(page.locator('.message.user').last()).toContainText('How am I doing this month?')
 
   await openSection(page, 'My Profile')
   const advancedProfile = page.locator('.setup-optional-fields')
@@ -5054,7 +5058,7 @@ test('profile save sends only the fields the participant changed and guards unsa
   expect(await unloadBlocked()).toBe(false)
 })
 
-test('first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page, browserName }) => {
+test('BOG UI first-run setup leaves blank money unknown, accepts cents, and explains problems in plain words', async ({ page, browserName }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(false) }))
   let setupRequests = 0
   page.on('request', (request) => { if (request.url().endsWith('/api/v1/workspace/setup')) setupRequests += 1 })
@@ -5075,7 +5079,7 @@ test('first-run setup leaves blank money unknown, accepts cents, and explains pr
   await income.fill('1234.56')
   // Save follows the last field in keyboard order.
   // Safari's Option-Tab includes native buttons when ordinary Tab skips them.
-  await page.getByLabel('Flexible spending').focus()
+  await page.getByRole('checkbox', { name: 'Our household has no debts' }).focus()
   await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab')
   await expect(form.getByRole('button', { name: 'Save and talk to Mia' })).toBeFocused()
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
@@ -5085,6 +5089,7 @@ test('first-run setup leaves blank money unknown, accepts cents, and explains pr
     household_name: 'Cents Household',
     primary_goal: 'Keep a calm plan.',
     primary_income: 1234.56,
+    debt_payment: null,
   })
 })
 
@@ -16706,4 +16711,141 @@ test('BOG UI dialog titles use display type while snapshot and evidence sections
   const evidence = page.getByRole('dialog', { name: 'Match to a statement', exact: true })
   await expect(evidence.getByRole('heading', { name: 'Statement entries · page 1', exact: true })).toBeVisible()
   await checkFaces(evidence)
+})
+
+async function f1Workspace(page: Page) {
+  const w = realWorkspaceData(false)
+  const keys = ['household_name', 'primary_goal', 'primary_income', 'fixed_expenses', 'flexible_spend', 'debt_payment']
+  const labels = ['Household name', 'Primary goal', 'Primary monthly income', 'Fixed essentials', 'Flexible spending', 'Debt minimums']
+  Object.assign(w.workspace.setup_values, { household_name: '', primary_goal: '', debt_payment: null, credit_card_debt: null })
+  Object.assign(w.workspace.debt_portfolio, { balance_known: false, minimum_payment_known: false })
+  w.workspace.income_sources = []
+  w.budget.annual_plan.pending_mia_action_drafts = []
+  w.budget.annual_plan.pending_transaction_drafts = []
+  w.mia.messages = []
+  Object.assign(w.dashboard.month_answer, { year: 2026, month: 11, period_label: 'November 2026', money_in_cents: null, planned_out_cents: null, plan_left_cents: null })
+  function status(confirmed: string[]) {
+    const fields = keys.map((key, i) => ({ key, label: labels[i], confirmed: confirmed.includes(key) }))
+    Object.assign(w.workspace.setup_status, { complete: confirmed.length === 6, completed_count: confirmed.length, required_count: 6, required_fields: fields, confirmed_fields: confirmed, missing_fields: fields.filter(field => !field.confirmed) })
+    w.workspace.setup_complete = confirmed.length === 6
+  }
+  status([])
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: w }))
+  await page.route('http://api.test/api/v1/workspace/setup', route => {
+    const values = route.request().postDataJSON().workspace
+    Object.assign(w.workspace.setup_values, values)
+    const confirmed = [...new Set([...w.workspace.setup_status.confirmed_fields, ...keys.filter(key => values[key] !== undefined && values[key] !== null && values[key] !== '')])]
+    status(confirmed)
+    const v = w.workspace.setup_values
+    Object.assign(w.workspace.debt_portfolio, { mode: 'summary', minimum_payment_known: confirmed.includes('debt_payment'), monthly_minimum: Number(v.debt_payment ?? 0) })
+    if (values.credit_card_debt !== undefined) Object.assign(w.workspace.debt_portfolio, { balance_known: values.credit_card_debt !== null, total_balance: Number(values.credit_card_debt ?? 0) })
+    const out = ['fixed_expenses', 'flexible_spend', 'debt_payment'].every(key => confirmed.includes(key)) ? Number(v.fixed_expenses) + Number(v.flexible_spend) + Number(v.debt_payment) : null
+    Object.assign(w.dashboard.month_answer, { money_in_cents: confirmed.includes('primary_income') ? Number(v.primary_income) * 100 : null, planned_out_cents: out === null ? null : out * 100, plan_left_cents: out === null ? null : (Number(v.primary_income) - out) * 100 })
+    return route.fulfill({ json: w })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', route => {
+    const content = route.request().postDataJSON().message === 'How am I doing this month?' ? 'November 2026: your plan leaves room after money out.' : 'What do you spend on flexible spending each month?'
+    return route.fulfill({ status: 201, json: { user_message: { id: 989, role: 'user', author: 'You', content: route.request().postDataJSON().message }, assistant_message: { id: 990, role: 'assistant', author: 'Mia', content } } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Home')
+  return w
+}
+async function f1Fill(page: Page, flexible = '700') {
+  await page.getByRole('button', { name: 'Enter my numbers', exact: true }).click()
+  for (const [name, value] of [['Household name', 'Cruz household'], ['Primary goal', 'A calm month'], ['Primary monthly income', '5200'], ['Fixed essentials', '2050'], ['Flexible spending', flexible]]) {
+    if (value) await page.getByLabel(name).fill(value)
+  }
+}
+async function f1ActionClearsTabs(page: Page, action: Locator) {
+  if ((page.viewportSize()?.width ?? 0) > 620) return
+  await page.evaluate(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); window.scrollTo(0, document.documentElement.scrollHeight) })
+  await expect.poll(async () => {
+    const button = await action.boundingBox(), tabs = await page.locator('.tabs-shell').boundingBox()
+    return Boolean(button && tabs && button.y + button.height <= tabs.y)
+  }).toBe(true)
+}
+for (const onward of ['form', 'Mia']) test(`BOG UI F1 partial save continues with ${onward}`, async ({ page }) => {
+  await f1Workspace(page)
+  await f1Fill(page, '')
+  await page.getByLabel('Monthly debt payments').fill('350')
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  const notice = page.locator('.setup-save-notice')
+  await expect(notice).toContainText('Still to add: flexible spending.')
+  await expect(notice).toBeFocused()
+  await f1ActionClearsTabs(page, page.getByRole('button', { name: 'Let Mia ask for the rest' }))
+  await expect(page.getByLabel('Primary monthly income')).toHaveValue('5200')
+  if (onward === 'form') {
+    await page.getByRole('button', { name: 'Finish it here' }).click()
+    await expect(page.getByLabel('Flexible spending')).toBeFocused()
+    await page.getByLabel('Flexible spending').fill('700')
+    await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+    await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
+  } else {
+    await page.getByRole('button', { name: 'Let Mia ask for the rest' }).click()
+    await expect(page.locator('.message.assistant').last()).toContainText('What do you spend on flexible spending')
+    await openSection(page, 'My Profile')
+    await expect(page.getByLabel('Primary monthly income')).toHaveValue('5200')
+  }
+})
+for (const payment of ['none', '350']) test(`BOG UI F1 complete form ${payment} opens first answer and Home figures`, async ({ page }) => {
+  await f1Workspace(page)
+  await f1Fill(page)
+  if (payment === 'none') await page.getByRole('checkbox', { name: 'Our household has no debts' }).check()
+  else await page.getByLabel('Monthly debt payments').fill(payment)
+  const request = page.waitForRequest(r => r.url().endsWith('/workspace/setup') && r.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  const body = (await request).postDataJSON().workspace
+  expect(body.debt_payment).toBe(payment === 'none' ? 0 : 350)
+  if (payment === 'none') expect(body.credit_card_debt).toBe(0)
+  await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('')
+  await expect(page.locator('main [data-page-heading]').first()).toBeFocused()
+  await openSection(page, 'Home')
+  await expect(page.locator('.home-money-values')).not.toContainText('Not entered')
+  await expect(page.locator('.home-money-values')).toContainText('$5,200')
+  await expect(page.locator('.home-money-values')).toContainText(payment === 'none' ? '$2,750' : '$3,100')
+  await expect(page.locator('.home-money-values')).toContainText(payment === 'none' ? '$2,450' : '$2,100')
+})
+test('BOG UI F1 debt action is absent before entry and appears once after partial setup', async ({ page }) => {
+  await f1Workspace(page)
+  await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(0)
+  await f1Fill(page)
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  await expect(page.locator('.setup-save-notice')).toContainText('Still to add: debt minimums.')
+  await openSection(page, 'Home')
+  await expect(page.getByRole('button', { name: 'Add debt minimums', exact: true })).toHaveCount(1)
+})
+test('BOG UI F1 completion and Wealth open the same optional balances screen', async ({ page }) => {
+  const w = realWorkspaceData(true)
+  Object.assign(w.workspace, { debts: [
+    { id: 901, label: 'Visa', debt_type: 'credit_card', balance: null, minimum_payment: 75, active: true },
+    { id: 902, label: 'Truck', debt_type: 'auto_loan', balance: null, minimum_payment: 310, active: true },
+  ] })
+  Object.assign(w.workspace.debt_portfolio, { balance_known: false, active_count: 2, monthly_minimum: 385 })
+  w.mia.messages = [{ id: 991, role: 'assistant', author: 'Mia', content: 'Your household setup is complete. Next, add what you owe under Debt in My Money to see your net worth. Balances are optional.', setup_help: { available: false, debt_balances: true } }] as typeof w.mia.messages
+  w.wealth.milestones = [{ kind: 'debt_remaining', label: 'Debt details needed', current: 0, target: 0, unit: 'dollars', status: 'yellow' }]
+  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: w }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.getByRole('button', { name: 'Add what you owe', exact: true }).click()
+  await expect(page.locator('.debt-manager')).toBeVisible()
+  await expect(page.locator('.debt-manager')).toContainText('Visa')
+  await expect(page.locator('.debt-manager')).toContainText('Truck')
+  await openSection(page, 'Wealth')
+  await page.getByRole('button', { name: 'Add what you owe', exact: true }).click()
+  await expect(page.locator('.debt-manager')).toBeVisible()
+})
+
+test('BOG UI F1 completing the form preserves a waiting message without sending it', async ({ page }) => {
+  await f1Workspace(page)
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('My own question')
+  await openSection(page, 'Home')
+  await f1Fill(page)
+  await page.getByRole('checkbox', { name: 'Our household has no debts' }).check()
+  let sent = 0
+  page.on('request', request => { if (request.url().endsWith('/mia/messages') && request.method() === 'POST') sent++ })
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue('My own question')
+  await expect(page.getByText(/Your message and files are waiting here/)).toBeVisible()
+  expect(sent).toBe(0)
 })

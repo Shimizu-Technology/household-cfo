@@ -110,6 +110,19 @@ class ApiV1SetupCardTest < ActionDispatch::IntegrationTest
     assert_includes HouseholdFinance::SetupStatus.new(@household).confirmed_field_keys, "debt_payment"
   end
 
+  test "F1 completing setup with two payment-only debts offers optional balances" do
+    HouseholdFinance::WorkspaceSetupSaver.new(@household, user: @user, idempotency_key: SecureRandom.uuid,
+      attributes: { household_name: "Cruz", primary_goal: "A calm month", primary_income: 5200, fixed_expenses: 2050, flexible_spend: 700 }).call
+    body = say("the visa is 75 n the truck is 310",
+      read(setup: changes(debt_payment: debts(parts: [ debt("add", "visa", "75", source: "the visa is 75"), debt("add", "truck", "310", source: "the truck is 310") ]))))
+    apply(card_of(body))
+    message = ChatMessage.where(role: "assistant").order(:id).last
+    assert_equal 2, @household.reload.debts.active.count
+    assert_includes message.content, "add what you owe under Debt in My Money"
+    assert_equal true, message.setup_help["debt_balances"]
+    assert HouseholdFinance::SetupStatus.new(@household).complete?
+  end
+
   test "a balance never becomes a minimum and a debt without a minimum stays open" do
     body = say("visa balance is 4000", read(setup: changes(debt_payment: debts(parts: [ debt("add", "visa", "4000", "4000", source: "visa balance is 4000") ]))))
     debt_row = row(body, "debt_payment")

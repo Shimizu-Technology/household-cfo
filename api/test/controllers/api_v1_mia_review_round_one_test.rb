@@ -23,16 +23,16 @@ class ApiV1MiaReviewRoundOneTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "five essentials stay complete with unknown and archived debt minimums" do
+  test "five essentials stay incomplete with unknown and archived debt minimums" do
     five_answers
-    assert HouseholdFinance::SetupStatus.new(@household).complete?
+    refute HouseholdFinance::SetupStatus.new(@household).complete?
     assert_includes HouseholdFinance::SetupStatus.new(@household).missing_field_keys, "debt_payment"
     debt = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 10000, minimum_payment_cents: 5000)
     debt.update!(active: false, archived_at: Time.current)
-    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
+    refute HouseholdFinance::SetupStatus.new(@household.reload).complete?
     get "/api/v1/workspace", headers: headers
     assert_response :success
-    assert response.parsed_body.dig("workspace", "setup_complete")
+    refute response.parsed_body.dig("workspace", "setup_complete")
   end
 
   test "hardship anywhere outranks a purchase across varied sentences" do

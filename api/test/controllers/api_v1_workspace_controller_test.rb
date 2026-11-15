@@ -179,7 +179,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
     assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
-    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
+    assert_equal({ "setup_complete" => false }, setup_audit.metadata)
     # Debt minimums are still unknown, so no CFO Filter amount can be calculated: each row says so.
     decisions = HouseholdFinance::DataPresenter.new(user.households.first.reload).cfo_filter.fetch(:decisions)
     assert_equal 3, decisions.size
@@ -460,7 +460,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     profile.reload
     assert_equal 700_000, profile.debt_summary_balance_cents
-    assert_equal 70_000, profile.debt_summary_minimum_payment_cents
+    assert_equal 90_000, profile.debt_summary_minimum_payment_cents
   end
 
   test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
@@ -626,7 +626,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty household.goals.where(goal_type: "runway")
   end
 
-  test "workspace setup ignores legacy aggregate debt fields while individual debt tracking is active" do
+  test "workspace setup rejects aggregate debt changes while individual debt tracking is active" do
     user = create_user(email: "document-debt-payment@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
@@ -636,13 +636,14 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user).merge(setup_revision_header(user)),
       as: :json
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Edit each debt in My Money"
     assert_equal 1, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, debt.reload.balance_cents
     assert_equal 0, debt.minimum_payment_cents
   end
 
-  test "workspace setup ignores legacy aggregate debt fields across multiple detailed debts" do
+  test "workspace setup rejects aggregate debt changes across multiple detailed debts" do
     user = create_user(email: "multi-document-debt@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
@@ -655,7 +656,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Edit each debt in My Money"
     assert_equal 2, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, visa.reload.balance_cents
     assert_equal 120_000, mastercard.reload.balance_cents
@@ -2694,7 +2696,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "atomic-mia@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     HouseholdFinance::WorkspaceSetupSaver.new(household, user: user, idempotency_key: SecureRandom.uuid,
-      attributes: { household_name: "Atomic household", primary_goal: "A cushion", primary_income: "3000", fixed_expenses: "1500", flexible_spend: "500" }).call
+      attributes: { household_name: "Atomic household", primary_goal: "A cushion", primary_income: "3000", fixed_expenses: "1500", flexible_spend: "500", debt_payment: 0, credit_card_debt: 0 }).call
 
     failing_responder = Class.new do
       def call(*)

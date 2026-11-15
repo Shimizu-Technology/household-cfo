@@ -65,7 +65,11 @@ module HouseholdFinance
     end
 
     def complete_message
-      "Your household setup is complete. Ask me “How am I doing this month?” to see what your plan leaves."
+      message = "Your household setup is complete. Ask me “How am I doing this month?” to see what your plan leaves."
+      unless DebtPortfolio.new(household).balance_known?
+        message += " Next, add what you owe under Debt in My Money to see your net worth. Balances are optional."
+      end
+      message
     end
   end
 end

@@ -25,13 +25,12 @@ class MiaReviewRoundOneEdgesTest < ActiveSupport::TestCase
     refute queries.any? { |sql| sql.match?(/JOIN "debts"/) }, queries.grep(/JOIN "debts"/).join("\n")
   end
 
-  test "five essential completion does not read optional debt records" do
-    @household.reload
-    queries = []
-    capture = ->(*args) { queries << args.last[:sql] }
-    complete = ActiveSupport::Notifications.subscribed(capture, "sql.active_record") { HouseholdFinance::SetupStatus.new(@household).complete? }
-    assert complete
-    refute queries.any? { |sql| sql.match?(/FROM "(?:debts|household_profiles)"/) }, queries.join("\n")
+  test "completion requires known debt payments as the sixth essential" do
+    assert HouseholdFinance::SetupStatus.new(@household.reload).complete?
+    @household.household_profile.update!(debt_summary_minimum_payment_known: false)
+    status = HouseholdFinance::SetupStatus.new(@household.reload)
+    refute status.complete?
+    assert_equal [ "debt_payment" ], status.missing_field_keys
   end
 
   test "recurring bills savings and job changes never become a one time purchase" do
