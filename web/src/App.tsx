@@ -4564,6 +4564,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     isRealWorkspace
                     compact
                     headerBulkAction
+                    compactFinished
                     action={chatDraftAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
@@ -7940,6 +7941,7 @@ export function TransactionDraftReviewStack({
   isRealWorkspace,
   action,
   compact = false,
+  compactFinished = false,
   collapsed = false,
   headerBulkAction = false,
   selectionEnabled = true,
@@ -7965,6 +7967,7 @@ export function TransactionDraftReviewStack({
   errors?: Record<string, string>
   isRealWorkspace: boolean
   action: string | null
+  compactFinished?: boolean
   compact?: boolean
   collapsed?: boolean
   headerBulkAction?: boolean
@@ -8179,6 +8182,7 @@ export function TransactionDraftReviewStack({
           planningCategoryIds={plan?.rows.filter(row => !shownDrafts.slice(0, shownDrafts.indexOf(draft)).some(previous => ['confirmed', 'corrected'].includes(previous.status) && previous.occurred_on.slice(0, 7) === draft.occurred_on.slice(0, 7) && (previous.category_id === row.id || previous.splits?.some(split => split.budget_category_id === row.id || (split.category_name === row.name && split.stack_key === row.stack_key))))).map(row => row.id)}
           onEditingChange={(editing) => setEditingIds(current => { const next = new Set(current); if (editing) next.add(draft.id); else next.delete(draft.id); return next })}
           draft={draft}
+          compactFinished={compactFinished}
           isRealWorkspace={isRealWorkspace}
           action={action}
           draftActionsDisabled={draftActionsDisabled || bulkBusy || action === 'load-budget-year'}
@@ -8226,6 +8230,7 @@ type EditableDraftSplit = {
 
 function TransactionDraftReviewCard({
   draft,
+  compactFinished,
   error,
   onEditingChange,
   onPlanCategory,
@@ -8244,6 +8249,7 @@ function TransactionDraftReviewCard({
   selectionEnabled,
   onSelectedChange,
 }: {
+  compactFinished: boolean
   draft: TransactionDraft
   error?: string
   onPlanCategory?: (categoryId: number, monthNumber?: number, year?: number) => void
@@ -8413,7 +8419,7 @@ function TransactionDraftReviewCard({
   }
 
   return (
-    <div ref={cardRef} style={!isPending && slotHeight ? { minHeight: slotHeight } : undefined} data-review-item={draft.id} className={`transaction-draft-card ui-card${selected ? ' is-selected' : ''}${isPending ? '' : ' is-finished'}${liveResult}`}>
+    <div ref={cardRef} style={!isPending && !compactFinished && slotHeight ? { minHeight: slotHeight } : undefined} data-review-item={draft.id} className={`transaction-draft-card ui-card${selected ? ' is-selected' : ''}${isPending ? '' : ' is-finished'}${liveResult}`}>
       {isPending && selectionEnabled && (
         <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
           <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
@@ -9454,6 +9460,15 @@ export function AnnualBudgetPlanner({
                 <label>Edit month<select value={editMonthIndex} disabled={isSavingBudgetEdits} onChange={event => setEditMonthIndex(Number(event.target.value))}>{plan.months.map((month, index) => <option key={month.id} value={index}>{month.label}</option>)}</select></label>
                 <label className="savings-check"><input type="checkbox" checked={showFullYearEditor} onChange={event => setShowFullYearEditor(event.target.checked)} /> Show full year</label>
               </div>
+              {[...new Set(plan.rows.filter(row => row.active).map(row => row.stack_key))].map(stack => {
+                const group = plan.rows.filter(row => row.active && row.stack_key === stack)
+                if (!group.some(row => { const cell = row.months[editMonthIndex]; return cell && Number(allocationDraftValue(cell, allocationDrafts)) !== cell.planned })) return null
+                const label = { non_discretionary: 'Must-pay bills', discretionary: 'Flexible spending', sinking_expected: 'Planned yearly costs', sinking_unexpected: 'Surprise fund' }[stack]
+                if (group.some(row => !row.months[editMonthIndex] || row.months[editMonthIndex].allocation_missing)) return <p key={stack} className="group-edit-total annual-edit-hint">{label} group total: Planned amount needs repair</p>
+                const before = group.reduce((total, row) => total + moneyCents(row.months[editMonthIndex].planned), 0)
+                const after = group.reduce((total, row) => total + moneyCents(Number(allocationDraftValue(row.months[editMonthIndex], allocationDrafts))), 0)
+                return <p key={stack} className="group-edit-total annual-edit-hint">{label} group total: {formatReviewMoney(before)} saved → {Number.isFinite(after) ? formatReviewMoney(after) : 'Enter valid amounts'} with your edits. Lower another category yourself to keep the total the same.</p>
+              })}
               <div className={`annual-budget-table-wrap${showFullYearEditor ? ' is-full-year-editor' : ' is-selected-month-editor'}`} role="region" aria-label="Annual budget table" tabIndex={0}>
                 <table className="annual-budget-table">
                   <thead>
@@ -9504,13 +9519,7 @@ export function AnnualBudgetPlanner({
                                 <strong className="annual-planned-readonly">{formatReviewMoney(Math.round((month.planned) * 100))}</strong>
                               )}
                               <small>{allocationMissing ? 'Planned amount needs repair' : `${formatReviewMoney(Math.round((month.actual) * 100))} actual`}</small>
-                              {row.active && index === editMonthIndex && hasDraftChange && <small className="group-edit-total">{row.stack_label} group total: {(() => {
-                                const group = plan.rows.filter(candidate => candidate.active && candidate.stack_key === row.stack_key)
-                                if (group.some(candidate => !candidate.months[index] || candidate.months[index].allocation_missing)) return 'Planned amount needs repair'
-                                const before = group.reduce((total, candidate) => total + moneyCents(candidate.months[index]?.planned ?? 0), 0)
-                                const after = group.reduce((total, candidate) => total + moneyCents(Number(allocationDraftValue(candidate.months[index], allocationDrafts))), 0)
-                                return `${formatReviewMoney(before)} saved → ${Number.isFinite(after) ? formatReviewMoney(after) : 'Enter valid amounts'} with your edits. Lower another category yourself to keep the total the same.`
-                              })()}</small>}
+
 
                             </td>
                           )

@@ -317,3 +317,8 @@ body :is(#root, [role='dialog'], [role='alertdialog']) .ui-period select { width
 .purchase-plan-row button { white-space: normal; }
 
 .document-alert.warning { color: var(--color-warning); border: 1px solid var(--color-warning); background: var(--surface-card); }
+
+.category-pressure-row .ui-row { flex-wrap: wrap; gap: var(--space-3); }
+.category-pressure-row .ui-row__body { flex: 1 1 160px; }
+.category-pressure-row .ui-row > small { flex-basis: 100%; }
+.expense-group-categories li > small { grid-column: 1 / -1; }

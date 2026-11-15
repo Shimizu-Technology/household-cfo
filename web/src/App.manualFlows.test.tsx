@@ -533,3 +533,16 @@ it('uses the shared result owner so starting another review action clears old ma
   expect(screen.queryByRole('status')).toBeNull()
   expect(screen.getByRole('heading', { name: 'Purchase entry' })).toBeTruthy()
 })
+
+
+it('compacts finished Review slots without changing the default Mia and statement slots', async () => {
+  const purchase = draft()
+  const props = stackProps([purchase])
+  const view = render(<TransactionDraftReviewStack {...props} compactFinished />)
+  vi.spyOn(view.container.querySelector<HTMLElement>('[data-review-item]')!, 'getBoundingClientRect').mockReturnValue({ height: 240, top: 0 } as DOMRect)
+  fireEvent.click(screen.getByRole('button', { name: /^Confirm / }))
+  view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[{ ...purchase, status: 'confirmed' }]} compactFinished />)
+  expect(view.container.querySelector<HTMLElement>('[data-review-item]')?.style.minHeight).toBe('')
+  view.rerender(<TransactionDraftReviewStack {...props} drafts={[]} completedDrafts={[{ ...purchase, status: 'confirmed' }]} />)
+  expect(view.container.querySelector<HTMLElement>('[data-review-item]')?.style.minHeight).toBe('240px')
+})

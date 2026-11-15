@@ -17990,6 +17990,8 @@ test('BOG UI F2 fix1 editor totals follow changed amounts without overwriting ca
   await expect(page.getByRole('button', { name: /Take from/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Set amount for Groceries', exact: true }).click()
   await expect(page.locator('.category-pressure-row').filter({ hasText: 'Groceries' })).toContainText('Save or cancel your current edits before setting another amount.')
+  const planningText = await page.locator('.category-pressure-row').filter({ hasText: 'Groceries' }).locator('.ui-row__body').boundingBox()
+  expect(planningText!.width).toBeGreaterThan(120)
   const saves: number[] = []
   await page.route('http://api.test/api/v1/budget_allocations/*', async route => {
     const id = Number(new URL(route.request().url()).pathname.split('/').at(-1))
