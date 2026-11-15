@@ -196,6 +196,7 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     @household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     @household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 600_000)
     @household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_minimum_payment_cents: 0, debt_summary_minimum_payment_known: true, debt_summary_balance_cents: 0, debt_summary_balance_known: true)
     @household.update!(primary_goal: "Build runway", confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
     message = "What if I buy a $1,000 laptop next month?"
     next_month = Date.current.next_month.beginning_of_month
