@@ -336,3 +336,13 @@ for (const type of ['transfer', 'debt_payment'] as const) it(`keeps a known ${ty
   await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
   expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: type === 'transfer' ? 'moved' : 'card', money_direction: 'in', amount_cents: 2500 } }] })
 })
+
+it('uses the bank basis she chose over a different basis read from the file', async () => {
+  const data = review(planWith([], { signed_amount_question: true }))
+  data.accounts[0].account_basis = 'liability'
+  data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'asset'
+  serve(data)
+  mount([statement(1)])
+  await screen.findByText(/In this bank account file/)
+  expect(screen.queryByText(/In this credit card file/)).toBeNull()
+})
