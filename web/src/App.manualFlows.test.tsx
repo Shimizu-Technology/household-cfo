@@ -1,10 +1,16 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { AnnualBudgetPlan, BudgetCategoryRow, MiaActionDraft, SpendingReport, TransactionDraft } from './api'
 import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, MiaActionDraftReviewStack, TransactionDraftReviewStack } from './App'
 
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
+beforeAll(() => { Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }) })
+afterAll(() => {
+  if (originalScrollIntoView) Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScrollIntoView)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+})
 afterEach(cleanup)
 
 function draft(overrides: Partial<TransactionDraft> = {}): TransactionDraft {
