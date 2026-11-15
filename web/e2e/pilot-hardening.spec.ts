@@ -10393,6 +10393,8 @@ test('BOG UI daily Mia waits for the current question before offering today', as
     assistant_message: { id: id + 1, role: 'assistant', author: 'Mia', content },
   })
   await sendMiaDailyReport(page, reply('Would you rather cut back at Ross or Kmart?', 8201))
+  await expect(page.getByText('Would you rather cut back at Ross or Kmart?', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Send message to Mia', exact: true })).toBeVisible()
   await expect(prompt).toHaveCount(0)
   await sendMiaDailyReport(page, reply('Your saved total is $20.00.', 8203))
   await expect(prompt).toBeVisible()
