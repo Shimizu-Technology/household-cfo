@@ -54,6 +54,8 @@ async function adminProgramPicker(page: Page) {
   await expect(page.locator('.admin-app')).toBeVisible()
   const picker = page.getByRole('combobox', { name: 'Program', exact: true })
   if (!(await picker.count()) && await page.locator('.admin-app').count()) {
+    await page.evaluate(() => document.fonts.ready)
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
     if ((page.viewportSize()?.width ?? 0) <= 620) await page.evaluate(selector => { const active = document.activeElement; if (active instanceof HTMLElement && active.matches(selector)) active.blur() }, TEXT_ENTRY_SELECTOR)
     await page.getByRole('button', { name: 'More', exact: true }).click()
   }
@@ -6285,6 +6287,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: 'Review content draft' }).click()
   await page.getByRole('button', { name: 'Discard and review draft' }).click()
+  await page.waitForFunction(() => !window.history.state?.adminLeaveGuard)
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
   await itemPanel.getByLabel('Title').fill('Unsaved same-item title')
@@ -6296,6 +6299,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await showLibraryArea(page, 'Private sources')
   await page.getByRole('button', { name: 'Review content draft' }).click()
   await page.getByRole('button', { name: 'Discard and review draft' }).click()
+  await page.waitForFunction(() => !window.history.state?.adminLeaveGuard)
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
   await itemPanel.getByLabel('Title').fill('Keep this edit through a same-request refresh')
@@ -11395,7 +11399,16 @@ test('BOG UI a sent photo keeps a readable caption inside the bubble', async ({ 
   await caption.scrollIntoViewIfNeeded()
   await expect(caption).toHaveText('Receipt screenshot')
   const contrast = await caption.evaluate((node) => {
-    const channels = (value: string) => (value.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number)
+    // Computed color-mix values serialize as color(srgb ...), not necessarily rgb(...).
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = 1
+    const context = canvas.getContext('2d')!
+    const channels = (value: string) => {
+      context.clearRect(0, 0, 1, 1)
+      context.fillStyle = value
+      context.fillRect(0, 0, 1, 1)
+      return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3)
+    }
     const luminance = (value: string) => {
       const [red, green, blue] = channels(value).map((channel) => {
         const share = channel / 255
@@ -15373,6 +15386,7 @@ for (const status of ['confirmed', 'ignored'] as const) {
     await answerConfirm(page, 'accept')
     await expect(row.getByRole('alert')).toBeVisible()
     await expect(row.getByRole('button')).toBeEnabled()
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(null)))))
     await row.getByRole('alert').evaluate(node => node.scrollIntoView({ block: 'center' }))
     await expect(row.getByRole('alert')).toBeInViewport({ ratio: 1 })
     expect(errors).toEqual([])
