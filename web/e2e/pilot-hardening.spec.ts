@@ -17595,14 +17595,19 @@ function f2Workspace() {
   plan.pending_mia_action_drafts = []
   plan.pending_transaction_drafts_meta = { total_count: 0, returned_count: 0, limit: 500, truncated: false }
   workspace.dashboard.action_center = { ...workspace.dashboard.action_center, current_year: 2026, current_month_index: 10, current_month_label: 'November', transaction_review_count: 0, mia_action_review_count: 0, total_review_count: 0 }
-  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, year: 2026, month: 11, period_label: 'November 2026', spent_so_far_cents: 0, pending_count: 0, pending_cents: 0 }
+  workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, year: 2026, month: 11, period_label: 'November 2026', money_in_cents: 1500000, planned_out_cents: 110000, plan_left_cents: 1390000, spent_so_far_cents: 0, pending_count: 0, pending_cents: 0 }
   return workspace
 }
 async function f2Mock(page: Page, workspace = f2Workspace()) {
   await mockEmptyPlaidState(page, false)
   await page.clock.setFixedTime(new Date('2026-11-15T02:00:00Z'))
   await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
-  await page.route('http://api.test/api/v1/spending_report**', route => route.fulfill({ json: { spending_report: null } }))
+  await page.route('http://api.test/api/v1/spending_report**', route => {
+    const categories = workspace.budget.annual_plan.rows.map(row => ({ id: row.id, name: row.name, stack_key: row.stack_key, stack_label: row.stack_label, active: row.active, planned: row.months[10].planned, actual: row.months[10].actual, pending: 0, remaining: row.months[10].planned - row.months[10].actual }))
+    const planned = categories.reduce((total, category) => total + category.planned, 0)
+    const actual = categories.reduce((total, category) => total + category.actual, 0)
+    return route.fulfill({ json: { spending_report: { period_label: 'November 2026', start_on: '2026-11-01', end_on: '2026-11-28', totals: { planned, actual, pending: 0, remaining: planned - actual }, categories, transactions: [], pending_drafts: [], ignored_drafts: [] } } })
+  })
   return workspace
 }
 async function f2NoOverflow(page: Page) {
@@ -17760,6 +17765,8 @@ test('BOG UI F2 new purchase category has no over warning and opens its amount e
   await expect(row).toContainText('$45.20 actual')
   await expect(row).not.toContainText('$0 planned')
   await expect(row).not.toContainText('over')
+  await expect(page.locator('.budget-plan-strip')).toContainText('$1,100')
+  await expect(page.locator('.spending-report-summary')).toContainText('$900 planned')
   await expect(page.locator('.current-month-activity')).toContainText('Debt payments are counted in Planned out above')
   await row.getByRole('button', { name: 'Set amount for Groceries', exact: true }).click()
   await expect(target).toBeFocused()
