@@ -18,7 +18,7 @@ module FinancialDocuments
         def pending = @pending ||= SourceReviewDraft.where(household: @household).pending.index_by(&:source_review_head_id)
         def accounts = @accounts ||= SourceAccountReviewHead.where(household: @household).includes(:approved_version).index_by(&:financial_source_account_id)
         def events = @events ||= FinancialSourceEvent.where(household: @household)
-          .where(financial_extraction_revision_id: FinancialExtractionRevision.where(household: @household).select("DISTINCT ON (financial_document_import_id) id").order(:financial_document_import_id, revision_number: :desc, id: :desc)).includes(financial_extraction_revision: :financial_document_import).to_a
+          .where(financial_extraction_revision_id: FinancialExtractionRevision.where(household: @household).select("DISTINCT ON (financial_document_import_id, source_document_identity) id").order(:financial_document_import_id, :source_document_identity, revision_number: :desc, id: :desc)).includes(financial_extraction_revision: :financial_document_import).to_a
         def tracked_account_for(identity_id) = (@tracked ||= {}).fetch(identity_id) { @tracked[identity_id] = SourceAccountIdentityVersion.find_by(household: @household, id: identity_id)&.source_tracked_account_id }
       end
 
@@ -33,7 +33,14 @@ module FinancialDocuments
         own_account = @unlinked ? nil : context.tracked_account_for(facts[:source_account_identity_version_id])
         artifact = event.financial_extraction_revision.financial_document_import&.checksum_sha256
         context.events.reject { |other| other.id == event.id }.filter_map do |other|
-          next if other.financial_extraction_revision.financial_document_import_id == event.financial_extraction_revision.financial_document_import_id && other.financial_extraction_revision_id != event.financial_extraction_revision_id
+          own_revision = event.financial_extraction_revision
+          other_revision = other.financial_extraction_revision
+          same_source = if own_revision.financial_document_import_id && other_revision.financial_document_import_id
+            own_revision.financial_document_import_id == other_revision.financial_document_import_id
+          else
+            own_revision.source_document_identity == other_revision.source_document_identity
+          end
+          next if same_source && other.financial_extraction_revision_id != event.financial_extraction_revision_id
           head = heads[other.id]
           approved = head&.approved_version
           next if approved&.disposition.in?(%w[exclude informational])

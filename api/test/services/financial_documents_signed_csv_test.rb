@@ -268,6 +268,22 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_not_includes reply, "Nothing counts in your spending until you approve it."
   end
 
+  test "latest revision filtering preserves separate retained imports after originals are deleted" do
+    user, first = sign_document("first.csv")
+    second = first.dup
+    second.s3_key = "fictional/fix1-retained-#{SecureRandom.hex(6)}"
+    second.save!
+    accounting = extract("Date,Description,Amount,Direction\n2026-10-01,Pay,50,Credit\n", account_basis: "asset")[:source_accounting]
+    FinancialDocuments::SourceAccountingPersister.new(first, attempt: nil, accounting: accounting).call
+    first_latest = FinancialDocuments::SourceAccountingPersister.new(first, attempt: nil, accounting: accounting).call[:revision]
+    second_latest = FinancialDocuments::SourceAccountingPersister.new(second, attempt: nil, accounting: accounting).call[:revision]
+    expected = [ first_latest.financial_source_events.sole.id, second_latest.financial_source_events.sole.id ].sort
+    first.destroy!
+    second.destroy!
+    context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(first.household)
+    assert_equal expected, context.events.map(&:id).sort
+  end
+
   private
 
   def sign_document(filename)
