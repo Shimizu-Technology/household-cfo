@@ -4123,7 +4123,7 @@ test('BOG UI My Money keeps debt summary and individual tracking explicit on des
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'My Profile')
   await openMoneyTopic(page, 'Debt')
-  await expect(page.getByRole('heading', { name: 'Choose the amount of detail that works for your household.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Your debts' })).toBeVisible()
   await expect(page.getByText('Approved import')).toBeVisible()
   await expect(page.getByLabel('Canonical debt totals').getByText('$3,100')).toBeVisible()
 
@@ -4161,7 +4161,7 @@ test('BOG UI My Money keeps debt summary and individual tracking explicit on des
 
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 568 })
-    await expect(page.getByRole('heading', { name: 'Choose the amount of detail that works for your household.' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Your debts' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   }
 })
