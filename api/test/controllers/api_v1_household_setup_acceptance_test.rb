@@ -81,6 +81,9 @@ class ApiV1HouseholdSetupAcceptanceTest < ActionDispatch::IntegrationTest
     assert none.dig("workspace", "setup_complete")
     assert none.dig("workspace", "debt_portfolio", "balance_known")
     assert_equal 275000, none.dig("dashboard", "month_answer", "planned_out_cents")
+    changed = save_form.call(debt_payment: 350, credit_card_debt: nil)
+    assert changed.dig("workspace", "setup_complete")
+    refute changed.dig("workspace", "debt_portfolio", "balance_known")
   end
 
   test "F1 invalid debt payment rolls back the whole form save" do

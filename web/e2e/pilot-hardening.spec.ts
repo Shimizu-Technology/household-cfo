@@ -16849,3 +16849,18 @@ test('BOG UI F1 completing the form preserves a waiting message without sending 
   await expect(page.getByText(/Your message and files are waiting here/)).toBeVisible()
   expect(sent).toBe(0)
 })
+
+test('BOG UI F1 changing a saved no-debt answer leaves the new balance unknown', async ({ page }) => {
+  await f1Workspace(page)
+  await f1Fill(page, '')
+  await page.getByRole('checkbox', { name: 'Our household has no debts' }).check()
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  await expect(page.locator('.setup-save-notice')).toContainText('flexible spending')
+  await page.getByRole('checkbox', { name: 'Our household has no debts' }).uncheck()
+  await page.getByLabel('Monthly debt payments').fill('350')
+  await page.getByLabel('Flexible spending').fill('700')
+  const request = page.waitForRequest(r => r.url().endsWith('/workspace/setup') && r.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  expect((await request).postDataJSON().workspace).toMatchObject({ debt_payment: 350, credit_card_debt: null })
+  await expect(page.locator('.message.assistant').last()).toContainText('November 2026')
+})

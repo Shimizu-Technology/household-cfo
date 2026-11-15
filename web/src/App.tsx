@@ -3758,6 +3758,13 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     try {
       if (setupConflict) return
       const setupValues = submittableWorkspaceSetupValues(setupDraft, wasSetupComplete)
+      const portfolio = data?.workspace.debt_portfolio
+      const savedNoDebt = portfolio?.balance_known && portfolio.minimum_payment_known && portfolio.total_balance === 0 && portfolio.monthly_minimum === 0 && data?.workspace.setup_status.confirmed_fields.includes('debt_payment')
+      const savedDebtDraft = data?.workspace.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : null
+      // Withdrawing a saved no-debt answer must not carry its zero balance into new debts.
+      if (!wasSetupComplete && savedNoDebt && setupDraft.credit_card_debt.trim() === '' && (
+        setupDraft.debt_payment.trim() === '' || Number(setupDraft.debt_payment) !== 0 || savedDebtDraft?.credit_card_debt === '0'
+      )) setupValues.credit_card_debt = null
       const allSetupValues = activeSection === 'My Profile' && wasSetupComplete ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
       // A profile edit sends only what the person changed. Re-sending untouched
       // totals would ask the API to flatten detailed monthly category amounts.
@@ -6851,6 +6858,7 @@ export function WorkspaceSetupForm({
   const { assistantName } = useBrand()
   const savedHeadingRef = useRef<HTMLHeadingElement>(null)
   const noticeRef = useRef<HTMLParagraphElement>(null)
+  const noDebtSelected = values.credit_card_debt === '0' && values.debt_payment.trim() !== '' && Number(values.debt_payment) === 0
   useLayoutEffect(() => {
     if (notice) {
       noticeRef.current?.focus({ preventScroll: true })
@@ -6924,8 +6932,8 @@ export function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
           <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
           {firstSession && <>
-            <MoneyInput disabled={saving} name="debt_payment" label="Monthly debt payments" value={values.debt_payment} help="What do you pay on debts each month? Leave blank if unknown, or choose no debts below." onChange={(value) => { onChange('debt_payment', value); if (value !== '0') onChange('credit_card_debt', '') }} />
-            <label className="ui-check"><input type="checkbox" checked={values.credit_card_debt === '0' && values.debt_payment === '0'} disabled={saving} onChange={(event) => { onChange('credit_card_debt', event.target.checked ? '0' : ''); onChange('debt_payment', event.target.checked ? '0' : '') }} />Our household has no debts</label>
+            <MoneyInput disabled={saving} name="debt_payment" label="Monthly debt payments" value={values.debt_payment} help="What do you pay on debts each month? Leave blank if unknown, or choose no debts below." onChange={(value) => { onChange('debt_payment', value); if (noDebtSelected && (value.trim() === '' || Number(value) !== 0)) onChange('credit_card_debt', '') }} />
+            <label className="ui-check"><input type="checkbox" checked={noDebtSelected} disabled={saving} onChange={(event) => { onChange('credit_card_debt', event.target.checked ? '0' : ''); onChange('debt_payment', event.target.checked ? '0' : '') }} />Our household has no debts</label>
           </>}
           </>}
         </div>
