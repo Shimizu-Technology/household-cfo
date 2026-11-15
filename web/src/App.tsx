@@ -2057,12 +2057,12 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
-  function openBudgetMoneyTool(tool: 'category' | 'monthly', categoryId: number | null = null, monthNumber = selectedBudgetMonthIndex + 1) {
+  function openBudgetMoneyTool(tool: 'category' | 'monthly', categoryId: number | null = null, monthNumber = selectedBudgetMonthIndex + 1, focus: 'category' | 'amount' = 'category') {
     if (!switchSection('Budget', { focusHeading: false })) return
     budgetFocusSequenceRef.current += 1
     setBudgetFocusRequest({
       key: budgetFocusSequenceRef.current,
-      operationKey: tool === 'category' ? 'budget.category.create' : 'budget.allocation.set',
+      operationKey: tool === 'category' ? 'budget.category.create' : focus === 'amount' ? 'budget.allocation.set' : 'budget.category.update',
       actionType: tool === 'category' ? 'create_category' : 'update_category',
       categoryId,
       months: tool === 'category' ? [] : [monthNumber],
@@ -4566,7 +4566,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     title="Purchases to review"
                     emptyTitle={pendingMiaActionDrafts.length > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
                     description="Check the date, amount and category before confirming."
-                    onPlanCategory={(categoryId, monthNumber) => openBudgetMoneyTool('monthly', categoryId, monthNumber)}
+                    onPlanCategory={(categoryId, monthNumber) => openBudgetMoneyTool('monthly', categoryId, monthNumber, 'amount')}
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
