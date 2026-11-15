@@ -1363,6 +1363,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       assert_includes text, "Attached transactions:"
       assert_not_includes text, "I read a receipt"
     end
+    post "/api/v1/mia/messages", params: { message: "Review and tell me the amount I paid", document_import_ids: [ document.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    text = response.parsed_body.dig("assistant_message", "content")
+    assert_includes text, "totaling $20."
+    assert_not_includes text, "I read a receipt"
   end
 
   test "mia chat persists attached document imports with a single contextual reply" do

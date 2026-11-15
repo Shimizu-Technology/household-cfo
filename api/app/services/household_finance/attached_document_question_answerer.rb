@@ -12,12 +12,12 @@ module HouseholdFinance
     MONTH_PATTERN = /(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)/i
     GENERIC_REVIEW_PATTERN = /\A(?:please\s+)?(?:review|read|check|process|summarize)\b/i
     SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|add up|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
-    LIST_REQUEST_PATTERN = /\b(?:list|show)\b.{0,40}\b(?:transactions?|purchases?|charges?|merchants?)\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
 
-    # "Review and show transactions" opens like a plain review but asks for the list.
+    # "Review and show transactions" or "Review and tell me the amount I paid" opens
+    # like a plain review but asks a question this class answers from the rows.
     def self.read_acknowledgement_request?(message)
-      generic_review_request?(message) && !message.to_s.squish.match?(LIST_REQUEST_PATTERN)
+      generic_review_request?(message) && !new(nil, message: message, document_imports: []).answerable_transaction_question?
     end
 
     def self.generic_review_request?(message)
@@ -56,6 +56,10 @@ module HouseholdFinance
       parts << failed_import_notice
       parts << review_boundary(rows, setup)
       parts.compact.join(" ")
+    end
+
+    def answerable_transaction_question?
+      transaction_question?
     end
 
     private

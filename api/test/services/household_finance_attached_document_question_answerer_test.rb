@@ -37,6 +37,9 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
       assert_includes answer, "Pay-Less"
       assert_not_includes answer, "I read a receipt"
     end
+    total = answer_for("Review and tell me the amount I paid")
+    assert_includes total, "totaling $69.51"
+    assert_not_includes total, "I read a receipt"
   end
 
   test "answers totals and largest transaction from structured attached rows" do
