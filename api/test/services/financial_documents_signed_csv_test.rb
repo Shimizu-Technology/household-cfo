@@ -4,7 +4,7 @@ require "spreadsheet"
 
 class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
   test "running balances prove the whole bank CSV without a model" do
-    data = extract(csv)
+    data = extract(csv, account_basis: "asset")
     rows = data.fetch(:source_accounting).fetch(:events)
     assert_equal 15, rows.length
     assert_equal [ "posted" ], rows.pluck(:row_kind).uniq
@@ -94,7 +94,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
   end
 
   test "a proven sign never turns a row labelled as incoming into spending" do
-    data = extract("Date,Description,Amount,Balance,Category\n2026-10-01,Deposit,100,200,Income\n2026-10-02,Refund,-10,190,Refund\n2026-10-03,Store,-5,185,Groceries\n")
+    data = extract("Date,Description,Amount,Balance,Category\n2026-10-01,Deposit,100,200,Income\n2026-10-02,Refund,-10,190,Refund\n2026-10-03,Store,-5,185,Groceries\n", account_basis: "asset")
     rows = data[:source_accounting][:events]
     assert_equal "income", rows.first[:event_type]
     assert_includes rows.second[:limitations], "conflicting_debit_credit"
@@ -142,13 +142,147 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     file&.close!
   end
 
-  test "running balances also prove a file with only outgoing rows" do
+  test "two running balance rows are not enough to prove direction" do
     rows = extract("Date,Description,Amount,Balance\n2026-10-01,Store one,-30,100\n2026-10-02,Store two,-20,80\n")[:source_accounting][:events]
-    assert_equal [ "posted", "posted" ], rows.pluck(:row_kind)
-    assert_equal [ -3000, -2000 ], rows.pluck(:signed_amount_cents)
+    assert_equal [ "unresolved", "unresolved" ], rows.pluck(:row_kind)
+    assert_equal [ nil, nil ], rows.pluck(:signed_amount_cents)
+  end
+
+  test "liability balance arithmetic handles both signs and both chronological orders" do
+    [ 1, -1 ].each do |factor|
+      rows = [ [ "2026-10-01", "Store", 126.42 * factor, 626.42 ], [ "2026-10-02", "Store two", 65 * factor, 691.42 ], [ "2026-10-03", "PAYMENT THANK YOU", -300 * factor, 391.42 ] ]
+      [ rows, rows.reverse ].each do |ordered|
+        content = CSV.generate { |out| out << %w[Date Description Amount Balance]; ordered.each { |row| out << row } }
+        result = extract(content, account_basis: "liability")[:source_accounting]
+        expected = ordered.map { |row| -(BigDecimal(row[2].to_s) * 100).round.to_i * factor }
+        assert_equal expected, result[:events].pluck(:signed_amount_cents)
+        assert_not result[:coverage][:signed_amount_question]
+        unknown = extract(content)[:source_accounting]
+        assert unknown[:coverage][:signed_amount_question]
+        assert unknown[:events].all? { |event| event[:signed_amount_cents].nil? }
+      end
+    end
+  end
+
+  test "equal amounts and a single sign still ask while explicit directions do not" do
+    result = extract("Date,Description,Amount,Balance\n2026-10-03,Store,10,130\n2026-10-02,Store,10,120\n2026-10-01,Store,10,110\n", account_basis: "liability")[:source_accounting]
+    assert result[:coverage][:signed_amount_question]
+    assert result[:events].all? { |event| event[:signed_amount_cents].nil? }
+    assert extract("Date,Description,Amount\n2026-10-01,Store,10\n")[:source_accounting][:coverage][:signed_amount_question]
+    explicit = extract("Date,Description,Amount,Direction\n2026-10-01,Store,-10,Debit\n2026-10-02,Pay,20,Credit\n")[:source_accounting]
+    assert_not explicit[:coverage][:signed_amount_question]
+    assert_equal [ -1000, 2000 ], explicit[:events].pluck(:signed_amount_cents)
+  end
+
+  test "two explicit accounts fall back to individual directions without a file block" do
+    result = extract("Date,Description,Amount,Account,Account type\n2026-10-01,Store,10,Bank,asset\n2026-10-02,Card store,-20,Card,liability\n")[:source_accounting]
+    assert_not result[:coverage][:signed_amount_question]
+    assert_equal [ nil, nil ], result[:events].pluck(:signed_amount_cents)
+  end
+
+  test "a workbook answer preserves debit credit and proven rows for either answer" do
+    [ true, false ].each do |answer|
+      file = Tempfile.new([ "mixed-workbook", ".xls" ])
+      workbook = Spreadsheet::Workbook.new
+      sheet = workbook.create_worksheet(name: "Explicit")
+      sheet.row(0).replace(%w[Date Description Debit Credit Account])
+      sheet.row(1).replace([ "2026-10-01", "Settled debit", "50", nil, "bank" ])
+      sheet.row(2).replace([ "2026-10-02", "Settled credit", nil, "60", "bank" ])
+      sheet = workbook.create_worksheet(name: "Signed")
+      sheet.row(0).replace(%w[Date Description Amount Account])
+      sheet.row(1).replace([ "2026-10-03", "Unclear", "-70", "bank" ])
+      sheet = workbook.create_worksheet(name: "Proven")
+      sheet.row(0).replace([ "Date", "Description", "Amount", "Balance", "Account", "Account type" ])
+      sheet.row(1).replace([ "2026-10-04", "Known one", "100", "200", "bank", "asset" ])
+      sheet.row(2).replace([ "2026-10-05", "Known two", "-20", "180", "bank", "asset" ])
+      sheet.row(3).replace([ "2026-10-06", "Known three", "-30", "150", "bank", "asset" ])
+      workbook.write(file.path)
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "mixed.xls", document_kind: "statement", account_basis: "asset").call
+      user, document = sign_document("mixed.xls")
+      revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: result.data[:source_accounting], structured_spreadsheet: true).call[:revision]
+      changed = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: answer, user: user)
+      assert_equal [ -5000, 6000, answer ? -7000 : 7000, 10000, -2000, -3000 ], changed.financial_source_events.order(:position).pluck(:signed_amount_cents)
+      before = revision.financial_source_events.order(:position).first(2)
+      after = changed.financial_source_events.order(:position).first(2)
+      assert_equal before.map { |event| [ event.event_type, event.limitations, event.locator, event.financial_source_evidence.payload ] }, after.map { |event| [ event.event_type, event.limitations, event.locator, event.financial_source_evidence.payload ] }
+      file.close!
+    end
+  end
+
+  test "checksum import can change its answer then load and approve without self overlaps" do
+    user, document = sign_document("bank.csv")
+    accounting = extract(without_balance, account_basis: "asset")[:source_accounting]
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting, structured_spreadsheet: true).call[:revision]
+    yes = FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: true, user: user)
+    no = FinancialDocuments::SpreadsheetSignAnswer.call(yes, negative_is_money_out: false, user: user)
+    assert_equal(-yes.financial_source_events.order(:position).first.signed_amount_cents, no.financial_source_events.order(:position).first.signed_amount_cents)
+    assert_equal 2, document.reload.metadata["signed_amount_answers"].length
+    assert document.metadata["signed_amount_answers"].all? { |answer| answer["user_id"] == user.id && answer["answered_at"].present? }
+    document.update!(metadata: document.metadata.merge("warnings" => [ "You described this as bank statement, but I detected credit card statement." ]))
+    approve_income(user, document, no)
+    reply = HouseholdFinance::UploadReadReply.call(document.household, [ document ])
+    assert_includes reply, "You already reviewed 1 line"
+    assert_includes reply, "You described this as"
+    assert_not_includes reply, "Nothing counts in your spending until you approve it."
+    assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(no, negative_is_money_out: true, user: user) }
+  end
+
+  test "reprocessing the same checksum does not create self overlaps" do
+    user, document = sign_document("bank.csv")
+    accounting = extract(csv, account_basis: "asset")[:source_accounting]
+    2.times { FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting, structured_spreadsheet: true).call }
+    revision = document.financial_extraction_revisions.order(:revision_number).last
+    approve_income(user, document, revision)
+  end
+
+  test "an unknown line cannot be saved without a deliberate direction" do
+    user, document = sign_document("bank.csv")
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract("Date,Description,Amount\n2026-10-01,Unknown,50\n", account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    %w[spending moved card].each do |kind|
+      error = assert_raises(ArgumentError) do
+        FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: revision.financial_source_events.sole.id, decision: "edited", edit: { kind: kind, amount_cents: 5000, posted_on: "2026-10-01" } } ] }).call
+      end
+      assert_includes error.message, "money out or money in"
+    end
+    assert_empty document.household.household_transactions
+  end
+
+  test "read replies distinguish empty and already reviewed statements" do
+    user, document = sign_document("bank.csv")
+    empty = { contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [], events: [], coverage: {} }
+    FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: empty, structured_spreadsheet: true).call
+    reply = HouseholdFinance::UploadReadReply.call(document.household, [ document ])
+    assert_includes reply, "There are no lines to approve."
+    assert_not_includes reply, "card below is waiting"
+    accounting = extract("Date,Description,Amount,Direction\n2026-10-01,Pay,50,Credit\n", account_basis: "asset")[:source_accounting]
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting, structured_spreadsheet: true).call[:revision]
+    approve_income(user, document, revision)
+    reply = HouseholdFinance::UploadReadReply.call(document.household, [ document ])
+    assert_includes reply, "You already reviewed every line."
+    assert_not_includes reply, "card below is waiting"
+    assert_not_includes reply, "Nothing counts in your spending until you approve it."
   end
 
   private
+
+  def sign_document(filename)
+    user = User.create!(clerk_id: "fix1-#{SecureRandom.hex(5)}", email: "fix1-#{SecureRandom.hex(5)}@example.com", role: "participant", invitation_status: "accepted")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "statement", status: "needs_review", filename: filename,
+      content_type: "text/csv", byte_size: 100, s3_key: "fictional/fix1-#{SecureRandom.hex(6)}", checksum_sha256: "a" * 64)
+    [ user, document ]
+  end
+
+  def approve_income(user, document, revision)
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(document.household, revision)
+    assert plan.lines.all? { |line| line.overlaps.empty? }
+    line = plan.lines.find { |row| row.event.event_type == "income" }
+    assert line.ready?
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: line.event.id, decision: "as_read", shown: { event_type: line.event.event_type, category_id: line.category_id } } ] }).call
+    assert SourceReviewHead.find_by!(financial_source_event: line.event).approved_version
+  end
 
   def csv = File.read(Rails.root.join("test/fixtures/files/r7_bank_statement.csv"))
   def without_balance = CSV.generate { |out| CSV.parse(csv).each { |row| out << row.first(3) } }

@@ -185,7 +185,7 @@ module FinancialDocuments
     def extract_source_accounting(summary)
       raw_accounts = []
       raw_events = []
-      file_direction = signed_file_direction(summary)
+      directions = signed_file_directions(summary)
       Array(summary[:sheets]).each_with_index do |sheet, fallback_index|
         sheet_index = sheet[:sheet_index] || fallback_index
         rows = Array(sheet[:rows])
@@ -207,7 +207,7 @@ module FinancialDocuments
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
-          amount, limitations = signed_row_amount(values, map, file_direction: file_direction)
+          amount, limitations = signed_row_amount(values, map, file_direction: directions[[ sheet_index, key ]])
           kind = cell(values, map, "status").to_s.match?(/\Apending\z/i) ? "informational" : "posted"
           kind = "informational" if [ merchant, notes ].compact.join(" ").match?(/returned\s+unpaid|total\s+(?:fees?|charges?)\s+(?:for|this)\s+(?:the\s+)?(?:statement\s+)?period/i)
           type = source_event_type(values, map, merchant, amount)
@@ -230,39 +230,66 @@ module FinancialDocuments
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },
-        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary), signed_amount_question: @sign_question })
+        coverage: { expected_sheet_count: summary[:sheet_count], processed_sheets: parsed_sheet_indices(summary), signed_amount_question: @sign_question, signed_amount_balance_factor: @balance_factor })
     end
 
-    # Only a whole account's complete running-balance arithmetic proves a sign convention.
-    # Never let a single row or a merchant name choose it.
-    def signed_file_direction(summary)
-      groups = Array(summary[:sheets]).flat_map do |sheet|
+    # Arithmetic establishes how the column moves a balance, never what an
+    # increase means. That requires the account basis as well.
+    def signed_file_directions(summary)
+      groups = Array(summary[:sheets]).each_with_index.flat_map do |sheet, index|
         rows = Array(sheet[:rows])
         header = rows.find { |row| transaction_header?(row[:values]) }
         next [] unless header
         map = header_map_for(header[:values])
         next [] if map.key?("debit") || map.key?("credit") || !map.key?("amount")
         rows.select { |row| row[:row] > header[:row] && !transaction_header?(row[:values]) }
-          .group_by { |row| cell(row[:values], map, "account").to_s }.values.map { |group| [ group, map ] }
+          .group_by { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
+          .map { |key, group| [ [ sheet[:sheet_index] || index, key ], group, map ] }
       end
-      amounts = groups.flat_map { |rows, map| rows.map { |row| money_cents(cell(row[:values], map, "amount"), allow_negative: true) } }
-      return if groups.empty?
-      return @negative_is_money_out ? :signed : :reversed unless @negative_is_money_out.nil?
-
-      proven = groups.all? do |group, map|
-        map.key?("balance") && group.length >= 2 && group.all? do |row|
-          money_cents(cell(row[:values], map, "balance"), allow_negative: true) && money_cents(cell(row[:values], map, "amount"), allow_negative: true)
-        end && group.each_cons(2).all? do |previous, current|
-          before = money_cents(cell(previous[:values], map, "balance"), allow_negative: true)
-          after = money_cents(cell(current[:values], map, "balance"), allow_negative: true)
-          movement = money_cents(cell(current[:values], map, "amount"), allow_negative: true)
-          before + movement == after
+      unresolved = []
+      directions = groups.to_h do |key, group, map|
+        eligible = group.select do |row|
+          signed_row_amount(row[:values], map).last.include?("transaction_direction_unclear")
         end
+        direction = nil
+        if eligible.any?
+          basis = @account_basis || cell(group.first[:values], map, "account_basis").to_s.downcase
+          if !@negative_is_money_out.nil?
+            direction = @negative_is_money_out ? :signed : :reversed
+          else
+            observations = group.map do |row|
+              [ parsed_date(cell(row[:values], map, "date")),
+                money_cents(cell(row[:values], map, "amount"), allow_negative: true),
+                money_cents(cell(row[:values], map, "balance"), allow_negative: true) ]
+            end
+            if observations.length >= 3 && observations.all? { |row| row.none?(&:nil?) } && observations.map(&:second).uniq.length > 1
+              dates = observations.map(&:first)
+              ordered = dates.each_cons(2).all? { |a, b| a < b } || dates.each_cons(2).all? { |a, b| a > b }
+              readings = ordered ? [ 1, -1 ].select do |factor|
+                observations.sort_by(&:first).each_cons(2).all? { |before, after| before[2] + factor * after[1] == after[2] }
+              end : []
+              if readings.one?
+                @balance_factor = readings.first if groups.one?
+                next [ key, nil ].tap { unresolved << key } unless basis.in?(%w[asset liability])
+                negative_out = (readings.first == 1) == (basis == "asset")
+                direction = negative_out ? :signed : :reversed
+              end
+            end
+          end
+          unresolved << key unless direction
+        end
+        [ key, direction ]
       end
-      return :signed if proven
-
-      @sign_question = amounts.any? { |amount| amount.to_i.positive? } && amounts.any? { |amount| amount.to_i.negative? }
-      nil
+      # A file-level answer is unsafe across accounts. Individual row questions
+      # remain available and never block already established rows.
+      account_keys = Array(summary[:sheets]).each_with_index.flat_map do |sheet, index|
+        rows = Array(sheet[:rows]); header = rows.find { |row| transaction_header?(row[:values]) }
+        next [] unless header
+        map = header_map_for(header[:values])
+        rows.select { |row| row[:row] > header[:row] }.map { |row| cell(row[:values], map, "account").to_s.presence || "sheet-#{sheet[:sheet_index] || index}" }
+      end.uniq
+      @sign_question = unresolved.any? && account_keys.reject { |key| key.start_with?("sheet-") }.length <= 1
+      directions
     end
 
     def signed_row_amount(values, map, file_direction: nil)
@@ -300,10 +327,10 @@ module FinancialDocuments
 
     def source_event_type(values, map, merchant, amount)
       label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), merchant ].compact.join(" ").downcase
-      return "debt_payment" if label.match?(/(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
+      return "debt_payment" if label.match?(/payment\s+thank\s+you|(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
       return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
       return "cash_withdrawal" if label.match?(/atm|cash\s+withdrawal/)
-      return "refund" if amount.to_i.positive? && label.match?(/refund|reimburse|reversal/)
+      return "refund" if label.match?(/refund|reimburse|reversal/)
       return "interest" if label.match?(/interest/)
       return "income" if amount.to_i.positive?
       return "fee" if amount.to_i.negative? && label.match?(/fee|service charge/)

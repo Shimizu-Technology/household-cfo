@@ -448,7 +448,7 @@ module Api
         extension = File.extname(metadata.fetch(:filename)).downcase
         return HEIF_CONVERSION_REQUIRED if extension.in?(%w[.heic .heif])
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" unless metadata.fetch(:byte_size).positive?
         size_error = FinancialDocuments::UploadLimits.validation_error(
           byte_size: metadata.fetch(:byte_size),
@@ -589,7 +589,7 @@ module Api
         extension = File.extname(filename).downcase
         return HEIF_CONVERSION_REQUIRED if extension.in?(%w[.heic .heif])
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         size_error = FinancialDocuments::UploadLimits.validation_error(
           byte_size: File.size(file.tempfile.path),

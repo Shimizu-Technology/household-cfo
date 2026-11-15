@@ -248,7 +248,10 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal revision.id, response.parsed_body.fetch("revision_id")
     post "/api/v1/document_imports/#{document.id}/sign_answer", params: { revision_id: @source[:revision].id, negative_is_money_out: false }, headers: auth_headers(@user), as: :json
-    assert_response :conflict
+    assert_response :success
+    changed = document.financial_extraction_revisions.find(response.parsed_body.fetch("revision_id"))
+    assert_equal [ -260_000, 145_000 ], changed.financial_source_events.pluck(:signed_amount_cents).sort
+    assert_equal 2, document.reload.metadata["signed_amount_answers"].length
   ensure
     file&.close!
   end

@@ -47,7 +47,12 @@ module FinancialDocuments
         dates = plan.lines.filter_map { |line| line.event.posted_on }
         totals = CoverageQuestion.totals_check(revision)
         # "ready" is exactly what "Approve the rest" will save: each line's category (and how it was chosen) is shown to her and sent back.
-        { signed_amount_question: revision.coverage["signed_amount_question"] == true, total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
+        bases = revision.financial_source_accounts.map do |account|
+          SourceAccountReviewHead.find_by(financial_source_account: account)&.approved_version&.source_tracked_account&.account_basis || account.account_basis
+        end
+        { signed_amount_balance_factor: revision.coverage["signed_amount_balance_factor"], signed_amount_question: revision.coverage["signed_amount_question"] == true && bases.uniq.length == 1,
+          signed_amount_answerable: revision.coverage["signed_amount_answerable"] == true && plan.lines.none?(&:done),
+          sign_effect: revision.coverage["signed_amount_answerable"] == true ? "#{plan.lines.count { |line| line.event.signed_amount_cents.to_i.negative? }} lines are money out, #{plan.lines.count { |line| line.event.signed_amount_cents.to_i.positive? }} lines are money in" : nil, total: plan.lines.length, done: plan.lines.count(&:done), without_category: plan.lines.count(&:without_category), spending: ParticipantProgress.new(household, revision).spending_totals, ready_event_ids: plan.ready_ids, totals_check: totals,
           ready: plan.lines.select { |line| line.ready? && !line.done }.map { |line| { event_id: line.event.id, event_type: line.event.event_type, category_id: line.category_id, category_name: names[line.category_id], as_before: line.as_before,
             merchant: line.merchant, signed_amount_cents: line.event.signed_amount_cents, posted_on: line.event.posted_on&.iso8601, expected_head: line.expected_head, informational: line.event.row_kind == "informational" } },
           coverage: { question: CoverageQuestion.text(revision, check: totals, deficiencies: state[:deficiencies]), answer: CoverageQuestion.answer(revision), version_id: CoverageQuestion.latest(revision)&.id },

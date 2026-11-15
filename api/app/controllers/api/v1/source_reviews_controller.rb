@@ -81,7 +81,7 @@ module Api
           %w[source_review.draft.stage source_review.account.link].each do |key|
             CohortReleases::OperationAccess.require!(household: current_household, user: current_user, key: key, membership: current_cohort_membership)
           end
-          updated = revision.id.to_s == body[:revision_id].to_s ? FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: body[:negative_is_money_out], user: current_user) : revision
+          updated = (revision.id.to_s == body[:revision_id].to_s || document_answer_changed?(revision, body)) ? FinancialDocuments::SpreadsheetSignAnswer.call(revision, negative_is_money_out: body[:negative_is_money_out], user: current_user) : revision
           { revision_id: updated.id }
         end
         response.set_header("Cache-Control", "no-store")
@@ -183,12 +183,16 @@ module Api
           revision = document.financial_extraction_revisions.order(revision_number: :desc, id: :desc).first
           answer = document.metadata["signed_amount_answer"].to_h
           replay = sign_replay && revision && [ true, false ].include?(body[:negative_is_money_out]) && answer["user_id"] == current_user.id &&
-            answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id && answer["negative_is_money_out"] == body[:negative_is_money_out]
+            answer["previous_revision_id"].to_s == body[:revision_id].to_s && answer["revision_id"] == revision.id
           unless revision && (revision.id.to_s == body[:revision_id].to_s || replay)
             raise FinancialDocuments::SourceReview::Domain::StaleReview, "The extraction changed. Refresh this statement; nothing changed."
           end
           yield revision
         end
+      end
+
+      def document_answer_changed?(revision, body)
+        revision.financial_document_import.metadata.dig("signed_amount_answer", "negative_is_money_out") != body[:negative_is_money_out]
       end
 
       def domain

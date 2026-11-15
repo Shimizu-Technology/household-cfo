@@ -28,7 +28,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
       document.s3_key = "fictional/f4-#{permanent}.pdf"
       document.save!
       message = permanent ? FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE : FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
-      result = FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: message, metadata: { status_code: permanent ? 400 : 503 })
+      result = FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: message, metadata: { failure_class: permanent ? "input_rejected" : "provider_request_failed", failure_reason: permanent ? "invalid_image" : "http_503", status_code: permanent ? 400 : 503 })
       with_extractor_stub(fake_extractor(result)) { FinancialDocumentExtractionJob.perform_now(document.id) }
       assert_equal permanent, document.reload.metadata["extraction_failure_permanent"]
       assert_equal message, document.extraction_error
@@ -605,7 +605,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
   end
 
   test "stale processing stops with a calm failure once every attempt is used" do
-    @document_import.update!(status: "processing")
+    @document_import.update!(status: "processing", metadata: { "extraction_failure_permanent" => true })
     stale_attempt = @document_import.attempts.create!(
       provider: "openrouter",
       model: "test/model",
@@ -631,6 +631,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     @document_import.reload
     assert_equal "failed", @document_import.status
     assert_equal FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE, @document_import.extraction_error
+    assert_equal false, @document_import.metadata["extraction_failure_permanent"]
     assert @document_import.metadata.key?("last_extraction_failed_at")
     assert_equal "failed", stale_attempt.reload.status
     assert_equal true, stale_attempt.metadata.fetch("stalled")

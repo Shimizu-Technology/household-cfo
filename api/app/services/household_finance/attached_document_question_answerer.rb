@@ -33,18 +33,18 @@ module HouseholdFinance
       return unless document_imports.all? { |document_import| document_import.household_id == household.id }
       return evidence_bound_answer if evidence_exceeds_complete_bound?
 
-      if self.class.generic_review_request?(message) || (!message.include?("?") && !message.match?(/\A(?:is|are|can|could|should|will|do|does|why|how)\b/i) && !message.match?(SUBSTANTIVE_QUESTION_PATTERN))
+      if self.class.generic_review_request?(message)
         read_reply = UploadReadReply.call(household, document_imports)
         return read_reply if read_reply
       end
       rows = transaction_rows
       setup = setup_rows
-      return no_evidence_answer if rows.empty? && setup.empty?
+      return UploadReadReply.call(household, document_imports) || no_evidence_answer if rows.empty? && setup.empty?
 
       parts = direct_answer_parts(rows, setup)
       if parts.empty?
         read_reply = UploadReadReply.call(household, document_imports)
-        return "#{read_reply} I can’t tell anything more from this file." if read_reply
+        return (message.include?("?") ? "#{read_reply} I can’t tell anything more from this file." : read_reply) if read_reply
         parts << unsupported_question_answer
       end
       parts << failed_import_notice

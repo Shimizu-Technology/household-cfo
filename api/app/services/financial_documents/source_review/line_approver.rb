@@ -28,7 +28,6 @@ module FinancialDocuments
         end
         raise ArgumentError, "Choose at least one line to approve" if entries.empty? && input[:accounts].blank? && answer.nil?
         raise ArgumentError, "Approve up to #{MAX_LINES} lines at a time." if entries.length > MAX_LINES
-        raise ArgumentError, "Answer how spending amounts are shown before approving lines." if revision.coverage["signed_amount_question"] == true && entries.any?
         domain.overlap_context = OverlapDetector::Context.new(household)
         check_account_heads!(entries)
         link_accounts!
@@ -179,6 +178,12 @@ module FinancialDocuments
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
         # "Spending" covers fees and interest too: choosing a category for one must not turn it into a purchase.
         type = event.event_type if kind == "spending" && event.event_type.in?(ParticipantPlan::EXPENSE_TYPES)
+        if event.signed_amount_cents.nil? && !edit[:money_direction].in?(%w[in out])
+          raise ArgumentError, "Choose whether this was money out or money in."
+        end
+        if (edit[:money_direction] == "in" && kind.in?(%w[spending cash])) || (edit[:money_direction] == "out" && kind.in?(%w[money_in refund]))
+          raise ArgumentError, "Choose a kind that matches money out or money in."
+        end
         cents = edit.key?(:amount_cents) ? edit[:amount_cents] : event.signed_amount_cents&.abs
         raise ArgumentError, "Enter the amount for this line" unless cents.is_a?(Integer) && cents.positive?
         signed = case kind

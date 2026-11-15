@@ -743,9 +743,10 @@ module FinancialDocuments
       nil
     end
 
-    def provider_failure_message(status)
+    def provider_failure_message(status, rejected: false)
       return PROVIDER_CREDIT_MESSAGE if status == 402
-      return REJECTED_FILE_MESSAGE if status.in?([ 400, 413, 415, 422 ])
+      return REJECTED_FILE_MESSAGE if rejected
+      return "The reader couldn’t finish this request. Please try again later. Nothing changed." if status.in?([ 400, 401, 403, 422 ])
 
       TEMPORARY_FAILURE_MESSAGE
     end
@@ -766,7 +767,12 @@ module FinancialDocuments
       ProviderOutageAlert.check(response, service: "document_extraction")
       unless response.is_a?(Net::HTTPSuccess)
         status_code = response.code.to_i
-        return failure(provider_failure_message(status_code), metadata: { status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
+        # Only explicit input errors establish that the participant's file is
+        # rejected. Authentication, policy and malformed requests are ours.
+        provider_error = JSON.parse(response.body).dig("error") rescue nil
+        reason = provider_error.is_a?(Hash) ? provider_error["code"].to_s : ""
+        rejected = status_code.in?([ 413, 415 ]) || (status_code.in?([ 400, 422 ]) && reason.in?(%w[unsupported_media_type unsupported_file_type invalid_image unreadable_document image_parse_error]))
+        return failure(provider_failure_message(status_code, rejected: rejected), metadata: { failure_class: rejected ? "input_rejected" : "provider_request_failed", failure_reason: reason.presence || "http_#{status_code}", status_code: status_code, retryable: RETRYABLE_STATUS_CODES.include?(status_code),
           retry_after_seconds: retry_after_seconds(response["Retry-After"]), error_detail: "OpenRouter extraction failed with HTTP #{status_code}" }.compact)
       end
 

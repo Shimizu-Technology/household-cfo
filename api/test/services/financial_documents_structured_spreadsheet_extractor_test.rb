@@ -555,7 +555,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     events = result.data[:source_accounting][:events]
     assert_equal 6, events.length
     assert_equal %w[unresolved unresolved posted posted posted posted], events.pluck(:row_kind)
-    assert_equal %w[unknown purchase transfer debt_payment refund purchase], events.pluck(:event_type)
+    assert_equal %w[refund purchase transfer debt_payment refund purchase], events.pluck(:event_type)
     assert_equal 2_500, events[4][:signed_amount_cents]
     assert_equal "bad-date", events[1][:evidence][:source_fields][:source_posted_on]
     assert_equal [ "Groceries" ], result.data[:transaction_drafts].pluck(:merchant)

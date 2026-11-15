@@ -28,6 +28,17 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_not_includes answer, "Nothing from this message was saved"
   end
 
+  test "structured lists take priority over receipt acknowledgements" do
+    @document_import.update!(document_kind: "receipt")
+    create_draft!(merchant: "Pay-Less", amount_cents: 6951, occurred_on: Date.new(2026, 11, 14))
+    [ "Show transactions", "List purchases" ].each do |question|
+      answer = answer_for(question)
+      assert_includes answer, "Attached transactions:"
+      assert_includes answer, "Pay-Less"
+      assert_not_includes answer, "I read a receipt"
+    end
+  end
+
   test "answers totals and largest transaction from structured attached rows" do
     create_draft!(merchant: "Pay-Less", amount_cents: 12_345, occurred_on: Date.new(2026, 8, 2))
     create_draft!(merchant: "Cost U Less", amount_cents: 20_00, occurred_on: Date.new(2026, 8, 5))

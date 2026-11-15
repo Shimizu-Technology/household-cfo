@@ -7,13 +7,15 @@ module FinancialDocuments
     def self.call(revision, negative_is_money_out:, user:)
       raise ArgumentError, "Choose yes or no for how amounts are shown." unless [ true, false ].include?(negative_is_money_out)
       document = revision.financial_document_import
-      raise ArgumentError, "This file does not need a sign answer." unless revision.coverage["signed_amount_question"] == true && document.spreadsheet? && document.source_available?
+      raise ArgumentError, "This file does not need a sign answer." unless (revision.coverage["signed_amount_question"] == true || revision.coverage["signed_amount_answerable"] == true) && document.spreadsheet? && document.source_available?
       raise ArgumentError, "This file already has approved lines. Review those lines individually." if SourceReviewHead.where(financial_source_event_id: revision.financial_source_events.select(:id)).where.not(approved_version_id: nil).exists?
       accounts = revision.financial_source_accounts.includes(:financial_source_evidence).order(:id).to_a
       identities = SourceAccountReviewHead.where(financial_source_account_id: accounts.map(&:id)).includes(approved_version: :source_tracked_account).index_by(&:financial_source_account_id)
       bases = accounts.map { |account| identities[account.id]&.approved_version&.source_tracked_account&.account_basis || account.account_basis }.uniq
       raise ArgumentError, "Say whether this is a bank account or a credit card first." unless bases.one? && bases.first.in?(%w[asset liability])
+      target_rows = revision.coverage["signed_amount_target_rows"]
       originals = revision.financial_source_events.includes(:financial_source_evidence).order(:position).to_a
+      target_rows ||= originals.select { |event| event.limitations.include?("transaction_direction_unclear") }.map(&:row_identity)
       file = Tempfile.new([ "spreadsheet-sign", ".csv" ])
       file.write(CSV.generate do |csv|
         csv << %w[Date Description Amount Direction Category Account]
@@ -28,17 +30,23 @@ module FinancialDocuments
         negative_is_money_out: negative_is_money_out, account_basis: bases.first).call
       raise ArgumentError, "We could not apply that answer. Nothing changed." unless result.success?
       accounting = result.data.fetch(:source_accounting)
-      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false)
+      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false, signed_amount_answerable: true, signed_amount_target_rows: target_rows)
       raise ArgumentError, "We could not account for every line. Nothing changed." unless accounting[:events].length == originals.length
       accounting[:accounts].each do |account|
         original = accounts.find { |row| Digest::SHA256.hexdigest(row.id.to_s) == account[:source_key] }
         raise ArgumentError, "We could not match an account. Nothing changed." unless original
+        account.merge!(original.attributes.except("id", "household_id", "financial_extraction_revision_id", "created_at", "updated_at").symbolize_keys)
+        account[:account_basis] = bases.first
+        account[:limitations] = original.limitations - [ "account_basis_unknown" ]
         account[:source_key] = original.source_key
         account[:evidence] = original.financial_source_evidence&.payload.to_h.deep_symbolize_keys
         label = identities[original.id]&.approved_version&.source_tracked_account&.label
         account[:evidence][:label] = label if label.present?
       end
       accounting[:events].zip(originals).each do |event, original|
+        unless target_rows.include?(original.row_identity)
+          event.merge!(original.attributes.except("id", "household_id", "financial_extraction_revision_id", "financial_source_account_id", "created_at", "updated_at").symbolize_keys)
+        end
         if original.row_kind == "informational"
           event[:row_kind] = "informational"
           event[:event_type] = original.event_type
@@ -68,7 +76,9 @@ module FinancialDocuments
       HouseholdFinance::DocumentTransactionDraftPersister.new(document, persisted.fetch(:transaction_drafts)).call
       document.update!(metadata: document.metadata.merge("source_accounting_revision_id" => persisted[:revision].id,
         "source_accounting_review_pending" => true, "source_reconciliation" => persisted[:reconciliation],
-        "signed_amount_answer" => { "negative_is_money_out" => negative_is_money_out, "user_id" => user.id, "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id }))
+        "signed_amount_answer" => { "negative_is_money_out" => negative_is_money_out, "user_id" => user.id, "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id, "answered_at" => Time.current.iso8601 },
+        "signed_amount_answers" => Array(document.metadata["signed_amount_answers"]) + [ { "negative_is_money_out" => negative_is_money_out, "user_id" => user.id,
+          "previous_revision_id" => revision.id, "revision_id" => persisted[:revision].id, "answered_at" => Time.current.iso8601 } ]))
       persisted[:revision]
     ensure
       file&.close!
