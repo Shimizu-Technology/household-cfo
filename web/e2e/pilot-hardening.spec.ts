@@ -17036,7 +17036,7 @@ function f4Review(answer?: boolean) {
   const plan = data.participant_review!.plan
   plan.total = 15; plan.ready = []; plan.ready_event_ids = []; plan.signed_amount_question = answer === undefined
   plan.signed_amount_answerable = answer !== undefined
-  plan.sign_effect = answer === undefined ? null : answer ? 'Your answer: spending is negative. This set the direction of 15 lines.' : 'Your answer: spending is positive. This set the direction of 15 lines.'
+  plan.sign_effect = answer === undefined ? null : answer ? 'You said spending is shown as negative. That set the direction of 15 lines.' : 'You said spending is shown as positive. That set the direction of 15 lines.'
   plan.first_on = '2026-10-01'; plan.last_on = '2026-10-28'
   data.accounts[0].period_start_on='2026-10-01'; data.accounts[0].period_end_on='2026-10-31'
   const facts = data.participant_review!.accounts[0].approved!.statement_facts
@@ -17111,7 +17111,7 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
   await f4Evidence(page, 'sign-question')
   await expect(question).toHaveCount(1)
   await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
-  await expect(page.getByText(negative ? 'Your answer: spending is negative. This set the direction of 15 lines.' : 'Your answer: spending is positive. This set the direction of 15 lines.', { exact: true })).toBeVisible()
+  await expect(page.getByText(negative ? 'You said spending is shown as negative. That set the direction of 15 lines.' : 'You said spending is shown as positive. That set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeFocused()
   await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
   await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
@@ -17345,12 +17345,12 @@ test('BOG UI F4 fix1 Statements refreshes the answered revision before reopening
   const review = page.getByRole('region', { name: 'Statement review', exact: true })
   await expect(review.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
   await review.getByRole('button', { name: 'Yes, spending is negative' }).click()
-  await expect(review.getByText('Your answer: spending is negative. This set the direction of 15 lines.', { exact: true })).toBeVisible()
+  await expect(review.getByText('You said spending is shown as negative. That set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(review.getByRole('heading', { level: 5 })).toBeFocused()
   await f4Evidence(page, 'statements-sign-effect')
   await openSection(page, 'Ask Mia')
   await openSection(page, 'Statements')
-  await expect(review.getByText('Your answer: spending is negative. This set the direction of 15 lines.', { exact: true })).toBeVisible()
+  await expect(review.getByText('You said spending is shown as negative. That set the direction of 15 lines.', { exact: true })).toBeVisible()
   await expect(review.getByRole('alert')).toHaveCount(0)
 })
 
@@ -17479,13 +17479,13 @@ test('BOG UI F4 fix2 choosing account kind sends no sign for a balance proof', a
     const data = f4Review(basis ? true : undefined)
     data.participant_review!.plan.signed_amount_balance_factor = -1
     if (!basis) { data.accounts[0].account_basis = 'unknown'; data.participant_review!.accounts[0].approved = null }
-    if (basis) { data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 }); data.participant_review!.plan.sign_effect = 'The balance column and account kind: spending is negative. This set the direction of 15 lines.' }
+    if (basis) { data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 }); data.participant_review!.plan.sign_effect = 'The balance column shows spending as negative. That set the direction of 15 lines.' }
     return route.fulfill({ json: { source_review: data } })
   })
   await f4Chat(page, [f4Source()])
   await page.getByRole('button', { name: 'Credit card', exact: true }).click()
   await expect.poll(() => signBody).toEqual({ revision_id: 88 })
-  await expect(page.getByText('The balance column and account kind: spending is negative. This set the direction of 15 lines.')).toBeVisible()
+  await expect(page.getByText('The balance column shows spending as negative. That set the direction of 15 lines.')).toBeVisible()
   await f4Evidence(page, 'fix2-balance-derived')
 })
 
@@ -17551,7 +17551,7 @@ for (const choice of ['all_out', 'all_in', 'individual'] as const) test(`BOG UI 
     if (answered) {
       data.revision.id = 89; data.events.forEach(event => { event.financial_extraction_revision_id = 89 })
       plan.signed_amount_question = false; plan.signed_amount_answerable = false
-      plan.sign_effect = choice === 'individual' ? 'Your answer: each line needs its own money out or money in answer.' : `Your answer: all amounts are money ${choice === 'all_out' ? 'out' : 'in'}. This set the direction of 15 lines.`
+      plan.sign_effect = choice === 'individual' ? 'You chose to answer money out or money in for each line.' : `You said every amount is money ${choice === 'all_out' ? 'out' : 'in'}. That set the direction of 15 lines.`
     }
     return route.fulfill({ json: { source_review: data } })
   })

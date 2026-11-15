@@ -65,20 +65,20 @@ module FinancialDocuments
 
       def sign_effect(plan)
         coverage = revision.coverage
-        return "Your answer: each line needs its own money out or money in answer." if coverage["signed_amount_choice"] == "individual"
+        return "You chose to answer money out or money in for each line." if coverage["signed_amount_choice"] == "individual"
         convention = coverage["signed_amount_convention"]
         convention = coverage["signed_amount_derived_convention"] if convention.nil?
         return if convention.nil?
-        source = coverage["signed_amount_convention_source"] == "answer" ? "Your answer" : "The balance column and account kind"
+        answered = coverage["signed_amount_convention_source"] == "answer"
         targets = coverage["signed_amount_target_rows"]
         lines = plan.lines.select { |line| (!targets || targets.include?(line.event.row_identity)) && line.event.signed_amount_cents.present? }
         count = lines.length
         rule = case coverage["signed_amount_choice"]
-        when "all_out" then "all amounts are money out"
-        when "all_in" then "all amounts are money in"
-        else "spending is #{convention ? 'negative' : 'positive'}"
+        when "all_out" then "You said every amount is money out."
+        when "all_in" then "You said every amount is money in."
+        else answered ? "You said spending is shown as #{convention ? 'negative' : 'positive'}." : "The balance column shows spending as #{convention ? 'negative' : 'positive'}."
         end
-        "#{source}: #{rule}. This set the direction of #{count} #{count == 1 ? 'line' : 'lines'}."
+        "#{rule} That set the direction of #{count} #{count == 1 ? 'line' : 'lines'}."
       end
 
       def record(subject, include_matched_target: true)

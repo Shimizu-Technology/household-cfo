@@ -416,8 +416,8 @@ it('offers individual review when she is not sure about mixed signs', async () =
 })
 
 it('shows the balance-derived effect even when there was no sign question', async () => {
-  serve(review(planWith([], { signed_amount_question: false, signed_amount_answerable: false, sign_effect: 'The balance column and account kind: spending is positive. This set the direction of 1 line.' })))
+  serve(review(planWith([], { signed_amount_question: false, signed_amount_answerable: false, sign_effect: 'The balance column shows spending as positive. That set the direction of 1 line.' })))
   mount([statement(1)])
-  expect(await screen.findByText('The balance column and account kind: spending is positive. This set the direction of 1 line.')).toBeTruthy()
+  expect(await screen.findByText('The balance column shows spending as positive. That set the direction of 1 line.')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Yes, spending is negative' })).toBeNull()
 })

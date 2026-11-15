@@ -361,7 +361,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal [ -12642, -6500, 30000 ], changed.financial_source_events.order(:position).pluck(:signed_amount_cents)
     assert_equal "balance", document.reload.metadata.dig("signed_amount_answer", "source")
     effect = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed).plan_summary[:sign_effect]
-    assert_equal "The balance column and account kind: spending is positive. This set the direction of 3 lines.", effect
+    assert_equal "The balance column shows spending as positive. That set the direction of 3 lines.", effect
   end
 
   test "mixed sign categories never silently override the convention" do
@@ -386,7 +386,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
       original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
       changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: true, user: user)
       effect = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed).plan_summary[:sign_effect]
-      assert_equal "Your answer: spending is negative. This set the direction of #{count} #{count == 1 ? 'line' : 'lines'}.", effect
+      assert_equal "You said spending is shown as negative. That set the direction of #{count} #{count == 1 ? 'line' : 'lines'}.", effect
     end
   end
 
@@ -410,7 +410,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     content = "Date,Description,Amount,Balance,Direction\n2026-10-01,Pay,100,1000,Credit\n2026-10-02,Known shop,-10,990,Debit\n2026-10-03,Other shop,-20,970,POS\n"
     original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(content, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
     plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, original, user: user).plan_summary
-    assert_equal "The balance column and account kind: spending is negative. This set the direction of 1 line.", plan[:sign_effect]
+    assert_equal "The balance column shows spending as negative. That set the direction of 1 line.", plan[:sign_effect]
     assert_not plan[:signed_amount_question]
   end
 
