@@ -97,10 +97,10 @@ export type SheetLine = {
   leftOut: boolean
 }
 
-/** Keep a known transfer or debt payment as that kind when she supplies its missing direction. */
+/** Keep a known non-spending movement as that kind when she supplies its missing direction. */
 export function lineSheetWithDirection(item: PlanAttention, direction: 'in' | 'out'): SheetLine {
   const line = lineSheetFromAttention(item)
-  return { ...line, moneyDirection: direction, kind: item.event_type === 'transfer' || item.event_type === 'debt_payment' ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
+  return { ...line, moneyDirection: direction, kind: item.event_type === 'transfer' || item.event_type === 'debt_payment' || (item.event_type === 'cash_withdrawal' && direction === 'out') ? line.kind : direction === 'in' ? 'money_in' : 'spending' }
 }
 
 /** The sheet for a line that needs her answer, opened on the kind and category the statement review shows for it. */

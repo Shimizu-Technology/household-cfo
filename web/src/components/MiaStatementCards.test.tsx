@@ -326,15 +326,15 @@ it('phrases the file question for the credit card she already chose and keeps a 
   expect(mutate).not.toHaveBeenCalled()
 })
 
-for (const type of ['transfer', 'debt_payment'] as const) it(`keeps a known ${type} when she answers Money in`, async () => {
+for (const type of ['transfer', 'debt_payment', 'cash_withdrawal'] as const) it(`keeps a known ${type} when she supplies direction`, async () => {
   serve(review(planWith([question(4001, 'Known movement', 'direction', { event_type: type, signed_amount_cents: null, amount_cents: 2500, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] })])))
   mount([statement(1)])
-  fireEvent.click(await screen.findByRole('button', { name: 'Money in: Known movement' }))
+  fireEvent.click(await screen.findByRole('button', { name: type === 'cash_withdrawal' ? 'Money out: Known movement' : 'Money in: Known movement' }))
   const dialog = await screen.findByRole('dialog')
-  expect((within(dialog).getByRole('combobox', { name: 'What was this?' }) as HTMLSelectElement).value).toBe(type === 'transfer' ? 'moved' : 'card')
+  expect((within(dialog).getByRole('combobox', { name: 'What was this?' }) as HTMLSelectElement).value).toBe(type === 'transfer' ? 'moved' : type === 'cash_withdrawal' ? 'cash' : 'card')
   fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
   await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
-  expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: type === 'transfer' ? 'moved' : 'card', money_direction: 'in', amount_cents: 2500 } }] })
+  expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: type === 'transfer' ? 'moved' : type === 'cash_withdrawal' ? 'cash' : 'card', money_direction: type === 'cash_withdrawal' ? 'out' : 'in', amount_cents: 2500 } }] })
 })
 
 it('uses the bank basis she chose over a different basis read from the file', async () => {
