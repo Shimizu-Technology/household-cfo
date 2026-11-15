@@ -466,6 +466,8 @@ it('focuses the new category name and prevents a second in-flight submission', a
   fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'new' } })
   fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
   expect(document.activeElement).toBe(screen.getByLabelText('New category name'))
+  expect(screen.getByLabelText('New category name').getAttribute('aria-describedby')).toBe('manual-category-error')
+  expect(screen.getByLabelText('Category').getAttribute('aria-invalid')).toBe('false')
   fireEvent.change(screen.getByLabelText('New category name'), { target: { value: 'Groceries' } })
   fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))
   fireEvent.click(screen.getByRole('button', { name: 'Add and confirm' }))

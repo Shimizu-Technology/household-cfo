@@ -1,4 +1,5 @@
 import { prepareFinancialUpload } from './lib/prepareFinancialUpload'
+import { plannedOutForMonth } from './lib/plannedOutForMonth'
 import { ReviewConfirmedCard } from './components/ReviewConfirmedCard'
 import { MiaReviewError } from './components/MiaReviewError'
 import { useLiveMiaResult } from './lib/useLiveMiaResult'
@@ -7920,8 +7921,8 @@ export function ManualTransactionCapture({
         <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={event => setOccurredOn(event.currentTarget.value)} /></label>
         <label><span>Merchant</span><input ref={merchantRef} className="ui-field" required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={event => setMerchant(event.currentTarget.value)} /></label>
         <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={event => setAmount(event.currentTarget.value)} /></label>
-        <label><span>Category</span><select ref={categoryRef} aria-invalid={Boolean(categoryError)} aria-describedby={categoryError ? 'manual-category-error' : undefined} value={categoryId} onChange={event => { setCategoryId(event.currentTarget.value); setCategoryError(null) }}><option value="">Choose a category</option><option value="new">New category</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key)}</option>)}</select></label>
-        {categoryId === 'new' && <label><span>New category name</span><input ref={newCategoryRef} aria-label="New category name" className="ui-field" maxLength={80} value={categoryName} onChange={event => setCategoryName(event.currentTarget.value)} /><small>Added to flexible spending when you confirm.</small></label>}
+        <label><span>Category</span><select ref={categoryRef} aria-invalid={Boolean(categoryError) && categoryId !== 'new'} aria-describedby={categoryError && categoryId !== 'new' ? 'manual-category-error' : undefined} value={categoryId} onChange={event => { setCategoryId(event.currentTarget.value); setCategoryError(null) }}><option value="">Choose a category</option><option value="new">New category</option>{activeCategories.map(category => <option key={category.id} value={category.id}>{categoryDisplayName(category.name, category.stack_key)}</option>)}</select></label>
+        {categoryId === 'new' && <label><span>New category name</span><input ref={newCategoryRef} aria-label="New category name" aria-invalid={Boolean(categoryError)} aria-describedby={categoryError ? 'manual-category-error' : undefined} className="ui-field" maxLength={80} value={categoryName} onChange={event => { setCategoryName(event.currentTarget.value); if (event.currentTarget.value.trim()) setCategoryError(null) }} /><small>Added to flexible spending when you confirm.</small></label>}
         {categoryError && <p id="manual-category-error" className="manual-transaction-error" role="alert">{categoryError}</p>}
         {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
         <div className="manual-transaction-actions">
@@ -8715,6 +8716,7 @@ export function CurrentMonthActivityPanel({
   error,
   reopen,
   planKnown = true,
+  plannedOutKnown = false,
   onPlanCategory,
   planningBlockedReason,
 }: {
@@ -8726,6 +8728,7 @@ export function CurrentMonthActivityPanel({
   loading: boolean
   error: string | null
   reopen?: LedgerReopenControls
+  plannedOutKnown?: boolean
   planKnown?: boolean
 }) {
   const month = plan.months[currentMonthIndex]
@@ -8756,7 +8759,7 @@ export function CurrentMonthActivityPanel({
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
       {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} reopen={reopen} planKnown={planKnown} />}
-      {planKnown && plan.monthly_debt_minimums_known !== false && <p>Monthly debt payments are counted in Planned out above, alongside these spending categories.</p>}
+      {plannedOutKnown && planKnown && plan.monthly_debt_minimums_known !== false && <p>Monthly debt payments are counted in Planned out above, alongside these spending categories.</p>}
       {visibleSpendingReport && reopen && <IgnoredTransactionList drafts={visibleSpendingReport.ignored_drafts ?? []} {...reopen} />}
     </section>
   )
@@ -9325,6 +9328,7 @@ export function AnnualBudgetPlanner({
           planningBlockedReason={planningBlockedReason}
           onPlanCategory={isRealWorkspace ? openCategoryAmountEditor : undefined}
           planKnown={!beforePlanStart}
+          plannedOutKnown={plannedOutForMonth(plan, currentMonthIndex, !beforePlanStart, confirmedFields, monthAnswer) != null}
           spendingReport={spendingReport}
           loading={spendingReportLoading}
           error={spendingReportError}

@@ -1,3 +1,4 @@
+import { plannedOutForMonth } from '../lib/plannedOutForMonth'
 import { useId, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey, DashboardData } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
@@ -63,12 +64,9 @@ export function MonthPlanSummary({
 /** The selected month's plan; pending purchases never reduce the remainder. */
 export function BudgetPlanStrip({ plan, monthIndex, planKnown, confirmedFields = [], answer }: { plan: AnnualBudgetPlan; monthIndex: number; planKnown: boolean; confirmedFields?: string[]; answer?: DashboardData['month_answer'] }) {
   const month = plan.months[monthIndex]
-  const outlook = plan.annual_outlook.months.find(candidate => candidate.period_id === month?.id)
   const approved = plan.plan_available !== false
-  const costsKnown = (['fixed_expenses', 'flexible_spend'] as const).every((field, index) => confirmedFields.includes(field) || plan.rows.some(row => row.active && row.stack_key === (index === 0 ? 'non_discretionary' : 'discretionary')))
   const income = answer ? (answer.money_in_cents == null ? null : answer.money_in_cents / 100) : approved && month ? plan.monthly_income[month.id] : null
-  const amountsKnown = plan.rows.every(row => !row.active || (row.months[monthIndex] && !row.months[monthIndex].allocation_missing))
-  const planned = answer ? (answer.planned_out_cents == null ? null : answer.planned_out_cents / 100) : approved && planKnown && costsKnown && amountsKnown && plan.monthly_debt_minimums_known !== false ? outlook?.planned_outflow : null
+  const planned = plannedOutForMonth(plan, monthIndex, planKnown, confirmedFields, answer)
   const left = answer ? (answer.plan_left_cents == null ? null : answer.plan_left_cents / 100) : income != null && planned != null ? subtractMoney(income, planned) : null
   return <section className={`budget-plan-strip ui-card${[income, planned, left].some(value => value == null || formatReviewMoney(Math.round(Math.abs(value) * 100)).length >= 9) ? ' is-long-money' : ''}`} aria-label={`${month?.label ?? 'Selected month'} plan position`}>
     <p className="budget-strip-period ui-label">{month && new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month.starts_on}T00:00:00Z`))}</p>
@@ -109,7 +107,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
                 <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
-              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.planned === 0 ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.planned === 0 && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.planned === 0 && !category.allocationMissing && <small>{planningBlockedReason}</small>}</li>)}</ul>}
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.planned === 0 ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.planned === 0 && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.planned === 0 && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
             </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
@@ -185,7 +183,7 @@ export function CategoryPressureList({
                 </>}
               </div>
               {position.allocationMissing && <p>Planned amount needs repair</p>}
-              {planKnown && position.id !== 0 && position.planned === 0 && !position.allocationMissing && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}{planningBlockedReason && <small>{planningBlockedReason}</small>}</div>}
+              {planKnown && position.id !== 0 && position.planned === 0 && !position.allocationMissing && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" aria-describedby={planningBlockedReason ? `${titleId}-${position.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}{planningBlockedReason && <small id={`${titleId}-${position.id}-plan-blocked`}>{planningBlockedReason}</small>}</div>}
             </article>
           )
         })}

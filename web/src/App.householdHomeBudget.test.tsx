@@ -367,3 +367,11 @@ it('fills Home tracks once per page lifetime and removes movement for reduced mo
     vi.unstubAllGlobals()
   }
 })
+
+
+it('does not claim debt payments are counted when Planned out needs an allocation repaired', () => {
+  const incomplete = { ...plan, monthly_debt_minimums_known: true, rows: plan.rows.map((row, index) => index === 0 ? { ...row, months: row.months.map((cell, month) => month === 9 ? { ...cell, allocation_missing: true } : cell) } : row) }
+  const view = render(<AnnualBudgetPlanner {...plannerProps()} plan={incomplete} />)
+  expect(view.container.querySelector('.budget-plan-strip')?.textContent).toContain('Planned outNot entered')
+  expect(view.container.textContent).not.toContain('are counted in Planned out above')
+})

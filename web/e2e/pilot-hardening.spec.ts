@@ -17590,6 +17590,7 @@ test('BOG UI F4 fix2 a new receipt promotes only its purchases and keeps older s
 function f2Workspace() {
   const workspace = realWorkspaceData(true)
   const plan = workspace.budget.annual_plan
+  workspace.workspace.debt_portfolio = { ...workspace.workspace.debt_portfolio, mode: 'summary', total_balance: 12000, monthly_minimum: 200, balance_known: true, minimum_payment_known: true }
   plan.year = 2026
   plan.months.forEach((month, index) => { month.starts_on = `2026-${String(index + 1).padStart(2, '0')}-01`; month.ends_on = `2026-${String(index + 1).padStart(2, '0')}-28` })
   plan.rows = [{ ...plan.rows[1], id: 2, name: 'Flexible spending', months: categoryMonths(2, 900, 0), planned_total: 10800, actual_total: 0 }]
@@ -17600,10 +17601,25 @@ function f2Workspace() {
   workspace.dashboard.month_answer = { ...workspace.dashboard.month_answer, year: 2026, month: 11, period_label: 'November 2026', money_in_cents: 1500000, planned_out_cents: 110000, plan_left_cents: 1390000, spent_so_far_cents: 0, pending_count: 0, pending_cents: 0 }
   return workspace
 }
+// Keep the fake API's visible snapshot consistent with its saved month records.
+function f2SyncSnapshot(workspace: ReturnType<typeof f2Workspace>) {
+  const plan = workspace.budget.annual_plan
+  const debt = workspace.workspace.debt_portfolio
+  plan.rows.forEach(row => { row.planned_total = row.months.reduce((sum, cell) => sum + cell.planned, 0); row.actual_total = row.months.reduce((sum, cell) => sum + cell.actual, 0) })
+  plan.monthly_debt_minimums = debt.monthly_minimum
+  plan.monthly_debt_minimums_known = debt.minimum_payment_known
+  const pending = plan.pending_transaction_drafts
+  const miaCount = plan.pending_mia_action_drafts.length
+  Object.assign(workspace.dashboard.action_center, { transaction_review_count: pending.length, mia_action_review_count: miaCount, total_review_count: pending.length + miaCount })
+  const planned = plan.rows.filter(row => row.active).reduce((sum, row) => sum + row.months[10].planned, 0)
+  const amountsKnown = plan.rows.filter(row => row.active).every(row => !row.months[10].allocation_missing)
+  const plannedOut = amountsKnown && debt.minimum_payment_known ? Math.round((planned + debt.monthly_minimum) * 100) : null
+  Object.assign(workspace.dashboard.month_answer, { planned_out_cents: plannedOut, plan_left_cents: plannedOut == null ? null : 1500000 - plannedOut, spent_so_far_cents: Math.round(plan.rows.reduce((sum, row) => sum + row.months[10].actual, 0) * 100), pending_count: pending.length, pending_cents: pending.reduce((sum, draft) => sum + (draft.amount_cents ?? Math.round(draft.amount * 100)), 0) })
+}
 async function f2Mock(page: Page, workspace = f2Workspace()) {
   await mockEmptyPlaidState(page, false)
   await page.clock.setFixedTime(new Date('2026-11-15T02:00:00Z'))
-  await page.route('http://api.test/api/v1/workspace', route => route.fulfill({ json: workspace }))
+  await page.route('http://api.test/api/v1/workspace', route => { f2SyncSnapshot(workspace); return route.fulfill({ json: workspace }) })
   await page.route('http://api.test/api/v1/spending_report**', route => {
     const categories = workspace.budget.annual_plan.rows.map(row => ({ id: row.id, name: row.name, stack_key: row.stack_key, stack_label: row.stack_label, active: row.active, planned: row.months[10].planned, actual: row.months[10].actual, pending: 0, remaining: row.months[10].planned - row.months[10].actual }))
     const planned = categories.reduce((total, category) => total + category.planned, 0)
@@ -17642,6 +17658,7 @@ test('BOG UI F2 Home adds and confirms a purchase once with saved spending on Bu
     workspace.budget.annual_plan.pending_transaction_drafts = []
     workspace.budget.annual_plan.rows[0].months[10].actual = 45.2
     workspace.dashboard.month_answer.spent_so_far_cents = 4520
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { workspace } })
   })
   await page.goto('/?pilot_e2e_role=participant')
@@ -17707,8 +17724,7 @@ test('BOG UI F2 Mia puts logging before change chips and focuses an example with
 
 test('BOG UI F2 debt list add and no-debts controls precede the plain tracking choice', async ({ page }) => {
   const workspace = f2Workspace()
-  workspace.workspace.debt_portfolio.balance_known = false
-  workspace.workspace.debt_portfolio.minimum_payment_known = false
+  workspace.workspace.debt_portfolio = { ...workspace.workspace.debt_portfolio, mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: false, minimum_payment_known: false }
   await f2Mock(page, workspace)
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
   await openMoneyTopic(page, 'Debt')
@@ -17739,6 +17755,7 @@ test('BOG UI F2 new purchase category has no over warning and opens its amount e
     plan.rows.push({ ...plan.rows[0], id: 3, name: 'Groceries', months: categoryMonths(3, 0, 0).map(cell => ({ ...cell, actual: 0 })), planned_total: 0, actual_total: 45.2 })
     plan.rows[1].months[10].actual = 45.2
     plan.pending_transaction_drafts = []
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { workspace } })
   })
   const savedAllocations: number[] = []
@@ -17748,6 +17765,7 @@ test('BOG UI F2 new purchase category has no over warning and opens its amount e
     const cell = plan.rows.flatMap(row => row.months).find(month => month.allocation_id === id)!
     expect(input.expected_planned_amount).toBe(cell.planned)
     cell.planned = Number(input.planned_amount)
+    f2SyncSnapshot(workspace)
     savedAllocations.push(id)
     await route.fulfill({ json: { budget: workspace.budget } })
   })
@@ -17803,13 +17821,16 @@ test('BOG UI F2 failed manual confirmation leaves one saved review and an inert 
     const input = route.request().postDataJSON().transaction_draft
     const draft = { id: 7799, ...input, amount: 45.2, amount_cents: 4520, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [] }
     workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { transaction_draft: draft, workspace } })
   })
   await page.route('http://api.test/api/v1/transaction_drafts/7799/confirm', async route => {
     confirmationKeys.push(route.request().headers()['idempotency-key'])
     if (confirmationKeys.length === 1) return route.fulfill({ status: 422, json: { error: 'Not confirmed' } })
     workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.budget.annual_plan.rows[0].months[10].actual = 45.2
     workspace.dashboard.month_answer.spent_so_far_cents = 4520
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { workspace } })
   })
   await page.goto('/?pilot_e2e_role=participant')
@@ -17846,15 +17867,23 @@ async function fix1PurchaseRoutes(page: Page, workspace: ReturnType<typeof f2Wor
   await page.route('http://api.test/api/v1/transaction_drafts', async route => {
     calls.creates++
     workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { transaction_draft: draft, workspace } })
   })
   await page.route('http://api.test/api/v1/transaction_drafts/7801/confirm', async route => {
     calls.confirms++
+    workspace.budget.annual_plan.rows[0].months[10].actual = 45.2
+    workspace.budget.annual_plan.rows[0].actual_total = 45.2
     workspace.budget.annual_plan.pending_transaction_drafts = []
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { workspace } })
   })
   await page.route('http://api.test/api/v1/transaction_drafts/7801/reopen', async route => {
+    workspace.budget.annual_plan.rows[0].months[10].actual = 0
+    workspace.budget.annual_plan.rows[0].actual_total = 0
     workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { workspace } })
   })
   return calls
@@ -17923,6 +17952,7 @@ test('BOG UI F2 fix1 summary debt cannot be erased and unknown individual debt c
     expect(route.request().postDataJSON().debt_tracking).toEqual({ mode: 'summary', summary_balance: 0, summary_minimum_payment: 0 })
     workspace.workspace.debt_portfolio.balance_known = true
     workspace.workspace.debt_portfolio.minimum_payment_known = true
+    workspace.workspace.debt_portfolio.mode = 'summary'
     await route.fulfill({ json: { debt_portfolio: workspace.workspace.debt_portfolio } })
   })
   await panel.getByRole('button', { name: 'Confirm no debts: $0 owed, $0 a month', exact: true }).click()
@@ -17933,11 +17963,15 @@ test('BOG UI F2 fix1 summary debt cannot be erased and unknown individual debt c
 test('BOG UI F2 fix1 missing allocation keeps repair wording and known zero spent', async ({ page }) => {
   const workspace = f2Workspace()
   workspace.budget.annual_plan.rows[0].months[10] = { ...workspace.budget.annual_plan.rows[0].months[10], planned: 0, allocation_missing: true }
+  workspace.dashboard.month_answer.planned_out_cents = null
+  workspace.dashboard.month_answer.plan_left_cents = null
   await f2Mock(page, workspace)
   await page.goto('/?pilot_e2e_role=participant#Budget')
   await page.getByText('This month’s spending', { exact: true }).click()
   const row = page.locator('.category-pressure-row').filter({ hasText: 'Other flexible spending' })
   await expect(row).toContainText('Planned amount needs repair')
+  await expect(page.locator('.budget-plan-strip')).toContainText('Not entered')
+  await expect(page.locator('.current-month-activity')).not.toContainText('are counted in Planned out above')
   await expect(row).toContainText('$0 actual')
   await expect(row).not.toContainText('No amount planned yet')
   await expect(page.getByRole('button', { name: /Set amount/ })).toHaveCount(0)
@@ -17956,6 +17990,8 @@ test('BOG UI F2 fix1 purchase planning selects its year before focusing its amou
   await page.route('http://api.test/api/v1/budget?year=2026', route => route.fulfill({ json: workspace.budget }))
   await page.route('http://api.test/api/v1/transaction_drafts/7801/confirm', route => {
     workspace.budget.annual_plan.pending_transaction_drafts = []
+    workspace.budget.annual_plan.rows[0].months[10].actual = 45.2
+    f2SyncSnapshot(workspace)
     return route.fulfill({ json: { workspace } })
   })
   await page.goto('/?pilot_e2e_role=participant#Budget')
@@ -17991,6 +18027,7 @@ test('BOG UI F2 fix1 editor totals follow changed amounts without overwriting ca
   await expect(page.getByRole('button', { name: /Take from/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Set amount for Groceries', exact: true }).click()
   await expect(page.locator('.category-pressure-row').filter({ hasText: 'Groceries' })).toContainText('Save or cancel your current edits before setting another amount.')
+  await expect(page.getByRole('button', { name: 'Set amount for Groceries', exact: true })).toHaveAccessibleDescription('Save or cancel your current edits before setting another amount.')
   const planningText = await page.locator('.category-pressure-row').filter({ hasText: 'Groceries' }).locator('.ui-row__body').boundingBox()
   expect(planningText!.width).toBeGreaterThan(120)
   const saves: number[] = []
@@ -18002,6 +18039,7 @@ test('BOG UI F2 fix1 editor totals follow changed amounts without overwriting ca
     const cell = plan.rows.flatMap(row => row.months).find(month => month.allocation_id === id)!
     expect(input.expected_planned_amount).toBe(cell.planned)
     cell.planned = Number(input.planned_amount)
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { budget: workspace.budget } })
   })
   await other.fill('850')
@@ -18050,6 +18088,7 @@ test('BOG UI F2 fix1 catch-all name and amount edits send saved names without a 
     const input = route.request().postDataJSON().allocation
     expect(Number(input.planned_amount)).toBe(850)
     row.months[10].planned = 850
+    f2SyncSnapshot(workspace)
     await route.fulfill({ json: { budget: workspace.budget } })
   })
   await page.goto('/?pilot_e2e_role=participant#My%20Money')
