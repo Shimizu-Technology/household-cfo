@@ -332,7 +332,7 @@ for (const type of ['transfer', 'debt_payment'] as const) it(`keeps a known ${ty
   fireEvent.click(await screen.findByRole('button', { name: 'Money in: Known movement' }))
   const dialog = await screen.findByRole('dialog')
   expect((within(dialog).getByRole('combobox', { name: 'What was this?' }) as HTMLSelectElement).value).toBe(type === 'transfer' ? 'moved' : 'card')
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Save', exact: true }))
+  fireEvent.click(within(dialog).getByRole('button', { name: /^Save$/ }))
   await waitFor(() => expect(mutate).toHaveBeenCalledOnce())
   expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [{ decision: 'edited', edit: { kind: type === 'transfer' ? 'moved' : 'card', money_direction: 'in', amount_cents: 2500 } }] })
 })

@@ -17073,7 +17073,7 @@ async function f4Evidence(page: Page, state: string) {
   const { mkdir } = await import('node:fs/promises')
   await mkdir(directory, { recursive: true })
   await page.evaluate(() => document.fonts.ready)
-  await page.screenshot({ path: `${directory}/${state}-${page.viewportSize()!.width}.png`, fullPage: true, scale: 'css' })
+  await page.screenshot({ path: `${directory}/${state}-${page.viewportSize()!.width}.png`, fullPage: true, scale: 'css', animations: 'disabled' })
 }
 
 for (const negative of [true, false]) test(`BOG UI F4 one sign question applies to the whole file (${negative})`, async ({ page }) => {
