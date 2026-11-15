@@ -447,6 +447,12 @@ it('edits the saved catch-all name while showing its display label separately', 
   expect(onChange).toHaveBeenCalledWith({ name: 'Flexible spending extra' })
 })
 
+it('does not repeat a category name that is shown as it is saved', () => {
+  render(<CategoryEditCell row={row({ name: 'Groceries' })} draft={{ name: 'Groceries', stack_key: 'discretionary' }} hasPendingDrafts={false} action={null} onChange={vi.fn()} onArchive={vi.fn()} />)
+  expect(screen.getByLabelText('Category name').getAttribute('value')).toBe('Groceries')
+  expect(screen.queryByText(/Shown as/)).toBeNull()
+})
+
 it('keeps one latest notice after adding to review and then confirming or undoing', async () => {
   const props = { categories: [row()], busy: false, onCreate: vi.fn().mockResolvedValue(undefined) }
   const view = render(<ManualTransactionCapture {...props} />)

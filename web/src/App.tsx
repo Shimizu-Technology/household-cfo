@@ -8097,7 +8097,7 @@ export function TransactionDraftReviewStack({
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         {headerBulkAction && filteredPendingDrafts.length > 1 && onBulkConfirm && !folded && <button type="button" className="ui-btn ui-btn--text review-header-bulk" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>}
-        {pendingDrafts.length > 0 && <strong>{queueMeta?.total_count ?? pendingDrafts.length} review{(queueMeta?.total_count ?? pendingDrafts.length) === 1 ? '' : 's'}</strong>}
+        {pendingDrafts.length > 0 && <strong>{Math.max(queueMeta?.total_count ?? 0, pendingDrafts.length)} review{Math.max(queueMeta?.total_count ?? 0, pendingDrafts.length) === 1 ? '' : 's'}</strong>}
       </div>
 
       {queueMeta?.truncated && (
@@ -8935,7 +8935,7 @@ export function CategoryEditCell({
         <span>Category name</span>
         <input data-budget-category-action="name" disabled={Boolean(action)} value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
       </label>
-      <small>Shown as {categoryDisplayName(draft.name, draft.stack_key)}</small>
+      {categoryDisplayName(draft.name, draft.stack_key) !== draft.name && <small>Shown as {categoryDisplayName(draft.name, draft.stack_key)}</small>}
       <label>
         <span className="sr-only">Expense stack</span>
         <select disabled={Boolean(action)} value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
@@ -9474,7 +9474,7 @@ export function AnnualBudgetPlanner({
                 if (group.some(row => !row.months[editMonthIndex] || row.months[editMonthIndex].allocation_missing)) return <p key={stack} className="group-edit-total annual-edit-hint">{label} group total: Planned amount needs repair</p>
                 const before = group.reduce((total, row) => total + moneyCents(row.months[editMonthIndex].planned), 0)
                 const after = group.reduce((total, row) => total + moneyCents(Number(allocationDraftValue(row.months[editMonthIndex], allocationDrafts))), 0)
-                return <p key={stack} className="group-edit-total annual-edit-hint">{label} group total: {formatReviewMoney(before)} saved → {Number.isFinite(after) ? formatReviewMoney(after) : 'Enter valid amounts'} with your edits. Lower another category yourself to keep the total the same.</p>
+                return <p key={stack} className="group-edit-total annual-edit-hint">{label} group total: {formatReviewMoney(before)} saved → {Number.isFinite(after) ? formatReviewMoney(after) : 'Enter valid amounts'} with your edits.{Number.isFinite(after) && after > before ? ` That is ${formatReviewMoney(after - before)} more. Lower another category to keep the total the same.` : Number.isFinite(after) && after < before ? ` That is ${formatReviewMoney(before - after)} less.` : Number.isFinite(after) ? ' The total is unchanged.' : ''}</p>
               })}
               <div className={`annual-budget-table-wrap${showFullYearEditor ? ' is-full-year-editor' : ' is-selected-month-editor'}`} role="region" aria-label="Annual budget table" tabIndex={0}>
                 <table className="annual-budget-table">
