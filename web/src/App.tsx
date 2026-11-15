@@ -3799,7 +3799,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       if (!wasSetupComplete && savedNoDebt && setupDraft.credit_card_debt.trim() === '' && (
         setupDraft.debt_payment.trim() === '' || Number(setupDraft.debt_payment) !== 0 || savedDebtDraft?.credit_card_debt === '0'
       )) setupValues.credit_card_debt = null
-      const allSetupValues = !isFirstSessionSetup ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
+      const allSetupValues = activeSection === 'My Profile' && !isFirstSessionSetup ? { household_name: setupValues.household_name, primary_goal: setupValues.primary_goal } : setupValues
       // A profile edit sends only what the person changed. Re-sending untouched
       // totals would ask the API to flatten detailed monthly category amounts.
       const baseline = (wasSetupComplete ? profileEditBaseline : null) ?? (data?.workspace.setup_values ? workspaceSetupBaseline(data.workspace.setup_values, data.workspace.setup_status) : {})

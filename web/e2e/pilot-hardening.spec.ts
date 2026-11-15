@@ -5006,7 +5006,7 @@ test('BOG UI household incomplete participants get a short first session, privat
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('clearing a saved optional asset submits null so the balance becomes unknown', async ({ page }) => {
+test('BOG UI clearing a saved optional asset submits null so the balance becomes unknown', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.workspace.setup_values.emergency_fund = 1_200
   workspace.workspace.setup_status.confirmed_fields = [...workspace.workspace.setup_status.confirmed_fields, 'emergency_fund']
