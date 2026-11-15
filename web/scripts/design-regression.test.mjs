@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import postcss from 'postcss'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -310,3 +311,19 @@ const collectSources = directory => {
 }
 collectSources(resolve(__dirname, '../src'))
 assert.deepEqual(shippedSources.filter(path => /\(\?<[=!]/.test(readFileSync(path, 'utf8'))), [], 'regular-expression lookbehind in shipped code: rewrite it without (?<= or (?<!')
+
+
+// Attachment surfaces and controls must follow the active brand, including photo captions.
+const attachmentSelectors = new Set([
+  '.composer-attachment-card', '.message-attachment-card', '.attachment-kind-picker select',
+  '.attachment-remove-button', '.message.user .message-attachment-card:not(.is-image)',
+  '.message-attachment-card.is-image span', '.message-attachment-review',
+  '.message.assistant .message-attachment-review',
+])
+postcss.parse(css).walkRules(rule => {
+  if (!rule.selectors.some(selector => attachmentSelectors.has(selector))) return
+  rule.walkDecls(declaration => {
+    if (!/^(?:color|background|border(?:-color)?)$/.test(declaration.prop)) return
+    assert.ok(!/(?:rgba?\(|#[a-f0-9]{3,8}\b|\bwhite\b)/i.test(declaration.value), `attachment colour must use brand/surface tokens: ${rule.selector} ${declaration.prop}`)
+  })
+})

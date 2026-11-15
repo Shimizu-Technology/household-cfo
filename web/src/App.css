@@ -6766,10 +6766,10 @@ h3 {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  border: 1px solid rgba(226, 217, 203, 0.95);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: white;
-  color: var(--mauve);
+  background: var(--surface-card);
+  color: var(--brand);
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
 }
@@ -6789,9 +6789,9 @@ h3 {
   /* "Bank or card statement" needs about 190px of text room at the control's 16px, plus the arrow. */
   width: min(100%, 250px);
   min-height: 34px;
-  border: 1px solid rgba(123, 74, 88, 0.16);
+  border: 1px solid color-mix(in srgb, var(--brand) 16%, transparent);
   border-radius: var(--radius-sm);
-  background: rgba(123, 74, 88, 0.05);
+  background: color-mix(in srgb, var(--brand) 5%, transparent);
   color: var(--ink);
   font: inherit;
   font-size: var(--text-xs);
@@ -6884,10 +6884,10 @@ h3 {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid rgba(123, 74, 88, 0.12);
+  border: 1px solid var(--line);
   border-radius: var(--radius-pill);
-  background: rgba(123, 74, 88, 0.06);
-  color: var(--mauve);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+  color: var(--brand);
 }
 
 .attachment-remove-button svg {
@@ -6918,7 +6918,7 @@ h3 {
 
 .message.user .message-attachment-card:not(.is-image) {
   border-color: var(--line);
-  background: var(--paper);
+  background: var(--surface-card);
   color: var(--ink);
 }
 
@@ -6948,8 +6948,8 @@ h3 {
   max-width: none;
   padding: 8px 10px;
   overflow: hidden;
-  background: rgba(255, 253, 248, 0.96);
-  color: var(--mauve);
+  background: color-mix(in srgb, var(--surface-card) 96%, transparent);
+  color: var(--brand);
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -6959,18 +6959,18 @@ h3 {
   justify-self: stretch;
   margin-top: 6px;
   min-height: 34px;
-  border: 1px solid rgba(255, 253, 248, 0.24);
+  border: 1px solid color-mix(in srgb, var(--surface-card) 24%, transparent);
   border-radius: var(--radius-md);
-  background: rgba(255, 253, 248, 0.12);
+  background: color-mix(in srgb, var(--surface-card) 12%, transparent);
   color: inherit;
   font-size: var(--text-xs);
   font-weight: var(--weight-bold);
 }
 
 .message.assistant .message-attachment-review {
-  border-color: rgba(123, 74, 88, 0.16);
-  background: rgba(123, 74, 88, 0.06);
-  color: var(--mauve);
+  border-color: color-mix(in srgb, var(--brand) 16%, transparent);
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+  color: var(--brand);
 }
 
 .local-attachment-preview {
