@@ -17333,15 +17333,15 @@ test('BOG UI F4 fix1 Statements refreshes the answered revision before reopening
     return route.fulfill({ json: { source_review: data } })
   })
   await f4Chat(page, [source])
-  await page.getByRole('link', { name: 'Statements', exact: true }).click()
+  await openSection(page, 'Statements')
   const review = page.getByRole('region', { name: 'Statement review', exact: true })
   await expect(review.getByText(/is money you spent shown as a negative amount/)).toBeVisible()
   await review.getByRole('button', { name: 'Yes, spending is negative' }).click()
   await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
   await expect(review.getByRole('heading', { level: 5 })).toBeFocused()
   await f4Evidence(page, 'statements-sign-effect')
-  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
-  await page.getByRole('link', { name: 'Statements', exact: true }).click()
+  await openSection(page, 'Ask Mia')
+  await openSection(page, 'Statements')
   await expect(review.getByText('13 lines are money out, 2 lines are money in', { exact: true })).toBeVisible()
   await expect(review.getByRole('alert')).toHaveCount(0)
 })
@@ -17371,4 +17371,30 @@ test('BOG UI F4 fix1 About links the converter notices and both licence texts', 
   await expect(about.getByRole('link', { name: 'GPL licence', exact: true })).toHaveAttribute('href', '/third-party/GPL-3.0.txt')
   await f4Evidence(page, 'about-converter-licences')
   await about.getByRole('button', { name: 'Close', exact: true }).click()
+})
+
+test('BOG UI F4 fix1 opening an unsigned row never defaults it to spending', async ({ page }) => {
+  let writes = 0
+  await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => { writes++; return route.fulfill({ status: 500, json: {} }) })
+  await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
+    const data = f4Review()
+    data.events = [{ ...data.events[0], event_type: 'unknown', posted_on: '2026-10-03', evidence: { merchant: 'Fictional shop', source_amount_text: '-126.42' } }]
+    data.counts = { all: 1, posted: 0, unresolved: 1, informational: 0, pending_transaction_drafts: 0, resolved_transaction_drafts: 0 }
+    data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+    data.participant_review!.plan = { ...data.participant_review!.plan, total: 1, ready: [], ready_event_ids: [], signed_amount_question: false }
+    data.participant_review!.plan.attention = [{ event_id: 4000, event_type: 'unknown', kind: 'direction', merchant: 'Fictional shop', posted_on: '2026-10-03', signed_amount_cents: null, amount_cents: 12642, category_id: null, category_name: null, question: 'Was this money out or money in?', answers: [{ id: 'money_out', label: 'Money out' }, { id: 'money_in', label: 'Money in' }] }]
+    return route.fulfill({ json: { source_review: data } })
+  })
+  await f4Chat(page, [f4Source()], 1203, false, 1)
+  await openSection(page, 'Statements')
+  await page.getByRole('button', { name: 'Edit Fictional shop', exact: true }).click()
+  const sheet = page.getByRole('dialog', { name: 'Fictional shop', exact: true })
+  await expect(sheet.getByLabel('What was this?')).toHaveValue('')
+  await expect(sheet.getByLabel('Amount')).toHaveValue('126.42')
+  await f4Evidence(page, 'direct-row-no-default')
+  await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(sheet.getByRole('alert')).toHaveText('Choose whether this was money out or money in.')
+  expect(writes).toBe(0)
+  await f4Evidence(page, 'direct-row-direction-required')
+  await sheet.getByRole('button', { name: 'Close', exact: true }).click()
 })
