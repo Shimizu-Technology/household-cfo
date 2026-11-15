@@ -10832,7 +10832,7 @@ test('BOG UI My Money groups saved records and opens category editing without mo
   await expect(page.locator('.income-schedule-form')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Plan an income change' })).toBeVisible()
   await openMoneyTopic(page, 'Spending')
-  await expect(page.locator('.money-record-list')).toContainText('Fixed essentials')
+  await expect(page.locator('.money-record-list')).toContainText('Other fixed essentials')
   await page.getByRole('button', { name: 'Add category', exact: true }).click()
   await expect(page).toHaveURL(/#Budget$/)
   await expect(page.getByRole('textbox', { name: 'New category' })).toBeFocused()
