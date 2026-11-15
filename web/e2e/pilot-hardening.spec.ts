@@ -17078,9 +17078,11 @@ async function f4Evidence(page: Page, state: string) {
 
 for (const negative of [true, false]) test(`BOG UI F4 one sign question applies to the whole file (${negative})`, async ({ page }) => {
   let answered = false
+  const source = f4Source()
   await page.route('http://api.test/api/v1/document_imports/1203/sign_answer', async route => {
     expect(route.request().postDataJSON()).toEqual({ revision_id: 88, negative_is_money_out: negative })
     answered = true
+    source.metadata.source_accounting_revision_id = 89
     return route.fulfill({ json: { revision_id: 89 } })
   })
   await page.route('http://api.test/api/v1/document_imports/1203/source_review?*', route => {
@@ -17091,13 +17093,14 @@ for (const negative of [true, false]) test(`BOG UI F4 one sign question applies 
     data.participant_review!.plan.signed_amount_question = !answered
     return route.fulfill({ json: { source_review: data } })
   })
-  await f4Chat(page, [f4Source()])
+  await f4Chat(page, [source])
   const question = page.getByText(/is money you spent shown as a negative amount/)
   await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeVisible()
   await f4Evidence(page, 'sign-question')
   await expect(question).toHaveCount(1)
   await page.getByRole('button', { name: negative ? 'Yes, spending is negative' : 'No, spending is positive' }).click()
   await expect(question).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: /Fictional checking/ })).toBeFocused()
   await expect(page.getByText('We couldn’t read this line clearly.')).toHaveCount(0)
   await f4Evidence(page, negative ? 'sign-resolved-negative' : 'sign-resolved-positive')
 })

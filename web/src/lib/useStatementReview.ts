@@ -15,12 +15,13 @@ export type UnsavedAnswer = { input: ApproveLinesInput; index: number | null; ev
  * One statement's review as the server plans it: what looks right, the few lines that need her answer, and the saves
  * that answer them. The Statements screen and the chat card both use this, so they save exactly the same things the same way.
  */
-export function useStatementReview({ importId, revisionId: sourceRevisionId, refreshKey, page = 1, onSaved, onChanged }: {
+export function useStatementReview({ importId, revisionId: sourceRevisionId, refreshKey, page = 1, onSaved, onChanged, onSignAnswered }: {
   importId: number; revisionId: number; refreshKey: string; page?: number
   /** Every line is saved and nothing is left to ask (also true when the statement was already finished on open). */
   onSaved?: () => void
   /** Something she did was saved, even if the statement is not finished: the numbers that read from it have moved. */
   onChanged?: () => void
+  onSignAnswered?: (revisionId: number) => void
 }) {
   const [answeredRevision, setAnsweredRevision] = useState<number | null>(null)
   const revisionId = answeredRevision ?? sourceRevisionId
@@ -128,6 +129,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
       const result = await answerSpreadsheetSign(importId, revisionId, negativeIsMoneyOut)
       focusAfter.current = null
       setAnsweredRevision(result.revision_id)
+      onSignAnswered?.(result.revision_id)
       changedCallback.current?.()
     } catch (failure) {
       setSignError(participantErrorMessage(failure, 'We couldn’t save that answer. Please try again.'))
