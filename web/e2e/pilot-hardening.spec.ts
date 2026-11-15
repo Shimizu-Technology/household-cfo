@@ -17559,7 +17559,7 @@ for (const choice of ['all_out', 'all_in', 'individual'] as const) test(`BOG UI 
   await expect(page.getByText('Every amount in this file is shown the same way. Is it all money out, all money in, or a mix?')).toBeVisible()
   await f4Evidence(page, 'fix2-one-sign-question')
   await page.getByRole('button', { name: { all_out: 'All money out', all_in: 'All money in', individual: 'A mix' }[choice], exact: true }).click()
-  await expect(page.getByText(/Your answer:/)).toBeVisible()
+  await expect(page.getByText(choice === 'individual' ? 'You chose to answer money out or money in for each line.' : `You said every amount is money ${choice === 'all_out' ? 'out' : 'in'}. That set the direction of 15 lines.`, { exact: true })).toBeVisible()
   await f4Evidence(page, `fix2-one-sign-${choice}`)
 })
 
