@@ -30,7 +30,7 @@ it('keeps a confirmed zero category plan known when an uncategorized purchase is
 
 
 it('keeps known zero spending separate from zero plan and a missing allocation', () => {
-  const position = { id: 2, name: 'Groceries', stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 0, actual: 0, pending: 0, remaining: 0, active: true }
+  const position = { id: 2, name: 'Groceries', neverPlanned: true, stackKey: 'discretionary' as const, stackLabel: 'Flexible spending', planned: 0, actual: 0, pending: 0, remaining: 0, active: true }
   const view = render(<CategoryPressureList positions={[position]} onPlanCategory={() => {}} />)
   expect(view.container.textContent).toContain('$0 actual')
   expect(view.container.textContent).toContain('No amount planned yet')
@@ -40,4 +40,15 @@ it('keeps known zero spending separate from zero plan and a missing allocation',
   expect(view.container.querySelector('button')).toBeNull()
   view.rerender(<ExpenseStackOverview positions={[{ ...position, allocationMissing: true }]} onPlanCategory={() => {}} />)
   expect(view.container.querySelector('button')).toBeNull()
+})
+
+it('preserves deliberate zero months and unknown spending before the plan starts', () => {
+  const position = { id: 2, name: 'Christmas gifts', stackKey: 'sinking_expected' as const, stackLabel: 'Planned yearly costs', planned: 0, actual: 0, pending: 25, remaining: 0, active: true, neverPlanned: false }
+  const view = render(<CategoryPressureList positions={[position]} onPlanCategory={() => {}} />)
+  expect(view.container.textContent).toContain('$0 planned')
+  expect(view.container.textContent).not.toContain('No amount planned yet')
+  expect(view.container.querySelector('button')).toBeNull()
+  view.rerender(<CategoryPressureList positions={[position]} planKnown={false} />)
+  expect(view.container.textContent).toContain('Approved spending not known yet')
+  expect(view.container.textContent).not.toContain('$0 actual')
 })

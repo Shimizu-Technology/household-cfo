@@ -1,6 +1,6 @@
 import { categoryDisplayName } from '../lib/categoryDisplayName'
 import { formatReviewMoney } from '../lib/reviewMoney'
-import type { IgnoredTransactionDraft, RecentTransaction, SpendingReport, TransactionDraft } from '../api'
+import type { BudgetCategoryRow, IgnoredTransactionDraft, RecentTransaction, SpendingReport, TransactionDraft } from '../api'
 import { transactionDraftFromIgnored, transactionDraftFromLedgerRow, transactionItemName } from '../lib/transactionReview'
 import './ReviewedTransactions.css'
 
@@ -10,6 +10,7 @@ function shortDate(value: string) {
 }
 
 type ReopenProps = {
+  categories?: BudgetCategoryRow[]
   action: string | null
   disabled?: boolean
   errors?: Record<string, string>
@@ -39,6 +40,7 @@ export function TransactionReopenButton({ transaction, action, disabled = false,
 
 export function IgnoredTransactionList({
   drafts,
+  categories = [],
   action,
   disabled = false,
   errors = {},
@@ -60,7 +62,7 @@ export function IgnoredTransactionList({
             <li className="reviewed-transaction-row" key={row.id}>
               <span>{shortDate(row.occurred_on)}</span>
               <strong>{row.merchant}</strong>
-              <span>{row.category_name ? categoryDisplayName(row.category_name) : 'Needs category'}</span>
+              <span>{row.category_name ? categoryDisplayName(row.category_name, categories.find(category => category.name === row.category_name)?.stack_key, categories) : 'Needs category'}</span>
               <b>{formatReviewMoney(Math.round((typeof row.amount_cents === 'number' ? row.amount_cents / 100 : row.amount) * 100))}</b>
               <button
                 type="button"
@@ -83,6 +85,7 @@ export function IgnoredTransactionList({
 /** Review-page list of this month's confirmed and ignored transactions, each one reversible. */
 export function ReviewedTransactionsPanel({
   report,
+  categories = [],
   includeAllConfirmed = false,
   action,
   disabled = false,
@@ -109,7 +112,7 @@ export function ReviewedTransactionsPanel({
               <li className="reviewed-transaction-row" key={transaction.id}>
                 <span>{shortDate(transaction.occurred_on)}</span>
                 <strong>{transaction.merchant}</strong>
-                <span>{transaction.categories.map(name => categoryDisplayName(name)).join(', ') || 'Uncategorized'}</span>
+                <span>{transaction.categories.map(name => categoryDisplayName(name, categories.find(category => category.name === name)?.stack_key, categories)).join(', ') || 'Uncategorized'}</span>
                 <b>{formatReviewMoney(Math.round((transaction.amount) * 100))}</b>
                 <TransactionReopenButton transaction={transaction} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
               </li>
@@ -117,7 +120,7 @@ export function ReviewedTransactionsPanel({
           </ul>
         </section>
       )}
-      <IgnoredTransactionList drafts={ignored} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
+      <IgnoredTransactionList categories={categories} drafts={ignored} errors={errors} action={action} disabled={disabled} onReopen={onReopen} />
     </section>
   )
 }

@@ -107,7 +107,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
                 {known && <div className="ui-track" aria-hidden="true" style={{ '--value': `${value}%` } as CSSProperties}><span className="ui-track__fill" /></div>}
                 <p id={`${titleId}-${stackKey}-meaning`} className="expense-group-meaning">{!known ? 'Add planned amounts to compare with spending.' : over > 0 ? `${formatReviewMoney(Math.round(over * 100))} over the plan.` : totals.actual === 0 ? 'Nothing spent against this plan yet.' : totals.actual === totals.planned ? 'Spending has used the full plan.' : `${formatReviewMoney(Math.round(subtractMoney(totals.planned, totals.actual) * 100))} left in this group.`}</p>
               </summary>
-              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.planned === 0 ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.planned === 0 && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.planned === 0 && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
+              {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.neverPlanned ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.neverPlanned && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.neverPlanned && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
             </details>
             {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
           </article>
@@ -153,7 +153,7 @@ export function CategoryPressureList({
         {rankedPositions.length === 0 ? (
           <p className="category-pressure-empty">{planKnown ? 'Add categories to see monthly plan pressure here.' : 'Approved spending is not known yet.'}</p>
         ) : rankedPositions.map((position) => {
-          const positionPlanKnown = planKnown && position.id !== 0 && position.planned > 0 && !position.allocationMissing
+          const positionPlanKnown = planKnown && position.id !== 0 && !position.neverPlanned && !position.allocationMissing
           const projected = addMoney(position.actual, position.pending)
           const projectedDifference = subtractMoney(position.planned, projected)
           return (
@@ -176,14 +176,14 @@ export function CategoryPressureList({
               </div>
               {positionPlanKnown && <BudgetProgressTrack planned={position.planned} actual={position.actual} pending={position.pending} label={`${position.name}: ${formatReviewMoney(Math.round((position.actual) * 100))} confirmed and ${formatReviewMoney(Math.round((position.pending) * 100))} pending against ${formatReviewMoney(Math.round((position.planned) * 100))} planned`} />}
               <div className="category-pressure-values">
-                <span>{position.id !== 0 || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
+                <span>{(planKnown && position.id !== 0) || position.actual > 0 ? `${formatReviewMoney(Math.round(position.actual * 100))} actual` : 'Approved spending not known yet'}</span>
                 {positionPlanKnown && <>
                   <span>{formatReviewMoney(Math.round((position.planned) * 100))} planned</span>
                   <span className={position.remaining < 0 ? 'negative' : ''}>{position.remaining < 0 ? `${formatReviewMoney(Math.round((Math.abs(position.remaining)) * 100))} over now` : `${formatReviewMoney(Math.round((position.remaining) * 100))} remaining now`}</span>
                 </>}
               </div>
               {position.allocationMissing && <p>Planned amount needs repair</p>}
-              {planKnown && position.id !== 0 && position.planned === 0 && !position.allocationMissing && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" aria-describedby={planningBlockedReason ? `${titleId}-${position.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}{planningBlockedReason && <small id={`${titleId}-${position.id}-plan-blocked`}>{planningBlockedReason}</small>}</div>}
+              {planKnown && position.id !== 0 && position.neverPlanned && !position.allocationMissing && <div className="ui-row"><span className="ui-row__body">No amount planned yet</span>{onPlanCategory && position.active && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${position.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(position.id)}>Set amount for {position.name}</button>}{planningBlockedReason && <small id={`${titleId}-${position.id}-plan-blocked`}>{planningBlockedReason}</small>}</div>}
             </article>
           )
         })}

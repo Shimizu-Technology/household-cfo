@@ -21,7 +21,7 @@ export function changedElsewhereMessage({ rowName, latest, mine, savedCount }: {
 export function latestAllocation(plan: AnnualBudgetPlan | undefined, allocationId: number) {
   for (const row of plan?.rows ?? []) {
     const month = row.months.find((candidate) => candidate.allocation_id === allocationId)
-    if (month) return { rowName: categoryDisplayName(row.name, row.stack_key), planned: month.planned }
+    if (month) return { rowName: categoryDisplayName(row.name, row.stack_key, plan?.rows), planned: month.planned }
   }
   return null
 }

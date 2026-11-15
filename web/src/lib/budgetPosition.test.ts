@@ -94,3 +94,12 @@ describe('cent-safe budget arithmetic', () => {
     expect(impact).toMatchObject({ otherPending: 0.1, projectedIfApproved: 0.2, remainingIfApproved: 0.1 })
   })
 })
+
+it('distinguishes a December-only plan from a category never planned in any month', () => {
+  const cells = Array.from({ length: 12 }, (_, index) => ({ planned: index === 11 ? 100 : 0, actual: 0, allocation_missing: false }))
+  const plan = { months: [{ id: 1, starts_on: '2026-01-01', ends_on: '2026-01-31' }], pending_transaction_drafts: [], rows: [
+    { id: 1, name: 'Christmas gifts', stack_key: 'sinking_expected', active: true, months: cells },
+    { id: 2, name: 'Purchase category', stack_key: 'discretionary', active: true, months: cells.map(cell => ({ ...cell, planned: 0 })) },
+  ] } as unknown as AnnualBudgetPlan
+  expect(budgetPositionsForMonth(plan, 0).map(position => [position.planned, position.neverPlanned])).toEqual([[0, false], [0, true]])
+})

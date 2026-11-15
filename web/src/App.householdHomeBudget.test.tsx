@@ -183,9 +183,10 @@ it('explains identical irregular costs once for grouped months', () => {
 })
 it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown debt minimums', () => {
  const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
- const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={null} />)
+ const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100},{...position,id:4,name:'Never planned',planned:0,neverPlanned:true}]} debtMinimums={null} />)
  const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
- expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero billNo amount planned yet')
+ expect(within(group).getByText('Never planned').parentElement?.textContent).toBe('Never plannedNo amount planned yet')
+ expect(within(group).getByText('Zero bill').parentElement?.textContent).toBe('Zero bill$0')
  expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billPlanned amount needs repair')
  expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')

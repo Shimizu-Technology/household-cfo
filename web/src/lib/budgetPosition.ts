@@ -18,6 +18,7 @@ export type BudgetPosition = {
   pending: number
   remaining: number
   active: boolean
+  neverPlanned?: boolean
   allocationMissing?: boolean
 }
 
@@ -29,6 +30,7 @@ export type BudgetPositionTotals = {
 }
 
 export type TransactionDraftBudgetImpact = {
+  neverPlanned?: boolean
   categoryId: number | null
   categoryName: string
   draftAmount: number
@@ -61,8 +63,9 @@ export function budgetPositionsForMonth(
     const actual = reportCategory?.actual ?? cell?.actual ?? 0
     return {
       id: row.id,
+      neverPlanned: row.months.every(month => !month.allocation_missing && month.planned === 0),
       allocationMissing: !cell || cell.allocation_missing === true,
-      name: categoryDisplayName(row.name, row.stack_key),
+      name: categoryDisplayName(row.name, row.stack_key, plan.rows),
       stackKey: row.stack_key,
       stackLabel: row.stack_label,
       planned,
@@ -77,7 +80,7 @@ export function budgetPositionsForMonth(
     .filter((category) => !planCategoryIds.has(category.id))
     .map((category) => ({
       id: category.id,
-      name: categoryDisplayName(category.name, category.stack_key),
+      name: categoryDisplayName(category.name, category.stack_key, Array.from(reportCategories.values())),
       stackKey: category.stack_key,
       stackLabel: category.stack_label,
       planned: category.planned,
@@ -157,7 +160,7 @@ export function transactionDraftBudgetImpacts(
     if (!row || !cell || cell.allocation_missing === true) {
       return {
         categoryId,
-        categoryName: row ? categoryDisplayName(row.name, row.stack_key) : allocation.categoryName || 'Unknown category',
+        categoryName: row ? categoryDisplayName(row.name, row.stack_key, plan.rows) : allocation.categoryName || 'Unknown category',
         draftAmount: allocation.amount,
         planned: null,
         actual: null,
@@ -171,8 +174,9 @@ export function transactionDraftBudgetImpacts(
     const projectedIfApproved = addMoney(cell.actual, allocation.amount)
     return {
       categoryId,
-      categoryName: categoryDisplayName(row.name, row.stack_key),
+      categoryName: categoryDisplayName(row.name, row.stack_key, plan.rows),
       draftAmount: allocation.amount,
+      neverPlanned: row.months.every(month => !month.allocation_missing && month.planned === 0),
       planned: cell.planned,
       actual: cell.actual,
       otherPending,
