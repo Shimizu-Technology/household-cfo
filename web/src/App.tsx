@@ -4564,7 +4564,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
                     queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Purchases to review"
-                    emptyTitle="Nothing to check right now."
+                    emptyTitle={pendingMiaActionDrafts.length > 0 ? 'No purchases to review' : 'Nothing to check right now.'}
                     description="Check the date, amount and category before confirming."
                     onPlanCategory={(categoryId, monthNumber) => openBudgetMoneyTool('monthly', categoryId, monthNumber)}
                     onUpdate={handleUpdateTransactionDraft}
@@ -8064,12 +8064,12 @@ export function TransactionDraftReviewStack({
     <div ref={reviewStackRef} className={`transaction-draft-stack participant-review ${compact ? 'compact' : ''}`} onFocusCapture={(event) => { focusedReviewId.current = (event.target as HTMLElement).closest<HTMLElement>('[data-review-item]')?.dataset.reviewItem ?? null }}>
       <div className="transaction-draft-stack-heading">
         <div>
-          <Heading ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{drafts.length === 0 ? emptyTitle : resolvedTitle}</Heading>
-          {drafts.length > 0 && (description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
+          <Heading ref={reviewStatusRef} tabIndex={-1} role={drafts.length === 0 ? 'status' : undefined}>{pendingDrafts.length === 0 ? emptyTitle : resolvedTitle}</Heading>
+          {pendingDrafts.length > 0 && (description || (compact && description !== '')) && <p>{description ?? 'Check each purchase before it counts as spent.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         {headerBulkAction && filteredPendingDrafts.length > 1 && onBulkConfirm && !folded && <button type="button" className="ui-btn ui-btn--text review-header-bulk" disabled={anyActionBusy || editingIds.size > 0 || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>Confirm categorized {confirmableDrafts.length}</button>}
-        {drafts.length > 0 && <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>}
+        {pendingDrafts.length > 0 && <strong>{queueMeta?.total_count ?? pendingDrafts.length} review{(queueMeta?.total_count ?? pendingDrafts.length) === 1 ? '' : 's'}</strong>}
       </div>
 
       {queueMeta?.truncated && (

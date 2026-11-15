@@ -17748,6 +17748,7 @@ test('BOG UI F2 new purchase category has no over warning and opens its amount e
   await card.getByLabel('New category name', { exact: true }).fill('Groceries')
   await card.getByRole('button', { name: 'Save draft', exact: true }).click()
   await card.getByRole('button', { name: /^Confirm / }).click()
+  await expect(page.locator('.transaction-draft-stack-heading')).toHaveText('Nothing to check right now.')
   await expect(card).toContainText('No amount planned yet')
   await expect(card).not.toContainText('over')
   await card.getByRole('button', { name: 'Set amount for Groceries', exact: true }).click()
