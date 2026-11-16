@@ -5964,7 +5964,7 @@ export function DocumentReviewPanel({
   const retentionHelp = !documentImport.source_available
     ? 'The original file has been removed. This import history, its extracted results, and any saved household values remain.'
     : documentImport.can_delete_record === false
-      ? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
+      ? documentImport.delete_refusal ?? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
       : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
   const fileHeader = (

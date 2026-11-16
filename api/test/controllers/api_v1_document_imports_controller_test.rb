@@ -2361,6 +2361,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     before = FinancialBaselines::Reader.new(@household, user: @user).current
     get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
     assert_equal false, response.parsed_body.dig("document_import", "can_delete_record")
+    assert_equal "This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record.", response.parsed_body.dig("document_import", "delete_refusal")
     with_s3_stubs(configured?: true, delete: ->(*) { flunk "the original must not be removed" }) do
       delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
     end

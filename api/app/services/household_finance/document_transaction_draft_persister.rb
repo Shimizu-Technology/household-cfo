@@ -95,7 +95,10 @@ module HouseholdFinance
     rescue ActiveRecord::RecordInvalid => e
       warnings << "Skipped transaction row #{index + 1}: #{e.record.errors.full_messages.to_sentence}."
     rescue StandardError => e
-      warnings << "Skipped transaction row #{index + 1}: #{e.message}."
+      # These warnings can reach the participant as the reason a file was not saved for review:
+      # an unexpected error's own text (a database or driver message) stays in the log.
+      Rails.logger.warn("[DocumentTransactionDraftPersister] row #{index + 1} not saved: #{e.class}: #{e.message}")
+      warnings << "Skipped transaction row #{index + 1}: it could not be saved."
     end
 
     def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:)

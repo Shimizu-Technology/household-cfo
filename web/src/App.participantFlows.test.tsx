@@ -248,3 +248,13 @@ it('asks the server whether an account-only partially saved file can be deleted'
   fireEvent.click(screen.getByRole('button', { name: 'Delete upload & record' }))
   expect(actions.onDeleteImport).toHaveBeenCalledWith(source)
 })
+
+it('says why a file cannot be deleted in the server’s own words', () => {
+  const refusal = 'This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record.'
+  const source = statement({ can_delete_record: false, delete_refusal: refusal })
+  render(<DocumentReviewPanel {...reviewPanelProps(source)} />)
+  fireEvent.click(screen.getByText('File options'))
+  const button = screen.getByRole('button', { name: 'Delete upload & record' }) as HTMLButtonElement
+  expect(button.disabled).toBe(true)
+  expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toBe(refusal)
+})
