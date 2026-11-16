@@ -109,7 +109,7 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     ).call
 
     assert_includes overview, "$6,275.25"
-    assert_includes overview, "$6,100 in planned categories plus $175.25 in required debt minimums"
+    assert_includes overview, "$6,100 in planned categories plus $175.25 in required monthly debt payments"
     assert_includes overview, "baseline surplus of $7,924.75"
     refute_includes overview, "baseline surplus of $8,100"
   end

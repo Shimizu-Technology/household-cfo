@@ -61,8 +61,8 @@ it('keeps the speaker names for screen readers on both sides of the conversation
 
 it('opens the server-specified missing money input from Mia’s answer', () => {
   const open = vi.fn()
-  render(<ChatHistory {...baseProps} totalMessageCount={1} onOpenMoneyInput={open} messages={[{role:'assistant', author:'Mia', content:'Still to add: debt minimums.', setup_help:{available:false,money_inputs:['debt','accounts']}}]} />)
-  fireEvent.click(screen.getByRole('button',{name:'Add debt minimums'}))
+  render(<ChatHistory {...baseProps} totalMessageCount={1} onOpenMoneyInput={open} messages={[{role:'assistant', author:'Mia', content:'Still to add: monthly debt payments.', setup_help:{available:false,money_inputs:['debt','accounts']}}]} />)
+  fireEvent.click(screen.getByRole('button',{name:'Add monthly debt payments'}))
   expect(open).toHaveBeenCalledWith('debt')
   fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
   expect(open).toHaveBeenLastCalledWith('accounts')

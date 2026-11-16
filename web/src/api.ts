@@ -310,6 +310,9 @@ export type TransactionDraftMatch = {
 }
 
 export type FinancialDocumentImport = {
+  can_delete_record?: boolean
+  /** Why the whole record cannot be deleted, in the participant's words. */
+  delete_refusal?: string | null
   statement_review?: StatementProgress | null
   context_paused_by_restart?: boolean
   id: number
@@ -445,6 +448,9 @@ export type ReadinessMilestone = {
 }
 
 export type MiaMonthAnswer = {
+  before_debt_payments?: boolean
+  before_debt_out_cents?: number | null
+  before_debt_left_cents?: number | null
   year: number
   month: number
   period_label: string

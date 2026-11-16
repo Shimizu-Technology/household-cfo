@@ -31,7 +31,7 @@ class ApiV1MiaFreshQaTest < ActionDispatch::IntegrationTest
   test "M3 month answer persists direct links to the actual missing numbers" do
     five_answers
     post_message("How am I doing this month?")
-    assert_includes reply, "debt minimums"
+    assert_includes reply, "monthly debt payments"
     assert_includes response.parsed_body.dig("assistant_message", "setup_help", "money_inputs"), "debt"
     get "/api/v1/mia/messages", headers: headers
     assert_response :success

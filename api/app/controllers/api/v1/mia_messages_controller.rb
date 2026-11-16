@@ -93,7 +93,7 @@ module Api
         end
         attached_imports = attached_document_imports
         if unavailable_attachment_ids.any?
-          return render json: { errors: [ "One or more attached uploads are unavailable in this household." ] }, status: :unprocessable_entity
+          return render json: { errors: [ "One or more files are no longer available in this household." ] }, status: :unprocessable_entity
         end
         content = "Please review this upload." if content.blank? && attached_imports.any?
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
@@ -1947,6 +1947,14 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
+        return HouseholdFinance::UploadFailureReply.for_files(attached_imports) if attached_imports.any? && attached_imports.all?(&:failed?)
+
+        if attached_imports.any?(&:failed?) && attached_imports.none? { |document| document.status.in?(%w[uploaded processing]) } && HouseholdFinance::AttachedDocumentQuestionAnswerer.read_acknowledgement_request?(content)
+          read = attached_imports.reject(&:failed?).map do |document|
+            HouseholdFinance::UploadReadReply.call(current_household, [ document ]) || attached_document_result_message(document)
+          end
+          return [ *read, HouseholdFinance::UploadFailureReply.for_files(attached_imports) ].compact.join(" ")
+        end
         if HouseholdFinance::AttachedDocumentQuestionAnswerer.read_acknowledgement_request?(content)
           read_reply = HouseholdFinance::UploadReadReply.call(current_household, attached_imports)
           return read_reply if read_reply
@@ -1989,8 +1997,7 @@ module Api
         end
         parts << "I also found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review in Import history." if items.any?
         if failed.any?
-          failure_details = failed.map { |document_import| "#{evidence_label(document_import)}: #{document_import.extraction_error.to_s.strip.delete_suffix('.').presence || 'extraction failed'}" }.to_sentence
-          parts << "#{failed.length} upload#{'s' unless failed.length == 1} failed, so those files produced no drafts: #{failure_details}."
+          parts << HouseholdFinance::UploadFailureReply.for_files(attached_imports)
         end
         if drafts.empty? && items.empty? && failed.empty?
           parts << "I did not find clear money details to draft. No household numbers changed."
@@ -2036,7 +2043,7 @@ module Api
 
       def attached_document_result_message(document_import)
         if document_import.status == "failed"
-          return "I could not read the #{evidence_label(document_import)} yet: #{document_import.extraction_error.to_s.strip.delete_suffix('.').presence || 'extraction failed'}. The upload is saved, but no household numbers changed."
+          return HouseholdFinance::UploadFailureReply.call(document_import)
         end
 
         route_line = attached_document_route_line(document_import)
@@ -2052,7 +2059,7 @@ module Api
         end
 
         if document_import_has_results?(document_import)
-          return "#{route_line} All extracted results are resolved, so nothing from this upload is waiting for approval."
+          return "#{route_line} Everything you reviewed from this file is saved or left out, so nothing is waiting for approval."
         end
 
         if document_import.status.in?(%w[uploaded processing])
@@ -2893,6 +2900,7 @@ module Api
             fallback_response = month_answer_with_review(fallback_response, transaction_draft: transaction_draft)
           end
         end
+        return fallback_response if month_facts && (month_facts[:before_plan_start] || month_facts[:before_debt_payments])
         # A reflection is about the participant's experience, not a fresh plan
         # calculation. Supplying totals invites unrelated figures and caveats.
         reflection = kind == "coaching" && priority == :reflective

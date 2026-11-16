@@ -83,6 +83,15 @@ class FinancialDocumentsSourceAccountingTest < ActiveSupport::TestCase
     assert_includes rejected[:warnings].sole, "not an eligible expense from this household import"
   end
 
+  test "an unexpected error while saving a row never puts its own text in the warning" do
+    result = persist(normalized([ event(-1_000) ]))
+    persister = HouseholdFinance::DocumentTransactionDraftPersister.new(@import, [ result[:transaction_drafts].sole ])
+    persister.define_singleton_method(:persist_draft_transaction!) { |**| raise "PG::ConnectionBad: could not connect to db.internal.example" }
+    rejected = persister.call
+    assert_equal 0, rejected[:created_count]
+    assert_equal [ "Skipped transaction row 1: it could not be saved." ], rejected[:warnings]
+  end
+
   test "source event and revision loading remains bounded for a multirow import" do
     result = persist(normalized((1..12).map { |row| event(-1_000, row: row) }))
     reads = []

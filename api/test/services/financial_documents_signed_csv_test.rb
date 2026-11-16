@@ -268,7 +268,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_not_includes reply, "Nothing counts in your spending until you approve it."
   end
 
-  test "latest revision filtering preserves separate retained imports after originals are deleted" do
+  test "latest revision filtering excludes deleted unapproved imports and retains approved history" do
     user, first = sign_document("first.csv")
     second = first.dup
     second.s3_key = "fictional/fix1-retained-#{SecureRandom.hex(6)}"
@@ -276,12 +276,15 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     accounting = extract("Date,Description,Amount,Direction\n2026-10-01,Pay,50,Credit\n", account_basis: "asset")[:source_accounting]
     FinancialDocuments::SourceAccountingPersister.new(first, attempt: nil, accounting: accounting).call
     first_latest = FinancialDocuments::SourceAccountingPersister.new(first, attempt: nil, accounting: accounting).call[:revision]
+    approve_income(user, first, first_latest)
     second_latest = FinancialDocuments::SourceAccountingPersister.new(second, attempt: nil, accounting: accounting).call[:revision]
     expected = [ first_latest.financial_source_events.sole.id, second_latest.financial_source_events.sole.id ].sort
-    first.destroy!
-    second.destroy!
     context = FinancialDocuments::SourceReview::OverlapDetector::Context.new(first.household)
     assert_equal expected, context.events.map(&:id).sort
+    first.destroy!
+    second.destroy!
+    retained = FinancialDocuments::SourceReview::OverlapDetector::Context.new(first.household)
+    assert_equal [ first_latest.financial_source_events.sole.id ], retained.events.map(&:id)
   end
 
   test "negative card balances prove both amount conventions" do
@@ -339,8 +342,31 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     changed = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: "individual", user: user)
     plan = FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, changed, user: user).plan_summary
     assert_not plan[:signed_amount_question]
-    assert_not plan[:signed_amount_answerable]
+    assert plan[:signed_amount_answerable]
     assert_equal 15, changed.financial_source_events.where(signed_amount_cents: nil).count
+  end
+
+  test "individual answer can be replaced until a line is saved, recording both answers" do
+    user, document = sign_document("change-individual.csv")
+    original = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extract(without_balance, account_basis: "asset")[:source_accounting], structured_spreadsheet: true).call[:revision]
+    individual = FinancialDocuments::SpreadsheetSignAnswer.call(original, negative_is_money_out: "individual", user: user)
+    changed = FinancialDocuments::SpreadsheetSignAnswer.call(individual, negative_is_money_out: true, user: user)
+    assert_equal [ "individual", true ], document.reload.metadata["signed_amount_answers"].pluck("choice")
+    assert_equal 15, changed.financial_source_events.where.not(signed_amount_cents: nil).count
+
+    individual = FinancialDocuments::SpreadsheetSignAnswer.call(changed, negative_is_money_out: "individual", user: user)
+    event = individual.financial_source_events.order(:position).first
+    domain = FinancialDocuments::SourceReview::Domain.new(document.household, user: user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, individual, { lines: [ { event_id: event.id, decision: "leave_out" } ] }).call
+    assert_not FinancialDocuments::SourceReview::ParticipantPresenter.new(document.household, individual, user: user).plan_summary[:signed_amount_answerable]
+    assert_raises(ArgumentError) { FinancialDocuments::SpreadsheetSignAnswer.call(individual, negative_is_money_out: true, user: user) }
+  end
+
+  test "ATM deposits are income while outgoing and unresolved ATM rows keep their kind" do
+    data = extract("Date,Description,Debit,Credit\n2026-10-01,ATM DEPOSIT,,100\n2026-10-02,ATM,20,\n", account_basis: "asset")
+    assert_equal [ "income", "cash_withdrawal" ], data[:source_accounting][:events].pluck(:event_type)
+    unresolved = extract("Date,Description,Amount\n2026-10-01,ATM,20\n", account_basis: "asset")
+    assert_equal "cash_withdrawal", unresolved[:source_accounting][:events].first[:event_type]
   end
 
   test "saving a line or removing the original withdraws the file question" do

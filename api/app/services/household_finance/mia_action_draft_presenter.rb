@@ -378,12 +378,12 @@ module HouseholdFinance
         before_portfolio = before_snapshot.fetch("portfolio", {})
         after_portfolio = after_snapshot.fetch("portfolio", {})
         fields << { label: "Planning balance", before: portfolio_debt_money(before_portfolio, "balance"), after: portfolio_debt_money(after_portfolio, "balance") }
-        fields << { label: "Planning monthly minimum", before: portfolio_debt_money(before_portfolio, "minimum_payment"), after: portfolio_debt_money(after_portfolio, "minimum_payment") }
+        fields << { label: "Planning monthly debt payments", before: portfolio_debt_money(before_portfolio, "minimum_payment"), after: portfolio_debt_money(after_portfolio, "minimum_payment") }
         fields << { label: "Active individual records", before: before_portfolio.fetch("active_count", 0).to_s, after: after_portfolio.fetch("active_count", 0).to_s }
       end
       if after["debt_tracking_mode"] == "summary"
         fields << { label: "Summary balance", before: summary_debt_money(before, "balance"), after: summary_debt_money(after, "balance") } if summary_debt_money(before, "balance") != summary_debt_money(after, "balance")
-        fields << { label: "Summary monthly minimum", before: summary_debt_money(before, "minimum_payment"), after: summary_debt_money(after, "minimum_payment") } if summary_debt_money(before, "minimum_payment") != summary_debt_money(after, "minimum_payment")
+        fields << { label: "Summary monthly debt payments", before: summary_debt_money(before, "minimum_payment"), after: summary_debt_money(after, "minimum_payment") } if summary_debt_money(before, "minimum_payment") != summary_debt_money(after, "minimum_payment")
       end
       fields
     end

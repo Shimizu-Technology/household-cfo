@@ -321,9 +321,9 @@ module HouseholdFinance
       return if DebtPortfolio.new(household).minimum_payment_known?
 
       liquid_missing = !AssetPortfolio.new(household).liquid_balance_known?
-      missing = liquid_missing ? "debt minimums and checking, savings, and emergency-fund balances" : "debt minimums"
+      missing = liquid_missing ? "monthly debt payments and checking, savings, and emergency-fund balances" : "monthly debt payments"
       account_step = liquid_missing ? " Add your account balances in My Money, under Accounts." : ""
-      "For spending and cushion guidance, I still need #{missing}. I cannot judge available cash from missing numbers.#{account_step} Open Debt in My Money to review minimums, including no debt payments if there are none."
+      "For spending and cushion guidance, I still need #{missing}. I cannot judge available cash from missing numbers.#{account_step} Open Debt in My Money to review monthly debt payments, including no debt payments if there are none."
     end
 
     def confirmed_debt_free_answer
@@ -341,7 +341,7 @@ module HouseholdFinance
       return if purchase_question? && !normalized_message.match?(DEBT_TERM_PATTERN)
 
       overview = if ::Mia::FinancialReadOnlyRequest.matches?(message) && normalized_message.match?(/\b(?:what (?:we|i) know|what (?:s|is) missing|household picture)\b/i)
-        "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt minimums are #{money(snapshot.fetch(:debt_payments_cents))}. "
+        "From approved records, monthly income is #{money(snapshot.fetch(:monthly_income_cents))}, planned fixed essentials are #{money(snapshot.fetch(:stack_totals_cents).fetch('non_discretionary'))}, planned flexible spending is #{money(snapshot.fetch(:stack_totals_cents).fetch('discretionary'))}, and monthly debt payments are #{money(snapshot.fetch(:debt_payments_cents))}. "
       end
       "#{overview}I do not know your account balances yet, so I cannot tell what cash is available. Add your checking, savings, and emergency-fund balances under Accounts in My Money, leaving anything unknown blank."
     end
@@ -476,7 +476,7 @@ module HouseholdFinance
         return "I cannot give licensed investment advice or tell you what stock or crypto to buy. Do not put emergency money at risk to chase a short-term return. Next step: protect essential bills and emergency runway, and confirm the missing household numbers before considering an investment decision."
       end
 
-      "Based on approved household numbers, this is not the moment to use investing or risky products as the shortcut to green: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}. I cannot give licensed investment advice or tell you what stock or crypto to buy. Next CFO move: protect roof, food, utilities, debt minimums, and emergency runway first; only discuss investing after the baseline and sinking funds are stable."
+      "Based on approved household numbers, this is not the moment to use investing or risky products as the shortcut to green: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}. I cannot give licensed investment advice or tell you what stock or crypto to buy. Next CFO move: protect roof, food, utilities, monthly debt payments, and emergency runway first; only discuss investing after the baseline and sinking funds are stable."
     end
 
     def external_fact_answer
@@ -532,7 +532,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if readiness_follow_up?
 
-      "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and debt minimums outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
+      "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and monthly debt payments outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
     end
 
     def extra_money_answer
@@ -562,7 +562,7 @@ module HouseholdFinance
       income = snapshot.fetch(:monthly_income_cents)
       surplus = snapshot.fetch(:baseline_surplus_cents)
       safe = snapshot.fetch(:safe_to_spend_cents)
-      basis = "#{money(category_plan)} category plan + #{money(debt_minimums)} debt minimums = #{money(total_outflow)} total outflow; #{money(income)} income − #{money(total_outflow)} = #{money(surplus)} baseline surplus."
+      basis = "#{money(category_plan)} category plan + #{money(debt_minimums)} monthly debt payments = #{money(total_outflow)} total outflow; #{money(income)} income − #{money(total_outflow)} = #{money(surplus)} baseline surplus."
       if surplus <= 0
         return "Your monthly safe-to-spend guardrail is $0. #{basis} The #{rate}% rule applies only to a positive baseline surplus in Yellow or Green, so a zero or negative surplus does not create discretionary room. It is not a purchase amount or account balance. Next CFO move: restore a positive approved baseline and build runway before approving wants."
       end
@@ -596,7 +596,7 @@ module HouseholdFinance
       end
 
       if normalized_message.match?(/skip|miss/i)
-        return "Do not make skipping a debt minimum the plan until you have checked every baseline option. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, so debt minimums stay in the protected baseline with roof, food, and utilities. I still need the payment amount, due date, current cash, and late consequences before saying what to do as a fact. Next CFO move: list those four numbers and contact the issuer before the due date if the minimum is at risk."
+        return "Do not make skipping a debt minimum the plan until you have checked every baseline option. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, so monthly debt payments stay in the protected baseline with roof, food, and utilities. I still need the payment amount, due date, current cash, and late consequences before saying what to do as a fact. Next CFO move: list those four numbers and contact the issuer before the due date if the minimum is at risk."
       end
 
       portfolio = DebtPortfolio.new(household)
@@ -682,7 +682,7 @@ module HouseholdFinance
       month_name = month_label(plan, target_month)
 
       if normalized_message.match?(/pause.*unexpected/i)
-        return "Only pause the unexpected sinking fund as a named one-month triage move, not as an invisible cut. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or debt minimums, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
+        return "Only pause the unexpected sinking fund as a named one-month triage move, not as an invisible cut. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or monthly debt payments, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
       end
 
       if normalized_message.match?(/gifts?/i)
@@ -754,7 +754,7 @@ module HouseholdFinance
       return nil if budget_report_question?
 
       if snapshot.fetch(:monthly_income_cents).zero? || snapshot.fetch(:total_outflow_cents).zero?
-        return "Based on what I can see, I do not have enough approved income and outflow data to build a real red-to-yellow-to-green plan yet. Add monthly income, fixed bills, debt minimums, liquid cash, and the main sinking-fund bills first so I am coaching from the household picture instead of guessing. Next CFO move: finish those profile numbers, then ask me for the yellow and green plan again."
+        return "Based on what I can see, I do not have enough approved income and outflow data to build a real red-to-yellow-to-green plan yet. Add monthly income, fixed bills, monthly debt payments, liquid cash, and the main sinking-fund bills first so I am coaching from the household picture instead of guessing. Next CFO move: finish those profile numbers, then ask me for the yellow and green plan again."
       end
 
       surplus_cents = snapshot.fetch(:baseline_surplus_cents)
@@ -819,7 +819,7 @@ module HouseholdFinance
       income_cents = facts.fetch(:monthly_income_cents)
       outflow_cents = facts.fetch(:total_outflow_cents)
       if income_cents.zero? || outflow_cents.zero?
-        return "I do not have enough approved income and outflow data to choose a first monthly focus yet. Add monthly income, fixed bills, debt minimums, liquid cash, and the main expected expenses first. Next CFO move: complete those profile numbers, then ask this question again so the priority comes from the household picture instead of a guess."
+        return "I do not have enough approved income and outflow data to choose a first monthly focus yet. Add monthly income, fixed bills, monthly debt payments, liquid cash, and the main expected expenses first. Next CFO move: complete those profile numbers, then ask this question again so the priority comes from the household picture instead of a guess."
       end
 
       surplus_cents = facts.fetch(:baseline_surplus_cents)
@@ -829,7 +829,7 @@ module HouseholdFinance
       end
 
       if surplus_cents.negative?
-        return "Your first focus this month is closing the #{money(surplus_cents.abs)} monthly baseline shortfall before adding new wants. Based on approved household numbers, monthly income is #{money(income_cents)} and monthly outflow is #{money(outflow_cents)}. Protect roof, food, utilities, medical needs, and debt minimums first, then reduce or renegotiate one lower-priority outflow. Next CFO move: name the next three due bills and the one flexible expense you can pause this month."
+        return "Your first focus this month is closing the #{money(surplus_cents.abs)} monthly baseline shortfall before adding new wants. Based on approved household numbers, monthly income is #{money(income_cents)} and monthly outflow is #{money(outflow_cents)}. Protect roof, food, utilities, medical needs, and monthly debt payments first, then reduce or renegotiate one lower-priority outflow. Next CFO move: name the next three due bills and the one flexible expense you can pause this month."
       end
 
       "Your first focus this month is protecting breakeven and building a small buffer before adding new wants. Based on approved household numbers, monthly income and monthly outflow are both #{money(income_cents)}. #{activity_review_step.sub(/\Areview/, "Review")}, protect essential and expected bills, then choose one flexible expense to reduce so the household has positive margin. Next CFO move: verify the next three due bills and choose the first expense that can create breathing room."
@@ -875,7 +875,7 @@ module HouseholdFinance
         "Yellow runway is covered; keep building toward the green gap of #{money(green_gap)} without stealing from expected bills."
       end
 
-      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, check purchases waiting for review, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
+      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, check purchases waiting for review, and protect roof, food, utilities, monthly debt payments, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
     end
 
     def green_readiness_plan(surplus_cents, transfer_cents, green_gap)
@@ -895,7 +895,7 @@ module HouseholdFinance
         return "This week, the goal is not to solve everything; it is to stop Red from leaking. Based on approved household numbers, your yellow runway gap is #{money(yellow_gap)}, and you have #{money(surplus_cents)} baseline surplus before new approvals. Protect essentials and expected sinking funds first, pause non-essential purchases unless they are already funded in the plan, then route about #{money(transfer_cents)} toward runway. Next CFO move: choose the one discretionary hold you can keep for seven days and make the runway transfer after bills clear."
       end
 
-      "This week, the goal is to stop the shortfall before chasing green. Based on approved household numbers, monthly cash flow is short by #{money(surplus_cents.abs)}, so the first move is to protect roof, food, utilities, and debt minimums, then identify one bill or discretionary category to reduce before the next paycheck. Next CFO move: send me the one expense you are willing to cut or renegotiate this week, and we will put that savings toward getting back to yellow."
+      "This week, the goal is to stop the shortfall before chasing green. Based on approved household numbers, monthly cash flow is short by #{money(surplus_cents.abs)}, so the first move is to protect roof, food, utilities, and monthly debt payments, then identify one bill or discretionary category to reduce before the next paycheck. Next CFO move: send me the one expense you are willing to cut or renegotiate this week, and we will put that savings toward getting back to yellow."
     end
 
     def family_support_answer
@@ -912,7 +912,7 @@ module HouseholdFinance
         return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
 
-      "I would not give a clean yes to #{amount_label} yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, debt minimums, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
+      "I would not give a clean yes to #{amount_label} yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, monthly debt payments, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
     end
 
     def family_support_tradeoff?
@@ -945,7 +945,7 @@ module HouseholdFinance
     def lending_answer
       return nil unless normalized_message.match?(LENDING_PATTERN)
 
-      "I would treat that as family-support risk unless the household can afford it as a gift. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months, so a promise to pay you back cannot protect your roof, food, utilities, or debt minimums. Next CFO move: decide the amount you could survive never getting back; if that number is zero, the answer is no cash help this time."
+      "I would treat that as family-support risk unless the household can afford it as a gift. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months, so a promise to pay you back cannot protect your roof, food, utilities, or monthly debt payments. Next CFO move: decide the amount you could survive never getting back; if that number is zero, the answer is no cash help this time."
     end
 
     def debt_vs_savings_answer
@@ -955,7 +955,7 @@ module HouseholdFinance
       liquid_cents = snapshot.fetch(:liquid_assets_cents)
       yellow_gap = runway_gap_cents(yellow_runway_target_cents)
       if yellow_gap.positive?
-        return "Savings comes first until you reach yellow, then extra debt gets more room. Based on approved household numbers, you have #{money(liquid_cents)} liquid, #{money(debt_cents)} debt entered, #{snapshot.fetch(:runway_months)} months of runway, and a yellow runway gap of #{money(yellow_gap)}. Keep paying debt minimums, but do not send extra debt payments while the household still needs basic runway. Next CFO move: route the next available surplus to runway until yellow is protected, then split extra dollars between debt and savings."
+        return "Savings comes first until you reach yellow, then extra debt gets more room. Based on approved household numbers, you have #{money(liquid_cents)} liquid, #{money(debt_cents)} debt entered, #{snapshot.fetch(:runway_months)} months of runway, and a yellow runway gap of #{money(yellow_gap)}. Keep paying monthly debt payments, but do not send extra debt payments while the household still needs basic runway. Next CFO move: route the next available surplus to runway until yellow is protected, then split extra dollars between debt and savings."
       end
 
       "You have enough runway for yellow, so extra debt can start competing with additional savings. Based on approved household numbers, liquid assets are #{money(liquid_cents)}, debt entered is #{money(debt_cents)}, and readiness is #{snapshot.fetch(:readiness_label)}. Keep emergency runway intact, then use a fixed extra-payment amount so debt payoff does not steal from sinking funds. Next CFO move: pick the monthly extra debt amount only after expected bills are funded."
@@ -973,10 +973,10 @@ module HouseholdFinance
       return nil unless normalized_message.match?(EMOTIONAL_STRESS_PATTERN)
 
       if normalized_message.match?(/spouse|fighting/i)
-        return "Tonight is not for solving the whole budget; it is for getting both of you back on the same side of the table. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the shared target is protecting roof, food, utilities, debt minimums, and the next due bill before blame. Next CFO move: each person names one bill or purchase they are worried about, then you pick one baseline action for the next 24 hours."
+        return "Tonight is not for solving the whole budget; it is for getting both of you back on the same side of the table. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the shared target is protecting roof, food, utilities, monthly debt payments, and the next due bill before blame. Next CFO move: each person names one bill or purchase they are worried about, then you pick one baseline action for the next 24 hours."
       end
 
-      "You are not stupid, and the numbers are not a verdict on your worth. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the kindest next move is smaller, not harsher: protect roof, food, utilities, debt minimums, and the next due bill. Next CFO move: list the next three due dates and amounts; we will make one clean decision at a time."
+      "You are not stupid, and the numbers are not a verdict on your worth. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the kindest next move is smaller, not harsher: protect roof, food, utilities, monthly debt payments, and the next due bill. Next CFO move: list the next three due dates and amounts; we will make one clean decision at a time."
     end
 
     def overwhelmed_answer
@@ -1068,7 +1068,7 @@ module HouseholdFinance
 
     def savings_goal_margin_line(amount_cents)
       unless setup_status.complete? && DebtPortfolio.new(household).minimum_payment_known? && snapshot.fetch(:monthly_income_cents).positive?
-        return "I cannot compare it with your monthly margin yet because your income, bills, and debt minimums are not all confirmed."
+        return "I cannot compare it with your monthly margin yet because your income, bills, and monthly debt payments are not all confirmed."
       end
 
       surplus_cents = snapshot.fetch(:baseline_surplus_cents)
@@ -1077,7 +1077,7 @@ module HouseholdFinance
         return "Your approved numbers show #{shortfall}, so a small starter goal, or waiting until essentials are steady, is the kinder choice."
       end
 
-      line = "Your approved numbers leave about #{money(surplus_cents)} a month after your planned budget and debt minimums."
+      line = "Your approved numbers leave about #{money(surplus_cents)} a month after your planned budget and monthly debt payments."
       return line unless amount_cents&.positive? && normalized_message.match?(/\bchallenge\b/)
 
       monthly_cents = ((amount_cents / 3.0) / 100).round * 100
@@ -1221,7 +1221,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(SCREENSHOT_PURCHASE_TERMS) && !essential_purchase?
 
       if essential_purchase?
-        return "This sounds like a baseline need, not a discretionary want. Based on the Household CFO priority order, protect roof, food, utilities, medical needs, and debt minimums before judging it like optional spending. I still need the amount and timing to say whether it fits this month’s cash flow. Next CFO move: send me the price and due date, then we will place it against the active plan."
+        return "This sounds like a baseline need, not a discretionary want. Based on the Household CFO priority order, protect roof, food, utilities, medical needs, and monthly debt payments before judging it like optional spending. I still need the amount and timing to say whether it fits this month’s cash flow. Next CFO move: send me the price and due date, then we will place it against the active plan."
       end
       return unavailable_plan_answer unless plan_available?
 

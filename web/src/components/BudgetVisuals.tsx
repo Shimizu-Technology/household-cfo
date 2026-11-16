@@ -36,7 +36,7 @@ export function MonthPlanSummary({
   planKnown?: boolean
   compact?: boolean
 }) {
-  // Money in, money out: planned out includes debt minimums, matching the year chart.
+  // Money in, money out: planned out includes monthly debt payments, matching the year chart.
   const plannedOut = planKnown && debtMinimumsKnown ? addMoney(planned, debtMinimums) : null
   const balance = incomeKnown && plannedOut !== null ? subtractMoney(income, plannedOut) : null
   const overPlan = planKnown ? subtractMoney(actual, planned) : 0
@@ -55,7 +55,7 @@ export function MonthPlanSummary({
       {pending > 0 && <p className="month-plan-pending"><i className="pending-swatch" aria-hidden="true" /> {formatReviewMoney(Math.round((pending) * 100))} pending review · not counted as spent</p>}
       {planKnown && !compact && <BudgetProgressTrack planned={planned} actual={actual} pending={pending} label={`${label}: ${formatReviewMoney(Math.round((actual) * 100))} confirmed, ${formatReviewMoney(Math.round((pending) * 100))} pending, against ${formatReviewMoney(Math.round((planned) * 100))} planned`} />}
       {planKnown && !compact && (debtMinimums > 0 || !debtMinimumsKnown) && <p className="month-plan-note" role="group" aria-label="Monthly money out breakdown">
-        Category plan {formatReviewMoney(Math.round((planned) * 100))} + Debt minimums {debtMinimumsKnown ? formatReviewMoney(Math.round((debtMinimums) * 100)) : 'Not entered'} = Planned out {debtMinimumsKnown ? formatReviewMoney(Math.round((addMoney(planned, debtMinimums)) * 100)) : 'Not available'}
+        Category plan {formatReviewMoney(Math.round((planned) * 100))} + Monthly debt payments {debtMinimumsKnown ? formatReviewMoney(Math.round((debtMinimums) * 100)) : 'Not entered'} = Planned out {debtMinimumsKnown ? formatReviewMoney(Math.round((addMoney(planned, debtMinimums)) * 100)) : 'Not available'}
       </p>}
     </section>
   )
@@ -109,7 +109,7 @@ export function ExpenseStackOverview({ positions, debtMinimums, onPlanCategory, 
               </summary>
               {categories.length === 0 ? <p>No categories yet.</p> : <ul className="expense-group-categories">{categories.map(category => <li key={category.id}><span>{category.name}</span><strong>{category.id === 0 ? `${formatReviewMoney(Math.round(category.pending * 100))} pending review` : !category.active ? `${formatReviewMoney(Math.round(category.actual * 100))} spent · archived` : category.allocationMissing ? 'Planned amount needs repair' : category.neverPlanned ? 'No amount planned yet' : formatReviewMoney(Math.round(category.planned * 100))}</strong>{category.active && category.id !== 0 && category.neverPlanned && !category.allocationMissing && onPlanCategory && <button type="button" className="ui-btn ui-btn--tonal" disabled={Boolean(planningBlockedReason)} aria-describedby={planningBlockedReason ? `${titleId}-${category.id}-plan-blocked` : undefined} onClick={() => onPlanCategory(category.id)}>Set amount for {category.name}</button>}{planningBlockedReason && category.neverPlanned && !category.allocationMissing && <small id={`${titleId}-${category.id}-plan-blocked`}>{planningBlockedReason}</small>}</li>)}</ul>}
             </details>
-            {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your debt minimums.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in debt minimums.`}</p>}
+            {stackKey === 'non_discretionary' && debtMinimums !== undefined && <p className="expense-debt-note">{debtMinimums === null ? 'Add your monthly debt payments.' : `Plus ${formatReviewMoney(Math.round(debtMinimums * 100))} in monthly debt payments.`}</p>}
           </article>
         })}
       </div>

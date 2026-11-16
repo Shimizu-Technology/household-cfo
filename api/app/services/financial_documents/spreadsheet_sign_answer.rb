@@ -55,7 +55,7 @@ module FinancialDocuments
         negative_is_money_out: choice == "individual" ? nil : negative_is_money_out, account_basis: bases.first).call
       raise ArgumentError, "We could not apply that answer. Nothing changed." unless result.success?
       accounting = result.data.fetch(:source_accounting)
-      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false, signed_amount_answerable: choice != "individual", signed_amount_target_rows: target_rows, signed_amount_choice: choice, signed_amount_derived_convention: nil, signed_amount_convention: negative_is_money_out, signed_amount_convention_source: derived ? "balance" : "answer")
+      accounting[:coverage] = revision.coverage.deep_symbolize_keys.merge(signed_amount_question: false, signed_amount_answerable: true, signed_amount_target_rows: target_rows, signed_amount_choice: choice, signed_amount_derived_convention: nil, signed_amount_convention: negative_is_money_out, signed_amount_convention_source: derived ? "balance" : "answer")
       raise ArgumentError, "We could not account for every line. Nothing changed." unless accounting[:events].length == originals.length
       accounting[:accounts].each do |account|
         original = accounts.find { |row| Digest::SHA256.hexdigest(row.id.to_s) == account[:source_key] }

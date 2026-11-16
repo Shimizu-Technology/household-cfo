@@ -2,7 +2,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test'
 import { mkdir, writeFile } from 'node:fs/promises'
 
 // Synthetic W20 household: November join, reviewed October spending $2,254.65,
-// income $4,500, costs $3,000, debt minimums $95, no entered account balances.
+// income $4,500, costs $3,000, monthly debt payments $95, no entered account balances.
 const liveUrl = process.env.HCFO_MIA_FRESH_LIVE_URL
 const apiUrl = process.env.HCFO_MIA_FRESH_API_URL ?? 'http://127.0.0.1:3222'
 const evidenceDir = process.env.HCFO_MIA_FRESH_EVIDENCE_DIR
@@ -260,11 +260,11 @@ test('BOG UI household fresh setup keeps missed answers in setup and reviews eve
   if (evidenceDir) await writeFile(`${evidenceDir}/setup-replies-and-saved-outcomes-${info.project.name}.json`, JSON.stringify({ replies, data }, null, 2))
 })
 
-test('BOG UI missing debt minimums link opens the matching controls without confirming a value', async ({ page, request }, info) => {
+test('BOG UI missing monthly debt payments link opens the matching controls without confirming a value', async ({ page, request }, info) => {
   test.skip(!setupLinkUrl, 'Requires the isolated five-answer W20 household fixture.')
   test.setTimeout(120_000)
   await page.goto(`${setupLinkUrl}/?pilot_e2e_role=participant&pilot_e2e_live_api=true#Home`)
-  const debt = page.getByLabel('Your month in money', { exact: true }).getByRole('button', { name: 'Add debt minimums', exact: true })
+  const debt = page.locator('.home-screen').getByRole('button', { name: 'Add monthly debt payments', exact: true })
   await expect(debt).toBeVisible({ timeout: 60_000 })
   await expect(page.getByRole('button', { name: 'Set up with Mia', exact: true })).toHaveCount(0)
   for (const [width, height] of [[390, 844], [320, 568], [1366, 900]]) {

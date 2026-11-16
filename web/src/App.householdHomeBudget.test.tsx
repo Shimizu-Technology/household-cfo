@@ -39,7 +39,7 @@ it('reads money in, planned out and spent so far, without subtracting pending pu
   expect(screen.getByText('$135.90 pending review · not counted as spent')).toBeTruthy()
 })
 
-it('says plainly when the plan spends more than comes in, counting debt minimums', () => {
+it('says plainly when the plan spends more than comes in, counting monthly debt payments', () => {
   render(<MonthPlanSummary {...summary} income={3000} debtMinimums={200} />)
   expect(screen.getByText('Planned out').parentElement?.textContent).toContain('$4,100')
   expect(screen.getByText('This month’s plan is $1,100 more than money in.')).toBeTruthy()
@@ -137,10 +137,10 @@ it('never recalculates Home from a different budget cache and preserves unknown 
  expect(screen.getAllByText('$0')).toHaveLength(4)
 })
 
-it('names debt minimums as the plan gap and links missing cushion balances', () => {
+it('names monthly debt payments as the plan gap and links missing cushion balances', () => {
  const openDebt = vi.fn(), openAccounts = vi.fn()
- render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label:'debt minimums',destination:'debt'}], cushion_missing_inputs: [{label:'checking, savings, and emergency-fund balances',destination:'accounts'}], readiness_guidance:'Add checking, savings, and emergency-fund balances before judging your emergency cushion.'}}} budget={{annual_plan:plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} onOpenAccounts={openAccounts}/>)
- expect(screen.getByText('Still to add: debt minimums.')).toBeTruthy()
+ render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label:'monthly debt payments',destination:'debt'}], cushion_missing_inputs: [{label:'checking, savings, and emergency-fund balances',destination:'accounts'}], readiness_guidance:'Add checking, savings, and emergency-fund balances before judging your emergency cushion.'}}} budget={{annual_plan:plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} onOpenAccounts={openAccounts}/>)
+ expect(screen.getByText('Still to add: monthly debt payments.')).toBeTruthy()
  fireEvent.click(screen.getByRole('button',{name:'Add account balances'}))
  expect(openAccounts).toHaveBeenCalledOnce()
  expect(screen.queryByText(/missing income or planned costs/)).toBeNull()
@@ -167,11 +167,11 @@ it('puts one plan caveat below the whole money row and uses plain spent copy', (
  expect(caveat.previousElementSibling?.className).toBe('home-money-values')
  expect(container.querySelector('.home-spent')?.textContent).toBe('Spent so far this month: $229.92')
 })
-it('recovers missing debt minimums from Home without inventing a zero outflow', () => {
+it('recovers missing monthly debt payments from Home without inventing a zero outflow', () => {
  const openDebt = vi.fn()
- render(<HomeScreen dashboard={{...dashboard, coach_read: {title: 'Debt minimums needed', body: 'Add minimums', action: 'open_debt'}, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
+ render(<HomeScreen dashboard={{...dashboard, coach_read: {title: 'Monthly debt payments needed', body: 'Add minimums', action: 'open_debt'}, month_answer: {...dashboard.month_answer!, planned_out_cents: null, plan_left_cents: null, runway_months: null, missing_plan_inputs: [{label: 'monthly debt payments', destination: 'debt'}], cushion_missing_inputs: [{label: 'monthly debt payments', destination: 'debt'}]}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={openDebt} />)
  expect(screen.getAllByText('Not entered')).toHaveLength(2)
- fireEvent.click(screen.getByRole('button', {name: 'Add debt minimums'}))
+ fireEvent.click(screen.getByRole('button', {name: 'Add monthly debt payments'}))
  expect(openDebt).toHaveBeenCalledOnce()
 })
 it('explains identical irregular costs once for grouped months', () => {
@@ -181,7 +181,7 @@ it('explains identical irregular costs once for grouped months', () => {
  expect(screen.getAllByText('School costs: $3,800')).toHaveLength(1)
  expect(screen.getByText('$1,320 short each month')).toBeTruthy()
 })
-it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown debt minimums', () => {
+it('distinguishes confirmed zero, missing category amounts, mixed subtotals and unknown monthly debt payments', () => {
  const position = {actual: 0, pending: 0, remaining: 0, active: true, stackLabel: 'Must-pay bills', stackKey: 'non_discretionary' as const}
  const view = render(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:2,name:'Unknown bill',planned:0,allocationMissing:true},{...position,id:3,name:'Rent',planned:100},{...position,id:4,name:'Never planned',planned:0,neverPlanned:true}]} debtMinimums={null} />)
  const group = view.container.querySelector('.stack-non_discretionary') as HTMLElement
@@ -190,11 +190,11 @@ it('distinguishes confirmed zero, missing category amounts, mixed subtotals and 
  expect(within(group).getByText('Unknown bill').parentElement?.textContent).toBe('Unknown billPlanned amount needs repair')
  expect(within(group).getByText('Rent').parentElement?.textContent).toBe('Rent$100')
  expect(group.querySelector('.expense-stack-row-heading b')?.textContent).toBe('Not entered')
- expect(within(group).getByText('Add your debt minimums.')).toBeTruthy()
+ expect(within(group).getByText('Add your monthly debt payments.')).toBeTruthy()
  expect(group.textContent).not.toContain('Plus $0')
  view.rerender(<ExpenseStackOverview positions={[{...position,id:1,name:'Zero bill',planned:0},{...position,id:3,name:'Rent',planned:100}]} debtMinimums={0} />)
  expect(view.container.querySelector('.expense-stack-row-heading b')?.textContent).toBe('$100 planned')
- expect(screen.getByText('Plus $0 in debt minimums.')).toBeTruthy()
+ expect(screen.getByText('Plus $0 in monthly debt payments.')).toBeTruthy()
 })
 
 
@@ -298,7 +298,7 @@ it.each([
   }
 })
 
-it('uses category remainder plus debt minimums, with no pending spending', () => {
+it('uses category remainder plus monthly debt payments, with no pending spending', () => {
   const { container } = render(<HomeScreen dashboard={{ ...dashboard, month_answer: { ...dashboard.month_answer!, money_in_cents: 620000, planned_out_cents: 402000, category_plan_cents: 390000, category_left_cents: 228800, spent_so_far_cents: 161200, pending_cents: 999999 } }} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
   const bar = container.querySelector<HTMLElement>('.ui-bar')!
   expect(Number.parseFloat(bar.style.getPropertyValue('--spent'))).toBeCloseTo(26)
@@ -376,4 +376,23 @@ it('does not claim debt payments are counted when Planned out needs an allocatio
   expect(view.container.querySelector('.budget-plan-strip')?.textContent).toContain('Planned outNot entered')
   expect(view.container.textContent).not.toContain('are counted in Planned out above')
   expect(view.container.querySelector(`[data-budget-category-id="${incomplete.rows[0].id}"] .annual-planned-readonly`)?.textContent).toBe('Not entered')
+})
+
+it('labels the known subtotal before debt and offers just one action for the missing payments', () => {
+  const answer = { ...dashboard.month_answer!, money_in_cents: 520000, planned_out_cents: null, plan_left_cents: null, before_debt_payments: true, before_debt_out_cents: 275000, before_debt_left_cents: 245000, runway_months: null, missing_plan_inputs: [{ label: 'monthly debt payments', destination: 'debt' as const }], cushion_missing_inputs: [{ label: 'monthly debt payments', destination: 'debt' as const }] }
+  const open = vi.fn()
+  render(<HomeScreen dashboard={{ ...dashboard, month_answer: answer, coach_read: { title: 'Monthly debt payments needed', body: 'Add them', action: 'open_debt' } }} budget={{} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} onOpenDebt={open} />)
+  expect(screen.getByText('What’s left · before debt payments').parentElement?.textContent).toContain('$2,450')
+  expect(screen.getByText('Money out · before debt payments').parentElement?.textContent).toContain('$2,750')
+  expect(screen.queryByText('What’s left · planned')).toBeNull()
+  const actions = screen.getAllByRole('button', { name: 'Add monthly debt payments' })
+  expect(actions).toHaveLength(1)
+  fireEvent.click(actions[0])
+  expect(open).toHaveBeenCalledOnce()
+})
+
+it('shows a before-debt shortfall as a positive shortfall amount', () => {
+  render(<HomeScreen dashboard={{...dashboard, month_answer: {...dashboard.month_answer!, before_debt_payments: true, before_debt_left_cents: -30000, before_debt_out_cents: 550000, money_in_cents: 520000, plan_left_cents: null, planned_out_cents: null}}} budget={{annual_plan: plan} as ComponentProps<typeof HomeScreen>['budget']} onAskMia={vi.fn()} onReviewTransactions={vi.fn()} onReviewMiaActions={vi.fn()} onReviewImports={vi.fn()} pendingImportCount={0} />)
+  expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).toContain('$300')
+  expect(screen.getByText('Shortfall · before debt payments').parentElement?.textContent).not.toContain('-$300')
 })

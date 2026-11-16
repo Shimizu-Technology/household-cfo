@@ -293,6 +293,15 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     end
   end
 
+  test "monthly debt payments wording keeps the same two-value answer and consent rules" do
+    [ "total monthly minimum", "total monthly debt payments" ].each do |words|
+      context = debt_context(recent: [ { role: "assistant", content: "What are the approved total balance and #{words}? Say unknown for either one you have not confirmed." } ])
+      assert resolve("0 and 0", context: context)&.actionable?, words
+      assert_nil resolve("yes", context: context), words
+      assert_nil resolve("0", context: context), words
+    end
+  end
+
   test "bare zero and yes need Mia's immediately previous question to match" do
     both = debt_context(recent: [ { role: "assistant", content: "What are the approved total balance and total monthly minimum? Say unknown for either one you have not confirmed." } ])
     assert_nil resolve("0", context: both), "a bare 0 answers only one of two questions"
@@ -469,6 +478,16 @@ class HouseholdFinanceMiaIntentResolverQaChatTest < ActiveSupport::TestCase
     result = resolve("Change my goal to a place of our own")
     assert_equal "a place of our own", result&.action.to_h.dig(:setup_updates, :primary_goal), result.to_h.inspect
   end
+
+  test "new no debt offer wording recognises yes and an explicit zero pair" do
+    asked = debt_context(recent: [ { role: "user", content: "We do not have any debt." }, { role: "assistant", content: "Would you like me to save $0 debt balance and $0 monthly debt payments for the household?" } ])
+    [ "yes", "0 and 0" ].each do |reply|
+      result = resolve(reply, context: asked)
+      assert result&.actionable?, reply
+      assert_equal "0", result.action[:minimum_payment]
+    end
+  end
+
 
   private
 

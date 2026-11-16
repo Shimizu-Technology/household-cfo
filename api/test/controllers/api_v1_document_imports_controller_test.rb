@@ -877,6 +877,58 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "income_source", "Primary salary", "6200" ], rows.second.fetch("values")
   end
 
+  test "destroy removes account answers and only the tracked account owned by this statement" do
+    [ false, true ].each do |shared|
+      document = create_import!(status: "needs_review")
+      accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+        accounts: [ { account_key: "file-account", account_basis: "unknown" } ], events: [ { account_key: "file-account", row_kind: "unresolved", event_type: "unknown", posted_on: "2026-10-01", merchant: "Fictional shop", locator: { row: 1 } } ] })
+      revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting).call[:revision]
+      domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+      FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [], accounts: [ { source_account_id: revision.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+      head = SourceAccountReviewHead.find_by!(financial_source_account: revision.financial_source_accounts.sole)
+      identity = head.approved_version
+      tracked = identity.source_tracked_account
+      if shared
+        other = create_import!(status: "needs_review", s3_key: "fictional/f5-other.pdf")
+        other_revision = FinancialDocuments::SourceAccountingPersister.new(other, attempt: nil, accounting: accounting).call[:revision]
+        input = { source_account_id: other_revision.financial_source_accounts.sole.id, tracked_account_id: tracked.id, base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Same account in another file" }
+        domain.execute("account_link", domain.normalize("account_link", input))
+      end
+      with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+        delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+      end
+      assert_response :no_content
+      assert_not FinancialDocumentImport.exists?(document.id)
+      assert_not SourceAccountReviewHead.exists?(head.id)
+      assert_not SourceAccountIdentityVersion.exists?(identity.id)
+      assert_equal shared, SourceTrackedAccount.exists?(tracked.id)
+    end
+  end
+
+  test "approved statement lines refuse deletion with recovery and keep their account answer" do
+    document = create_import!(status: "needs_review")
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
+      accounts: [ { account_key: "file-account", account_basis: "asset" } ], events: [ { account_key: "file-account", row_kind: "posted", event_type: "purchase", signed_amount_cents: -1000, posted_on: "2026-10-01", merchant: "Fictional shop", locator: { row: 1 } } ] })
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [ { event_id: revision.financial_source_events.sole.id, decision: "leave_out" } ], accounts: [ { source_account_id: revision.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+    identity = SourceAccountReviewHead.find_by!(financial_source_account: revision.financial_source_accounts.sole).approved_version
+    [ identity, identity.source_account_review_head, identity.source_tracked_account ].each do |record|
+      error = assert_raises(ActiveRecord::StatementInvalid) { ApplicationRecord.transaction(requires_new: true) { record.class.where(id: record.id).delete_all } }
+      assert_instance_of PG::RaiseException, error.cause
+      attribute = record.is_a?(SourceAccountReviewHead) ? :financial_source_account_id : :household_id
+      assert_raises(ActiveRecord::StatementInvalid) { ApplicationRecord.transaction(requires_new: true) { record.class.where(id: record.id).update_all(attribute => record.public_send(attribute) + 999999) } }
+    end
+    assert_not FinancialDocuments::UnapprovedStatementAccounts.removable?(document)
+    with_s3_stubs(configured?: true, delete: ->(*) { flunk "Must keep the file" }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body["errors"].join, "Only approved spending lines count in your numbers. You can remove the original file"
+    assert FinancialDocumentImport.exists?(document.id)
+    assert SourceAccountReviewHead.exists?(financial_source_account_id: revision.financial_source_accounts.sole.id)
+  end
+
   test "destroy removes database record before deleting private source" do
     document_import = create_import!(s3_key: "household-cfo/test/source.pdf")
     record_existed_when_s3_deleted = []
@@ -940,7 +992,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_match(/Delete the source file instead/i, JSON.parse(response.body).fetch("errors").join)
+    assert_includes JSON.parse(response.body).fetch("errors").join, "You can remove the original file"
     assert FinancialDocumentImport.exists?(document_import.id)
     assert_empty deleted_keys
   end
@@ -2231,6 +2283,171 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :not_found
   end
+
+  test "every reader failure agrees with the file card payload" do
+    messages = [
+      "This PDF has more than 100 pages. Split it into smaller date ranges so every page can be processed and reviewed.",
+      "This spreadsheet has more than 2000 rows of review content. Split it into smaller files so every row can be reviewed without silently truncating the file.",
+      "We couldn’t match every statement row to the printed totals. Nothing changed. Upload a CSV export or a clearer copy.",
+      FinancialDocumentExtractionDispatch::ATTEMPTS_EXHAUSTED_MESSAGE,
+      FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE,
+      FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE,
+      FinancialDocuments::SourceSafety::MESSAGE
+    ]
+    messages.each do |message|
+      document = create_import!(status: "failed", extraction_error: message, s3_key: "fictional/#{SecureRandom.uuid}", metadata: { extraction_failure_permanent: message == FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE })
+      get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+      assert_response :success
+      assert_equal message, response.parsed_body.dig("document_import", "extraction_error")
+      assert_equal message, HouseholdFinance::UploadFailureReply.call(document)
+    end
+  end
+
+  test "database refusal during deletion is a plain refusal and rolls everything back" do
+    document = create_import!
+    with_singleton_stub(FinancialDocumentSourceCleanup, :request!, ->(*) { raise ActiveRecord::InvalidForeignKey, "synthetic concurrent reference" }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").join, "Nothing was deleted"
+    assert document.reload.source_deleted_at.nil?
+    assert_not FinancialDocumentSourceCleanup.exists?(financial_document_import_id: document.id)
+  end
+
+  test "account only answers on empty files do not approve coverage and allow deletion for every kind" do
+    %w[statement spreadsheet receipt other].each do |kind|
+      document, revision, identity = unapproved_account_file(kind: kind, events: [])
+      assert_not SourceRevisionApproval.exists?(financial_extraction_revision: revision)
+      get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+      assert_response :success
+      assert_equal true, response.parsed_body.dig("document_import", "can_delete_record")
+      with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+        delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+      end
+      assert_response :no_content
+      assert_not SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    end
+  end
+
+  test "deleting a file keeps a saved baseline account and all named identity history" do
+    document, revision, identity = unapproved_account_file
+    request = { window_start_on: "2026-10-01", window_end_on: "2026-10-31", revision_ids: [], tracked_account_ids: [ identity.source_tracked_account_id ], cash_coverage: "not_used", household_scope_attested: true }
+    preview = FinancialBaselines::Preview.new(@household, user: @user).call(request)
+    operation = HouseholdFinance::Operations::Baseline::Approve.new(@household, user: @user)
+    prepared = operation.prepare({ request: request, coverage_status: "partial", base_version_id: nil, base_lock_version: 0, expected_preview_digest: preview[:digest], reason: "Save participant spending snapshot" })
+    operation.execute!(prepared, source: "manual")
+    before = FinancialBaselines::Reader.new(@household, user: @user).current
+    assert_not before[:needs_revision]
+    assert_raises(ActiveRecord::StatementInvalid) { ApplicationRecord.transaction(requires_new: true) { SourceTrackedAccount.where(id: identity.source_tracked_account_id).delete_all } }
+    with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :no_content
+    assert SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    assert SourceAccountIdentityVersion.exists?(identity.id)
+    after = FinancialBaselines::Reader.new(@household, user: @user).current
+    assert_not after[:needs_revision]
+    assert_not_includes after[:current_deficiencies], "current_baseline_inputs_unavailable"
+    assert_equal before[:approved_version].id, after[:approved_version].id
+  end
+
+  test "a file whose reading a saved spending snapshot names cannot be deleted and the snapshot stays readable" do
+    document, revision, identity = unapproved_account_file
+    request = { window_start_on: "2026-10-01", window_end_on: "2026-10-31", revision_ids: [ revision.id ], tracked_account_ids: [ identity.source_tracked_account_id ], cash_coverage: "not_used", household_scope_attested: true }
+    preview = FinancialBaselines::Preview.new(@household, user: @user).call(request)
+    operation = HouseholdFinance::Operations::Baseline::Approve.new(@household, user: @user)
+    prepared = operation.prepare({ request: request, coverage_status: "partial", base_version_id: nil, base_lock_version: 0, expected_preview_digest: preview[:digest], reason: "Save participant spending snapshot" })
+    operation.execute!(prepared, source: "manual")
+    before = FinancialBaselines::Reader.new(@household, user: @user).current
+    get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    assert_equal false, response.parsed_body.dig("document_import", "can_delete_record")
+    assert_equal "This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record.", response.parsed_body.dig("document_import", "delete_refusal")
+    with_s3_stubs(configured?: true, delete: ->(*) { flunk "the original must not be removed" }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :unprocessable_entity
+    assert_equal [ "This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record." ], response.parsed_body["errors"]
+    assert FinancialDocumentImport.exists?(document.id)
+    assert SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    after = FinancialBaselines::Reader.new(@household, user: @user).current
+    assert_equal before[:needs_revision], after[:needs_revision]
+    assert_equal before[:approved_version].id, after[:approved_version].id
+  end
+
+  test "linked household account stays after deleting its never approved file" do
+    document, revision, identity = unapproved_account_file(linked: true)
+    with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :no_content
+    assert SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    assert Account.exists?(identity.source_tracked_account.account_id)
+  end
+
+  test "every revision account answer is removed but detached unread lines never cause overlaps" do
+    document = create_import!(status: "needs_review", content_type: "text/csv", filename: "sign-answers.csv")
+    file = Tempfile.new([ "fix1-sign", ".csv" ])
+    file.write("Date,Description,Amount\n2026-10-01,Fictional shop,-10\n2026-10-02,Fictional income,20\n")
+    file.flush
+    extracted = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "sign-answers.csv", document_kind: "statement").call
+    assert extracted.success?, extracted.error
+    first = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: extracted.data[:source_accounting], structured_spreadsheet: true).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    FinancialDocuments::SourceReview::LineApprover.new(domain, first, { lines: [], accounts: [ { source_account_id: first.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+    identity = SourceAccountReviewHead.find_by!(financial_source_account: first.financial_source_accounts.sole).approved_version
+    second = FinancialDocuments::SpreadsheetSignAnswer.call(first, negative_is_money_out: true, user: @user)
+    FinancialDocuments::SpreadsheetSignAnswer.call(second, negative_is_money_out: "individual", user: @user)
+    file.close!
+    assert_operator document.financial_extraction_revisions.count, :>=, 2
+    with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :no_content
+    assert_not SourceAccountIdentityVersion.exists?(identity.id)
+    fresh, current, fresh_identity = unapproved_account_file
+    event = current.financial_source_events.sole
+    overlaps = FinancialDocuments::SourceReview::OverlapDetector.new(@household, event, { source_account_identity_version_id: fresh_identity.id, signed_amount_cents: -1000, posted_on: "2026-10-01" }).call
+    assert_empty overlaps
+    plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, current)
+    assert_empty plan.send(:overlap_candidates, [ event ])
+  end
+
+  test "an account operation audit and replay subject survive file deletion" do
+    document, revision, prior = unapproved_account_file
+    input = { source_account_id: revision.financial_source_accounts.sole.id, tracked_account_id: prior.source_tracked_account_id, base_version_id: prior.id, base_lock_version: prior.source_account_review_head.lock_version, statement_facts: {}, reason: "Participant account answer" }
+    result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(operation_key: "source_review.account.link", input: input, idempotency_key: SecureRandom.uuid)
+    identity = result.subject
+    with_s3_stubs(configured?: true, delete: ->(*) { true }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :no_content
+    assert SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    assert SourceAccountIdentityVersion.exists?(identity.id)
+    assert HouseholdAuditEvent.exists?(auditable_type: "SourceAccountIdentityVersion", auditable_id: identity.id)
+    assert HouseholdOperationExecution.exists?(subject_type: "SourceAccountIdentityVersion", subject_id: identity.id)
+  end
+
+  def unapproved_event
+    { account_key: "file-account", row_kind: "posted", event_type: "purchase", signed_amount_cents: -1000, posted_on: "2026-10-01", merchant: "Fictional shop", locator: { row: 1 } }
+  end
+
+  def unapproved_account_file(kind: "statement", events: [ unapproved_event ], linked: false)
+    document = create_import!(status: "needs_review", document_kind: kind, s3_key: "fictional/#{SecureRandom.uuid}")
+    source_account = { account_key: "file-account", account_basis: "unknown" }
+    source_account.merge!(account_basis: "asset", period_start_on: "2026-10-01", period_end_on: "2026-10-31", opening_balance_cents: 1000, closing_balance_cents: 1000, printed_debit_cents: 0, printed_credit_cents: 0, printed_row_count: 0) if events.empty?
+    accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION, accounts: [ source_account ], events: events, coverage: { expected_page_count: 1, processed_pages: [ 1 ] } })
+    revision = FinancialDocuments::SourceAccountingPersister.new(document, attempt: nil, accounting: accounting).call[:revision]
+    domain = FinancialDocuments::SourceReview::Domain.new(@household, user: @user)
+    account = linked ? @household.accounts.create!(label: "Participant checking", account_type: "checking", balance_cents: 1000) : nil
+    if account
+      raw = { source_account_id: revision.financial_source_accounts.sole.id, account_id: account.id, account_basis: "asset", label: "Participant checking", base_version_id: nil, base_lock_version: 0, statement_facts: {}, reason: "Participant account answer" }
+      domain.execute("account_link", domain.normalize("account_link", raw))
+    else
+      FinancialDocuments::SourceReview::LineApprover.new(domain, revision, { lines: [], accounts: [ { source_account_id: revision.financial_source_accounts.sole.id, account_basis: "asset" } ] }).call
+    end
+    [ document, revision, SourceAccountReviewHead.find_by!(financial_source_account: revision.financial_source_accounts.sole).approved_version ]
+  end
+
 
   private
 

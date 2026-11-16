@@ -39,14 +39,14 @@ module Demo
     attr_reader :message, :facts
 
     def readiness_answer
-      "Your approved readiness is Yellow. The monthly basis is #{money(facts.fetch(:monthly_income))} income, a #{money(facts.fetch(:category_plan))} category plan, and #{money(facts.fetch(:debt_minimums))} in separate debt minimums, for #{money(facts.fetch(:total_monthly_outflow))} total money out and a #{money(facts.fetch(:baseline_surplus))} baseline surplus. #{money(facts.fetch(:protected_liquid))} protected liquid divided by total money out gives #{facts.fetch(:runway_months)} months of runway; the six-month Green target is #{money(facts.fetch(:green_runway_target))}, so the exact Green gap is #{money(facts.fetch(:green_runway_gap))}. Next CFO move: keep debt minimums outside the category-plan subtotal and direct approved surplus toward that Green gap."
+      "Your approved readiness is Yellow. The monthly basis is #{money(facts.fetch(:monthly_income))} income, a #{money(facts.fetch(:category_plan))} category plan, and #{money(facts.fetch(:debt_minimums))} in separate monthly debt payments, for #{money(facts.fetch(:total_monthly_outflow))} total money out and a #{money(facts.fetch(:baseline_surplus))} baseline surplus. #{money(facts.fetch(:protected_liquid))} protected liquid divided by total money out gives #{facts.fetch(:runway_months)} months of runway; the six-month Green target is #{money(facts.fetch(:green_runway_target))}, so the exact Green gap is #{money(facts.fetch(:green_runway_gap))}. Next CFO move: keep monthly debt payments outside the category-plan subtotal and direct approved surplus toward that Green gap."
     end
 
     def safe_to_spend_formula_answer
       rate = (HouseholdFinance::ReadinessCalculator::SAFE_TO_SPEND_RATE * 100).round
       surplus = facts.fetch(:baseline_surplus).to_f
       safe = facts.fetch(:safe_to_spend).to_f
-      basis = "#{money(facts.fetch(:category_plan))} category plan + #{money(facts.fetch(:debt_minimums))} debt minimums = #{money(facts.fetch(:total_monthly_outflow))} total outflow; #{money(facts.fetch(:monthly_income))} income − #{money(facts.fetch(:total_monthly_outflow))} = #{money(surplus)} baseline surplus."
+      basis = "#{money(facts.fetch(:category_plan))} category plan + #{money(facts.fetch(:debt_minimums))} monthly debt payments = #{money(facts.fetch(:total_monthly_outflow))} total outflow; #{money(facts.fetch(:monthly_income))} income − #{money(facts.fetch(:total_monthly_outflow))} = #{money(surplus)} baseline surplus."
       if surplus <= 0
         return "Your monthly safe-to-spend guardrail is $0. #{basis} The #{rate}% rule applies only to a positive baseline surplus in Yellow or Green, so a zero or negative surplus does not create discretionary room. It is not a purchase amount or account balance. Next CFO move: restore a positive approved baseline and build runway before approving wants."
       end

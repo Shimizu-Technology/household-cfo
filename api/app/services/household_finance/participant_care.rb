@@ -187,7 +187,7 @@ module HouseholdFinance
       return reference if ParticipantCareState.report?(message, ParticipantMessageReader::Current.reading) if ParticipantMessageReader::Current.reading
       care = ParticipantMessageReader::Current.recent_care
       return reference unless care.present?
-      return reference unless reference.to_s.match?(/That’s a CFO move|not have enough approved data|Start with one purchase|add (?:your )?debt minimums|Still to add|starting household details|try again or use|Next setup question/i)
+      return reference unless reference.to_s.match?(/That’s a CFO move|not have enough approved data|Start with one purchase|add (?:your )?(?:monthly debt payments|debt minimums)|Still to add|starting household details|try again or use|Next setup question/i)
 
       answer(message, care: care)
     end

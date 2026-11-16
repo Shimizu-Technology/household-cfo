@@ -43,7 +43,7 @@ export function StatementSourceReview({ importId, revisionId, refreshKey, next, 
   }, [data, focusAfterRef])
 
   useEffect(() => {
-    if (data && focusAfterSign) { heading.current?.focus(); onSignFocusDone?.() }
+    if (data && focusAfterSign) { (heading.current?.closest('section')?.querySelector<HTMLElement>('.statement-sign-result') ?? heading.current)?.focus(); onSignFocusDone?.() }
   }, [data, focusAfterSign, onSignFocusDone])
 
   const pendingRequest = mutation.pendingRequest

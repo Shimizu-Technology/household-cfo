@@ -363,9 +363,16 @@ it('keeps an unfinished answer open when another attachment becomes newest', asy
 
 it('shows the sign effect and holds sign buttons while Mia is replying', async () => {
   serve(review(planWith([], { signed_amount_answerable: true, sign_effect: '13 lines are money out, 2 lines are money in' })))
+  const props = { imports: [statement(1)], expandedImportIds: [1], assistantName: 'Mia', challenge: false, onReview: vi.fn(), onRetry: vi.fn(), onSaved: vi.fn() }
+  const mounted = render(<MiaStatementCards {...props} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Change this' }))
+  mounted.rerender(<MiaStatementCards {...props} disabled />)
+  for (const name of ['Yes, spending is negative', 'No, spending is positive', 'I’m not sure']) {
+    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true)
+  }
+  mounted.unmount()
   mount([statement(1)], { disabled: true })
-  await screen.findByText('13 lines are money out, 2 lines are money in')
-  expect((screen.getByRole('button', { name: 'Yes, spending is negative' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((await screen.findByRole('button', { name: 'Change this' }) as HTMLButtonElement).disabled).toBe(true)
 })
 
 
@@ -420,4 +427,16 @@ it('shows the balance-derived effect even when there was no sign question', asyn
   mount([statement(1)])
   expect(await screen.findByText('The balance column shows spending as positive. That set the direction of 1 line.')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Yes, spending is negative' })).toBeNull()
+})
+
+for (const message of [
+  'This PDF has more than 100 pages. Split it into smaller date ranges.',
+  'This spreadsheet has more than 2000 rows of review content. Split it into smaller files.',
+  'We couldn’t match every statement row to the printed totals. Nothing changed.',
+  'The reader used every attempt. Please upload the file again.',
+  'The reader can’t accept this file. Take a screenshot of it.',
+  'We couldn’t read this file right now. This is usually temporary.',
+]) it(`shows the same stored failure text supplied to Mia: ${message}`, () => {
+  mount([statement(1, {status: 'failed', extraction_error: message})])
+  expect(screen.getByRole('alert').textContent).toBe(message)
 })

@@ -30,10 +30,10 @@ module HouseholdFinance
       return unless self.class.question?(message) || debt_plan_followup?
 
       portfolio = DebtPortfolio.new(household)
-      return "Your approved records confirm no outstanding debt and no monthly debt minimums. There is no debt payment target to rank. You can continue with your savings goal; no payment is made automatically." if confirmed_debt_free?
+      return "Your approved records confirm no outstanding debt and no monthly debt payments. There is no debt payment target to rank. You can continue with your savings goal; no payment is made automatically." if confirmed_debt_free?
       if portfolio.mode == "summary" && parsed_scenario_debts.empty?
         balance = portfolio.balance_known? ? money(portfolio.total_balance_cents) : "an unconfirmed total balance"
-        minimum = portfolio.minimum_payment_known? ? money(portfolio.monthly_minimum_cents) : "an unconfirmed monthly minimum"
+        minimum = portfolio.minimum_payment_known? ? "#{money(portfolio.monthly_minimum_cents)} in monthly debt payments" : "unconfirmed monthly debt payments"
         return "Your approved debt summary shows #{balance} and #{minimum}. Individual debt details are not canonical in summary mode. Add each balance and APR, then explicitly switch to individual tracking before I rank saved lenders; I will not guess which lender should come first. No payment is made automatically."
       end
       approved_debts = portfolio.mode == "individual" ? household.debts.active.order(:id).to_a : []
@@ -76,7 +76,7 @@ module HouseholdFinance
           temporary_income_without_surplus_line(temporary_drop)
         end
       end
-      lines << "The household's canonical monthly debt minimum is not fully entered, so I cannot calculate available extra principal from cash flow yet." unless cash_flow_known
+      lines << "The household's canonical monthly debt payment is not fully entered, so I cannot calculate available extra principal from cash flow yet." unless cash_flow_known
       lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive? && cash_flow_known && (avalanche || snowball)
       lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known, balances_known: balances_known)
       lines << missing_apr_line(outstanding_debts)
@@ -125,7 +125,7 @@ module HouseholdFinance
       extra = [ adjusted_surplus, 0 ].max
       target_line = target ? "#{debt_label(target)}" : "the selected target debt"
       unless cash_flow_known
-        return "1. Enter every required monthly minimum. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, choose avalanche or snowball and set an extra payment that fits the verified surplus. No payment is made automatically."
+        return "1. Enter your monthly debt payments. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, choose avalanche or snowball and set an extra payment that fits the verified surplus. No payment is made automatically."
       end
       unless target
         return "1. Protect essential bills. 2. Keep emergency runway and near-term expenses funded. 3. No extra principal is needed for the currently recorded $0 balances; verify statements before changing required payments. No payment is made automatically." if balances_known

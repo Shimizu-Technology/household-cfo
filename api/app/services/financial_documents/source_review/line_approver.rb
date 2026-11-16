@@ -232,6 +232,8 @@ module FinancialDocuments
       # proves its own coverage (its printed totals match) needs no question; otherwise there is no coverage approval until
       # she answers, and "something's missing" is recorded as not attested.
       def finish_coverage!(answer)
+        return false unless revision.financial_source_events.exists? || answer.present?
+
         state = ApprovalState.new(household, revision).call
         return false if (state[:deficiencies] & NOT_REVIEWED).any? || state[:pending_corrections].positive?
         asked = CoverageQuestion.text(revision, deficiencies: state[:deficiencies]).present?

@@ -184,7 +184,7 @@ module HouseholdFinance
       active = rows.select { |row| row[:active] }
       if matches.empty? && available && active.any? && active.all? { |row| !row[:months][@reference_date.month - 1][:allocation_missing] }
         total = active.sum { |row| Money.cents(row[:months][@reference_date.month - 1][:planned]) }
-        footer << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes debt minimums and archived category allocations."
+        footer << "Saved active category plan across all #{active.length} categories: #{money(Money.dollars(total))}. This excludes monthly debt payments and archived category allocations."
       end
       footer << "#{drafts.length} pending household transaction #{'review'.pluralize(drafts.length)} recorded in #{month_label}, totaling #{money(Money.dollars(drafts.sum(&:total_amount_cents)))}; these have not changed confirmed actuals. Unassigned pending categories may not appear in the category amounts above."
       footer << "Pending budget edit cards are proposals; they do not change the saved plan amounts above until you apply reviewed changes."
@@ -270,14 +270,14 @@ module HouseholdFinance
         balance = known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)
         minimum = known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)
         answer = if profile.debt_summary_balance_known?
-          "Your saved debt total is #{balance}, with a monthly minimum of #{minimum}. That is the saved total across your debts, not a per-card figure, so I can’t say what is owed on one credit card. If you want a balance for each card, add them under My Money, Debt."
+          "Your saved debt total is #{balance}, with monthly debt payments of #{minimum}. That is the saved total across your debts, not a per-card figure, so I can’t say what is owed on one credit card. If you want a balance for each card, add them under My Money, Debt."
         else
           "I don’t have a saved debt total yet, so I can’t say what you owe. Add your balances under My Money, Debt and I’ll answer from them."
         end
         return result(:debts, answer, tracking_mode: "summary")
       end
       if profile&.debt_tracking_mode == "summary"
-        answer = "Your household plan uses summary debt tracking: balance #{known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)}, monthly minimum #{known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)}. Individual records are preserved but excluded from that total. This is separate from the challenge's optional card-term review and does not establish complete debt coverage."
+        answer = "Your household plan uses summary debt tracking: balance #{known_money(profile.debt_summary_balance_known?, profile.debt_summary_balance_cents)}, monthly debt payments #{known_money(profile.debt_summary_minimum_payment_known?, profile.debt_summary_minimum_payment_cents)}. Individual records are preserved but excluded from that total. This is separate from the challenge's optional card-term review and does not establish complete debt coverage."
         return result(:debts, answer, tracking_mode: "summary")
       end
       scope = @household.debts.active.order(:debt_type, :label, :id)

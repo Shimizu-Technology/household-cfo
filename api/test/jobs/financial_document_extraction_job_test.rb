@@ -884,6 +884,14 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "processing", @document_import.reload.status
   end
 
+  test "unexpected persistence exceptions store participant copy and keep diagnostics private" do
+    result = FinancialDocuments::Extractor::Result.new(success: true, data: nil, error: nil, metadata: {})
+    with_extractor_stub(fake_extractor(result)) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+    assert_equal FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE, @document_import.reload.extraction_error
+    assert_includes @document_import.attempts.last.error, "NoMethodError"
+    assert_not_includes @document_import.extraction_error, "undefined method"
+  end
+
   private
 
   def fake_extractor(result, before_return: nil)

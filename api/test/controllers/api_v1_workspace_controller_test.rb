@@ -2084,7 +2084,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_equal [ "One or more attached uploads are unavailable in this household." ], JSON.parse(response.body).fetch("errors")
+    assert_equal [ "One or more files are no longer available in this household." ], JSON.parse(response.body).fetch("errors")
     assert_not_includes response.body, "private-statement"
   end
 
@@ -2129,7 +2129,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
-    assert_includes content, "I can verify $87.45 in the attached pending evidence"
+    assert_includes content, "I can verify $87.45 in the files you sent, waiting for your approval"
     assert_includes content, "there is no confirmed annual plan"
     assert_includes content, "cannot safely say whether it fits"
   end
@@ -2314,7 +2314,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "mia-failed-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     failed = household.financial_document_imports.create!(
-      uploaded_by_user: user, document_kind: "statement", status: "failed", filename: "failed.pdf", content_type: "application/pdf", byte_size: 128, s3_key: "household-cfo/test/question-failed.pdf", extraction_error: "unsafe provider details"
+      uploaded_by_user: user, document_kind: "statement", status: "failed", filename: "failed.pdf", content_type: "application/pdf", byte_size: 128, s3_key: "household-cfo/test/question-failed.pdf", extraction_error: FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
     )
     failed.transaction_drafts.create!(
       household: household, occurred_on: Date.new(2026, 7, 1), merchant: "Stale merchant", total_amount_cents: 700_00, source_type: "statement", status: "pending", raw_input: "stale row"
@@ -2327,9 +2327,26 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).dig("assistant_message", "content")
-    assert_includes content, "failed extraction and produced no verified rows"
+    assert_includes content, FinancialDocuments::Extractor::TEMPORARY_FAILURE_MESSAGE
     assert_not_includes content, "$700"
     assert_not_includes content, "unsafe provider details"
+  end
+
+  test "permanently unreadable and mixed file replies explain the recovery without technical words" do
+    user = create_user(email: "mia-f5-files@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    failed = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "receipt", status: "failed", filename: "unreadable.jpg", content_type: "image/jpeg", byte_size: 3, s3_key: "fictional/f5.jpg", metadata: { extraction_failure_permanent: true })
+    post "/api/v1/mia/messages", params: { message: "Please read this", document_import_ids: [ failed.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE
+    good = household.financial_document_imports.create!(uploaded_by_user: user, document_kind: "receipt", status: "needs_review", filename: "good.jpg", content_type: "image/jpeg", byte_size: 3, s3_key: "fictional/f5-good.jpg")
+    good.transaction_drafts.create!(household: household, merchant: "Fictional shop", total_amount_cents: 1200, occurred_on: Date.new(2026, 10, 1), source_type: "receipt", status: "pending")
+    post "/api/v1/mia/messages", params: { message: "Please read these", document_import_ids: [ good.id, failed.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    text = response.parsed_body.dig("assistant_message", "content")
+    assert_includes text, "I read a receipt from Fictional shop for $12"
+    assert_includes text, "unreadable.jpg: #{FinancialDocuments::Extractor::REJECTED_FILE_MESSAGE}"
+    refute_match(/extraction|verified rows|structured values|attached evidence/, text)
   end
 
   test "mia chat explains budget uploads as review before apply setup values" do
@@ -3153,6 +3170,23 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "mia_request_processing", response.parsed_body.fetch("code")
     assert_equal topic_before_replay, session.reload.attributes.slice("active_topic", "open_topics", "rolling_summary")
   end
+
+  test "before debt month reply bypasses narration and retains the month and caveat" do
+    travel_to Time.zone.local(2026, 11, 5, 12) do
+      user = create_user(email: "fix1-month@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      HouseholdFinance::SetupUpdater.new(household, primary_income: "5200", fixed_expenses: "2050", flexible_spend: "700").call
+      HouseholdFinance::AnnualBudgetManager.new(household).plan_data
+      with_singleton_stub(HouseholdFinance::MiaNarrator, :new, ->(**) { flunk "Partial month figures must never reach the narrator" }) do
+        post "/api/v1/mia/messages", params: { message: "How much do I have left this month?" }, headers: auth_headers(user), as: :json
+      end
+      assert_response :created
+      text = response.parsed_body.dig("assistant_message", "content")
+      assert_includes text, "Before debt payments, your plan leaves $2,450 for November 2026"
+      assert_includes text, "not a bank balance"
+    end
+  end
+
 
   private
 

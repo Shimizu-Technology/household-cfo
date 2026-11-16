@@ -114,7 +114,7 @@ module HouseholdFinance
       return fallback_response if care_guard && !(care_guard.reasons - (answer_packet[:care_context] ? [ "sensitive_moment" ] : [])).empty?
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
-      return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true
+      return fallback_response if answer_packet.dig(:annual_plan_summary, :month_answer, :before_plan_start) == true || answer_packet.dig(:annual_plan_summary, :month_answer, :before_debt_payments) == true
       return fallback_response if answer_packet.dig(:spending_report_summary, :plan_available) == false || answer_packet.dig(:spending_report_summary, :actual_known) == false
       return fallback_response if purchase_coaching? && (purchase_prefix.blank? || purchase_sentence_range.end.zero?)
       return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
@@ -485,7 +485,7 @@ module HouseholdFinance
         return :crisis_support_missing
       end
       if answer_packet[:care_context]
-        return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|debt minimums)|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
+        return :care_data_gap if content.match?(/\b(?:i|we) (?:do not|don['’]?t|dont) have (?:the |a |your )?(?:copay )?(?:amount|numbers|financial data)|\badd (?:your )?(?:numbers|(?:monthly debt payments|debt minimums))|\b(?:not enough|missing) (?:approved )?(?:data|numbers)\b/i)
         without_dates = content.gsub(/\b\d{1,2}(?:st|nd|rd|th)\b/i) { |date| user_message.include?(date) ? "" : date }
         without_dates = without_dates.gsub(/\b(?:988|911)\b/, "") if recent_crisis?
         return :unverified_amount if without_dates.match?(/[\p{N}\p{Sc}]/)

@@ -272,7 +272,7 @@
       {
         "label": "Upload spreadsheet",
         "kind": "spreadsheet",
-        "status": "Private extraction with review before apply",
+        "status": "Private file reading with review before approval",
         "accepts": ".xlsx, .xls, .csv"
       },
       {

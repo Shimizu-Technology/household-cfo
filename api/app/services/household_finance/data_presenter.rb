@@ -459,14 +459,14 @@ module HouseholdFinance
     end
 
     def readiness_unavailable_reason
-      return "Enter every required monthly debt minimum, or confirm a $0 household summary, before using cash guidance." unless snapshot.fetch(:debt_minimums_known)
+      return "Enter every required monthly debt payment, or confirm a $0 household summary, before using cash guidance." unless snapshot.fetch(:debt_minimums_known)
       return "Add at least one liquid account and enter every active liquid balance before using runway or safe-to-spend guidance." unless snapshot.fetch(:liquid_assets_known)
 
       "Finish the starting picture before using cash guidance."
     end
 
     def readiness_blocker_question
-      return "Complete the monthly debt minimums in My Money first." unless snapshot.fetch(:debt_minimums_known)
+      return "Complete the monthly debt payments in My Money first." unless snapshot.fetch(:debt_minimums_known)
       return "Add or update liquid account balances under Accounts & assets first." unless snapshot.fetch(:liquid_assets_known)
 
       "Finish the starting picture before modeling optionality."
@@ -515,7 +515,7 @@ module HouseholdFinance
 
     def uploads
       [
-        { label: "Upload spreadsheet", kind: "spreadsheet", status: "Private extraction with review before apply", accepts: ".xlsx, .xls, .csv" },
+        { label: "Upload spreadsheet", kind: "spreadsheet", status: "Private file reading with review before approval", accepts: ".xlsx, .xls, .csv" },
         { label: "Upload statement", kind: "statement", status: "Transactions draft into the correct months for review", accepts: ".pdf, .csv, .png, .jpg" },
         { label: "Upload pay stub", kind: "paystub", status: "Income facts stay pending until you approve them", accepts: ".pdf, .png, .jpg" }
       ]
@@ -581,7 +581,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return [
-          { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum in My Money, under Debt, or confirm a $0 household summary, before using readiness or cash-flow guidance.", action: "open_debt" },
+          { tone: "yellow", title: "Monthly debt payments needed", body: "Add your monthly debt payments in My Money, under Debt, or confirm a $0 household summary, before using readiness or cash-flow guidance.", action: "open_debt" },
           { tone: debt_tone, title: "Debt focus", body: debt_body }
         ]
       end
@@ -601,7 +601,7 @@ module HouseholdFinance
     end
 
     def baseline_body
-      return "Monthly debt minimums are not fully entered, so the baseline is not available yet." unless snapshot.fetch(:debt_minimums_known)
+      return "Monthly debt payments are not fully entered, so the baseline is not available yet." unless snapshot.fetch(:debt_minimums_known)
 
       surplus = dollars(snapshot.fetch(:baseline_surplus_cents))
       return "Your baseline has #{ActiveSupport::NumberHelper.number_to_currency(surplus, precision: 0)} left after planned outflow." if surplus.positive?
@@ -635,7 +635,7 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return [
-          "Add every required debt minimum, or confirm a $0 household summary.",
+          "Add your monthly debt payments, or confirm a $0 household summary.",
           "Review those debt details before relying on readiness or safe-to-spend.",
           "Ask Mia to compare debt options after the monthly baseline is complete."
         ]
@@ -658,7 +658,7 @@ module HouseholdFinance
     end
 
     def spending_step
-      return "Enter every debt minimum before setting a spending cap." unless snapshot.fetch(:debt_minimums_known)
+      return "Enter your monthly debt payments before setting a spending cap." unless snapshot.fetch(:debt_minimums_known)
 
       if snapshot.fetch(:readiness_tone) == "red"
         return "Pause new wants and direct available surplus to essential bills, expected expenses, and runway until the household reaches Yellow."
@@ -708,8 +708,8 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return {
-          title: "Finish the debt minimums before making a cash-flow call.",
-          body: "At least one monthly debt minimum is unknown. Add it in My Money, under Debt, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend.",
+          title: "Finish the monthly debt payments before making a cash-flow call.",
+          body: "Your monthly debt payments are not fully entered. Add them in My Money, under Debt, or use a confirmed $0 household summary, before relying on readiness, baseline surplus, or safe-to-spend.",
           action: "open_debt"
         }
       end
@@ -806,9 +806,9 @@ module HouseholdFinance
 
       unless snapshot.fetch(:debt_minimums_known)
         return [
-          "Help me finish my debt minimums",
+          "Help me finish my monthly debt payments",
           "Which debt details are still missing?",
-          "How do I confirm that no debt minimum is due?",
+          "How do I confirm that no monthly debt payments are due?",
           "Show me where to update debt tracking"
         ]
       end
@@ -843,7 +843,7 @@ module HouseholdFinance
     def milestones
       unless snapshot.fetch(:debt_balance_known) && snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
         label, unit = if !snapshot.fetch(:debt_balance_known) || !snapshot.fetch(:debt_minimums_known)
-          [ "Debt details needed", "Add debt balances and monthly minimums in My Money" ]
+          [ "Debt details needed", "Add debt balances and monthly debt payments in My Money" ]
         else
           [ "Liquid balances needed", "Add checking, savings, or emergency-fund balances under Accounts & assets" ]
         end
@@ -1021,7 +1021,7 @@ module HouseholdFinance
             amount: 0,
             amount_known: false,
             recommendation: "Wait",
-            reason: "Enter every required monthly debt minimum, or confirm a $0 household summary, before Mia calculates available cash."
+            reason: "Enter every required monthly debt payment, or confirm a $0 household summary, before Mia calculates available cash."
           }
         end
       end
@@ -1046,9 +1046,9 @@ module HouseholdFinance
           amount: safe,
           recommendation: wants_open ? "Optional" : (safe.positive? ? "Pause" : "Wait"),
           reason: if wants_open
-            "You have room for wants. Keep them inside this amount so bills, sinking funds, and debt minimums stay covered."
+            "You have room for wants. Keep them inside this amount so bills, sinking funds, and monthly debt payments stay covered."
                   elsif safe.positive?
-            "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums."
+            "Only approve wants that fit inside true surplus after bills, sinking funds, and monthly debt payments."
                   else
             "Baseline is not ready for wants yet. Protect essentials first."
                   end
@@ -1083,7 +1083,7 @@ module HouseholdFinance
 
     def readiness_label_for_dashboard
       return "Setup incomplete — finish your starting picture" unless setup_status.complete?
-      return "Debt minimums needed — add them or confirm none are due" unless snapshot.fetch(:debt_minimums_known)
+      return "Monthly debt payments needed — add them or confirm none are due" unless snapshot.fetch(:debt_minimums_known)
       return "Liquid balances needed — add them before using cash guidance" unless snapshot.fetch(:liquid_assets_known)
 
       snapshot.fetch(:readiness_label)

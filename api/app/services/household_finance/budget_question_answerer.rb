@@ -118,7 +118,7 @@ module HouseholdFinance
       largest = largest_planned_row
       largest_line = largest ? " Your largest planned category is #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
 
-      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(total_outflow)}: #{money(planned)} in planned categories plus #{money(debt_minimums)} in required debt minimums. That leaves a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before purchases waiting for review. Purchases waiting for review total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any purchases waiting for review before changing the plan."
+      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(total_outflow)}: #{money(planned)} in planned categories plus #{money(debt_minimums)} in required monthly debt payments. That leaves a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before purchases waiting for review. Purchases waiting for review total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any purchases waiting for review before changing the plan."
     end
 
     def category_breakdown_answer

@@ -29,6 +29,14 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     refute_includes answer, "liquid account picture is incomplete"
   end
 
+  test "summary answers name monthly debt payments while unknown stays unknown" do
+    @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: false, debt_summary_balance_cents: 450_000, debt_summary_minimum_payment_cents: 0)
+    assert_includes HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call, "unconfirmed monthly debt payments"
+    @household.household_profile.update!(debt_summary_minimum_payment_known: true, debt_summary_minimum_payment_cents: 35_000)
+    assert_includes HouseholdFinance::DebtStrategyPlanner.new(@household, "Give me a debt plan.").call, "$350 in monthly debt payments"
+  end
+
   test "confirmed zero summary does not require inventing individual debts" do
     @household.household_profile.update!(debt_tracking_mode: "summary", debt_summary_balance_known: true,
       debt_summary_minimum_payment_known: true, debt_summary_balance_cents: 0, debt_summary_minimum_payment_cents: 0)
