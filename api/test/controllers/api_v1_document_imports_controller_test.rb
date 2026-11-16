@@ -2351,6 +2351,28 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal before[:approved_version].id, after[:approved_version].id
   end
 
+  test "a file whose reading a saved spending snapshot names cannot be deleted and the snapshot stays readable" do
+    document, revision, identity = unapproved_account_file
+    request = { window_start_on: "2026-10-01", window_end_on: "2026-10-31", revision_ids: [ revision.id ], tracked_account_ids: [ identity.source_tracked_account_id ], cash_coverage: "not_used", household_scope_attested: true }
+    preview = FinancialBaselines::Preview.new(@household, user: @user).call(request)
+    operation = HouseholdFinance::Operations::Baseline::Approve.new(@household, user: @user)
+    prepared = operation.prepare({ request: request, coverage_status: "partial", base_version_id: nil, base_lock_version: 0, expected_preview_digest: preview[:digest], reason: "Save participant spending snapshot" })
+    operation.execute!(prepared, source: "manual")
+    before = FinancialBaselines::Reader.new(@household, user: @user).current
+    get "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    assert_equal false, response.parsed_body.dig("document_import", "can_delete_record")
+    with_s3_stubs(configured?: true, delete: ->(*) { flunk "the original must not be removed" }) do
+      delete "/api/v1/document_imports/#{document.id}", headers: auth_headers(@user)
+    end
+    assert_response :unprocessable_entity
+    assert_equal [ "This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record." ], response.parsed_body["errors"]
+    assert FinancialDocumentImport.exists?(document.id)
+    assert SourceTrackedAccount.exists?(identity.source_tracked_account_id)
+    after = FinancialBaselines::Reader.new(@household, user: @user).current
+    assert_equal before[:needs_revision], after[:needs_revision]
+    assert_equal before[:approved_version].id, after[:approved_version].id
+  end
+
   test "linked household account stays after deleting its never approved file" do
     document, revision, identity = unapproved_account_file(linked: true)
     with_s3_stubs(configured?: true, delete: ->(*) { true }) do

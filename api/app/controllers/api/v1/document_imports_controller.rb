@@ -198,6 +198,10 @@ module Api
               destroy_error = "Review every affected challenge use in Privacy before deleting this original."
               raise ActiveRecord::Rollback
             end
+            if FinancialDocuments::UnapprovedStatementAccounts.named_by_spending_snapshot?(@document_import)
+              destroy_error = "This file is part of a saved spending snapshot. Nothing was deleted. You can remove the original file and keep this record."
+              raise ActiveRecord::Rollback
+            end
             if import_has_resolved_values?(@document_import) && !FinancialDocuments::UnapprovedStatementAccounts.removable?(@document_import)
               destroy_error = "This file has approved lines or saved money details. Only approved spending lines count in your numbers. You can remove the original file, but keep this record of what you approved."
               raise ActiveRecord::Rollback
@@ -787,7 +791,7 @@ module Api
           source_deleted_at: document_import.source_deleted_at,
           updated_at: document_import.updated_at&.iso8601,
           source_available: ChallengePrivacy::SourceRetention.available?(document_import),
-          can_delete_record: !FinancialSourceUse.where(financial_document_import: document_import).exists? && (!import_has_resolved_values?(document_import) || FinancialDocuments::UnapprovedStatementAccounts.removable?(document_import)),
+          can_delete_record: !FinancialSourceUse.where(financial_document_import: document_import).exists? && !FinancialDocuments::UnapprovedStatementAccounts.named_by_spending_snapshot?(document_import) && (!import_has_resolved_values?(document_import) || FinancialDocuments::UnapprovedStatementAccounts.removable?(document_import)),
           details_included: include_details,
           uploaded_by: serialize_user_reference(document_import.uploaded_by_user),
           applied_by: serialize_user_reference(document_import.applied_by_user),
