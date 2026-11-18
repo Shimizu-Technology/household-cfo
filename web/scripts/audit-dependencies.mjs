@@ -1,26 +1,9 @@
 // Fails CI on any npm advisory at moderate or above in the full dependency tree,
-// except the exact exceptions below. Production dependencies are audited
-// separately with `npm audit --omit=dev` and get no exceptions at all.
+// except the exact exceptions in scripts/audit-policy.mjs. Production
+// dependencies are audited separately with `npm audit --omit=dev` and get no
+// exceptions at all.
 import { execFileSync } from 'node:child_process'
-
-const failingSeverities = new Set(['moderate', 'high', 'critical'])
-
-// Each exception names one advisory, the only package it may come from, why it
-// is safe to ship around, and the date it stops applying. Remove an entry as
-// soon as a patched release lands in the lockfile.
-const exceptions = [
-  {
-    advisory: 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf',
-    packageName: 'picomatch',
-    // Newest release the advisory covers. Any later release means a fix may exist.
-    vulnerableThrough: '4.0.7',
-    expires: '2027-01-31',
-    reason:
-      'ReDoS from attacker-controlled glob patterns. picomatch is only reached through ' +
-      'dev/build tooling (vite, vitest, tinyglobby, typescript-eslint) matching globs we write; ' +
-      'it is not in the production dependency tree or the built bundle. No patched release exists.',
-  },
-]
+import { evaluate } from './audit-policy.mjs'
 
 function runNpm(args) {
   try {
@@ -38,49 +21,14 @@ if (report.error) {
   process.exit(1)
 }
 
-const today = new Date().toISOString().slice(0, 10)
-const advisories = new Map()
-for (const vulnerability of Object.values(report.vulnerabilities ?? {})) {
-  for (const via of vulnerability.via) {
-    // String entries point at another package's advisory; only objects are advisories.
-    if (typeof via === 'object') advisories.set(`${via.url} ${via.name}`, via)
-  }
-}
+const publishedVersions = (packageName) => [JSON.parse(runNpm(['view', packageName, 'versions', '--json']))].flat()
+const { failures, allowed, unused, checked } = evaluate(report, { today: new Date().toISOString().slice(0, 10), publishedVersions })
 
-const failures = []
-const usedExceptions = new Set()
-for (const advisory of advisories.values()) {
-  if (!failingSeverities.has(advisory.severity)) continue
-  const exception = exceptions.find(
-    (entry) => entry.advisory === advisory.url && entry.packageName === advisory.name,
-  )
-  if (!exception) {
-    failures.push(`${advisory.severity}: ${advisory.name} ${advisory.range} ${advisory.url} (${advisory.title})`)
-    continue
-  }
-  if (today > exception.expires) {
-    failures.push(`${advisory.name} ${advisory.url}: exception expired on ${exception.expires}; re-evaluate it`)
-    continue
-  }
-  usedExceptions.add(exception)
-}
-
-for (const exception of usedExceptions) {
-  const latest = runNpm(['view', exception.packageName, 'version']).trim()
-  if (latest !== exception.vulnerableThrough) {
-    failures.push(
-      `${exception.packageName} ${latest} has been released since the ${exception.advisory} exception ` +
-        `(vulnerable through ${exception.vulnerableThrough}); update the lockfile and remove the exception if it is fixed`,
-    )
-    continue
-  }
+for (const exception of allowed) {
   console.log(`Allowed until ${exception.expires}: ${exception.packageName} ${exception.advisory}. ${exception.reason}`)
 }
-
-for (const exception of exceptions) {
-  if (!usedExceptions.has(exception) && !failures.some((failure) => failure.includes(exception.advisory))) {
-    console.log(`::warning::Unused audit exception ${exception.advisory}; remove it from scripts/audit-dependencies.mjs`)
-  }
+for (const exception of unused) {
+  console.log(`::warning::Unused audit exception ${exception.advisory}; remove it from scripts/audit-policy.mjs`)
 }
 
 if (failures.length > 0) {
@@ -89,4 +37,4 @@ if (failures.length > 0) {
   process.exit(1)
 }
 
-console.log(`Dependency audit passed (${advisories.size} advisories checked).`)
+console.log(`Dependency audit passed (${checked} advisories checked).`)
