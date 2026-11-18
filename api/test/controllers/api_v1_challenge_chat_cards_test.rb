@@ -418,7 +418,9 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     assert_includes reply, "Ross ($200) and Kmart ($100)"
     refute_includes reply, "Only confirmed purchases"
     refute_includes reply, ".00"
-    assert_equal 3, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
+    # Each store appears in one month only, so neither is offered as a monthly cut.
+    refute_includes reply, "Spending half"
+    assert_equal 2, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
     assert_nil response.parsed_body.dig("spending_patterns", "coverage", "months", 1, "spending_cents")
   end
 
