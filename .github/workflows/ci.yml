@@ -146,8 +146,11 @@ jobs:
       - name: Build web app
         run: npm run build
 
-      - name: Audit web dependencies
-        run: npm audit --audit-level=moderate
+      - name: Audit production web dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Audit all web dependencies
+        run: node scripts/audit-dependencies.mjs
 
   web-browser:
     name: web-browser (${{ matrix.target }})
