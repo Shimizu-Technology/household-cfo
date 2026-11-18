@@ -16,6 +16,8 @@ class SpendingPatternsMerchantNameTest < ActiveSupport::TestCase
       "1776 Coffee" => "1776 Coffee",
       "Guam Premier Outlets" => "Guam Premier Outlets",
       "Northstar IT" => "Northstar IT",
+      "Northstar CA" => "Northstar CA",
+      "NORTHSTAR SUPPLY, CA" => "NORTHSTAR SUPPLY",
       "Purchase authorized on 10/14 ROSS DRESS FOR LESS #123" => "Ross"
     }.each do |raw, label|
       assert_equal label, SpendingPatterns::MerchantName.call(raw), raw

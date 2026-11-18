@@ -71,6 +71,14 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     refute(result[:merchants].any? { |row| row[:label].include?("OpenAI") })
   end
 
+  test "a refund from a similarly named store never reduces another store's purchase" do
+    purchase("Northstar", 12_000)
+    reviewed("Northstar CA", 4_000)
+    result = analyze
+    assert_equal 12_000, result[:observed_spending_cents]
+    assert_equal 12_000, result[:discretionary_merchants].find { |row| row[:label] == "Northstar" }[:total_cents]
+  end
+
   test "review suffix refund nets only the normalized merchant" do
     purchase("Island Table - Tamuning (includes tip)", 2000)
     purchase("Island Table Cafe", 1000)

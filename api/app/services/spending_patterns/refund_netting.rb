@@ -31,7 +31,7 @@ module SpendingPatterns
     end
 
     def self.merchant_key(value)
-      text = MerchantName.call(value).to_s.unicode_normalize(:nfkc).downcase.squish
+      text = MerchantName.matching_label(value).to_s.unicode_normalize(:nfkc).downcase.squish
       return if text.blank? || text == "unnamed purchase"
       # A known purchase descriptor and its bank refund/order descriptor name the
       # same merchant. Keep unrelated names (for example Amazon Cafe) separate.

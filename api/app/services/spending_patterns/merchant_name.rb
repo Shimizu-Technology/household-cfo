@@ -7,9 +7,20 @@ module SpendingPatterns
     CARD_TAIL = /\s+[A-Z]\*\s*[·•*xX]*\d{2,}.*\z/
     REFERENCE_TAIL = %r{\s+on\s+\d{1,2}/\d{1,2}\s+ref\s*#.*\z}i
     # Trailing place and phone words: "Tamuning Gum", "Hagatna GU", "650-····0000 CA", ", NY".
-    # Only real state and territory codes, in capitals, count as places: "Northstar IT" keeps its "IT".
-    PLACE_TAIL = /(?:,?\s+(?:#{FinancialDocuments::MerchantNormalizer::GUAM_LOCATION}|Gum|GU|(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})|\d{3}-[\d·•*xX-]+))\z/
+    # A state code counts as a place only with context: after a comma, a Guam town or a phone number.
+    # "Northstar IT" and "Northstar CA" keep their letters.
+    STATE = /(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})/
+    GUAM = FinancialDocuments::MerchantNormalizer::GUAM_LOCATION
+    PLACE_TAIL = /(?:,\s*#{STATE}|\s+#{GUAM}\s+#{STATE}|\s+(?:#{GUAM}|Gum|GU)|(?<=\d)\s+#{STATE}|\s+\d{3}-[\d·•*xX-]+)\z/
     STORE_NUMBER = /(?:\s+(?:store\s*)?\#\s*\d+|\s+(?:store\s*(?:no\.?|number)?\s*)?\d{3,})\z/i
+
+    # Refund matching keeps the narrower label it has always used, so wider coaching labels never widen a refund match.
+    def self.matching_label(value)
+      full = FinancialDocuments::MerchantNormalizer.call(value)
+      return full if full.blank?
+      short = full.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
+      short.presence || full
+    end
 
     def self.call(value)
       full = FinancialDocuments::MerchantNormalizer.call(value)
