@@ -638,6 +638,22 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "nothing_missing", plan_for(source).dig("coverage", "answer")
   end
 
+  test "lines the reader could not classify still close the printed totals, so she is not told the totals don't add up" do
+    account = { opening_balance_cents: 0, closing_balance_cents: 13_500, printed_debit_cents: 1_500, printed_credit_cents: 15_000, printed_row_count: 3, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
+    rows = [ [ "Pay 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
+    source = build_source(rows: rows, account: account)
+    # The stored extraction report counts only classified lines, so on its own it is $50 short of the printed credits.
+    assert_equal 5_000, source[:revision].reconciliation.dig("accounts", 0, "credit_residual_cents")
+    assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
+    plan = plan_for(source)
+    assert_nil plan.dig("coverage", "question")
+    assert_equal 2, plan.fetch("attention").count { |row| row["kind"] == "unclear" }
+
+    short = build_source(rows: rows, account: account.merge(printed_credit_cents: 20_000, closing_balance_cents: 18_500))
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(short[:revision])
+    assert_equal "The totals on your statement don’t add up with the lines we found. Is anything missing?", plan_for(short).dig("coverage", "question")
+  end
+
   test "a statement that reconciles needs no question" do
     source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
@@ -1106,7 +1122,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row, key|
-      { account_key: key || "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
+      { account_key: key || "synthetic-account", row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
       accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) },

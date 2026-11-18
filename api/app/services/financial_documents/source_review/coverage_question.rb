@@ -12,9 +12,29 @@ module FinancialDocuments
         report = revision.reconciliation || {}
         accounts = Array(report["accounts"])
         residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
-        return "mismatch" if report.dig("page_coverage", "all_processed") == false || residuals.any? { |value| value != 0 }
+        closed_by_unclear = residuals.any? { |value| value != 0 } && unclear_lines_close_totals?(revision)
+        return "mismatch" if report.dig("page_coverage", "all_processed") == false || (residuals.any? { |value| value != 0 } && !closed_by_unclear)
         return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
+        return "matches" if closed_by_unclear
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
+      end
+
+      # The extraction report sums only the lines whose kind was read. A line the reader could not classify still carries the
+      # statement's own signed amount, so when every account's printed totals and balances close with those lines included,
+      # nothing is missing: the unclear lines are questions about what each one was, asked on the line itself.
+      def unclear_lines_close_totals?(revision)
+        accounts = revision.financial_source_accounts.to_a
+        return false if accounts.empty?
+        events = FinancialSourceEvent.where(financial_extraction_revision: revision, row_kind: %w[posted unresolved]).group_by(&:financial_source_account_id)
+        accounts.all? do |account|
+          rows = events.fetch(account.id, [])
+          factor = { "asset" => 1, "liability" => -1 }[account.account_basis]
+          printed = [ account.printed_debit_cents, account.printed_credit_cents, account.opening_balance_cents, account.closing_balance_cents ]
+          next false if factor.nil? || printed.any?(&:nil?) || rows.any? { |row| row.signed_amount_cents.nil? }
+          debit = rows.sum { |row| [ -row.signed_amount_cents, 0 ].max }
+          credit = rows.sum { |row| [ row.signed_amount_cents, 0 ].max }
+          debit == account.printed_debit_cents && credit == account.printed_credit_cents && account.closing_balance_cents - account.opening_balance_cents == factor * (credit - debit)
+        end
       end
 
       def document_covered?(revision)
