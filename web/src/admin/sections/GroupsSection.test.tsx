@@ -129,6 +129,16 @@ describe('Groups', () => {
     fireEvent.click(screen.getByRole('button', { name: '‹ All groups' }))
     expect(await screen.findByRole('table')).toBeTruthy()
   })
+  it('offers to open the challenge for a group that is ready but has never been opened', async () => {
+    const ready = group(5, 'Tuesday savings group', { savings_challenge: savings('ready', { participant_count: 0 }) })
+    api.fetchAdminCohorts.mockResolvedValue([ready, household])
+    render(<GroupsSection currentUser={staff()} onDirtyChange={vi.fn()} />)
+    const row = within(await screen.findByRole('table')).getByText('Tuesday savings group').closest('tr')!
+    expect(row.textContent).toContain('0 of 30')
+    expect(row.textContent).toContain('Ready to open')
+    fireEvent.click(screen.getByRole('button', { name: 'Tuesday savings group' }))
+    expect(await screen.findByRole('button', { name: 'Open the challenge to participants' })).toBeTruthy()
+  })
   it('shows no challenge controls for a group that does not run one', async () => {
     render(<GroupsSection currentUser={staff()} onDirtyChange={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Mel’s Household Group' }))
