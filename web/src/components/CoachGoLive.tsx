@@ -32,8 +32,10 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const [answers, setAnswers] = useState<PreviewAnswer[]>([])
   const [reviewedPersona, setReviewedPersona] = useState<AdminPersonaDetail | null>(null)
   const [readiness, setReadiness] = useState<AdminPersonaReleaseReadiness | null>(null)
-  const [unselectedGroupIds, setUnselectedGroupIds] = useState<number[]>([])
-  const groupIds = cohorts.filter(item => item.assignable && !unselectedGroupIds.includes(item.id)).map(item => item.id)
+  // A coach picks who receives a change; nothing goes to a group she didn't choose. One group is chosen for her.
+  const [chosenGroupIds, setChosenGroupIds] = useState<number[] | null>(null)
+  const assignableIds = cohorts.filter(item => item.assignable).map(item => item.id)
+  const groupIds = chosenGroupIds === null ? (assignableIds.length === 1 ? assignableIds : []) : chosenGroupIds.filter(id => assignableIds.includes(id))
   const [groups, setGroups] = useState<GroupReview[]>([])
   const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
   const { currentUser } = useAuthContext()
@@ -231,7 +233,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>{live ? 'Your program is live' : voiceChanges ? 'Hear your assistant, then go live' : 'Review your program'}</h3><p>{live ? 'Your people have the published assistant, appearance and tools.' : voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
     {!live && !(reviewedPersona ?? persona).published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
-    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { setUnselectedGroupIds((ids) => event.target.checked ? ids.filter((id) => id !== group.id) : [...ids, group.id]); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
+    <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{assignableIds.length > 1 && groupIds.length === 0 && <p>Choose the groups that should get these changes.</p>}{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { const checked = event.target.checked; setChosenGroupIds(checked ? [...groupIds, group.id] : groupIds.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><div className="coach-lifecycle-actions"><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></div></>}
     {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
