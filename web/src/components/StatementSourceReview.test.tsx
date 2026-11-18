@@ -297,6 +297,15 @@ describe('statement review a participant can finish', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
+  it('opens No to "Did this move between your own accounts?" on spending, so Save does not keep it as a transfer', async () => {
+    mount()
+    const list = await screen.findByRole('list', { name: 'Lines that need a quick look' })
+    fireEvent.click(within(list).getByRole('button', { name: 'No: Fictional entry 2' }))
+    const sheet = await screen.findByRole('dialog')
+    expect((within(sheet).getByLabelText('What was this?') as HTMLSelectElement).value).toBe('spending')
+    expect(within(sheet).getByLabelText(/^Category/)).toBeTruthy()
+  })
+
   it('reopens the account sheet with the type she already approved when the file never said', async () => {
     const data = participantReviewFixture(); data.accounts[0].account_basis = 'unknown'; data.revision.accounts[0].account_basis = 'unknown'
     data.participant_review!.accounts[0].approved!.tracked_account.account_basis = 'liability'
