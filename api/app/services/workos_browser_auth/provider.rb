@@ -92,7 +92,10 @@ module WorkosBrowserAuth
       if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired])
         raise WorkosIdentityResolver::Forbidden, "Check your program invitation"
       end
-      raise UserExists, "Sign-in is temporarily unavailable" if code.to_s == "user_already_exists"
+      # create_user reports a taken email as a 409 or a duplicate code, depending on the endpoint.
+      if code.to_s.in?(%w[user_already_exists email_not_available]) || error.http_status.to_i == 409
+        raise UserExists, "Sign-in is temporarily unavailable"
+      end
       raise PolicyRequired, "Continue with secure sign-in" if POLICY_ERRORS.include?(code.to_s)
       raise RateLimited, "Please wait before trying again" if error.http_status.to_i == 429
       if error.http_status.to_i.in?([ 400, 401, 404, 422 ]) && code.to_s.in?(%w[invalid_grant invalid_token session_not_found session_expired session_revoked authentication_error invalid_code invalid_one_time_code one_time_code_expired magic_auth_invalid magic_auth_code_invalid])

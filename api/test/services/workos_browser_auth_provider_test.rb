@@ -179,6 +179,23 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
     end
   end
 
+  test "a taken email reported as a conflict still counts as already registered" do
+    with_workos do
+      [ { http_status: 409, code: "conflict" }, { http_status: 422, code: "email_not_available" } ].each do |failure|
+        management = Object.new
+        management.define_singleton_method(:create_user) do |**|
+          raise WorkOS::InvalidRequestError.new(message: "private", **failure)
+        end
+        client = WorkOS::Client.new(api_key: "test-secret", client_id: "client_cfo")
+        stub_method(client, :user_management, management) do
+          stub_method(WorkOS::Client, :new, client) do
+            assert_nil WorkosBrowserAuth::Provider.new.create_invited_user(email: "new@example.test")
+          end
+        end
+      end
+    end
+  end
+
   test "user_already_exists outside invited registration stays a temporary provider outage" do
     with_workos do
       management = Object.new

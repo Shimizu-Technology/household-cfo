@@ -336,6 +336,18 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "an emailed invite refused by WorkOS is not registered" do
+    with_auth do
+      User.create!(email: "workos@example.com", clerk_id: "pending_emailed", invitation_status: "pending",
+        invitation_email_status: "sent", role: "participant")
+      refuse_unregistered_sign_up
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: HEADERS, as: :json
+      assert_response :forbidden
+      assert_empty @registered
+      assert_equal 0, WorkosEmailChallenge.count
+    end
+  end
+
   test "Magic Auth cannot bypass a required enterprise SSO session" do
     with_auth do
       user = mapped_user
