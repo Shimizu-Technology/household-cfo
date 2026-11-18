@@ -38,6 +38,9 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
   const groupIds = chosenGroupIds === null ? (assignableIds.length === 1 ? assignableIds : []) : chosenGroupIds.filter(id => assignableIds.includes(id))
   const [groups, setGroups] = useState<GroupReview[]>([])
   const [settings, setSettings] = useState<CoachSettingsReview | null>(null)
+  // A review counts only while it covers exactly the groups chosen now; if the groups change, she reviews again.
+  const reviewedIds = groups.map((item) => item.group.id)
+  const reviewCurrent = reviewedIds.length > 0 && reviewedIds.length === groupIds.length && reviewedIds.every((id) => groupIds.includes(id))
   const { currentUser } = useAuthContext()
   const storageKey = launchStorageKey(currentUser?.id, persona.id)
   const [pendingLaunch, setPendingLaunch] = useState<PendingCoachLaunch | null>(() => readPendingLaunch(storageKey))
@@ -161,7 +164,7 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
     setBusy(true); setError(null)
     let savedForRecovery = Boolean(pendingLaunch)
     try {
-      if (!pendingLaunch && (!reviewedPersona || !settings || groups.length === 0)) throw new Error('Review your assistant first.')
+      if (!pendingLaunch && (!reviewedPersona || !settings || !reviewCurrent)) throw new Error('Review your assistant first.')
       const pending = pendingLaunch ?? prepareCoachLaunch(reviewedPersona!, readiness, settings!, groups)
       // Persist before sending. A lost response can always be retried with the
       // same receipt key, even after closing this tab.
@@ -228,17 +231,17 @@ export function CoachGoLive({ persona, cohorts, lifecycle, onPersonaChange, onEd
       }
     } finally { if (mounted.current) setBusy(false); lifecycle.finish(ticket) }
   }
-  const canPublish = Boolean(persona.permissions.publish && settings && groups.length > 0 && (reviewedPersona?.has_unpublished_changes === false || readiness))
+  const canPublish = Boolean(persona.permissions.publish && settings && reviewCurrent && (reviewedPersona?.has_unpublished_changes === false || readiness))
   const voiceChanges = !live && (reviewedPersona ?? persona).has_unpublished_changes !== false
   return <article className="panel coach-go-live" aria-busy={busy}>
     <h3>{live ? 'Your program is live' : voiceChanges ? 'Hear your assistant, then go live' : 'Review your program'}</h3><p>{live ? 'Your people have the published assistant, appearance and tools.' : voiceChanges ? 'Try two everyday questions with fictional details. Review the answers before your people receive any changes.' : 'Your assistant’s voice stays the same. Review the appearance, tools and groups below.'}</p>
     {!live && !(reviewedPersona ?? persona).published_version && <><p>Preview and approve your assistant’s voice before your saved tools can go live. You can use the standard voice or edit it first.</p>{onEditVoice && <Button variant="secondary" disabled={busy || lifecycle.pending} onClick={onEditVoice}>Edit assistant’s voice</Button>}</>}
     <fieldset disabled={busy || Boolean(pendingLaunch)}><legend>Who will receive these changes?</legend>{assignableIds.length > 1 && groupIds.length === 0 && <p>Choose the groups that should get these changes.</p>}{cohorts.filter((item) => item.assignable).map((group) => <label key={group.id}><input type="checkbox" checked={groupIds.includes(group.id)} onChange={(event) => { const checked = event.target.checked; setChosenGroupIds(checked ? [...groupIds, group.id] : groupIds.filter((id) => id !== group.id)); setGroups([]) }} />{group.name}</label>)}{cohorts.length === 0 && <p>Create a group in People → Group invitations &amp; access first.</p>}</fieldset>
     {pendingLaunch && <><p role="note">An earlier go-live update needs confirmation. Finish it safely before starting another update.</p><div className="coach-lifecycle-actions"><Button disabled={busy || lifecycle.pending} onClick={() => void goLive()}>{busy ? 'Going live…' : 'Finish going live'}</Button><Button variant="secondary" disabled={busy || lifecycle.pending} onClick={() => void checkUpdate()}>Check this update</Button></div></>}
-    {!pendingLaunch && groups.length === 0 && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
+    {!pendingLaunch && !reviewCurrent && <Button disabled={busy || lifecycle.pending || groupIds.length === 0 || !persona.permissions.publish} onClick={() => void preview()}>{busy ? 'Preparing…' : persona.has_unpublished_changes === false ? 'Review changes' : 'Preview answers'}</Button>}
     {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
     <div className="coach-answer-comparison">{answers.map((item) => <section key={item.question}><h4>{item.question}</h4>{item.safeReply && <p className="program-help"><strong>Safe reply participants would receive</strong></p>}<p>{item.answer}</p>{item.safeReply && <p className="program-help">{item.notice}</p>}{item.phraseNotice && <p className="program-help">{item.phraseNotice}</p>}</section>)}</div>
-    {!pendingLaunch && groups.length > 0 && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
+    {!pendingLaunch && reviewCurrent && <section><h4>Review before going live</h4><p>{reviewedPersona?.draft?.identity.assistant_name ?? reviewedPersona?.name} · {groups.map((item) => `${item.group.name} (${item.participantIds.length} ${item.participantIds.length === 1 ? 'person' : 'people'})`).join(', ')}</p><p>These groups will receive this assistant, appearance and tools together.</p>
       {settings && <><BrandWelcomePreview config={settings.brand.preview.brand} />{settings.tools.map((item) => <section key={item.configuration.cohort.id}><h4>Tools for {item.configuration.cohort.name}</h4>{item.configuration.draft.experience_mode === 'savings_challenge' && item.preview.challenge_open !== true && <p>{canOpenChallenge ? 'Open the savings challenge from Groups when you are ready.' : 'The program owner still needs to open the savings challenge for this group.'} Participants will see “Your savings challenge opens soon” until then.</p>}{item.preview.upgrade_notice && <p>{item.preview.upgrade_notice}</p>}{toolChanges(item, groups.find(group => group.group.id === item.configuration.cohort.id)?.activeExperienceConfig).map(change => <p key={change}>{change}</p>)}<p>{item.configuration.draft.experience_mode === 'savings_challenge' ? '90-day Savings Challenge' : 'Household CFO'}</p><p>{toolNavigation(item, (reviewedPersona ?? persona).draft?.identity.assistant_name ?? 'Mia').join(' · ')}</p></section>)}</>}
       {readiness?.candidate?.audience_snapshot && <p>Who this is for: {readiness.candidate.audience_snapshot.audience === "People participating in the human coach's financial education program." ? 'People in your coaching program.' : readiness.candidate.audience_snapshot.audience}<br />Community and culture: {readiness.candidate.audience_snapshot.culture.context === 'Use only cultural and community context explicitly approved by the human coach.' ? 'Only the details you have approved.' : readiness.candidate.audience_snapshot.culture.context}</p>}
       {checks.length > 0 && <details><summary>Safety checks passed ({checks.length})</summary><ul>{checks.map((item) => <li key={item.id}>{item.case.name}: {item.status}</li>)}</ul></details>}
