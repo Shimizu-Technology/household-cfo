@@ -8,6 +8,8 @@ export const exceptions = [
   {
     advisory: 'https://github.com/advisories/GHSA-fc5q-39xc-vjpf',
     packageName: 'picomatch',
+    // A change in rating means the advisory needs a fresh look.
+    severity: 'high',
     // Newest release the advisory covers. Any later release means a fix may exist.
     vulnerableThrough: '4.0.7',
     expires: '2027-01-31',
@@ -60,6 +62,10 @@ export function evaluate(report, { today, publishedVersions, rules = exceptions 
       continue
     }
     used.add(exception)
+    if (advisory.severity !== exception.severity) {
+      failures.push(`${advisory.name} ${advisory.url}: now rated ${advisory.severity}, exception covers ${exception.severity}; re-evaluate it`)
+      continue
+    }
     if (today > exception.expires) {
       failures.push(`${advisory.name} ${advisory.url}: exception expired on ${exception.expires}; re-evaluate it`)
       continue

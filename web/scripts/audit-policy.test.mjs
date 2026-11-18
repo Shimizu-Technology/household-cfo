@@ -57,6 +57,11 @@ assert.ok(!isNewer('4.0.7-rc.1', '4.0.7'))
 }
 
 {
+  const result = run(report({ ...picomatch, severity: 'critical' }))
+  assert.match(result.failures.join('\n'), /now rated critical/, 'a re-rated advisory needs a fresh look')
+}
+
+{
   const low = { ...picomatch, url: 'https://github.com/advisories/GHSA-1111-1111-1111', severity: 'low' }
   assert.deepEqual(run(report(picomatch, low)).failures, [], 'low severity stays below the CI threshold, as before')
 }

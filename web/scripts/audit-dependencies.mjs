@@ -16,12 +16,17 @@ function runNpm(args) {
 }
 
 const report = JSON.parse(runNpm(['audit', '--json']))
-if (report.error) {
-  console.error(`npm audit failed: ${report.error.summary ?? JSON.stringify(report.error)}`)
+if (report.error || report.auditReportVersion !== 2 || typeof report.vulnerabilities !== 'object') {
+  console.error(`npm audit failed: ${report.error?.summary ?? 'unexpected report format'}`)
   process.exit(1)
 }
 
-const publishedVersions = (packageName) => [JSON.parse(runNpm(['view', packageName, 'versions', '--json']))].flat()
+function publishedVersions(packageName) {
+  const versions = JSON.parse(runNpm(['view', packageName, 'versions', '--json']))
+  if (versions?.error) throw new Error(`npm view ${packageName} failed: ${versions.error.summary ?? versions.error.code}`)
+  // A package with a single version comes back as a string.
+  return [versions].flat()
+}
 const { failures, allowed, unused, checked } = evaluate(report, { today: new Date().toISOString().slice(0, 10), publishedVersions })
 
 for (const exception of allowed) {
