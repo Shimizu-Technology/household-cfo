@@ -263,13 +263,32 @@ it('W23 refuses a previously previewed phrase after audience review rejects it',
  expect(api.previewAdminPersona).toHaveBeenCalledTimes(2);expect(api.postCoachLaunch).not.toHaveBeenCalled()
 })
 
-it('selects newly created groups while hidden without reselecting a deselected group', async () => {
+it('chooses the only group for her, but never sends a change to a group she did not choose', async () => {
  function Dynamic({ extra = false }: { extra?: boolean }) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={extra ? [group, {...group, id:43, name:'New people'}] : [group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={false} /> }
  const view = render(<Dynamic />)
+ expect(screen.getByRole('checkbox', {name:'Practice people'})).toHaveProperty('checked', true)
  fireEvent.click(screen.getByRole('checkbox', {name:'Practice people'}))
  view.rerender(<Dynamic extra />)
- await waitFor(() => expect(screen.getByRole('checkbox', {name:'New people'})).toHaveProperty('checked', true))
+ await waitFor(() => expect(screen.getByRole('checkbox', {name:'New people'})).toHaveProperty('checked', false))
  expect(screen.getByRole('checkbox', {name:'Practice people'})).toHaveProperty('checked', false)
+ expect(screen.getByText('Choose the groups that should get these changes.')).toBeTruthy()
+})
+it('drops a finished review when the groups change without a click, so Go live cannot target the old group', async () => {
+ function Dynamic({ extra = false }: { extra?: boolean }) { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={extra ? [group, {...group, id:45, name:'BOG pilot'}] : [group]} lifecycle={lifecycle} onPersonaChange={vi.fn()} /> }
+ const view = render(<Dynamic />)
+ await review()
+ expect(screen.getByRole('button', {name:'Approve and go live'})).toBeTruthy()
+ view.rerender(<Dynamic extra />)
+ await waitFor(() => expect(screen.queryByText('Review before going live')).toBeNull())
+ expect(screen.queryByRole('button', {name:'Approve and go live'})).toBeNull()
+ expect(screen.getByText('Choose the groups that should get these changes.')).toBeTruthy()
+})
+it('starts with no group chosen when the program has several, so a live group is never included by default', () => {
+ function Several() { const lifecycle = useCoachWorkspaceMutationLifecycle(1); return <CoachGoLive persona={persona} cohorts={[group, {...group, id:44, name:'BOG pilot'}]} lifecycle={lifecycle} onPersonaChange={vi.fn()} active={false} /> }
+ render(<Several />)
+ expect(screen.getByRole('checkbox', {name:'Practice people'})).toHaveProperty('checked', false)
+ expect(screen.getByRole('checkbox', {name:'BOG pilot'})).toHaveProperty('checked', false)
+ expect(screen.getByRole('button', {name:'Preview answers'})).toHaveProperty('disabled', true)
 })
 it('leaving during a preview prevents the second paid answer and safety evaluation', async () => {
  let finish!: (value: unknown) => void
