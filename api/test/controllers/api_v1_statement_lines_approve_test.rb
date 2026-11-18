@@ -649,6 +649,12 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_nil plan.dig("coverage", "question")
     assert_equal 2, plan.fetch("attention").count { |row| row["kind"] == "unclear" }
 
+    # An unread page still means "we couldn't read every page", even when the unclear lines close the totals.
+    unread_report = source[:revision].reconciliation.deep_dup.merge("page_coverage" => { "expected" => 2, "processed" => [ 1 ], "all_processed" => false })
+    source[:revision].define_singleton_method(:reconciliation) { unread_report }
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
+    assert_equal "We couldn’t read every page of your statement. Is anything missing?", FinancialDocuments::SourceReview::CoverageQuestion.text(source[:revision])
+
     # The same account printed with two different headers: its stored totals prove nothing.
     conflicting = build_source(rows: rows, account: account, extra_accounts: [ { account_key: "synthetic-account", account_basis: "liability" } ])
     assert_includes conflicting[:revision].financial_source_accounts.sole.limitations, "conflicting_header_account_basis"
