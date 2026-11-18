@@ -34,7 +34,9 @@ module SpendingPatterns
       selected_source = source.select { |row| row.posted_on&.between?(start, finish) }
       selected_actuals = actuals_scope.where(occurred_on: start..finish)
         .includes(transaction_splits: :budget_category).to_a
-      rows = selected_source.select { |row| eligible_ids.include?(row.id) }.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
+      # Budget counts a reviewed statement purchase only once it has a category; Mia counts the same lines.
+      counted = selected_source.select { |row| eligible_ids.include?(row.id) && row.budget_category_id.present? }
+      rows = counted.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
       RefundNetting.call(rows, source: selected_source, reviewed: reviewed)
       rows.each do |row|
         row[:transfer_to_person] = row[:merchant].to_s.match?(PERSON_TRANSFER)
