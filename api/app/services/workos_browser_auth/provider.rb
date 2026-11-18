@@ -4,7 +4,12 @@ module WorkosBrowserAuth
   class Provider
     class PolicyRequired < StandardError; end
     class RateLimited < StandardError; end
+    # WorkOS public sign-up is off, so a new email needs a WorkOS invitation or user.
+    class SignUpNotAllowed < WorkosIdentityResolver::Forbidden; end
+    # Only create_invited_user expects this; every other call keeps treating it as an outage.
+    class UserExists < WorkosAuth::Unavailable; end
 
+    SIGN_UP_ERRORS = %w[user_creation_disabled signup_disabled sign_up_not_allowed].freeze
     POLICY_ERRORS = %w[sso_required organization_authentication_methods_required organization_selection_required
       email_verification_required mfa_enrollment mfa_challenge radar_email_challenge radar_sms_challenge
       account_selection_required identity_linking_required].freeze
@@ -29,6 +34,16 @@ module WorkosBrowserAuth
 
     def authenticate_magic_auth(**options)
       call { @client.user_management.authenticate_with_magic_auth(**options) }
+    end
+
+    # Registers a locally invited email whose invitation was never emailed. WorkOS
+    # sends nothing; the emailed sign-in code still proves the address.
+    def create_invited_user(email:)
+      call { @client.user_management.create_user(email: email, email_verified: false) }
+      nil
+    rescue UserExists
+      # A concurrent request registered the same email first.
+      nil
     end
 
     def refresh(refresh_token:)
@@ -73,8 +88,13 @@ module WorkosBrowserAuth
       # Provider errors may embed tokens or private profile data. Never expose/log them.
       body = error.body.is_a?(Hash) ? error.body : {}
       code = error.code.presence || body["code"] || body["error"]
-      if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired user_creation_disabled signup_disabled sign_up_not_allowed])
+      raise SignUpNotAllowed, "Check your program invitation" if code.to_s.in?(SIGN_UP_ERRORS)
+      if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired])
         raise WorkosIdentityResolver::Forbidden, "Check your program invitation"
+      end
+      # create_user reports a taken email as a 409 or a duplicate code, depending on the endpoint.
+      if code.to_s.in?(%w[user_already_exists email_not_available]) || error.http_status.to_i == 409
+        raise UserExists, "Sign-in is temporarily unavailable"
       end
       raise PolicyRequired, "Continue with secure sign-in" if POLICY_ERRORS.include?(code.to_s)
       raise RateLimited, "Please wait before trying again" if error.http_status.to_i == 429

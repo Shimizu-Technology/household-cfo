@@ -9,7 +9,7 @@ import { AdminDialog } from '../AdminDialog'
 import { roleLabel } from '../adminWords'
 import type { RosterGroup } from '../useAdminRoster'
 
-type Result = { added: string[]; already: string[]; existing: string[]; pending: string[]; unsent: string[]; problems: string[]; notes: string[] }
+type Result = { added: string[]; already: string[]; existing: string[]; pending: string[]; unsent: string[]; unsentReasons: string[]; problems: string[]; notes: string[] }
 
 // One way to invite: paste one or many emails, choose a group (and a role, for admins). A group is only
 // preselected when it is the only one, so a long list of emails never goes to the wrong group by default.
@@ -40,7 +40,7 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
     if (needsGroup && !groupId) { setError('Choose which group they are joining.'); return }
     const count = parsed.emails.length
     const who = `${count} ${count === 1 ? 'person' : 'people'}`
-    const confirmed = await confirmAction(sendEmail ? `Each of them gets an email invitation now.` : 'No email is sent now. You can send it later from People.', {
+    const confirmed = await confirmAction(sendEmail ? `Each of them gets an email invitation now.` : 'No email is sent now. They can sign up on the site with a sign-in code sent to the email you typed, or you can send the invitation later from People.', {
       title: needsGroup && groupName ? `Invite ${who} to ${groupName}?` : `Invite ${who} as ${roleLabel[role].toLowerCase()}s?`, confirmLabel: 'Invite', cancelLabel: 'Not yet',
     })
     if (!confirmed) return
@@ -48,7 +48,7 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
     // Every invitation in the batch goes to the program it was started in, and the result is shown here:
     // the dialog stays open, and the program stays put, until the last one has been answered.
     const release = holdWorkspaceLock()
-    const outcome: Result = { added: [], already: [], existing: [], pending: [], unsent: [], problems: [], notes: parsed.problems }
+    const outcome: Result = { added: [], already: [], existing: [], pending: [], unsent: [], unsentReasons: [], problems: [], notes: parsed.problems }
     const inGroup = new Set(people.filter(person => person.cohorts.some(item => String(item.cohort.id) === groupId)).map(person => person.email.toLowerCase()))
     try {
       for (const email of parsed.emails) {
@@ -58,7 +58,11 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
           if ((response.already_invited || (response.created === false && !response.reactivated)) && !response.invitation_sent) outcome.existing.push(email)
           else {
             outcome.added.push(email)
-            if (sendEmail && response.invitation_status === 'failed') outcome.unsent.push(email)
+            if (sendEmail && response.invitation_status === 'failed') {
+              outcome.unsent.push(email)
+              // The reason matters: an outage is worth a resend, but an email that can already sign in is not.
+              if (response.invitation_error) outcome.unsentReasons.push(`${email}: ${response.invitation_error}`)
+            }
           }
         } catch (caught) {
           outcome.problems.push(`${email}: ${caught instanceof Error ? caught.message : 'This invitation could not be saved.'}`)
@@ -79,6 +83,7 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
     {result ? <div className="admin-invite-result" role="status">
       <p className="admin-result-headline">{result.added.length === 0 ? 'No one new was invited.' : `${result.added.length} ${result.added.length === 1 ? 'person' : 'people'} invited.`}</p>
       {result.unsent.length > 0 && <p>The email didn’t go out for {result.unsent.join(', ')}. Open them in People and choose Send the invitation again.</p>}
+      {result.unsentReasons.length > 0 && <ul>{result.unsentReasons.map(item => <li key={item}>{item}</li>)}</ul>}
       {result.already.length > 0 && <p>Already in this group: {result.already.join(', ')}.</p>}
       {result.existing.length > 0 && <p>Already invited{needsGroup ? `; added to ${groupName}` : ''}: {result.existing.join(', ')}.</p>}
       {result.pending.length > 0 && <p>Not sent yet: {result.pending.join(', ')}.</p>}

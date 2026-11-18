@@ -298,6 +298,68 @@ class ApiAuthEmailChallengesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  # Admins may add someone without emailing the invitation, so WorkOS has no
+  # invitation and refuses a new sign-up until the email is registered.
+  def refuse_unregistered_sign_up
+    registered = @registered = []
+    delivered = @provider.method(:create_magic_auth)
+    @provider.define_singleton_method(:create_invited_user) { |email:| registered << email }
+    @provider.define_singleton_method(:create_magic_auth) do |**options|
+      raise WorkosBrowserAuth::Provider::SignUpNotAllowed, "Check your program invitation" if registered.empty?
+      delivered.call(**options)
+    end
+  end
+
+  test "a pending invite that was never emailed registers its email once and signs up" do
+    with_auth do
+      user = User.create!(email: "workos@example.com", clerk_id: "pending_manual", invitation_status: "pending", role: "participant")
+      refuse_unregistered_sign_up
+      challenge = start_email
+      assert_equal "code", challenge.fetch("step")
+      assert_equal [ "workos@example.com" ], @registered
+      verify_email(challenge)
+      assert_response :success
+      assert_equal "accepted", user.reload.invitation_status
+      assert_equal "user_test", user.authentication_identities.sole.subject
+      assert_equal [ "workos@example.com" ], @registered
+    end
+  end
+
+  test "only a pending invite is registered when WorkOS refuses a sign-up" do
+    with_auth do
+      mapped_user
+      refuse_unregistered_sign_up
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: HEADERS, as: :json
+      assert_response :forbidden
+      assert_empty @registered
+      assert_equal 0, WorkosEmailChallenge.count
+    end
+  end
+
+  test "an emailed invite refused by WorkOS is not registered" do
+    with_auth do
+      User.create!(email: "workos@example.com", clerk_id: "pending_emailed", invitation_status: "pending",
+        invitation_email_status: "sent", role: "participant")
+      refuse_unregistered_sign_up
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: HEADERS, as: :json
+      assert_response :forbidden
+      assert_empty @registered
+      assert_equal 0, WorkosEmailChallenge.count
+    end
+  end
+
+  test "an invite emailed once and then failing a resend is not registered" do
+    with_auth do
+      User.create!(email: "workos@example.com", clerk_id: "pending_resend_failed", invitation_status: "pending",
+        invitation_email_status: "failed", last_invite_email_sent_at: 2.days.ago, role: "participant")
+      refuse_unregistered_sign_up
+      post "/api/auth/email/start", params: { email: "workos@example.com", return_to: "/" }, headers: HEADERS, as: :json
+      assert_response :forbidden
+      assert_empty @registered
+      assert_equal 0, WorkosEmailChallenge.count
+    end
+  end
+
   test "Magic Auth cannot bypass a required enterprise SSO session" do
     with_auth do
       user = mapped_user
