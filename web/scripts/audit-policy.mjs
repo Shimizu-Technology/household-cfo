@@ -36,6 +36,13 @@ export function isNewer(version, through) {
   return !a.prerelease && Boolean(b.prerelease)
 }
 
+// An `npm audit --json` report this script knows how to read.
+export function validReport(report) {
+  const { vulnerabilities } = report ?? {}
+  return !report?.error && report?.auditReportVersion === 2 &&
+    typeof vulnerabilities === 'object' && vulnerabilities !== null && !Array.isArray(vulnerabilities)
+}
+
 // Every advisory object in an `npm audit --json` report, once each.
 export function advisoriesIn(report) {
   const advisories = new Map()
@@ -55,9 +62,9 @@ export function evaluate(report, { today, publishedVersions, rules = exceptions 
   const used = new Set()
   const advisories = advisoriesIn(report)
   for (const advisory of advisories) {
-    if (!failingSeverities.has(advisory.severity)) continue
     const exception = rules.find((entry) => entry.advisory === advisory.url && entry.packageName === advisory.name)
     if (!exception) {
+      if (!failingSeverities.has(advisory.severity)) continue
       failures.push(`${advisory.severity}: ${advisory.name} ${advisory.range} ${advisory.url} (${advisory.title})`)
       continue
     }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { evaluate, exceptions, isNewer } from './audit-policy.mjs'
+import { evaluate, exceptions, isNewer, validReport } from './audit-policy.mjs'
 
 const picomatch = {
   source: 1247710,
@@ -18,6 +18,13 @@ const report = (...advisories) => ({
 })
 const published = ['2.3.1', '3.0.1', '4.0.6', '4.0.7']
 const run = (r, options = {}) => evaluate(r, { today: '2026-11-18', publishedVersions: () => published, ...options })
+
+assert.ok(validReport({ auditReportVersion: 2, vulnerabilities: {} }))
+assert.ok(!validReport({ auditReportVersion: 2, vulnerabilities: [] }), 'an array is not a report')
+assert.ok(!validReport({ auditReportVersion: 2, vulnerabilities: null }))
+assert.ok(!validReport({ auditReportVersion: 1, advisories: {} }))
+assert.ok(!validReport({ error: { code: 'ENOAUDIT' } }))
+assert.ok(!validReport(null))
 
 assert.ok(isNewer('4.0.8', '4.0.7'))
 assert.ok(isNewer('5.0.0-beta.1', '4.0.7'), 'a prerelease of a later version counts')
@@ -59,6 +66,11 @@ assert.ok(!isNewer('4.0.7-rc.1', '4.0.7'))
 {
   const result = run(report({ ...picomatch, severity: 'critical' }))
   assert.match(result.failures.join('\n'), /now rated critical/, 'a re-rated advisory needs a fresh look')
+}
+
+{
+  const result = run(report({ ...picomatch, severity: 'low' }))
+  assert.match(result.failures.join('\n'), /now rated low/, 'a downgrade also ends the exception')
 }
 
 {

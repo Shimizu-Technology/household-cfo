@@ -3,7 +3,7 @@
 // dependencies are audited separately with `npm audit --omit=dev` and get no
 // exceptions at all.
 import { execFileSync } from 'node:child_process'
-import { evaluate } from './audit-policy.mjs'
+import { evaluate, validReport } from './audit-policy.mjs'
 
 function runNpm(args) {
   try {
@@ -16,7 +16,7 @@ function runNpm(args) {
 }
 
 const report = JSON.parse(runNpm(['audit', '--json']))
-if (report.error || report.auditReportVersion !== 2 || typeof report.vulnerabilities !== 'object') {
+if (!validReport(report)) {
   console.error(`npm audit failed: ${report.error?.summary ?? 'unexpected report format'}`)
   process.exit(1)
 }
