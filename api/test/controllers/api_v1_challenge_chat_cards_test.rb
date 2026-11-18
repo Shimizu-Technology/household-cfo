@@ -420,6 +420,8 @@ class ApiV1ChallengeChatCardsTest < ActionDispatch::IntegrationTest
     refute_includes reply, ".00"
     # Each store appears in one month only, so neither is offered as a monthly cut.
     refute_includes reply, "Spending half"
+    refute_includes reply, "cutting back on"
+    assert_empty response.parsed_body.dig("spending_patterns", "candidate_changes")
     assert_equal 2, reply.split(Mia::ResponseShapePolicy::SENTENCE_BOUNDARY).length
     assert_nil response.parsed_body.dig("spending_patterns", "coverage", "months", 1, "spending_cents")
   end

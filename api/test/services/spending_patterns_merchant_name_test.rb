@@ -14,7 +14,9 @@ class SpendingPatternsMerchantNameTest < ActiveSupport::TestCase
       "OPENROUTER, INC OPENROUTER.AI, NY" => "OPENROUTER, INC OPENROUTER.AI",
       "Ross Store #497 Tamuning" => "Ross",
       "1776 Coffee" => "1776 Coffee",
-      "Guam Premier Outlets" => "Guam Premier Outlets"
+      "Guam Premier Outlets" => "Guam Premier Outlets",
+      "Northstar IT" => "Northstar IT",
+      "Purchase authorized on 10/14 ROSS DRESS FOR LESS #123" => "Ross"
     }.each do |raw, label|
       assert_equal label, SpendingPatterns::MerchantName.call(raw), raw
     end

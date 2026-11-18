@@ -35,6 +35,12 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
     purchase(Date.new(2026, 9, 17), "Money Transfer authorized on 09/17 Paypal *Madison.Mafnas San Jose CA S*····6808 Card", 69_000, category: @category)
     purchase(Date.new(2026, 10, 3), "Ross", 50_000)
+    pharmacy = @household.budget_categories.create!(name: "Medication", stack_key: "discretionary", sort_order: 5)
+    [ Date.new(2026, 9, 20), Date.new(2026, 10, 20) ].each do |date|
+      purchase(date, "Mega Drug Tamuning", 12_000, category: pharmacy)
+      purchase(date, "PAYPAL *JANEDOE.SMITH", 8_000)
+      purchase(date, "Purchase: Venmo to Alex Rivera", 6_000)
+    end
     result = analyze
     labels = result[:candidate_changes].map { |row| row[:merchant] }
     assert_equal [ "Island Girl Coffee" ], labels
@@ -42,7 +48,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     refute_includes result[:discretionary_categories].map { |row| row[:label] }, "Doctor and medical"
     refute(result[:discretionary_merchants].any? { |row| row[:label].include?("Dr Shiehs") })
     assert_equal 1, result[:discretionary_merchants].count { |row| row[:label] == "Island Girl Coffee" }
-    assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000, result[:observed_spending_cents]
+    assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
   end
 
   test "R2 current month reviewed purchases are visible without claiming a complete month" do

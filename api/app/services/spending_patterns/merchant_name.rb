@@ -7,7 +7,8 @@ module SpendingPatterns
     CARD_TAIL = /\s+[A-Z]\*\s*[·•*xX]*\d{2,}.*\z/
     REFERENCE_TAIL = %r{\s+on\s+\d{1,2}/\d{1,2}\s+ref\s*#.*\z}i
     # Trailing place and phone words: "Tamuning Gum", "Hagatna GU", "650-····0000 CA", ", NY".
-    PLACE_TAIL = /(?:,?\s+(?:#{FinancialDocuments::MerchantNormalizer::GUAM_LOCATION}|Gum|GU|[A-Z]{2}|\d{3}-[\d·•*xX-]+))\z/
+    # Only real state and territory codes, in capitals, count as places: "Northstar IT" keeps its "IT".
+    PLACE_TAIL = /(?:,?\s+(?:#{FinancialDocuments::MerchantNormalizer::GUAM_LOCATION}|Gum|GU|(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})|\d{3}-[\d·•*xX-]+))\z/
     STORE_NUMBER = /(?:\s+(?:store\s*)?\#\s*\d+|\s+(?:store\s*(?:no\.?|number)?\s*)?\d{3,})\z/i
 
     def self.call(value)
@@ -20,7 +21,8 @@ module SpendingPatterns
         break if trimmed == short || trimmed.blank?
         short = trimmed
       end
-      short.presence || full
+      # Known stores read the same however the bank wrote them ("ROSS DRESS FOR LESS #123" is Ross).
+      FinancialDocuments::MerchantNormalizer.known_merchant(short.presence || full) || short.presence || full
     end
   end
 end
