@@ -664,6 +664,10 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     guessed = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "unknown", 2, nil, [ "conflicting_debit_credit" ] ], rows[2] ], account: account)
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(guessed[:revision])
 
+    # An unresolved line with no stated reason can't prove the totals close either.
+    unexplained = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "income", 2, nil, [] ], rows[2] ], account: account)
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(unexplained[:revision])
+
     # A printed line count that differs is still said as a count problem.
     counted = build_source(rows: rows, account: account.merge(printed_row_count: 4))
     assert_equal "count", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(counted[:revision])
@@ -686,6 +690,16 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     short = build_source(rows: rows, account: account.merge(printed_credit_cents: 20_000, closing_balance_cents: 18_500))
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(short[:revision])
     assert_equal "The totals on your statement don’t add up with the lines we found. Is anything missing?", plan_for(short).dig("coverage", "question")
+  end
+
+  test "something missing sent with the save is kept even when the statement reconciles" do
+    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    plan = plan_for(source)
+    assert_nil plan.dig("coverage", "question")
+    approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), coverage_answer: "something_missing",
+      lines: plan.fetch("ready").map { |row| { event_id: row["event_id"], decision: "as_read", shown: row.slice("category_id", "event_type").symbolize_keys } } }, source: source)
+    assert_response :success
+    assert_equal false, SourceRevisionApproval.where(household: @household).order(:version_number).last.coverage_attestation.fetch("all_document_rows_accounted")
   end
 
   test "a statement that reconciles needs no question" do

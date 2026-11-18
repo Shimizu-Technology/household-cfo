@@ -34,7 +34,8 @@ module FinancialDocuments
         return false if accounts.empty?
         rows = FinancialSourceEvent.where(financial_extraction_revision: revision, row_kind: %w[posted unresolved])
           .pluck(:financial_source_account_id, :row_kind, :signed_amount_cents, :limitations)
-        return false if rows.any? { |_, kind, _, limits| kind == "unresolved" && (Array(limits) - CLASSIFICATION_ONLY).any? }
+        # An unresolved line with no stated reason is a doubt we can't name, so it fails closed too.
+        return false if rows.any? { |_, kind, _, limits| kind == "unresolved" && (Array(limits).empty? || (Array(limits) - CLASSIFICATION_ONLY).any?) }
         amounts = rows.group_by(&:first).transform_values { |group| group.map { |row| row[2] } }
         accounts.all? do |account|
           signed = amounts.fetch(account.id, [])
