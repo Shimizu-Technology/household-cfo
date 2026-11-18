@@ -1,6 +1,12 @@
 require "test_helper"
 
 class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
+  test "a Wells Fargo ATM transaction fee is read as a fee only when it is money out" do
+    parser = FinancialDocuments::NativeStatementParser.allocate
+    assert_equal "fee", parser.send(:wf_type, "Non-Wells Fargo ATM Transaction Fee", -300)
+    assert_equal "unknown", parser.send(:wf_type, "Non-Wells Fargo ATM Transaction Fee", 300)
+  end
+
   test "normalization cannot demote a printed posted returned unpaid fee" do
     pages = wells_pages
     pages.first[:runs].find { |run| run[:text].start_with?("Purchase authorized") }[:text] = "Returned Unpaid Item Fee"

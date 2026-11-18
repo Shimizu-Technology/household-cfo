@@ -12,8 +12,9 @@ module FinancialDocuments
         report = revision.reconciliation || {}
         accounts = Array(report["accounts"])
         residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
+        return "mismatch" if report.dig("page_coverage", "all_processed") == false
         closed_by_unclear = residuals.any? { |value| value != 0 } && unclear_lines_close_totals?(revision)
-        return "mismatch" if report.dig("page_coverage", "all_processed") == false || (residuals.any? { |value| value != 0 } && !closed_by_unclear)
+        return "mismatch" if residuals.any? { |value| value != 0 } && !closed_by_unclear
         return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
         return "matches" if closed_by_unclear
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
@@ -31,6 +32,8 @@ module FinancialDocuments
           factor = { "asset" => 1, "liability" => -1 }[account.account_basis]
           printed = [ account.printed_debit_cents, account.printed_credit_cents, account.opening_balance_cents, account.closing_balance_cents ]
           next false if factor.nil? || printed.any?(&:nil?) || rows.any? { |row| row.signed_amount_cents.nil? }
+          # Conflicting printed headers mean the stored totals may be the wrong ones, so they prove nothing.
+          next false if Array(account.limitations).any? { |value| value.to_s.start_with?("conflicting_header_") }
           debit = rows.sum { |row| [ -row.signed_amount_cents, 0 ].max }
           credit = rows.sum { |row| [ row.signed_amount_cents, 0 ].max }
           debit == account.printed_debit_cents && credit == account.printed_credit_cents && account.closing_balance_cents - account.opening_balance_cents == factor * (credit - debit)

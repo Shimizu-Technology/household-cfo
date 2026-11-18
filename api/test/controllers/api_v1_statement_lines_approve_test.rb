@@ -649,6 +649,11 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_nil plan.dig("coverage", "question")
     assert_equal 2, plan.fetch("attention").count { |row| row["kind"] == "unclear" }
 
+    # The same account printed with two different headers: its stored totals prove nothing.
+    conflicting = build_source(rows: rows, account: account, extra_accounts: [ { account_key: "synthetic-account", account_basis: "liability" } ])
+    assert_includes conflicting[:revision].financial_source_accounts.sole.limitations, "conflicting_header_account_basis"
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(conflicting[:revision])
+
     short = build_source(rows: rows, account: account.merge(printed_credit_cents: 20_000, closing_balance_cents: 18_500))
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(short[:revision])
     assert_equal "The totals on your statement don’t add up with the lines we found. Is anything missing?", plan_for(short).dig("coverage", "question")
@@ -1118,14 +1123,14 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32))
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [])
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row, key|
       { account_key: key || "synthetic-account", row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) },
+      accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) } + extra_accounts,
       events: events, reported_row_count: reported || events.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
     result = FinancialDocuments::SourceAccountingPersister.new(document, attempt: attempt, accounting: accounting).call
     document.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })
