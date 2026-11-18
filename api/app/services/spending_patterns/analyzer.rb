@@ -3,6 +3,17 @@ module SpendingPatterns
   # Read approved source heads directly and exclude their projected transactions,
   # so a statement purchase cannot appear twice.
   class Analyzer
+    # The Household CFO Method never suggests cutting the roof, utilities, medical care, children or family
+    # (Mrs. Mel: "I would never tell someone… don't take care of your family"). These stay in spending totals
+    # but are not flexible spending and are never offered as a cut.
+    PROTECTED_CATEGORY = /\b(?:medical|medicine|medications?|meds|doctors?|dental|dentist|health|pharmacy|prescriptions?|hospital|clinic|therapy|child(?:ren)?|childcare|daycare|kids?|baby|babies|school|tuition|daughters?|sons?|family|mom|mother|dad|father|parents?|grandparents?|rent|mortgage|housing|utilities|utility|power|water|electric(?:ity)?)\b/i
+    # Money sent to a person is usually support or paying someone back, not a store habit to halve.
+    PERSON_TRANSFER = /\A(?:zelle\b|venmo\b|cash\s*app\b|money\s+transfer\b|online\s+transfer\b|transfer\s+(?:to|from)\b|payment\s+to\b)|paypal\s*\*\s*[a-z]+\.[a-z]+/i
+    # A store seen in only one month is a one-off, not a monthly habit.
+    MIN_MONTHS_FOR_A_CUT = 2
+
+    def self.protected_category?(name) = name.to_s.match?(PROTECTED_CATEGORY)
+
     def initialize(household, today: Time.current.in_time_zone("Pacific/Guam").to_date, from: nil, to: nil)
       @household, @today, @from, @to = household, today, from, to
     end
@@ -23,9 +34,15 @@ module SpendingPatterns
       selected_source = source.select { |row| row.posted_on&.between?(start, finish) }
       selected_actuals = actuals_scope.where(occurred_on: start..finish)
         .includes(transaction_splits: :budget_category).to_a
-      rows = selected_source.select { |row| eligible_ids.include?(row.id) }.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
+      # Budget counts a reviewed statement purchase only once it has a category; Mia counts the same lines.
+      counted = selected_source.select { |row| eligible_ids.include?(row.id) && row.budget_category_id.present? }
+      rows = counted.map { |row| source_row(row) } + selected_actuals.map { |row| actual_row(row) }
       RefundNetting.call(rows, source: selected_source, reviewed: reviewed)
-      rows.each { |row| row[:merchant] = MerchantName.call(row[:merchant]) }
+      rows.each do |row|
+        # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
+        row[:transfer_to_person] = [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
+        row[:merchant] = MerchantName.call(row[:merchant])
+      end
       rows.reject! { |row| row[:amount_cents].zero? }
       # All source classifications inform observed coverage; income-only months
       # are not represented as months with no spending.
@@ -34,10 +51,12 @@ module SpendingPatterns
         { month: month.strftime("%Y-%m"), purchase_count: count, spending_cents: count.positive? ? rows.select { |row| row[:date].beginning_of_month == month }.sum { |row| row[:amount_cents] } : nil }
       end
       merchants = group_totals(rows, :merchant)
-      discretionary = rows.flat_map { |row| row[:splits].select { |split| split[:discretionary] }.map { |split| row.merge(amount_cents: split[:amount_cents], category: split[:name], category_id: split[:category_id]) } }
+      # A flexible split refunded to nothing is not a month of flexible spending.
+      discretionary = rows.flat_map { |row| row[:splits].select { |split| split[:discretionary] && split[:amount_cents].positive? }.map { |split| row.merge(amount_cents: split[:amount_cents], category: split[:name], category_id: split[:category_id]) } }
       flexible_merchants = group_totals(discretionary, :merchant)
       categories = group_totals(discretionary, :category)
-      choices = flexible_merchants.first(3).map.with_index do |row, index|
+      cuttable = flexible_merchants.select { |row| row[:observed_months].length >= MIN_MONTHS_FOR_A_CUT && !row[:transfer_to_person] }
+      choices = cuttable.first(3).map.with_index do |row, index|
         { id: "choice-#{index + 1}", label: "Cut back on #{row[:label]}", merchant: row[:label],
           monthly_impact_cents: (row[:monthly_average_cents] / 2.0).floor,
           description: "Try spending half as much at #{row[:label]}", assumption: "Half of the average in months with recorded purchases; an estimate, not saved money" }
@@ -65,7 +84,8 @@ module SpendingPatterns
     end
 
     def split(category, amount)
-      { category_id: category&.id, name: category&.name || "Uncategorized", amount_cents: amount, discretionary: category&.stack_key == "discretionary" }
+      { category_id: category&.id, name: category&.name || "Uncategorized", amount_cents: amount,
+        discretionary: category&.stack_key == "discretionary" && !self.class.protected_category?(category&.name) }
     end
 
     def group_totals(rows, key)
@@ -73,7 +93,8 @@ module SpendingPatterns
         months = group.map { |row| row[:date].strftime("%Y-%m") }.uniq
         total = group.sum { |row| row[:amount_cents] }
         { label: group.first[key], total_cents: total, purchase_count: group.length,
-          observed_months: months.sort, monthly_average_cents: total.div(months.length) }
+          observed_months: months.sort, monthly_average_cents: total.div(months.length),
+          transfer_to_person: group.any? { |row| row[:transfer_to_person] } }
       end.sort_by { |row| [ -row[:total_cents], row[:label] ] }
     end
 

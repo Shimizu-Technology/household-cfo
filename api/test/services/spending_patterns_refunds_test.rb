@@ -63,6 +63,22 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     assert_equal 334, result[:discretionary_categories].sole[:total_cents]
   end
 
+  test "a reviewed statement purchase with no category counts for Mia only when it counts in Budget" do
+    reviewed("OpenAI ChatGPT Subscription", -10_000, type: "purchase", category: nil, on: Date.new(2026, 10, 1))
+    reviewed("Mobil Barrigada", -1_497, type: "purchase", on: Date.new(2026, 10, 7))
+    result = analyze
+    assert_equal 1_497, result[:observed_spending_cents]
+    refute(result[:merchants].any? { |row| row[:label].include?("OpenAI") })
+  end
+
+  test "a refund from a similarly named store never reduces another store's purchase" do
+    purchase("Northstar", 12_000)
+    reviewed("Northstar CA", 4_000)
+    result = analyze
+    assert_equal 12_000, result[:observed_spending_cents]
+    assert_equal 12_000, result[:discretionary_merchants].find { |row| row[:label] == "Northstar" }[:total_cents]
+  end
+
   test "review suffix refund nets only the normalized merchant" do
     purchase("Island Table - Tamuning (includes tip)", 2000)
     purchase("Island Table Cafe", 1000)
@@ -90,14 +106,14 @@ class SpendingPatternsRefundsTest < ActiveSupport::TestCase
     row
   end
 
-  def reviewed(merchant, cents, type: "refund", disposition: "include", on: Date.new(2026, 10, 24))
+  def reviewed(merchant, cents, type: "refund", disposition: "include", on: Date.new(2026, 10, 24), category: :default)
     initial, = evidence_source(cents.abs, type: "income", on: on)
     draft = source_operation(HouseholdFinance::Operations::SourceReview::DraftStage,
       event_id: initial.financial_source_event.id, base_version_id: initial.id, base_lock_version: initial.source_review_head.reload.lock_version,
       reason: "Participant reviewed the merchant and kind", projection: { action: "none" }, facts: {
         source_account_identity_version_id: initial.source_account_identity_version_id, disposition: disposition, event_type: type,
         signed_amount_cents: cents, purchase_amount_cents: type == "purchase" ? cents.abs : nil,
-        posted_on: on.iso8601, merchant: merchant, budget_category_id: type == "purchase" ? @category.id : nil,
+        posted_on: on.iso8601, merchant: merchant, budget_category_id: type == "purchase" ? (category == :default ? @category.id : category&.id) : nil,
         overlap_disposition: disposition == "exclude" ? "excluded" : "distinct", matched_version_id: nil
       })
     source_operation(HouseholdFinance::Operations::SourceReview::DraftApprove, draft_id: draft.id, draft_lock_version: draft.lock_version, draft_digest: draft.digest)
