@@ -661,7 +661,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(conflicting[:revision])
 
     # A line whose amount the reader guessed can't prove the totals close: the guess could be what makes them close.
-    guessed = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "unknown", 2, nil, [ "amount_column_disagrees" ] ], rows[2] ], account: account)
+    guessed = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "unknown", 2, nil, [ "conflicting_debit_credit" ] ], rows[2] ], account: account)
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(guessed[:revision])
 
     # A printed line count that differs is still said as a count problem.
