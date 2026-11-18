@@ -53,10 +53,14 @@ export function groupNames(user: AdminUser): string {
   return user.cohorts.map(item => item.cohort.name).join(', ')
 }
 
+// A group's challenge is enabled only once it has been opened, so a group that is ready to open counts too;
+// otherwise the control that opens it would never appear.
+export const runsChallenge = (group: AdminCohort) => Boolean(group.savings_challenge && (group.savings_challenge.enabled || group.savings_challenge.state === 'ready'))
+
 /** "Bank of Guam 90 day savings · opens Nov 18 · 6 of 30 joined" */
 export function groupLine(group: AdminCohort, joined: number, now = new Date()): string {
   const parts: string[] = []
-  const challenge = group.savings_challenge?.enabled ? group.savings_challenge : undefined
+  const challenge = runsChallenge(group) ? group.savings_challenge : undefined
   const starts = group.starts_on ? new Date(`${group.starts_on}T00:00:00`) : null
   if (challenge) {
     if (challenge.state === 'open') parts.push(starts && starts > now ? `opens ${shortDay(group.starts_on)}` : 'challenge open')

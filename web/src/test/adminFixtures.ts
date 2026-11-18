@@ -18,7 +18,7 @@ export const group = (id: number, name: string, over: Partial<AdminCohort> = {})
 }) as unknown as AdminCohort
 
 export const savings = (state: 'open' | 'paused' | 'ready' | 'not_set_up' = 'open', over = {}) => ({
-  state, label: state, enabled: true, on_hold: false, capacity: 30, participant_count: 2, can_open: state !== 'open', can_pause: state === 'open', can_change: true,
+  state, label: state, enabled: state === 'open' || state === 'paused', on_hold: state !== 'open', capacity: 30, participant_count: 2, can_open: state !== 'open', can_pause: state === 'open', can_change: true,
   participants_can_join: true, blockers: [], recent_events: [], ...over,
 }) as AdminCohort['savings_challenge']
 

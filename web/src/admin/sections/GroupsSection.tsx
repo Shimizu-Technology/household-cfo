@@ -11,14 +11,14 @@ import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
 import { GroupTools } from './GroupTools'
-import { groupLine, groupStatusLabel, shortDay } from '../adminWords'
+import { groupLine, groupStatusLabel, runsChallenge, shortDay } from '../adminWords'
 import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
 
 const message = (caught: unknown, fallback: string) => caught instanceof Error ? caught.message : fallback
 const statuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
 const dates = (group: AdminCohort) => group.starts_on && group.ends_on ? `${shortDay(group.starts_on)} – ${shortDay(group.ends_on)}` : group.starts_on ? `Starts ${shortDay(group.starts_on)}` : 'No dates yet'
-const challengeWords = (group: AdminCohort) => !group.savings_challenge?.enabled ? '—' : ({ open: 'Open', paused: 'Paused', ready: 'Ready to open', not_set_up: 'Not set up yet' })[group.savings_challenge.state]
+const challengeWords = (group: AdminCohort) => !group.savings_challenge || !runsChallenge(group) ? '—' : ({ open: 'Open', paused: 'Paused', ready: 'Ready to open', not_set_up: 'Not set up yet' })[group.savings_challenge.state]
 
 export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId } = useAuthContext()
@@ -32,7 +32,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   const archivedCount = useMemo(() => groups.filter(group => group.status === 'archived').length, [groups])
   const visibleGroups = useMemo(() => groups.filter(group => showArchived || group.status !== 'archived'), [groups, showArchived])
 
-  if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} onDirtyChange={onDirtyChange} />
+  if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} reloadError={error} onDirtyChange={onDirtyChange} />
   return <section className="admin-section" aria-busy={loading}>
     <header className="admin-section-head">
       <div><h2 data-page-heading tabIndex={-1}>Groups</h2><AdminScope currentUser={currentUser} /><p>Each group has its own dates, tools and challenge.</p></div>
@@ -47,7 +47,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <tbody>{visibleGroups.map(group => <tr key={group.id}>
           <th scope="row"><button type="button" className="admin-row-link" onClick={() => setOpenId(group.id)}><strong>{group.name}</strong></button></th>
           <td>{groupStatusLabel[group.status]}</td><td>{dates(group)}</td>
-          <td>{joinedCount(people, group.id)}{group.savings_challenge?.enabled ? ` of ${group.savings_challenge.capacity}` : ''}</td><td>{challengeWords(group)}</td>
+          <td>{joinedCount(people, group.id)}{runsChallenge(group) ? ` of ${group.savings_challenge?.capacity}` : ''}</td><td>{challengeWords(group)}</td>
         </tr>)}</tbody>
       </table></div>
       : <ul className="ui-card ui-rows admin-list">{visibleGroups.map(group => <li key={group.id}><button type="button" className="admin-list-row" onClick={() => setOpenId(group.id)}>
@@ -104,7 +104,7 @@ function weekInWords(summary: AdminCohort['operational_summary']) {
 type Draft = { name: string; status: AdminCohortStatus; starts_on: string; ends_on: string; notes: string }
 const draftFor = (group: AdminCohort): Draft => ({ name: group.name, status: group.status, starts_on: group.starts_on ?? '', ends_on: group.ends_on ?? '', notes: group.notes ?? '' })
 
-function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: AdminCohort; joined: number; onBack: () => void; reload: () => Promise<void>; onDirtyChange: (dirty: boolean) => void }) {
+function GroupPage({ group, joined, onBack, reload, reloadError, onDirtyChange }: { group: AdminCohort; joined: number; onBack: () => void; reload: () => Promise<void>; reloadError: string | null; onDirtyChange: (dirty: boolean) => void }) {
   const [tab, setTab] = useState<'details' | 'tools'>('details')
   const [draft, setDraft] = useState<Draft>(() => draftFor(group))
   const [assignable, setAssignable] = useState<AdminPersonaAssignableCohort[]>([])
@@ -161,8 +161,10 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
         <p>{groupLine(group, joined).replace(`${group.name} · `, '')}</p>
       </div>
     </header>
+    {/* A failed reload after opening or pausing the challenge would otherwise leave its old state showing. */}
+    {reloadError && <p className="admin-alert error" role="alert">{reloadError} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
     {group.status === 'archived' && <p className="admin-alert">This group is archived, so it is hidden from Today and Reports. To bring it back, change where it stands under Details and save.</p>}
-    {group.savings_challenge?.enabled && <SavingsChallengeAccessPanel key={group.id} cohort={group} busy={saving || challengeBusy} onChanged={afterChallengeChange} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />}
+    {runsChallenge(group) && <SavingsChallengeAccessPanel key={group.id} cohort={group} busy={saving || challengeBusy} onChanged={afterChallengeChange} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />}
     <div className="admin-chips" role="group" aria-label="Group settings">
       <button type="button" aria-pressed={tab === 'details'} disabled={working} onClick={() => void showTab('details')}>Details</button>
       <button type="button" aria-pressed={tab === 'tools'} disabled={working} onClick={() => void showTab('tools')}>Tools people can use</button>
