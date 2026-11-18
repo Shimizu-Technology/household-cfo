@@ -40,7 +40,7 @@ export function InvitePeople({ currentUser, groups, people, defaultGroupId, onCl
     if (needsGroup && !groupId) { setError('Choose which group they are joining.'); return }
     const count = parsed.emails.length
     const who = `${count} ${count === 1 ? 'person' : 'people'}`
-    const confirmed = await confirmAction(sendEmail ? `Each of them gets an email invitation now.` : 'No email is sent now. You can send it later from People.', {
+    const confirmed = await confirmAction(sendEmail ? `Each of them gets an email invitation now.` : 'No email is sent now. They can sign up on the site with the email you typed, or you can send the invitation later from People.', {
       title: needsGroup && groupName ? `Invite ${who} to ${groupName}?` : `Invite ${who} as ${roleLabel[role].toLowerCase()}s?`, confirmLabel: 'Invite', cancelLabel: 'Not yet',
     })
     if (!confirmed) return

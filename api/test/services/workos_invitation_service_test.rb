@@ -83,6 +83,17 @@ class WorkosInvitationServiceTest < ActiveSupport::TestCase
     end
   end
 
+  test "an email that already signs in is not invited and the admin is told why" do
+    with_workos do
+      with_http([], { "code" => "user_already_exists", "message" => "User already exists." }, code: 400) do
+        result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)
+        refute result[:sent]
+        assert_equal "This email can already sign in, so no invitation email was sent. Ask them to sign in with this email.", result[:error]
+      end
+      assert_equal "pending", @invitee.reload.invitation_status
+    end
+  end
+
   test "missing provider configuration 429 outage and invalid response cannot report success" do
     with_workos("WORKOS_API_KEY" => nil) do
       result = WorkosInvitationService.send_invite(user: @invitee, invited_by: @inviter)

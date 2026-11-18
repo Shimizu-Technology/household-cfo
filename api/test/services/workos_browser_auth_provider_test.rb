@@ -152,4 +152,30 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
       end
     end
   end
+
+  test "a refused email-code sign-up is distinguishable and an invited email registers without verification" do
+    with_workos do
+      created = []
+      management = Object.new
+      management.define_singleton_method(:create_magic_auth) do |**|
+        raise WorkOS::InvalidRequestError.new(message: "private signup detail", http_status: 400, body: { "error" => "sign_up_not_allowed" })
+      end
+      management.define_singleton_method(:create_user) do |**options|
+        created << options
+        raise WorkOS::InvalidRequestError.new(message: "private", http_status: 400, code: "user_already_exists") if created.size > 1
+        Struct.new(:id).new("user_new")
+      end
+      client = WorkOS::Client.new(api_key: "test-secret", client_id: "client_cfo")
+      stub_method(client, :user_management, management) do
+        stub_method(WorkOS::Client, :new, client) do
+          error = assert_raises(WorkosBrowserAuth::Provider::SignUpNotAllowed) { WorkosBrowserAuth::Provider.new.create_magic_auth(email: "new@example.test") }
+          assert_kind_of WorkosIdentityResolver::Forbidden, error
+          refute_includes error.message, "private"
+          assert_nil WorkosBrowserAuth::Provider.new.create_invited_user(email: "new@example.test")
+          assert_nil WorkosBrowserAuth::Provider.new.create_invited_user(email: "new@example.test")
+        end
+      end
+      assert_equal [ { email: "new@example.test", email_verified: false } ] * 2, created
+    end
+  end
 end

@@ -174,8 +174,17 @@ module WorkosBrowserAuth
         record.update!(expires_at: Sessions::LOGIN_TTL.from_now)
         return
       end
-      response = @provider.create_magic_auth(email: context.fetch("email"), invitation_token: context["invitation_token"],
-        ip_address: ip_address, user_agent: user_agent)
+      deliver = -> { @provider.create_magic_auth(email: context.fetch("email"), invitation_token: context["invitation_token"],
+        ip_address: ip_address, user_agent: user_agent) }
+      response = begin
+        deliver.call
+      rescue Provider::SignUpNotAllowed
+        # An admin may add someone without emailing the invitation. The local
+        # pending invite is the admission record, so register the email once.
+        raise unless User.where("LOWER(email) = ?", context.fetch("email")).where(invitation_status: "pending").exists?
+        @provider.create_invited_user(email: context.fetch("email"))
+        deliver.call
+      end
       expiry = Time.iso8601(response.expires_at)
       unless response.email.is_a?(String) && response.email.strip.downcase == context.fetch("email") && expiry > Time.current &&
           (response.user_id.nil? || response.user_id.to_s.match?(/\Auser_[A-Za-z0-9]+\z/)) &&

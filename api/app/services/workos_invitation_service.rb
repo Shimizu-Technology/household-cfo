@@ -190,6 +190,11 @@ class WorkosInvitationService
     if response.code == 429
       raise DeliveryError, "WorkOS invitations are rate limited. Try again shortly."
     end
+    # WorkOS invites only new emails. Someone added without an email who has since
+    # started signing up already has a WorkOS account and needs no invitation.
+    if response.code == 400 && response.parsed_response.is_a?(Hash) && response.parsed_response["code"] == "user_already_exists"
+      raise DeliveryError, "This email can already sign in, so no invitation email was sent. Ask them to sign in with this email."
+    end
     raise DeliveryError, "WorkOS invitation service is unavailable (status #{response.code}). Retry later." unless response.success?
     data = response.parsed_response
     raise DeliveryError, "WorkOS returned an invalid invitation response." unless data.is_a?(Hash)
