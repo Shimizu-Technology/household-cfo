@@ -32,7 +32,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   const archivedCount = useMemo(() => groups.filter(group => group.status === 'archived').length, [groups])
   const visibleGroups = useMemo(() => groups.filter(group => showArchived || group.status !== 'archived'), [groups, showArchived])
 
-  if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} onDirtyChange={onDirtyChange} />
+  if (open) return <GroupPage group={open} joined={joinedCount(people, open.id)} onBack={() => setOpenId(null)} reload={reload} reloadError={error} onDirtyChange={onDirtyChange} />
   return <section className="admin-section" aria-busy={loading}>
     <header className="admin-section-head">
       <div><h2 data-page-heading tabIndex={-1}>Groups</h2><AdminScope currentUser={currentUser} /><p>Each group has its own dates, tools and challenge.</p></div>
@@ -104,7 +104,7 @@ function weekInWords(summary: AdminCohort['operational_summary']) {
 type Draft = { name: string; status: AdminCohortStatus; starts_on: string; ends_on: string; notes: string }
 const draftFor = (group: AdminCohort): Draft => ({ name: group.name, status: group.status, starts_on: group.starts_on ?? '', ends_on: group.ends_on ?? '', notes: group.notes ?? '' })
 
-function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: AdminCohort; joined: number; onBack: () => void; reload: () => Promise<void>; onDirtyChange: (dirty: boolean) => void }) {
+function GroupPage({ group, joined, onBack, reload, reloadError, onDirtyChange }: { group: AdminCohort; joined: number; onBack: () => void; reload: () => Promise<void>; reloadError: string | null; onDirtyChange: (dirty: boolean) => void }) {
   const [tab, setTab] = useState<'details' | 'tools'>('details')
   const [draft, setDraft] = useState<Draft>(() => draftFor(group))
   const [assignable, setAssignable] = useState<AdminPersonaAssignableCohort[]>([])
@@ -161,6 +161,8 @@ function GroupPage({ group, joined, onBack, reload, onDirtyChange }: { group: Ad
         <p>{groupLine(group, joined).replace(`${group.name} · `, '')}</p>
       </div>
     </header>
+    {/* A failed reload after opening or pausing the challenge would otherwise leave its old state showing. */}
+    {reloadError && <p className="admin-alert error" role="alert">{reloadError} <Button variant="secondary" size="compact" onClick={() => void reload()}>Try again</Button></p>}
     {group.status === 'archived' && <p className="admin-alert">This group is archived, so it is hidden from Today and Reports. To bring it back, change where it stands under Details and save.</p>}
     {runsChallenge(group) && <SavingsChallengeAccessPanel key={group.id} cohort={group} busy={saving || challengeBusy} onChanged={afterChallengeChange} onDirtyChange={setChallengeDirty} onPendingChange={setChallengeBusy} />}
     <div className="admin-chips" role="group" aria-label="Group settings">

@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { adminUser, group, person, savings, staff } from '../../test/adminFixtures'
 
-const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn() }))
+const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), changeSavingsChallengeAccess: vi.fn() }))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...api }))
 const auth = vi.hoisted(() => ({ workspaceId: 5 as number | null }))
 vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: auth.workspaceId, selectCoachWorkspace: vi.fn() }) }))
@@ -138,6 +138,22 @@ describe('Groups', () => {
     expect(row.textContent).toContain('Ready to open')
     fireEvent.click(screen.getByRole('button', { name: 'Tuesday savings group' }))
     expect(await screen.findByRole('button', { name: 'Open the challenge to participants' })).toBeTruthy()
+  })
+  it('shows a failed reload on the group page after opening the challenge, with a way to try again', async () => {
+    const ready = group(5, 'Tuesday savings group', { savings_challenge: savings('ready', { participant_count: 0 }) })
+    api.fetchAdminCohorts.mockResolvedValue([ready, household])
+    api.changeSavingsChallengeAccess.mockResolvedValue({})
+    render(<GroupsSection currentUser={staff()} onDirtyChange={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Tuesday savings group' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Open the challenge to participants' }))
+    fireEvent.change(screen.getByPlaceholderText('For example: kickoff session is today'), { target: { value: 'Kickoff session is today' } })
+    api.fetchAdminCohorts.mockRejectedValueOnce(new Error('Groups could not be loaded.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Open the challenge' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Groups could not be loaded.')
+    expect(api.changeSavingsChallengeAccess).toHaveBeenCalledWith(5, 'open', expect.objectContaining({ expected_state: 'ready' }), expect.any(String))
+    fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
   it('shows no challenge controls for a group that does not run one', async () => {
     render(<GroupsSection currentUser={staff()} onDirtyChange={vi.fn()} />)
