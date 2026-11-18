@@ -660,6 +660,29 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_includes conflicting[:revision].financial_source_accounts.sole.limitations, "conflicting_header_account_basis"
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(conflicting[:revision])
 
+    # A line whose amount the reader guessed can't prove the totals close: the guess could be what makes them close.
+    guessed = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "unknown", 2, nil, [ "amount_column_disagrees" ] ], rows[2] ], account: account)
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(guessed[:revision])
+
+    # A printed line count that differs is still said as a count problem.
+    counted = build_source(rows: rows, account: account.merge(printed_row_count: 4))
+    assert_equal "count", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(counted[:revision])
+
+    # A credit card closes with the opposite sign.
+    card = build_source(basis: "liability", rows: [ [ "Card payment", 10_000, "debt_payment", 1 ], [ "Store", -4_000, "unknown", 2 ] ],
+      account: { opening_balance_cents: 20_000, closing_balance_cents: 14_000, printed_debit_cents: 4_000, printed_credit_cents: 10_000, printed_row_count: 2, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(card[:revision])
+
+    # Once she has said something is missing, the arithmetic doesn't overrule her.
+    question = FinancialDocuments::SourceReview::CoverageQuestion
+    original = question.method(:answer)
+    question.define_singleton_method(:answer) { |_revision| "something_missing" }
+    begin
+      assert_equal "mismatch", question.totals_check(build_source(rows: rows, account: account)[:revision])
+    ensure
+      question.define_singleton_method(:answer, original)
+    end
+
     short = build_source(rows: rows, account: account.merge(printed_credit_cents: 20_000, closing_balance_cents: 18_500))
     assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(short[:revision])
     assert_equal "The totals on your statement don’t add up with the lines we found. Is anything missing?", plan_for(short).dig("coverage", "question")
@@ -1132,8 +1155,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [])
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
-    events = rows.map do |name, cents, type, row, key|
-      { account_key: key || "synthetic-account", row_kind: type == "unknown" ? "unresolved" : "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
+    events = rows.map do |name, cents, type, row, key, limitations|
+      { account_key: key || "synthetic-account", row_kind: type == "unknown" || limitations ? "unresolved" : "posted", limitations: Array(limitations), event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
       accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) } + extra_accounts,

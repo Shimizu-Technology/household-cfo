@@ -4,6 +4,9 @@ module FinancialDocuments
     # anything is missing, and only her answer is recorded as the coverage attestation. A statement that reconciles needs no question.
     module CoverageQuestion
       ANSWERS = %w[nothing_missing something_missing].freeze
+      # Lines unresolved only because the reader couldn't say what kind of line they are. A line whose amount, date
+      # or source is in doubt never helps prove the totals close.
+      CLASSIFICATION_ONLY = %w[event_classification_unknown row_kind_missing_or_invalid merchant_missing].freeze
       module_function
 
       # "matches" only when the statement's own printed totals agree; a file that prints none is "unchecked", never "matches".
@@ -13,8 +16,9 @@ module FinancialDocuments
         accounts = Array(report["accounts"])
         residuals = accounts.flat_map { |account| account.values_at("balance_residual_cents", "debit_residual_cents", "credit_residual_cents") }.compact
         return "mismatch" if report.dig("page_coverage", "all_processed") == false
-        closed_by_unclear = residuals.any? { |value| value != 0 } && unclear_lines_close_totals?(revision)
-        return "mismatch" if residuals.any? { |value| value != 0 } && !closed_by_unclear
+        short = residuals.any? { |value| value != 0 }
+        closed_by_unclear = short && unclear_lines_close_totals?(revision)
+        return "mismatch" if short && !closed_by_unclear
         return "count" if report.dig("row_census", "matches_reported") == false || accounts.any? { |account| account["row_count_matches"] == false }
         return "matches" if closed_by_unclear
         accounts.any? && accounts.all? { |account| account["arithmetic_balanced"] == true } ? "matches" : "unchecked"
@@ -24,18 +28,23 @@ module FinancialDocuments
       # statement's own signed amount, so when every account's printed totals and balances close with those lines included,
       # nothing is missing: the unclear lines are questions about what each one was, asked on the line itself.
       def unclear_lines_close_totals?(revision)
+        # She already said something is missing; the statement's arithmetic doesn't overrule her.
+        return false if answer(revision) == "something_missing"
         accounts = revision.financial_source_accounts.to_a
         return false if accounts.empty?
-        events = FinancialSourceEvent.where(financial_extraction_revision: revision, row_kind: %w[posted unresolved]).group_by(&:financial_source_account_id)
+        rows = FinancialSourceEvent.where(financial_extraction_revision: revision, row_kind: %w[posted unresolved])
+          .pluck(:financial_source_account_id, :row_kind, :signed_amount_cents, :limitations)
+        return false if rows.any? { |_, kind, _, limits| kind == "unresolved" && (Array(limits) - CLASSIFICATION_ONLY).any? }
+        amounts = rows.group_by(&:first).transform_values { |group| group.map { |row| row[2] } }
         accounts.all? do |account|
-          rows = events.fetch(account.id, [])
+          signed = amounts.fetch(account.id, [])
           factor = { "asset" => 1, "liability" => -1 }[account.account_basis]
           printed = [ account.printed_debit_cents, account.printed_credit_cents, account.opening_balance_cents, account.closing_balance_cents ]
-          next false if factor.nil? || printed.any?(&:nil?) || rows.any? { |row| row.signed_amount_cents.nil? }
+          next false if factor.nil? || printed.any?(&:nil?) || signed.any?(&:nil?)
           # Conflicting printed headers mean the stored totals may be the wrong ones, so they prove nothing.
           next false if Array(account.limitations).any? { |value| value.to_s.start_with?("conflicting_header_") }
-          debit = rows.sum { |row| [ -row.signed_amount_cents, 0 ].max }
-          credit = rows.sum { |row| [ row.signed_amount_cents, 0 ].max }
+          debit = signed.sum { |cents| [ -cents, 0 ].max }
+          credit = signed.sum { |cents| [ cents, 0 ].max }
           debit == account.printed_debit_cents && credit == account.printed_credit_cents && account.closing_balance_cents - account.opening_balance_cents == factor * (credit - debit)
         end
       end
