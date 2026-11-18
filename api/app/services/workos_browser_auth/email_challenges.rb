@@ -181,10 +181,11 @@ module WorkosBrowserAuth
       rescue Provider::SignUpNotAllowed
         # An admin may add someone without emailing the invitation. The local
         # pending invite is the admission record, so register the email once.
-        # An emailed invite keeps its WorkOS invitation, whose expiry or
-        # revocation must still refuse the sign-up.
+        # An invite that was ever emailed keeps its WorkOS invitation, whose expiry
+        # or revocation must still refuse the sign-up. A later failed resend
+        # overwrites the status but keeps last_invite_email_sent_at.
         raise unless User.where("LOWER(email) = ?", context.fetch("email")).where(invitation_status: "pending")
-          .where.not(invitation_email_status: "sent").exists?
+          .where.not(invitation_email_status: "sent").where(last_invite_email_sent_at: nil).exists?
         @provider.create_invited_user(email: context.fetch("email"))
         deliver.call
       end

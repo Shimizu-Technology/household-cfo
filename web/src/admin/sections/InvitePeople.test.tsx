@@ -48,3 +48,12 @@ it('hides the backdrop from assistive technology and prevents closing while savi
   finish({ invitation_sent: true })
   await screen.findByText('1 person invited.')
 })
+it('shows why a failed invitation email was not sent instead of offering a resend', async () => {
+  api.createAdminUser.mockResolvedValueOnce({ invitation_sent: false, invitation_status: 'failed', invitation_error: 'This email can already sign in, so no invitation email was sent. Ask them to sign in with this email.' })
+    .mockResolvedValueOnce({ invitation_sent: false, invitation_status: 'failed', invitation_error: null })
+  open()
+  fireEvent.change(screen.getByLabelText(/Email addresses/), { target: { value: 'ready@example.com retry@example.com' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Invite 2 people' }))
+  expect(await screen.findByText('ready@example.com: This email can already sign in, so no invitation email was sent. Ask them to sign in with this email.')).toBeTruthy()
+  expect(screen.getByText('The email didn’t go out for retry@example.com. Open them in People and choose Send the invitation again.')).toBeTruthy()
+})
