@@ -178,4 +178,20 @@ class WorkosBrowserAuthProviderTest < ActiveSupport::TestCase
       assert_equal [ { email: "new@example.test", email_verified: false } ] * 2, created
     end
   end
+
+  test "user_already_exists outside invited registration stays a temporary provider outage" do
+    with_workos do
+      management = Object.new
+      management.define_singleton_method(:authenticate_with_code) do |**|
+        raise WorkOS::InvalidRequestError.new(message: "private", http_status: 400, code: "user_already_exists")
+      end
+      client = WorkOS::Client.new(api_key: "test-secret", client_id: "client_cfo")
+      stub_method(client, :user_management, management) do
+        stub_method(WorkOS::Client, :new, client) do
+          error = assert_raises(WorkosAuth::Unavailable) { WorkosBrowserAuth::Provider.new.exchange(code: "private-code", verifier: "private-verifier") }
+          assert_equal "Sign-in is temporarily unavailable", error.message
+        end
+      end
+    end
+  end
 end

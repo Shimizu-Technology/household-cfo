@@ -6,7 +6,8 @@ module WorkosBrowserAuth
     class RateLimited < StandardError; end
     # WorkOS public sign-up is off, so a new email needs a WorkOS invitation or user.
     class SignUpNotAllowed < WorkosIdentityResolver::Forbidden; end
-    class UserExists < StandardError; end
+    # Only create_invited_user expects this; every other call keeps treating it as an outage.
+    class UserExists < WorkosAuth::Unavailable; end
 
     SIGN_UP_ERRORS = %w[user_creation_disabled signup_disabled sign_up_not_allowed].freeze
     POLICY_ERRORS = %w[sso_required organization_authentication_methods_required organization_selection_required
@@ -91,7 +92,7 @@ module WorkosBrowserAuth
       if code.to_s.in?(%w[invitation_invalid invitation_cannot_be_used_for_email invitation_expired])
         raise WorkosIdentityResolver::Forbidden, "Check your program invitation"
       end
-      raise UserExists, "This email already has a sign-in" if code.to_s == "user_already_exists"
+      raise UserExists, "Sign-in is temporarily unavailable" if code.to_s == "user_already_exists"
       raise PolicyRequired, "Continue with secure sign-in" if POLICY_ERRORS.include?(code.to_s)
       raise RateLimited, "Please wait before trying again" if error.http_status.to_i == 429
       if error.http_status.to_i.in?([ 400, 401, 404, 422 ]) && code.to_s.in?(%w[invalid_grant invalid_token session_not_found session_expired session_revoked authentication_error invalid_code invalid_one_time_code one_time_code_expired magic_auth_invalid magic_auth_code_invalid])
