@@ -146,7 +146,7 @@
       "event_type": "cash_withdrawal",
       "status": "posted",
       "row_kind": "posted",
-      "expected_spending_draft": false,
+      "expected_spending_draft": true,
       "category": null,
       "expected_merchant": "ATM withdrawal Mangilao"
     },
@@ -364,7 +364,7 @@
     "printed_credit_cents": 751299,
     "printed_debit_cents": 279965,
     "closing_balance_cents": 716334,
-    "spending_draft_total_cents": 224965,
+    "spending_draft_total_cents": 234965,
     "pending_display_total_cents": 650
   },
   "synthetic": true,

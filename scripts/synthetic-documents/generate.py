@@ -49,7 +49,7 @@ def event(account, month, n, day, description, cents, kind='purchase', status='p
                 posted_on=date(2026, month, day).isoformat(), description=description,
                 signed_amount_cents=cents, event_type=kind, status=status,
                 row_kind='informational' if status == 'pending' else 'posted',
-                expected_spending_draft=status == 'posted' and cents < 0 and kind in ('purchase', 'fee', 'interest'),
+                expected_spending_draft=status == 'posted' and cents < 0 and kind in ('purchase', 'fee', 'interest', 'cash_withdrawal'),
                 category={'fee': 'Bank fees', 'interest': 'Interest'}.get(kind))
 
 
@@ -630,7 +630,7 @@ def build(output):
     manifest = dict(schema_version=1, generated_for='W2 Household CFO round4 outcome 1',
                     synthetic=True, generator='scripts/synthetic-documents/generate.py',
                     definitions=dict(source_event_count='Transaction/activity rows only, including pending; excludes printed headers, totals, and footers.',
-                      spending_draft_count='Posted purchases, fees and interest only; refunds, income, transfers, cash withdrawals, card payments and pending rows excluded.',
+                      spending_draft_count='Posted purchases, fees, interest and cash withdrawals; refunds, income, transfers, card payments and pending rows excluded.',
                       signed_amount_cents='Negative is money out / charge; positive is money in / payment credit. Liability closing = opening - signed movements.',
                       budget_items='Current financial setup proposals only; archive estimates and monthly schedules are supporting evidence, not duplicate items. Faithful optional profile notes are not counted as financial items.',
                       identifiers='event_id is a fixture join key, not an application deduplication contract.'),

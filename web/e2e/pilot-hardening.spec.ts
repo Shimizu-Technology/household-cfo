@@ -9119,6 +9119,40 @@ async function openTypedStatementReview(page: Page, failSecondPage = false, part
   return page.getByRole('region', { name: 'Statement review', exact: true })
 }
 
+for (const kind of ['cash', 'moved'] as const) {
+  test(`BOG UI cash withdrawal can be categorized or recorded as ${kind}`, async ({ page }) => {
+    let saved: unknown = null
+    await page.route('http://api.test/api/v1/document_imports/1203/review/approve_lines', route => {
+      saved = route.request().postDataJSON().input
+      return route.fulfill({ json: { result: { approved: 1, left_out: 0, unchanged: 0, complete: false } } })
+    })
+    const review = await openTypedStatementReview(page, false, data => {
+      const event = { ...data.events[0], event_type: 'cash_withdrawal' as const, signed_amount_cents: -8000, expense_amount_cents: 8000, evidence: { merchant: 'Tasi Demo ATM withdrawal' } }
+      data.events = [event]
+      data.counts = { all: 1, posted: 1, informational: 0, unresolved: 0, pending_transaction_drafts: 0, resolved_transaction_drafts: 0 }
+      data.pagination = { page: 1, per_page: 50, total_count: 1, total_pages: 1, has_previous: false, has_next: false }
+      data.participant_review!.categories = [{ id: 10, name: 'Cash' }]
+      data.participant_review!.plan = { ...data.participant_review!.plan, total: 1, ready: [], ready_event_ids: [], coverage: { question: null, answer: null }, attention: [{
+        event_id: event.id, event_type: 'cash_withdrawal', kind: 'no_category', merchant: 'Tasi Demo ATM withdrawal', posted_on: '2026-09-15', signed_amount_cents: -8000,
+        question: 'What was this for?', category_id: null, category_name: null, answers: [{ id: 'edit', label: 'Choose one' }],
+      }] }
+      return data
+    })
+    await review.getByRole('button', { name: 'Edit Tasi Demo ATM withdrawal', exact: true }).click()
+    const sheet = page.getByRole('dialog', { name: 'Tasi Demo ATM withdrawal' })
+    await expect(sheet.getByRole('combobox', { name: 'What was this?' })).toHaveValue('cash')
+    await sheet.getByRole('combobox', { name: /^Category/ }).selectOption('10')
+    if (kind === 'moved') {
+      await sheet.getByRole('combobox', { name: 'What was this?' }).selectOption('moved')
+      await expect(sheet.getByRole('combobox', { name: /^Category/ })).toHaveCount(0)
+    }
+    await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(sheet).toHaveCount(0)
+    expect(saved).toMatchObject({ lines: [{ decision: 'edited', edit: { kind, category_id: kind === 'cash' ? 10 : null, amount_cents: 8000 } }] })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  })
+}
+
 test('BOG UI completing a statement refreshes Home purchase counts without a page reload', async ({ page }) => {
   const review = await openTypedStatementReview(page, false, undefined, undefined, true, true)
   await review.getByRole('button', { name: 'Approve these 100', exact: true }).click()

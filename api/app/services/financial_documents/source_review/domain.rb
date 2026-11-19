@@ -328,7 +328,7 @@ module FinancialDocuments
           end
           raise ArgumentError, "Purchases and fees must be outflows" if type.in?(%w[purchase fee]) && !amount.negative?
           raise ArgumentError, "Refunds and income must be inflows" if type.in?(%w[refund income]) && !amount.positive?
-          if amount.negative? && type.in?(%w[purchase fee interest])
+          if amount.negative? && type.in?(FinancialSourceEvent::EXPENSE_TYPES)
             merchant = required_text(input[:merchant], 120)
             raise ArgumentError, "Explicitly review the category, including uncategorized" unless input.key?(:budget_category_id)
             purchase ||= amount.abs unless type == "purchase"

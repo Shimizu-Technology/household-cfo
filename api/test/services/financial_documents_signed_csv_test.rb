@@ -3,6 +3,19 @@ require "csv"
 require "spreadsheet"
 
 class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
+  test "CSV cash withdrawals project spending and ATM fees stay fees" do
+    descriptions = [ "Non-WF ATM Withdrawal authorized on 10/04 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee" ]
+    content = CSV.generate do |csv|
+      csv << %w[Date Description Debit Credit]
+      descriptions.each { |description| csv << [ "2026-10-04", description, "80.00", nil ] }
+    end
+    data = extract(content, account_basis: "asset")
+    events = data[:source_accounting][:events]
+    assert_equal %w[cash_withdrawal cash_withdrawal cash_withdrawal cash_withdrawal fee fee], events.pluck(:event_type)
+    assert_equal [ 8000 ] * 6, events.pluck(:expense_amount_cents)
+    assert_equal 48_000, data[:transaction_drafts].sum { |draft| draft[:total_amount_cents] }
+  end
+
   test "running balances prove the whole bank CSV without a model" do
     data = extract(csv, account_basis: "asset")
     rows = data.fetch(:source_accounting).fetch(:events)

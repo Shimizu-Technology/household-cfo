@@ -1,6 +1,17 @@
 require "test_helper"
 
 class FinancialDocumentsNativeStatementParserTest < ActiveSupport::TestCase
+  test "ATM and branch withdrawals are cash spending while ATM fees remain fees" do
+    parser = FinancialDocuments::NativeStatementParser.allocate
+    [ "Non-WF ATM Withdrawal authorized on 10/04 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch" ].each do |description|
+      assert_equal "cash_withdrawal", parser.send(:wf_type, description, -32_000)
+    end
+    [ "ATM Transaction Fee", "Non-WF ATM Fee" ].each do |description|
+      assert_equal "fee", parser.send(:wf_type, description, -300)
+      assert_equal "unknown", parser.send(:wf_type, description, 300)
+    end
+  end
+
   test "a Wells Fargo ATM transaction fee is read as a fee only when it is money out" do
     parser = FinancialDocuments::NativeStatementParser.allocate
     assert_equal "fee", parser.send(:wf_type, "Non-Wells Fargo ATM Transaction Fee", -300)

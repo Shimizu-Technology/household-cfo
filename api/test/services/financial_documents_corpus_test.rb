@@ -19,7 +19,7 @@ class FinancialDocumentsCorpusTest < ActiveSupport::TestCase
       assert_equal doc["expected_source_event_count"], events.length
       posted = events.select { |e| e["status"] == "posted" }
       assert_equal doc["expected_posted_event_count"], posted.length
-      spending = posted.select { |e| %w[purchase fee interest].include?(e["event_type"]) && e["signed_amount_cents"].negative? }
+      spending = posted.select { |e| %w[purchase fee interest cash_withdrawal].include?(e["event_type"]) && e["signed_amount_cents"].negative? }
       assert_equal doc["expected_spending_draft_count"], spending.length
       totals = doc["totals_cents"]
       if totals.any?

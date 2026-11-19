@@ -121,8 +121,13 @@ class FinancialBaselinesTest < ActiveSupport::TestCase
     purchase = actual(4_000, date: "2026-07-08", merchant: "Cash purchase")
     input = request([ source ]).merge(cash_coverage: "complete", actual_decisions: [ decision(purchase, cash: true) ], cash_allocations: [ { source_review_version_id: source[:versions].first.id, transaction_id: purchase.id, amount_cents: 4_000, reason: "Participant allocated this withdrawal to this purchase" } ])
     result = preview(input)
-    assert_equal 4_000, result[:patterns][:gross_spending_cents]
     assert_equal 6_000, result[:cash][:unallocated_withdrawal_cents]
+    assert_equal 4_000, result[:patterns][:gross_spending_cents], "Only the allocated purchase counts; its withdrawal is not a second expense"
+    assert_equal 4_000, result[:patterns][:net_spending_cents]
+    assert_equal 1, result[:patterns][:expense_count]
+    assert_equal 10_000, result[:patterns][:cash_withdrawals][:outflow_cents]
+    assert_equal 10_000, source[:versions].first.purchase_amount_cents
+    assert source[:versions].first.expense?, "The ordinary spending reader counts cash, while the baseline excludes it"
     refute result[:cash][:cash_balance_known]
     refute result[:cash][:savings_inferred]
     input[:cash_allocations].first[:amount_cents] = 10_001
@@ -334,7 +339,7 @@ class FinancialBaselinesTest < ActiveSupport::TestCase
     @tracked = identity.source_tracked_account
     versions = result[:events].each_with_index.map do |event, index|
       row = rows[index]
-      purchase = row[:signed_amount_cents].negative? && row[:event_type].in?(%w[purchase fee interest]) ? row[:signed_amount_cents].abs : nil
+      purchase = row[:signed_amount_cents].negative? && row[:event_type].in?(FinancialSourceEvent::EXPENSE_TYPES) ? row[:signed_amount_cents].abs : nil
       draft = run_operation(OPS::SourceReview::DraftStage, event_id: event.id, base_version_id: nil, base_lock_version: 0, reason: "Participant reviewed synthetic fact", projection: { action: "none" },
         facts: { source_account_identity_version_id: identity.id, disposition: "include", event_type: row[:event_type], signed_amount_cents: row[:signed_amount_cents], purchase_amount_cents: purchase,
           posted_on: row[:posted_on], merchant: row[:merchant], budget_category_id: @category.id, overlap_disposition: "distinct" })

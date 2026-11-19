@@ -20,7 +20,7 @@ class SourceReviewVersion < SourceReviewImmutableRecord
   end
 
   def expense?
-    disposition == "include" && signed_amount_cents.to_i.negative? && event_type.in?(%w[purchase fee interest])
+    disposition == "include" && signed_amount_cents.to_i.negative? && event_type.in?(FinancialSourceEvent::EXPENSE_TYPES)
   end
 
   def reviewed_facts

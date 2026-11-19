@@ -31,9 +31,9 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
     const cents = parseLineAmount(amount)
     if (cents == null) return setProblem('Enter the amount, like 12.50.')
     if (!postedOn) return setProblem('Choose the date.')
-    if (kind === 'spending' && !merchant.trim()) return setProblem('Add where the money went.')
+    if ((kind === 'spending' || kind === 'cash') && !merchant.trim()) return setProblem('Add where the money went.')
     setProblem(null)
-    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: kind === 'spending' && categoryId ? Number(categoryId) : null })
+    onSave({ ...(direction ? { money_direction: direction } : {}), kind, merchant: merchant.trim(), posted_on: postedOn, amount_cents: cents, category_id: (kind === 'spending' || kind === 'cash') && categoryId ? Number(categoryId) : null })
   }
 
   return createPortal(<div className="pilot-dialog-overlay statement-sheet-overlay" data-dialog-surface="true" role="presentation">
@@ -56,7 +56,7 @@ export function StatementLineSheet({ line, categories, busy, canClose = !busy, e
           <label>Date<input type="date" value={postedOn} onChange={(event) => setPostedOn(event.target.value)} /></label>
           <label>Amount<input inputMode="decimal" autoComplete="off" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0.00" /></label>
         </div>
-        {kind === 'spending' && <label>Category
+        {(kind === 'spending' || kind === 'cash') && <label>Category
           <select value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
             <option value="">No category yet</option>
             {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}

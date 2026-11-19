@@ -8,6 +8,21 @@ class FinancialDocumentsReconciledStatementParserTest < ActiveSupport::TestCase
     doc["kind"] == "statement" && doc["format"] == "pdf" && !doc["filename"].include?("scanned")
   end.freeze
 
+  test "withdrawals and ATM fees keep their separate types through reconciled statements" do
+    [ "Non-WF ATM Withdrawal authorized on 08/05 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee" ].each do |description|
+      pages = pages_for("bank-descriptors.pdf")
+      run = pages.flat_map { |page| page[:runs] }.find { |item| item[:text] == "Rent - Talun family home" }
+      assert run, "Synthetic fixture must contain the expected purchase description"
+      run[:text] = description
+      result = FinancialDocuments::ReconciledStatementParser.new(pages: pages).call
+      assert result.success?, result.error
+      event = result.data[:source_accounting][:events].find { |row| row.dig(:evidence, :raw_description) == description }
+      assert event, "Reconciled source row must retain the new description"
+      assert_equal description.include?("Fee") ? "fee" : "cash_withdrawal", event[:event_type]
+      assert_equal event[:signed_amount_cents].abs, event[:expense_amount_cents]
+    end
+  end
+
   test "a later invalid date aborts repair eligibility and never calls the provider" do
     [ "08/31", "09/31/2026" ].each do |invalid_date|
       pages = pages_for("continued-pages.pdf")

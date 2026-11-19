@@ -176,7 +176,7 @@ module FinancialDocuments
       def edited_facts(base, event, edit)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
-        # "Spending" covers fees and interest too: choosing a category for one must not turn it into a purchase.
+        # "Spending" covers fees, interest and cash withdrawals too: choosing a category for one must not turn it into a purchase.
         type = event.event_type if kind == "spending" && event.event_type.in?(ParticipantPlan::EXPENSE_TYPES)
         if event.signed_amount_cents.nil? && !edit[:money_direction].in?(%w[in out])
           raise ArgumentError, "Choose whether this was money out or money in."
@@ -195,8 +195,9 @@ module FinancialDocuments
         else cents
         end
         merchant = edit[:merchant].to_s.squish.presence || base[:merchant]
+        expense = signed.negative? && type.in?(FinancialSourceEvent::EXPENSE_TYPES)
         base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: edit[:posted_on].presence || base[:posted_on], merchant: merchant,
-          purchase_amount_cents: kind == "spending" ? cents : nil, budget_category_id: kind == "spending" ? edit[:category_id].presence&.to_i : nil, overlap_disposition: "new")
+          purchase_amount_cents: expense ? cents : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: "new")
       end
 
       def same_facts?(version, facts)
