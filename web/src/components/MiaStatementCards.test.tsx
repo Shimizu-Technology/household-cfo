@@ -172,6 +172,19 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: 77 })
   })
 
+  it('offers Check again and Try again on an approved card when a changed answer may not have saved', async () => {
+    const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [], coverage: { question: null, answer: 'something_missing', version_id: 77 } })
+    serve(review(done))
+    mutate.mockRejectedValueOnce(new ApiRequestError('Interrupted', { status: 503 }))
+    mount([statement(1, { statement_review: { ...progress(27), coverage: { question: null, answer: 'something_missing' as const } } })])
+    const card = await screen.findByRole('region', { name: /Statement: / })
+    fireEvent.click(within(card).getByRole('button', { name: 'Nothing’s missing' }))
+    expect(await within(card).findByText('I’m not sure your last change saved.')).toBeTruthy()
+    fireEvent.click(within(card).getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2))
+    expect(mutate.mock.calls[1].slice(0, 5)).toEqual(mutate.mock.calls[0].slice(0, 5))
+  })
+
   it('says when patterns will be offered after she answers "Something’s missing"', async () => {
     const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [] })
     serve(review(done))

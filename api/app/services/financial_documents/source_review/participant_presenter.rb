@@ -125,7 +125,7 @@ module FinancialDocuments
         saved = line.saved
         { event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
           amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
-          merchant: saved&.merchant.presence || line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
+          merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id], expected_head: line.expected_head }
       end
 

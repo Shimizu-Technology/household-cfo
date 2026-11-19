@@ -174,11 +174,12 @@ module FinancialDocuments
         when "as_read" then base
         when "different" then base.merge(overlap_disposition: "distinct")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
-        else edited_facts(base, edit)
+        else edited_facts(base, edit, saved: saved&.disposition == "include")
         end
       end
 
-      def edited_facts(base, edit)
+      # saved: base holds what she saved, not the statement as first read.
+      def edited_facts(base, edit, saved: false)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
         # "Spending" covers fees, interest and cash withdrawals too: choosing a category for one must not turn it into a purchase.
@@ -204,8 +205,10 @@ module FinancialDocuments
         posted_on = edit[:posted_on].presence || base[:posted_on]
         # The same amount on the same day keeps her earlier "different charge"; a new amount or day is asked about again.
         same_charge = signed == base[:signed_amount_cents] && posted_on.to_s == base[:posted_on].to_s && base[:overlap_disposition] == "distinct"
+        # A saved purchase whose total differs from the money that moved (part paid another way) keeps that total when only its category changes.
+        purchase = saved && signed == base[:signed_amount_cents] && base[:purchase_amount_cents].present? ? base[:purchase_amount_cents] : cents
         base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: posted_on, merchant: merchant,
-          purchase_amount_cents: expense ? cents : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
+          purchase_amount_cents: expense ? purchase : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
       end
 
       def same_facts?(version, facts)

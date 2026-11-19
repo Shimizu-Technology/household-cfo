@@ -185,6 +185,22 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     </section>
   }
 
+  // When a save may not have gone through: shown on the approved card too, so a changed answer can always be checked or retried.
+  const recovery = <>
+    {pending && !pending.working && <div className="mia-statement-notice" role="status">
+      <p>I’m not sure your last change saved.</p>
+      {pending.error && <p>{pending.error}</p>}
+      <div className="mia-statement-actions ui-actions">
+        {mutation.checkStatus && <Button variant="secondary" onClick={() => { void mutation.checkStatus?.() }}>Check again</Button>}
+        {mutation.retry && <Button onClick={() => { void mutation.retry?.() }}>Try again</Button>}
+      </div>
+    </div>}
+    {mutation.error && !pending && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert">
+      <p>{mutation.error}</p>
+      <Button variant="secondary" disabled={busy} onClick={state.resetAndReload}>Show the latest</Button>
+    </div>}
+  </>
+
   if (approved) {
     return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
       <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
@@ -199,6 +215,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
             </div>
             {coverage.failed && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert"><p>I couldn’t save your answer yet. Please try again.</p><Button variant="secondary" disabled={busy} onClick={coverage.answerAgain}>Try again</Button></div>}
           </div>
+          {recovery}
         </>}
       </MiaCardResult>
     </section>
@@ -207,18 +224,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
   const inline = plan.attention.slice(0, INLINE_QUESTIONS)
   const more = plan.attention.length - inline.length
   return <section className="mia-statement-card ui-card" data-import-id={importId} aria-label={`Statement: ${title}`} aria-busy={busy}>
-    {pending && !pending.working && <div className="mia-statement-notice" role="status">
-      <p>I’m not sure your last change saved.</p>
-      {pending.error && <p>{pending.error}</p>}
-      <div className="mia-statement-actions ui-actions">
-        {mutation.checkStatus && <Button variant="secondary" onClick={() => { void mutation.checkStatus?.() }}>Check again</Button>}
-        {mutation.retry && <Button onClick={() => { void mutation.retry?.() }}>Try again</Button>}
-      </div>
-    </div>}
-    {mutation.error && !pending && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert">
-      <p>{mutation.error}</p>
-      <Button variant="secondary" disabled={busy} onClick={state.resetAndReload}>Show the latest</Button>
-    </div>}
+    {recovery}
     {note && <p className="mia-statement-notice" role="status">{note}</p>}
     <h3 ref={heading} tabIndex={-1}>{title}</h3>
     <p className="mia-statement-read">{readSentence(plan)}</p>

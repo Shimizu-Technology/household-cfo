@@ -223,6 +223,30 @@ class ApiV1SourceReviewsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, response.parsed_body.dig("document_import", "statement_review", "without_category")
   end
 
+  test "a category-only change keeps a saved purchase total that differs from the money that moved" do
+    document = @source[:import]
+    document.update!(metadata: document.metadata.merge("source_accounting_contract_version" => FinancialDocuments::AccountingContract::VERSION))
+    mutate("account_link", account_input)
+    input = stage_input(response.parsed_body.fetch("record").fetch("id"))
+    # A $20.00 purchase of which $10.00 left this account; no category yet.
+    input[:facts].merge!(purchase_amount_cents: 2_000, budget_category_id: nil, merchant: "Synthetic transfer 4111222233334444")
+    mutate("stage", input)
+    assert_response :success, response.body
+    mutate("approve", approval_input(response.parsed_body.fetch("record")))
+    assert_response :success, response.body
+    review_get
+    row = response.parsed_body.dig("source_review", "participant_review", "plan", "attention").sole
+    assert_equal [ "no_category", -1_000 ], row.values_at("kind", "signed_amount_cents")
+    refute_includes row.fetch("merchant"), "4111222233334444", "A saved name shows long numbers masked, as See all does"
+
+    post "/api/v1/document_imports/#{document.id}/review/approve_lines", params: { revision_id: @source[:revision].id, input: { lines: [ { event_id: row.fetch("event_id"),
+      expected_head: row.fetch("expected_head"), decision: "edited", edit: { kind: "spending", merchant: row["merchant"], posted_on: row["posted_on"], amount_cents: 1_000, category_id: @category.id } } ] } },
+      headers: auth_headers(@user).merge("Idempotency-Key" => SecureRandom.uuid), as: :json
+    assert_response :success, response.body
+    version = SourceReviewHead.find_by!(financial_source_event: @source[:events].sole).approved_version
+    assert_equal [ -1_000, 2_000, @category.id ], [ version.signed_amount_cents, version.purchase_amount_cents, version.budget_category_id ], "Only the category changed"
+  end
+
   def approval_input(draft)
     { draft_id: draft.fetch("id"), draft_lock_version: draft.fetch("lock_version"), draft_digest: draft.fetch("digest") }
   end
