@@ -25,6 +25,18 @@ module SpendingPatterns
       short.presence || full
     end
 
+    # The network repeats the store as a web address ("Openai *Chatgpt Su Openai.Com CA"). A domain that
+    # names something new ("Acme Shop.com", "Expedia Hotels.com") is part of the store's name.
+    def self.echoed_domain?(text)
+      tail = text[DOMAIN_TAIL]
+      return false unless tail
+
+      rest = text.delete_suffix(tail).squish
+      name = tail.strip.split(/[\s,]/).first.to_s.downcase.split(".").reject(&:empty?)
+      label = (name.length > 2 && name[-2].length <= 3 ? name[-3] : name[-2]).to_s.sub(/\A[^a-z0-9]+/, "")
+      label.length >= 3 && !rest.end_with?("*") && rest.downcase.match?(/(?<![a-z0-9])#{Regexp.escape(label)}/)
+    end
+
     def self.call(value)
       full = FinancialDocuments::MerchantNormalizer.call(value)
       return full if full.blank?
@@ -32,8 +44,7 @@ module SpendingPatterns
       short = short.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
       4.times do
         trimmed = short.sub(PLACE_TAIL, "").sub(STORE_NUMBER, "").squish
-        without_domain = trimmed.sub(DOMAIN_TAIL, "").squish
-        trimmed = without_domain unless without_domain.end_with?("*") || without_domain.match?(/\A\S+\z/) && without_domain.length < 3
+        trimmed = trimmed.sub(DOMAIN_TAIL, "").squish if echoed_domain?(trimmed)
         break if trimmed == short || trimmed.blank?
         short = trimmed
       end
