@@ -26,15 +26,17 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
   test "local storage accepts and persists a fictional statement without AWS" do
     previous = ENV["STORAGE_BACKEND"]
     ENV["STORAGE_BACKEND"] = "local"
+    file = uploaded_csv
+    expected_bytes = File.binread(file.path)
     assert_enqueued_with(job: FinancialDocumentExtractionJob) do
-      post "/api/v1/document_imports", params: { file: uploaded_csv, document_kind: "spreadsheet" },
+      post "/api/v1/document_imports", params: { file: file, document_kind: "spreadsheet" },
         headers: auth_headers(@user)
     end
     assert_response :created
     document = FinancialDocumentImport.order(:id).last
     io = StringIO.new
     S3Service.download_to_io!(document.s3_key, io)
-    assert_includes io.string, ","
+    assert_equal expected_bytes, io.string
     assert_equal document.byte_size, S3Service.object_metadata(document.s3_key)[:byte_size]
   ensure
     S3Service.delete!(document.s3_key) if document

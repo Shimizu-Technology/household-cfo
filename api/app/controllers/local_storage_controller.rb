@@ -11,8 +11,11 @@ class LocalStorageController < ApplicationController
 
     io = StringIO.new
     S3Service.download_to_io!(payload.fetch("key"), io)
+    metadata = S3Service.object_metadata(payload.fetch("key"))
+    return head :not_found unless metadata
+
     send_data io.string, filename: S3Service.safe_filename(payload["filename"]),
-      type: S3Service.object_metadata(payload.fetch("key")).fetch(:content_type),
+      type: metadata.fetch(:content_type),
       disposition: payload["disposition"] == "inline" ? "inline" : "attachment"
   rescue Aws::S3::Errors::NoSuchKey
     head :not_found
@@ -35,7 +38,7 @@ class LocalStorageController < ApplicationController
   private
 
   def verified_payload(operation)
-    payload = Rails.application.message_verifier(:local_object_store).verified(params[:token])
+    payload = LocalObjectStore.verifier.verified(params[:token])
     payload if payload && payload["operation"] == operation
   end
 end

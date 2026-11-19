@@ -228,7 +228,9 @@ the existing S3 configuration; production environment variables are unchanged.
 
 Objects use the same namespaced keys as S3, stored under the gitignored
 `api/storage/local_s3/`, with each key component hashed using SHA-256 to avoid
-filesystem length and reserved-name collisions. Metadata reports the S3
+filesystem length and reserved-name collisions. This adapter targets POSIX
+filesystems (macOS/Linux). Each object atomically publishes a metadata header
+and binary body in one private file. Metadata reports the S3
 encryption marker for upload-completion compatibility; local files are private
 filesystem files, **not encrypted by this adapter**. Use only fictional data.
 

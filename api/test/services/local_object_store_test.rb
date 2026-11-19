@@ -64,6 +64,47 @@ class LocalObjectStoreTest < ActiveSupport::TestCase
     end
   end
 
+  test "leaf symlinks cannot read or overwrite an external file" do
+    directory = LocalObjectStore.new.send(:path, @key)
+    FileUtils.mkdir_p(directory)
+    Tempfile.create("external-object") do |outside|
+      outside.write("external")
+      outside.flush
+      File.symlink(outside.path, directory.join("body"))
+      assert_raises(ArgumentError) { S3Service.upload(@key, "replacement") }
+      assert_raises(ArgumentError) { S3Service.download_to_io!(@key, StringIO.new) }
+      assert_raises(ArgumentError) { S3Service.object_metadata(@key) }
+      assert_raises(ArgumentError) { S3Service.copy!(@key, "#{@key}/copy") }
+      assert_equal "external", File.binread(outside.path)
+    end
+  end
+
+  test "failed writes preserve the previous object and non-bang upload reports failure" do
+    S3Service.upload(@key, "original")
+    original = File.method(:rename)
+    File.define_singleton_method(:rename) { |*| raise Errno::ENOSPC }
+    assert_nil S3Service.upload(@key, "replacement")
+    io = StringIO.new
+    S3Service.download_to_io!(@key, io)
+    assert_equal "original", io.string
+  ensure
+    File.define_singleton_method(:rename, original) if original
+  end
+
+  test "failed deletion is reported and can be retried" do
+    S3Service.upload(@key, "original")
+    directory = LocalObjectStore.new.send(:path, @key)
+    File.chmod(0o500, directory)
+    assert_equal false, S3Service.delete(@key)
+    assert_raises(Aws::S3::Errors::ServiceError) { S3Service.delete!(@key) }
+    assert S3Service.object_metadata(@key)
+    File.chmod(0o700, directory)
+    assert S3Service.delete!(@key)
+    assert_nil S3Service.object_metadata(@key)
+  ensure
+    File.chmod(0o700, directory) if directory
+  end
+
   test "production refuses local mode even with AWS credentials" do
     original_env = Rails.method(:env)
     Rails.define_singleton_method(:env) { ActiveSupport::EnvironmentInquirer.new("production") }
