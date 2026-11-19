@@ -16,6 +16,9 @@ import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
 
 const message = (caught: unknown, fallback: string) => caught instanceof Error ? caught.message : fallback
+// A group created from "All programs" opens after the switch into its program, which remounts this section.
+let openAfterProgramSwitch: number | null = null
+const takeOpenAfterSwitch = () => { const id = openAfterProgramSwitch; openAfterProgramSwitch = null; return id }
 const statuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
 const dates = (group: AdminCohort) => group.starts_on && group.ends_on ? `${shortDay(group.starts_on)} – ${shortDay(group.ends_on)}` : group.starts_on ? `Starts ${shortDay(group.starts_on)}` : 'No dates yet'
 const challengeWords = (group: AdminCohort) => !group.savings_challenge || !runsChallenge(group) ? '—' : ({ open: 'Open', paused: 'Paused', ready: 'Ready to open', not_set_up: 'Not set up yet' })[group.savings_challenge.state]
@@ -24,7 +27,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   const { activeCoachWorkspaceId } = useAuthContext()
   const { details: groups, people, loading, error, reload } = useAdminRoster(currentUser)
   const wide = useMatchMedia('(min-width: 840px)')
-  const [openId, setOpenId] = useState<number | null>(null)
+  const [openId, setOpenId] = useState<number | null>(takeOpenAfterSwitch)
   const [creating, setCreating] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const open = groups.find(group => group.id === openId) ?? null
@@ -54,7 +57,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}
-    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
+    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id); if (openAfterProgramSwitch === group.id) openAfterProgramSwitch = null }} />}
   </section>
 }
 
@@ -86,7 +89,8 @@ function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode
       return
     } finally { release() }
     if (!created || !mounted.current) return
-    // From "All programs", continue inside the program the group was created in.
+    // From "All programs", continue inside the program the group was created in, with the group open.
+    openAfterProgramSwitch = created.id
     selectCoachWorkspace(Number(programId))
     await onCreated(created)
   }

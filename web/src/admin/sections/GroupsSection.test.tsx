@@ -116,6 +116,24 @@ describe('Groups', () => {
     await waitFor(() => expect(api.createAdminCohort).toHaveBeenCalledWith(expect.objectContaining({ name: 'Somewhere' }), 6))
     expect(selectCoachWorkspace).toHaveBeenCalledWith(6)
   })
+  it('opens the new group inside its program after the switch remounts Groups, as the admin shell does', async () => {
+    auth.workspaceId = null
+    const created = group(9, 'Switched group')
+    api.createAdminCohort.mockResolvedValue(created)
+    const view = render(<GroupsSection key="platform" currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    // The shell keys the section by program, so choosing one mounts a fresh Groups.
+    selectCoachWorkspace.mockImplementation((id: number) => {
+      auth.workspaceId = id
+      api.fetchAdminCohorts.mockResolvedValue([bog, household, created])
+      view.rerender(<GroupsSection key={`program-${id}`} currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    })
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Switched group' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    expect(await screen.findByRole('heading', { name: 'Switched group' })).toBeTruthy()
+    expect(selectCoachWorkspace).toHaveBeenCalledWith(5)
+  })
   it('does not move an admin to another program when the create reply arrives after she left Groups', async () => {
     auth.workspaceId = null
     let finish: (created: AdminCohort) => void = () => undefined
