@@ -210,6 +210,9 @@ export function statementCounts(plan: StatementPlan): { open: number; page: numb
   }
   if (open > 0 && attention > 0) return { open, page, attention, sentence: `${open} look right. ${look}`, action: open === 1 ? 'Approve the other one' : `Approve the other ${open}` }
   if (open > 0) return { open, page, attention, sentence: open === 1 ? 'It looks right.' : `All ${open} look right.`, action: open === 1 ? 'Approve it' : `Approve all ${open}` }
+  if (attention > 0 && plan.done === plan.total && plan.without_category === attention) {
+    return { open, page, attention, sentence: `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved. ${attention === 1 ? '1 has no category yet, so it doesn’t' : `${attention} have no category yet, so they don’t`} count toward your spending.`, action: null }
+  }
   if (attention > 0) return { open, page, attention, sentence: `${plan.done} saved. ${attention === 1 ? '1 still needs' : `${attention} still need`} a quick look.`, action: null }
   return { open, page, attention, sentence: plan.total === 0 ? 'No lines to review.' : `All ${plan.total.toLocaleString('en-US')} ${plan.total === 1 ? 'line is' : 'lines are'} saved.${plan.without_category ? ` ${plan.without_category} ${plan.without_category === 1 ? 'has' : 'have'} no category yet.` : ''}`, action: null }
 }
@@ -227,6 +230,16 @@ export function asBeforeNote(plan: StatementPlan): string | null {
   const names = [...new Set(before.map((line) => line.category_name as string))]
   if (names.length > 3) return `${before.length} lines use categories you chose before.`
   return `${before.length} ${before.length === 1 ? 'uses' : 'use'} a category you chose before: ${names.join(', ')}.`
+}
+
+/** The coverage question, or a re-ask when she said something was missing and the statement no longer asks on its own. */
+export function coverageQuestionText(plan: Pick<StatementPlan, 'coverage'>): string {
+  return plan.coverage.question ?? 'You said something may be missing from this statement. Is anything still missing?'
+}
+
+/** Files that run across a new year show the year on every date, so "Nov 3" is never ambiguous. */
+export function spansYears(plan: Pick<StatementPlan, 'first_on' | 'last_on'>): boolean {
+  return Boolean(plan.first_on && plan.last_on && plan.first_on.slice(0, 4) !== plan.last_on.slice(0, 4))
 }
 
 export function coverageMissingNote(): string {

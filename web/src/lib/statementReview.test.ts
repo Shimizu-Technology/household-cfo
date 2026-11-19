@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
-import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
+import { APPROVE_PAGE, accountNames, accountSentence, accountsNeedingBasis, asBeforeNote, coverageQuestionText, lineKindFor, lineSheetForAnswer, lineSheetFromAttention, lineSheetWithDirection, parseLineAmount, readyCategoryLabel, spansYears, statementCounts, statementHeadline, type StatementPlan } from './statementReview'
 
 const ready = (count: number): StatementPlan['ready'] => Array.from({ length: count }, (_, index) => ({ event_id: index, event_type: 'purchase' as const, category_id: 10, category_name: 'Groceries', as_before: false }))
 const plan = (patch: Partial<StatementPlan> = {}): StatementPlan => ({ total: 27, done: 0, ready_event_ids: Array.from({ length: 24 }, (_, index) => index), ready: ready(24), coverage: { question: null, answer: null }, totals_check: 'matches', first_on: '2026-09-01', last_on: '2026-09-30',
@@ -60,6 +60,24 @@ describe('statement review wording', () => {
     expect(statementCounts(long)).toMatchObject({ page: APPROVE_PAGE, sentence: '1,000 look right. 3 need a quick look. We’ll approve them 100 at a time.', action: 'Approve these 100' })
     expect(statementCounts(plan({ ...long, attention: [] })).sentence).toBe('All 1,000 look right. We’ll approve them 100 at a time.')
     expect(statementCounts(plan({ ready: ready(100) }))).toMatchObject({ page: 100, action: 'Approve the other 100' })
+  })
+  it('keeps saved lines with no category on her list and says they don’t count yet', () => {
+    const uncategorized = (count: number) => plan().attention.slice(0, count).map((row) => ({ ...row, kind: 'no_category' as const, event_type: 'purchase' as const, question: 'What was this for?', signed_amount_cents: -1250 }))
+    expect(statementCounts(plan({ total: 27, done: 27, ready: [], without_category: 1, attention: uncategorized(1) })))
+      .toMatchObject({ attention: 1, sentence: 'All 27 lines are saved. 1 has no category yet, so it doesn’t count toward your spending.', action: null })
+    expect(statementCounts(plan({ total: 27, done: 27, ready: [], without_category: 2, attention: uncategorized(2) })).sentence)
+      .toBe('All 27 lines are saved. 2 have no category yet, so they don’t count toward your spending.')
+    // A line that still needs another answer keeps the general wording.
+    expect(statementCounts(plan({ total: 27, done: 26, ready: [], without_category: 1, attention: [...uncategorized(1), plan().attention[2]] })).sentence).toBe('26 saved. 2 still need a quick look.')
+  })
+  it('shows years on dates only when a file runs across a new year', () => {
+    expect(spansYears(plan())).toBe(false)
+    expect(spansYears(plan({ first_on: '2025-11-03', last_on: '2026-11-13' }))).toBe(true)
+    expect(spansYears(plan({ first_on: null, last_on: '2026-11-13' }))).toBe(false)
+  })
+  it('re-asks about missing lines in plain words when the statement no longer asks', () => {
+    expect(coverageQuestionText(plan({ coverage: { question: 'Is anything missing?', answer: null } }))).toBe('Is anything missing?')
+    expect(coverageQuestionText(plan({ coverage: { question: null, answer: 'something_missing' } }))).toBe('You said something may be missing from this statement. Is anything still missing?')
   })
   it('writes long counts with a thousands separator', () => {
     expect(statementHeadline([], {}, plan({ total: 1_000, first_on: null, last_on: null }))).toBe('1,000 lines from your statement.')

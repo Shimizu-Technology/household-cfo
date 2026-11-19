@@ -6,7 +6,7 @@ import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries, waitsOnMissingLines } from '../lib/statementCards'
 import {
-  APPROVE_PAGE, asBeforeNote, coverageMissingNote, describeAccounts, accountSentence, lineSheetForAnswer, lineSheetWithDirection, statementPeriodText,
+  APPROVE_PAGE, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, describeAccounts, accountSentence, lineSheetForAnswer, lineSheetWithDirection, statementPeriodText,
   type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementPlan,
 } from '../lib/statementReview'
 import { formatMonthDay } from '../lib/plainDates'
@@ -185,17 +185,8 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     </section>
   }
 
-  if (approved) {
-    return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
-      <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
-        {coverage.recorded === 'something_missing' && <p className="mia-statement-muted">{coverageMissingNote()}</p>}
-      </MiaCardResult>
-    </section>
-  }
-
-  const inline = plan.attention.slice(0, INLINE_QUESTIONS)
-  const more = plan.attention.length - inline.length
-  return <section className="mia-statement-card ui-card" data-import-id={importId} aria-label={`Statement: ${title}`} aria-busy={busy}>
+  // When a save may not have gone through: shown on the approved card too, so a changed answer can always be checked or retried.
+  const recovery = <>
     {pending && !pending.working && <div className="mia-statement-notice" role="status">
       <p>I’m not sure your last change saved.</p>
       {pending.error && <p>{pending.error}</p>}
@@ -208,6 +199,33 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
       <p>{mutation.error}</p>
       <Button variant="secondary" disabled={busy} onClick={state.resetAndReload}>Show the latest</Button>
     </div>}
+  </>
+
+  if (approved) {
+    return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
+      <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
+        {coverage.recorded === 'something_missing' && <>
+          <p className="mia-statement-muted">{coverageMissingNote()}</p>
+          {/* She can still change her answer here, not only in Statements. */}
+          <div className="mia-statement-question">
+            <p className="statement-question" id={`statement-coverage-${importId}`}>{coverageQuestionText({ coverage: { ...plan.coverage, question: null } })}</p>
+            <div className="statement-answers" role="group" aria-labelledby={`statement-coverage-${importId}`}>
+              <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
+              <Button variant={coverage.said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'something_missing'} disabled={busy} onClick={() => coverage.answer('something_missing')}>Something’s missing</Button>
+            </div>
+            {coverage.failed && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert"><p>I couldn’t save your answer yet. Please try again.</p><Button variant="secondary" disabled={busy} onClick={coverage.answerAgain}>Try again</Button></div>}
+          </div>
+        </>}
+        {/* Whatever the recorded answer now is, an unconfirmed save can still be checked or retried here. */}
+        {recovery}
+      </MiaCardResult>
+    </section>
+  }
+
+  const inline = plan.attention.slice(0, INLINE_QUESTIONS)
+  const more = plan.attention.length - inline.length
+  return <section className="mia-statement-card ui-card" data-import-id={importId} aria-label={`Statement: ${title}`} aria-busy={busy}>
+    {recovery}
     {note && <p className="mia-statement-notice" role="status">{note}</p>}
     <h3 ref={heading} tabIndex={-1}>{title}</h3>
     <p className="mia-statement-read">{readSentence(plan)}</p>
@@ -228,7 +246,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     {needBasis.length === 0 && !plan.signed_amount_question && inline.length > 0 && <ul className="mia-statement-exceptions" ref={questions} aria-label="Lines that need a quick look">
       {inline.map((item, index) => <li key={item.event_id}>
         <p className="mia-statement-line"><span className="mia-statement-merchant">{item.merchant ?? 'Unreadable line'}</span> <span className="mia-statement-amount">{item.signed_amount_cents == null ? sourceMoney(item.amount_cents) : sourceMoney(Math.abs(item.signed_amount_cents))}</span>
-          <span className="mia-statement-meta">{[formatMonthDay(item.posted_on) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span></p>
+          <span className="mia-statement-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span></p>
         <p tabIndex={-1} className="statement-question" id={`statement-question-${item.event_id}`}>{item.question}</p>
         <StatementAnswers item={item} categories={categories} disabled={busy} unsaved={unsavedAnswer} inlineCategory onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
       </li>)}
@@ -237,7 +255,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     {unsavedAnswer && !mutation.pendingRequest && <Button variant="secondary" disabled={busy} onClick={state.retryUnsaved}>Try saving this answer again</Button>}
 
     {needBasis.length === 0 && !plan.signed_amount_question && coverage.ask && <div className="mia-statement-question">
-      <p className="statement-question" id={`statement-coverage-${importId}`}>{plan.coverage.question}</p>
+      <p className="statement-question" id={`statement-coverage-${importId}`}>{coverageQuestionText(plan)}</p>
       <div className="statement-answers" role="group" aria-labelledby={`statement-coverage-${importId}`}>
         <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
         <Button variant={coverage.said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'something_missing'} disabled={busy} onClick={() => coverage.answer('something_missing')}>Something’s missing</Button>

@@ -86,7 +86,8 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   const recorded = plan?.coverage.answer ?? null
   const finished = Boolean(plan && plan.total > 0 && plan.done === plan.total && plan.attention.length === 0 && plan.ready.length === 0 && (!plan.coverage.question || recorded))
   useEffect(() => { if (finished) savedCallback.current?.() }, [finished, recorded])
-  const askCoverage = Boolean(plan?.coverage.question) && plan?.total !== 0
+  // A recorded "something's missing" keeps its buttons even when the statement no longer asks, so she can change it.
+  const askCoverage = Boolean(plan?.coverage.question || plan?.coverage.answer === 'something_missing') && plan?.total !== 0
 
   async function save(input: ApproveLinesInput, focusIndex: number | null = null): Promise<boolean> {
     focusAfter.current = focusIndex

@@ -121,9 +121,11 @@ module FinancialDocuments
         answers = line.kind == :duplicate && line.overlaps.any? { |row| row[:strength] == "strong" && row[:approved_version_id] } ? ParticipantPlan::ANSWERS[:duplicate].first(1) : ParticipantPlan::ANSWERS.fetch(line.kind)
         question = line.kind == :still_category ? "Still #{names[line.category_id]}?" : ParticipantPlan::QUESTIONS.fetch(line.kind)
         question = "Was this #{names[line.category_id]}?" if line.kind == :suggested_category
-        { event_id: event.id, kind: line.kind, event_type: event.event_type, question: question, answers: answers,
-          amount_cents: HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
-          merchant: line.merchant, posted_on: event.posted_on&.iso8601, signed_amount_cents: event.signed_amount_cents,
+        # A saved line shows what she saved (her corrected amount, name, date and kind), not the statement as first read.
+        saved = line.saved
+        { event_id: event.id, kind: line.kind, event_type: saved&.event_type || event.event_type, question: question, answers: answers,
+          amount_cents: saved ? saved.signed_amount_cents&.abs : HouseholdFinance::Money.document_cents(event.financial_source_evidence&.payload&.fetch("source_amount_text", nil), negative_as_magnitude: true),
+          merchant: saved&.merchant.present? ? AccountNumberMask.display(saved.merchant) : line.merchant, posted_on: (saved ? saved.posted_on : event.posted_on)&.iso8601, signed_amount_cents: saved ? saved.signed_amount_cents : event.signed_amount_cents,
           category_id: line.category_id, category_name: names[line.category_id], expected_head: line.expected_head }
       end
 
