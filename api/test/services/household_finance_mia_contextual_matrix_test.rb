@@ -13,6 +13,8 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       refute_includes bonus, "car registration"
       registration = HouseholdFinance::MiaCoachAnswerer.new(household, "I got $300 extra for car registration and savings.", annual_budget_manager: manager, reference_month: 7).call
       assert_includes registration, "car registration"
+      school = HouseholdFinance::MiaCoachAnswerer.new(household, "I got $500 extra for school registration.", annual_budget_manager: manager, reference_month: 7).call
+      refute_includes school, "car registration"
     end
   end
 

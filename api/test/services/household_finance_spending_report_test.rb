@@ -115,6 +115,10 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
       transaction.transaction_splits.create!(budget_category: dining, amount_cents: 800_000)
       assert narrate.call("Am I over budget?").start_with?("Yes —"), narrate.call("Am I over budget?")
       assert narrate.call("Are we within budget?").start_with?("No —")
+      assert narrate.call("Am I over budget? I want to stay on track.").start_with?("Yes —"), "the question's first budget words decide"
+      assert narrate.call("Is it true that I am not over budget?").start_with?("No —"), "a negated over question reads like within"
+      reef = narrate.call("How much did we spend at Reef Coffee Co in July?")
+      assert_includes reef, "confirmed spending at Reef Coffee Co is $8,000"
       general = narrate.call("How was spending in July?")
       assert_includes general, "Reef Coffee Co"
       refute_match(/authorized on|S\*····|Card 7302/, general)

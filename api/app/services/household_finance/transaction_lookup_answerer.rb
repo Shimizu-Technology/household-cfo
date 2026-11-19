@@ -222,7 +222,7 @@ module HouseholdFinance
       return "There is no posted outflow in this period." if outflows.empty?
 
       transaction = outflows.first
-      merchant = transaction.merchant_name.presence || transaction.name
+      merchant = SpendingPatterns::MerchantName.call(transaction.merchant_name.presence || transaction.name)
       review_state = if needs_household_review?(transaction)
         "It still needs household review and is not included in confirmed budget actuals."
       else
@@ -236,8 +236,10 @@ module HouseholdFinance
       return "There are no posted outflow merchants in this period." if outflows.empty?
 
       breakdown = Hash.new { |hash, key| hash[key] = { cents: 0, count: 0 } }
+      labels = {} # "Render.Com" and "RENDER.COM" are one store
       outflows.each do |transaction|
         merchant = SpendingPatterns::MerchantName.call(transaction.merchant_name.presence || transaction.name)
+        merchant = labels[merchant.downcase] ||= merchant
         breakdown[merchant][:cents] += transaction.amount_cents
         breakdown[merchant][:count] += 1
       end
@@ -264,8 +266,10 @@ module HouseholdFinance
       return if target.fetch(:type) == :merchant
 
       breakdown = Hash.new { |hash, key| hash[key] = { cents: 0, count: 0 } }
+      labels = {} # "Render.Com" and "RENDER.COM" are one store
       transactions.each do |transaction|
         merchant = SpendingPatterns::MerchantName.call(transaction.merchant)
+        merchant = labels[merchant.downcase] ||= merchant
         breakdown[merchant][:cents] += amount_cents_for(transaction, target)
         breakdown[merchant][:count] += 1
       end
