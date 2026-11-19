@@ -206,6 +206,51 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
     end
   end
 
+  test "a purchase that stopped counting is no longer a possible duplicate, and can't be matched" do
+    travel_to Date.new(2026, 8, 10) do
+      first = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
+      first_confirm = HouseholdFinance::TransactionDraftConfirmer.new(first).call
+      assert first_confirm.success?, first_confirm.errors.to_sentence
+      counted = first_confirm.transaction
+      second = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
+      stale = second.transaction_draft_matches.proposed.sole
+      assert_equal counted.id, stale.household_transaction_id
+
+      # She reopens the first one: its purchase no longer counts.
+      assert HouseholdFinance::TransactionDraftReopener.new(first).call.success?
+      assert_equal "ignored", counted.reload.status
+
+      # Matching the second one to it would leave both out of spending.
+      refused = HouseholdFinance::TransactionDraftMatchAccepter.new(second, match_id: stale.id).call
+      refute refused.success?
+      assert_equal [ "That purchase no longer counts in your spending, so this one can't be matched to it. Nothing changed." ], refused.errors
+      assert_equal [ "pending", nil ], [ second.reload.status, second.matched_transaction_id ]
+      assert_equal "proposed", stale.reload.status
+
+      # Confirming it doesn't ask about the purchase that stopped counting.
+      result = HouseholdFinance::TransactionDraftConfirmer.new(second).call
+      assert result.success?, result.errors.to_sentence
+      assert_not TransactionDraftMatch.exists?(stale.id), "the stale suggestion is dropped"
+      assert_equal [ result.transaction.id ], @household.household_transactions.where(status: "confirmed").pluck(:id)
+    end
+  end
+
+  test "an answered suggestion stays answered when its purchase stops counting" do
+    travel_to Date.new(2026, 8, 10) do
+      first = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
+      counted = HouseholdFinance::TransactionDraftConfirmer.new(first).call.transaction
+      second = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
+      assert HouseholdFinance::TransactionDraftConfirmer.new(second, different_purchase: true).call.success?
+      rejected = second.transaction_draft_matches.sole
+      assert_equal [ counted.id, "rejected" ], [ rejected.household_transaction_id, rejected.status ]
+
+      assert HouseholdFinance::TransactionDraftReopener.new(first).call.success?
+      HouseholdFinance::TransactionDraftMatcher.new(second.reload).call
+
+      assert_equal "rejected", rejected.reload.status
+    end
+  end
+
   test "a second line of the same file is not offered a purchase the first line took" do
     travel_to Date.new(2026, 8, 10) do
       bank_line = existing_purchase(merchant: "Payless Supermarkets - Mangilao", cents: 10_342, on: Date.new(2026, 8, 3))

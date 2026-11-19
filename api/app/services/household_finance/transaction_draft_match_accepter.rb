@@ -1,5 +1,6 @@
 module HouseholdFinance
   class TransactionDraftMatchAccepter
+    COUNTED_STATUSES = %w[confirmed reconciled].freeze
     Result = Data.define(:success, :draft, :match, :errors) do
       def success?
         success == true
@@ -26,6 +27,10 @@ module HouseholdFinance
           matched_transaction = accepted_match.household_transaction
           matched_transaction.lock!
           raise ArgumentError, "Matched transaction belongs to another household" unless matched_transaction.household_id == draft.household_id
+          # Matching to a purchase that no longer counts would leave this one out of spending too.
+          unless matched_transaction.status.in?(COUNTED_STATUSES)
+            raise ArgumentError, "That purchase no longer counts in your spending, so this one can't be matched to it. Nothing changed."
+          end
           raise ArgumentError, "That purchase is already matched to another line from this file. Nothing changed." if matched_elsewhere?(matched_transaction)
 
           accepted_match.update!(status: "accepted")

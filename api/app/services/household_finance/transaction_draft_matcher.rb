@@ -13,9 +13,11 @@ module HouseholdFinance
     end
 
     def call
-      # A suggestion she can't accept is no help: drop ones whose purchase was
-      # since matched to another line of the same file.
-      draft.transaction_draft_matches.proposed.where(household_transaction_id: claimed_transaction_ids).destroy_all
+      # Keep only suggestions that still fit: a purchase that stopped counting
+      # (ignored after its own entry was reopened), moved out of the date or
+      # amount window, or was taken by another line of the same file is no
+      # longer a possible duplicate. Rejected answers stay as she gave them.
+      draft.transaction_draft_matches.proposed.where.not(household_transaction_id: candidates.map(&:id)).destroy_all
       candidate_results.first(5).each do |result|
         next if result.confidence < MIN_CONFIDENCE
 
