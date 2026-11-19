@@ -48,7 +48,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         return
       end
 
-      extractor = FinancialDocuments::Extractor.new
+      extractor = build_extractor
       attempt = document_import.attempts.create!(
         provider: "openrouter",
         model: extractor.model,
@@ -85,6 +85,10 @@ class FinancialDocumentExtractionJob < ApplicationJob
   end
 
   private
+
+  def build_extractor
+    FinancialDocuments::Extractor.new
+  end
 
   def persist_success!(document_import, attempt, result)
     data = result.data

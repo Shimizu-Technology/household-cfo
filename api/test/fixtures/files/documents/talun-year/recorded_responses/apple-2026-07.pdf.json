@@ -1,0 +1,45 @@
+{
+  "sha256": "605d175d063cd0987b6b8c578cff62bc7ce55c9c0881ff4c679d913e4f602a4a",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "4f41a676110f76fcfb0e4584480b2b8ea2abd6a396b3b78165b50c45d5bf9c34",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-07-31\",\n  \"period_start_on\": \"2026-07-01\",\n  \"period_end_on\": \"2026-07-31\",\n  \"summary\": \"Apple Cash-style account ***9056 statement for July 2026. It shows a $311.45 opening balance, a $100.00 top-up, four purchases, a $25.00 transfer to the household's own bank account, and a $322.60 closing balance.\",\n  \"confidence\": 0.97,\n  \"warnings\": [],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Apple Cash ***9056\",\n      \"amount\": null,\n      \"balance\": 322.6,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"other\",\n      \"debt_type\": null,\n      \"confidence\": 0.9,\n      \"evidence\": \"Ending balance: $322.60 as of statement period end 2026-07-31.\",\n      \"metadata\": {\"goal_type\": null}\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Apple Cash ***9056\",\n        \"masked_identifier\": \"***9056\",\n        \"period_start_on\": \"2026-07-01\",\n        \"period_end_on\": \"2026-07-31\",\n        \"opening_balance_cents\": 31145,\n        \"closing_balance_cents\": 32260,\n        \"printed_debit_cents\": 8885,\n        \"printed_credit_cents\": 10000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***9056; Statement period: 2026-07-01 through 2026-07-31; Beginning balance $311.45; Ending balance $322.60; Posted credits $100.00; Posted debits $88.85.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 10000,\n        \"amount_column_cents\": 10000,\n        \"posted_on\": \"2026-07-12\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": null,\n        \"raw_description\": \"Card top-up from own debit card 7302\",\n        \"evidence\": \"Credit of 100.00. Top-up from the participant's own debit card 7302 into the wallet.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1875,\n        \"amount_column_cents\": 1875,\n        \"posted_on\": \"2026-07-13\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"Tasi Demo Dining Room GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Dining Room GU\",\n        \"evidence\": \"Debit of 18.75 at a dining room.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2285,\n        \"amount_column_cents\": 2285,\n        \"posted_on\": \"2026-07-17\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"Tasi Demo Market GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Market GU\",\n        \"evidence\": \"Debit of 22.85 at a market.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -650,\n        \"amount_column_cents\": 650,\n        \"posted_on\": \"2026-07-21\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": \"Tasi Demo Coffee GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Coffee GU\",\n        \"evidence\": \"Debit of 6.50 at a coffee shop.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1575,\n        \"amount_column_cents\": 1575,\n        \"posted_on\": \"2026-07-24\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": \"Tasi Demo Bus GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Bus GU\",\n        \"evidence\": \"Debit of 15.75 for bus transport.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"apple_cash_9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": -2500,\n        \"amount_column_cents\": 2500,\n        \"posted_on\": \"2026-07-26\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": null,\n        \"raw_description\": \"Transfer to own bank ***4410\",\n        \"evidence\": \"Debit of 25.00. Transfer to the participant's own bank account ***4410.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2889,
+            "completion_tokens": 2544,
+            "total_tokens": 5433,
+            "cost": 0.033218,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.031218,
+              "upstream_inference_prompt_cost": 0.005778,
+              "upstream_inference_completions_cost": 0.02544
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 589,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

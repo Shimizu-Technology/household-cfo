@@ -1,0 +1,6 @@
+{
+  "sha256": "0ff36da3a5971b09e4d0a2acd598c43b43488879fef5298ecd9dbe3d39743e4d",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": []
+}

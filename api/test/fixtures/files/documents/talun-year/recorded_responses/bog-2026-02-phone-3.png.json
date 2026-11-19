@@ -1,0 +1,45 @@
+{
+  "sha256": "3e13b267f24c51a35c4e4ea24ba60595bf7b5bccd9e4c621463453ba767cfa11",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "request_sha256": "842113ea8bb42ff88c002d7894e97688e4ab5af774f10dcaab6d8adb50cad6f3",
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"statement\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Partial screenshot (Capture 3) of Bank of Guam-style DEMO account ****6824 showing four posted debit rows for 2026-02 activity. No statement totals, balances, or printed period dates are visible.\",\"confidence\":0.9,\"warnings\":[\"Capture covers only part of the month's activity (Capture 3); the printed statement period is not shown, so row dates are used as observed.\",\"No opening/closing balances, printed totals, or printed row count are visible; these are null.\",\"Account basis is assumed to be an asset (bank account) from the header but is not explicitly stated.\",\"The two POS purchases at TASI DEMO MARKET are separate source rows with different dates and amounts; they were not merged.\"],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":{\"contract_version\":\"source_accounting_v1\",\"reported_row_count\":null,\"accounts\":[{\"account_key\":\"acct_6824\",\"account_basis\":\"asset\",\"label\":\"Lina and Mateo Talun\",\"masked_identifier\":\"****6824\",\"period_start_on\":null,\"period_end_on\":null,\"opening_balance_cents\":null,\"closing_balance_cents\":null,\"printed_debit_cents\":null,\"printed_credit_cents\":null,\"printed_row_count\":null,\"header_evidence\":\"Header: Bank of Guam-style DEMO, Lina and Mateo Talun | ****6824, 2026-02 activity | Capture 3\"}],\"events\":[{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3154,\"amount_column_cents\":-3154,\"posted_on\":\"2026-02-19\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":1},\"merchant\":\"TASI DEMO MARKET\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"Row 1, 2026-02-19 POSTED, amount -$31.54\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-2850,\"amount_column_cents\":-2850,\"posted_on\":\"2026-02-22\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":2},\"merchant\":\"Tasi Demo Noodle House\",\"raw_description\":\"Tasi Demo Noodle House\",\"evidence\":\"Row 2, 2026-02-22 POSTED, amount -$28.50\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3231,\"amount_column_cents\":-3231,\"posted_on\":\"2026-02-24\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":3},\"merchant\":\"TASI DEMO MARKET\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"Row 3, 2026-02-24 POSTED, amount -$32.31\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"fee\",\"signed_amount_cents\":-500,\"amount_column_cents\":-500,\"posted_on\":\"2026-02-27\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":4},\"merchant\":null,\"raw_description\":\"Monthly service fee\",\"evidence\":\"Row 4, 2026-02-27 POSTED, monthly service fee, amount -$5.00\",\"limitations\":null}]}}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4323,
+            "completion_tokens": 1209,
+            "total_tokens": 5532,
+            "cost": 0.020736,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.020736,
+              "upstream_inference_prompt_cost": 0.008646,
+              "upstream_inference_completions_cost": 0.01209
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

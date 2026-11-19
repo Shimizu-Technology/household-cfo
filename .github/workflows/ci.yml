@@ -122,12 +122,21 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Ruby
         uses: ruby/setup-ruby@v1
         with:
           bundler-cache: true
           working-directory: api
+
+      - name: Ratchet committed scorecard baselines against merge base
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: ruby script/check_scorecard_baselines.rb "$(git merge-base HEAD "$BASE_SHA")"
 
       - name: Prepare database
         run: bin/rails db:prepare

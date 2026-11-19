@@ -114,11 +114,12 @@ class LocalObjectStore
     if parts.empty? || parts.any? { |part| part.blank? || %w[. ..].include?(part) || part.include?("\\") || part.include?("\0") }
       raise ArgumentError, "Invalid storage key"
     end
-    root = Rails.root.join("storage", "local_s3")
+    root = Pathname.new(ENV.fetch("LOCAL_STORAGE_ROOT") { Rails.root.join("storage", "local_s3").to_s }).expand_path
+    boundary = ENV["LOCAL_STORAGE_ROOT"].present? ? root.parent : Rails.root
     # Hash components to fit filesystem limits and avoid internal filename collisions.
     directory = root.join(*parts.map { |part| Digest::SHA256.hexdigest(part) })
     cursor = directory
-    while cursor != Rails.root
+    while cursor != boundary
       reject_symlink(cursor)
       cursor = cursor.parent
     end
