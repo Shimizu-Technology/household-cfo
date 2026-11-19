@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+# Household CFO local full stack: the real Rails API and web app on this
+# machine, signed in with fictional test identities, with nothing that can
+# reach production. Read docs/testing/local-stack.md before changing it.
+#
+#   bin/local-stack doctor        check this machine without starting anything
+#   bin/local-stack up            prepare the database, seed sign-ins, start API + web
+#   bin/local-stack status        show what is running and where
+#   bin/local-stack down          stop the API and web this script started
+#   bin/local-stack run <cmd...>  run a command in api/ with the same guarded settings
+#   bin/local-stack reset         stop, drop this stack's database, delete its local files
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# The folder name for people, plus a short hash of the full path, so two
+# checkouts with the same folder name never share a database or PID files.
+NAME="${LOCAL_STACK_NAME:-$(basename "$ROOT")}"
+NAME="$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '_' | sed -E 's/_+/_/g; s/^_//; s/_$//' | cut -c1-30)"
+SLUG="${NAME}_$(printf '%s' "$ROOT" | shasum -a 256 | cut -c1-6)"
+API_PORT="${LOCAL_STACK_API_PORT:-3300}"
+WEB_PORT="${LOCAL_STACK_WEB_PORT:-5300}"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/household-cfo/local-stack/$SLUG"
+SECRETS="${LOCAL_STACK_ENV_FILE:-$HOME/.config/household-cfo/local-stack.env}"
+DB="household_cfo_ls_${SLUG}_test"
+API_URL="http://127.0.0.1:$API_PORT"
+WEB_URL="http://127.0.0.1:$WEB_PORT"
+
+# Every hosted service the API or web app knows about. They are exported empty,
+# not unset: dotenv refills a missing variable from api/.env, but never
+# replaces one that exists. The API's guard (api/lib/local_stack.rb) refuses
+# to boot if any of them still has a value. Rails rejects an empty database
+# URL, so every *DATABASE_URL is unset instead; the guard refuses one that
+# dotenv refills, and checks the database Rails actually resolves.
+HOSTED_API=(AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_S3_BUCKET RESEND_API_KEY RESEND_FROM_EMAIL
+  MAILER_FROM_EMAIL OPS_ALERT_EMAILS REMINDERS_EMAIL_ENABLED SMTP_ADDRESS SMTP_USERNAME SMTP_PASSWORD SENTRY_DSN
+  OPENROUTER_MIA_URL PLAID_ENV PLAID_CLIENT_ID PLAID_SECRET PLAID_WEBHOOK_URL AUTH_PROVIDER WORKOS_API_KEY WORKOS_CLIENT_ID
+  CLERK_SECRET_KEY CLERK_PUBLISHABLE_KEY CLERK_JWKS_URL SOLID_QUEUE_IN_PUMA)
+HOSTED_WEB=(VITE_WORKOS_CLIENT_ID VITE_WORKOS_ADMIN_PORTAL_HOSTNAME VITE_SENTRY_DSN VITE_PUBLIC_POSTHOG_KEY
+  VITE_ENABLE_ANALYTICS_IN_DEV VITE_CLERK_PUBLISHABLE_KEY)
+# Postgres and proxy settings that could send a connection elsewhere.
+UNSET_ALWAYS=(PGHOST PGHOSTADDR PGSERVICE PGSERVICEFILE http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY)
+
+say() { printf '%s\n' "$*"; }
+fail() { printf 'local-stack: %s\n' "$*" >&2; exit 1; }
+
+# A model key is allowed only from the local-stack file, only when it is not
+# the key production spends (the one in api/.env, read with dotenv's own
+# parser), and only when OpenRouter reports a credit limit on it. Ruby reads
+# and sends the key, so it never appears on a command line.
+MODEL_KEY=""
+MODEL_STATUS="off (no model key; statements that need the AI reader won't read)"
+check_model_key() {
+  [[ -f "$SECRETS" ]] || return 0
+  local main_env result
+  main_env="$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)/../api/.env"
+  result="$(cd "$ROOT/api" && bundle exec ruby -e '
+    require "dotenv"; require "json"; require "net/http"
+    key = Dotenv.parse(ARGV[0])["OPENROUTER_API_KEY"].to_s
+    exit 0 if key.empty?
+    shared = ARGV[1..].select { |path| File.file?(path) }.map { |path| Dotenv.parse(path)["OPENROUTER_API_KEY"].to_s }
+    say = ->(*fields) { puts ["LOCAL_STACK_RESULT", *fields].join("\t") }
+    if shared.include?(key) then say.call("refused", "the key in #{ARGV[0]} is the shared production key"); exit 0 end
+    if key.match?(/\s/) then say.call("refused", "the key in #{ARGV[0]} has spaces in it"); exit 0 end
+    uri = URI("https://openrouter.ai/api/v1/key")
+    # No proxy: the probe runs before the launcher clears the environment.
+    http = Net::HTTP.new(uri.host, uri.port, nil)
+    http.use_ssl, http.open_timeout, http.read_timeout = true, 5, 10
+    response = begin
+      http.start { |session| session.get(uri.path, "Authorization" => "Bearer #{key}") }
+    rescue StandardError
+      nil
+    end
+    limit = begin JSON.parse(response.body).dig("data", "limit") rescue nil end if response.is_a?(Net::HTTPSuccess)
+    if limit.nil? then say.call("refused", "could not confirm the key in #{ARGV[0]} has a credit limit"); exit 0 end
+    say.call("ok", "on (separate key, credit limit $#{limit})", key)
+  ' "$SECRETS" "$ROOT/api/.env" "$main_env" 2>/dev/null || true)"
+  # Only the one line the probe writes counts; anything else on stdout is ignored.
+  result="$(grep -m1 $'^LOCAL_STACK_RESULT\t' <<<"$result" || true)"
+  [[ -n "$result" ]] || return 0
+  local verdict status key
+  IFS=$'\t' read -r _ verdict status key <<<"$result"
+  MODEL_STATUS="$status"
+  if [[ "$verdict" == ok && -n "$key" ]]; then
+    MODEL_KEY="$key"
+  else
+    MODEL_STATUS="refused: $MODEL_STATUS"
+  fi
+}
+
+guarded_env() {
+  local name
+  for name in "${HOSTED_API[@]}" "${HOSTED_WEB[@]}"; do export "$name="; done
+  for name in "${UNSET_ALWAYS[@]}" $(env | sed -nE 's/^([A-Za-z0-9_]*DATABASE_URL)=.*/\1/p'); do unset "$name"; done
+  export HCFO_LOCAL_STACK=1 RAILS_ENV=test DATABASE_TEST_NAME="$DB" STORAGE_BACKEND=local
+  export LOCAL_STORAGE_ROOT="$STATE/storage" LOCAL_STORAGE_URL="$API_URL"
+  export FRONTEND_URL="$WEB_URL" FRONTEND_URLS="$WEB_URL" PARALLEL_WORKERS=1
+  export OPENROUTER_API_KEY="$MODEL_KEY"
+  # The guard accepts the model key only when this is its fingerprint.
+  HCFO_LOCAL_STACK_MODEL_KEY=""
+  [[ -z "$MODEL_KEY" ]] || HCFO_LOCAL_STACK_MODEL_KEY="$(printf '%s' "$MODEL_KEY" | shasum -a 256 | cut -d' ' -f1)"
+  export HCFO_LOCAL_STACK_MODEL_KEY
+  export VITE_API_BASE_URL="$API_URL" VITE_E2E_AUTH=true VITE_SITE_URL="$WEB_URL"
+}
+
+# A PID file holds "<pid> <start time>", so a reused PID is never mistaken for ours.
+started_at() { ps -o lstart= -p "$1" 2>/dev/null | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'; }
+pid_of() { local pid rest; read -r pid rest <"$1" && printf '%s' "$pid"; }
+pid_alive() {
+  [[ -f "$1" ]] || return 1
+  local pid start
+  read -r pid start <"$1" || true
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && [[ "$(started_at "$pid")" == "$start" ]]
+}
+port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+doctor() {
+  local ok=1
+  check() { if (eval "$2") >/dev/null 2>&1; then say "  ok    $1"; else say "  FAIL  $1${3:+ — $3}"; ok=0; fi; }
+  say "Household CFO local stack \"$SLUG\" ($ROOT)"
+  check_model_key
+  guarded_env
+  check "Postgres answers on this machine" "pg_isready -q" "start Postgres (brew services start postgresql@16)"
+  check "Ruby gems installed" "cd '$ROOT/api' && bundle check" "cd api && bundle install"
+  check "Node 24 or newer in web/" "cd '$ROOT/web' && [[ \$(node -p 'process.versions.node.split(\".\")[0]') -ge 24 ]]"
+  check "web packages installed" "[[ -x '$ROOT/web/node_modules/.bin/vite' ]]" "cd web && npm ci"
+  if pid_alive "$STATE/api.pid"; then say "  ok    API port $API_PORT (this stack is running)"
+  else check "API port $API_PORT free" "! port_busy $API_PORT" "set LOCAL_STACK_API_PORT"; fi
+  if pid_alive "$STATE/web.pid"; then say "  ok    web port $WEB_PORT (this stack is running)"
+  else check "web port $WEB_PORT free" "! port_busy $WEB_PORT" "set LOCAL_STACK_WEB_PORT"; fi
+  say "  info  model: $MODEL_STATUS"
+  say "  info  database $DB, files in $STATE"
+  check "the API's guard accepts these settings" "cd '$ROOT/api' && bin/rails runner 'exit 0'" \
+    "bin/local-stack run bin/rails runner 'exit 0' shows what it refused"
+  [[ $ok == 1 ]]
+}
+
+claim() { # claim <pid>: record ownership with the Shimizu lifecycle helper when a session is given
+  local session="${LOCAL_STACK_LIFECYCLE_SESSION:-}"
+  [[ -n "$session" ]] && command -v dev-lifecycle >/dev/null 2>&1 || return 0
+  dev-lifecycle claim --session "$session" --owner "local-stack-$SLUG" process "$1" >/dev/null || say "  (couldn't record PID $1 with dev-lifecycle)"
+}
+
+wait_for() { # wait_for <url> <seconds> <log>
+  local i
+  for ((i = 0; i < $2; i++)); do
+    curl -fsS -o /dev/null --max-time 2 "$1" 2>/dev/null && return 0
+    sleep 1
+  done
+  say "  Not answering at $1 after $2 s. Last lines of $3:"; tail -20 "$3" >&2; return 1
+}
+
+# start_background <dir> <pidfile> <log> <command…>: the recorded PID is the
+# server itself (a plain background command is exec'd), and none of its output
+# or input stays attached to this terminal.
+start_background() {
+  local dir="$1" pidfile="$2" log="$3" pid
+  shift 3
+  cd "$dir"
+  nohup "$@" >"$log" 2>&1 </dev/null &
+  pid=$!
+  cd "$ROOT"
+  printf '%s %s\n' "$pid" "$(started_at "$pid")" >"$pidfile"
+}
+
+# The state folder remembers which checkout made it, and nothing touches another checkout's.
+same_checkout() {
+  [[ ! -f "$STATE/checkout" || "$(cat "$STATE/checkout")" == "$ROOT" ]] || fail "$STATE belongs to $(cat "$STATE/checkout"), not this checkout."
+}
+
+up() {
+  same_checkout
+  mkdir -p "$STATE/storage" "$STATE/mail"
+  printf '%s\n' "$ROOT" >"$STATE/checkout"
+  if pid_alive "$STATE/api.pid" || pid_alive "$STATE/web.pid"; then status; return 0; fi
+  doctor || fail "fix the FAIL lines above, then run up again."
+  say "Preparing database $DB…"
+  (cd "$ROOT/api" && bin/rails db:prepare >"$STATE/prepare.log" 2>&1) || { tail -20 "$STATE/prepare.log" >&2; fail "database setup failed"; }
+  (cd "$ROOT/api" && bin/rails local_stack:seed)
+  say "Starting the API on $API_URL…"
+  start_background "$ROOT/api" "$STATE/api.pid" "$STATE/api.log" bin/rails server -b 127.0.0.1 -p "$API_PORT" -P "$STATE/puma.pid"
+  say "Starting the web app on $WEB_URL…"
+  start_background "$ROOT/web" "$STATE/web.pid" "$STATE/web.log" node_modules/.bin/vite --host 127.0.0.1 --port "$WEB_PORT" --strictPort
+  wait_for "$API_URL/up" 120 "$STATE/api.log" || { down; fail "the API didn't start"; }
+  wait_for "$WEB_URL/" 60 "$STATE/web.log" || { down; fail "the web app didn't start"; }
+  # Claimed once they answer: Puma renames its process after it boots.
+  claim "$(pid_of "$STATE/api.pid")"
+  claim "$(pid_of "$STATE/web.pid")"
+  status
+}
+
+stop_pid() { # stop_pid <pidfile>
+  local file="$1" pid start
+  [[ -f "$file" ]] || return 0
+  # Read once: every later check is about this PID and start time, even if the file changes meanwhile.
+  read -r pid start <"$file" || true
+  ours() { [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && [[ "$(started_at "$pid")" == "$start" ]]; }
+  if ! ours; then
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then say "  Left PID $pid running: it isn't the process this stack started."; fi
+    rm -f "$file"
+    return 0
+  fi
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 20); do ours || break; sleep 0.5; done
+  # Escalate only while it is still the same process: a PID reused meanwhile is left alone.
+  if ours; then kill -9 "$pid" 2>/dev/null || true; fi
+  rm -f "$file"
+  say "  Stopped PID $pid"
+}
+
+down() {
+  same_checkout
+  stop_pid "$STATE/web.pid"
+  stop_pid "$STATE/api.pid"
+  rm -f "$STATE/puma.pid"
+}
+
+status() {
+  local api="stopped" web="stopped"
+  if pid_alive "$STATE/api.pid"; then api="running (PID $(pid_of "$STATE/api.pid"))"; fi
+  if pid_alive "$STATE/web.pid"; then web="running (PID $(pid_of "$STATE/web.pid"))"; fi
+  cat <<INFO
+Household CFO local stack "$SLUG"
+  Checkout  $ROOT
+  API       $API_URL  $api
+  Web       $WEB_URL  $web
+  Database  $DB
+  Files     $STATE (uploads in storage/, any mail in mail/, logs *.log)
+Sign in (fictional people, no password):
+  Participant  $WEB_URL/?pilot_e2e_role=participant&pilot_e2e_live_api=true
+  Coach        $WEB_URL/?pilot_e2e_role=coach&pilot_e2e_live_api=true
+  Admin        $WEB_URL/?pilot_e2e_role=admin&pilot_e2e_live_api=true
+API calls: Authorization: Bearer test_token:e2e_participant:participant@pilot.test:Test:Participant
+INFO
+}
+
+reset() {
+  down
+  check_model_key
+  guarded_env
+  # The drop boots Rails, so the guard checks the database it resolves before anything is dropped.
+  (cd "$ROOT/api" && bin/rails db:drop) || fail "couldn't drop $DB; nothing else was deleted."
+  rm -rf "$STATE/storage" "$STATE/mail" "$STATE"/*.log
+  say "Dropped $DB and deleted the files under $STATE."
+}
+
+command="${1:-}"
+shift || true
+case "$command" in
+  doctor) doctor ;;
+  up) up ;;
+  status) status ;;
+  down) down ;;
+  run) [[ $# -gt 0 ]] || fail "usage: bin/local-stack run <command…>"; check_model_key; guarded_env; cd "$ROOT/api"; exec "$@" ;;
+  reset) reset ;;
+  *) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; [[ -z "$command" ]] || exit 1 ;;
+esac
