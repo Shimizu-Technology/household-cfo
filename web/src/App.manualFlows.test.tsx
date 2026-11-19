@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { AnnualBudgetPlan, BudgetCategoryRow, MiaActionDraft, SpendingReport, TransactionDraft } from './api'
 import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { CategoryEditCell, CurrentMonthActivityPanel, ManualTransactionCapture, MiaActionDraftReviewStack, TransactionDraftReviewStack } from './App'
+import { POSSIBLE_DUPLICATE_NOTICE } from './lib/transactionReview'
 
 const originalScrollIntoView = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView')
 beforeAll(() => { Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: vi.fn() }) })
@@ -59,6 +60,35 @@ function stackProps(drafts: TransactionDraft[], overrides: Record<string, unknow
 }
 
 describe('transaction review cards', () => {
+  it('asks "Same purchase?" instead of a Confirm that would count a possible duplicate twice', async () => {
+    const possible = draft({
+      merchant: 'Payless',
+      amount: 103.42,
+      amount_cents: 10342,
+      occurred_on: '2026-08-03',
+      matches: [{ id: 91, status: 'proposed', confidence: 0.97, match_reason: 'same amount', transaction: { id: 501, occurred_on: '2026-08-03', merchant: 'Payless Supermarket', amount: 103.42, source_type: 'statement', categories: ['Dining out'] } }],
+    })
+    const onMatch = vi.fn()
+    const props = stackProps([possible], { onMatch })
+    render(<TransactionDraftReviewStack {...props} />)
+
+    expect(screen.getByText('Same purchase as Payless Supermarket on Aug 3 ($103.42)?')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Confirm / })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Same purchase: Payless $103.42 on Aug 3 is Payless Supermarket on Aug 3 ($103.42)' }))
+    await waitFor(() => expect(onMatch).toHaveBeenCalledWith(possible, 91))
+    fireEvent.click(screen.getByRole('button', { name: 'Different purchase: add Payless $103.42 on Aug 3 as its own purchase' }))
+    await waitFor(() => expect(props.onConfirm).toHaveBeenCalledWith(possible, { differentPurchase: true }))
+  })
+
+  it('leaves a possible duplicate out of a group confirmation', () => {
+    const possible = draft({ id: 221, merchant: 'Payless', matches: [{ id: 92, status: 'proposed', confidence: 0.97, match_reason: 'same amount', transaction: { id: 502, occurred_on: '2026-10-04', merchant: 'Payless', amount: 25, source_type: 'statement', categories: [] } }] })
+    const onBulkConfirm = vi.fn()
+    render(<TransactionDraftReviewStack {...stackProps([draft(), possible], { onBulkConfirm, onBulkIgnore: vi.fn(), headerBulkAction: true })} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm categorized 1' }))
+    expect(onBulkConfirm).toHaveBeenCalledWith([expect.objectContaining({ id: 220 })])
+  })
+
   it('opens the remaining chat purchases only after a deliberate disclosure tap', () => {
     const props = stackProps([draft(), draft({ id: 221, merchant: 'Payless' })], { compact: true, collapsed: true })
     render(<TransactionDraftReviewStack {...props} />)
@@ -495,7 +525,7 @@ it('focuses the new category name and prevents a second in-flight submission', a
 })
 
 it('uses a warning style when a saved purchase still needs checking', async () => {
-  render(<ProductionCapture categories={[row()]} busy={false} initiallyOpen onCreate={vi.fn().mockResolvedValue('Possible duplicate. Your purchase is in Review. Check the existing purchase before confirming.')} />)
+  render(<ProductionCapture categories={[row()]} busy={false} initiallyOpen onCreate={vi.fn().mockResolvedValue(POSSIBLE_DUPLICATE_NOTICE)} />)
   fireEvent.change(screen.getByLabelText('Merchant'), { target: { value: 'Market' } })
   fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '45.20' } })
   fireEvent.change(screen.getByLabelText('Category'), { target: { value: '7' } })
