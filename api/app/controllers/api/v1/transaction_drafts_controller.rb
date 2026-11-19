@@ -59,6 +59,7 @@ module Api
           workspace: workspace_payload_for(transaction.budget_period.budget_year.year)
         }
       rescue HouseholdFinance::TransactionDraftConfirmer::PossibleDuplicate => e
+        keep_correction_for_review!
         render_possible_duplicate(e)
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
         render_operation_error(e)
@@ -204,6 +205,24 @@ module Api
 
           draft.with_lock { HouseholdFinance::TransactionDraftMatcher.new(draft).call if draft.pending? }
         end
+      end
+
+      # The refused confirmation rolled back everything, including the amount,
+      # date, merchant or split she corrected on the way. Save that correction
+      # on the purchase, which stays pending, the same way "Save draft" does.
+      # The update also refreshes the suggestions for the corrected purchase,
+      # so its card can ask "Same purchase as …?" and accept that match.
+      def keep_correction_for_review!
+        corrections = confirm_params.to_h.except("different_purchase")
+        return if corrections.empty?
+
+        operation_runner.run(
+          operation_key: "transaction.draft.update",
+          input: corrections.merge(draft_id: @draft.id, source_type: "manual_ui"),
+          idempotency_key: "#{required_idempotency_key}:kept-correction"
+        )
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        Rails.logger.warn("Possible duplicate correction was not kept draft_id=#{@draft.id}: #{e.class}: #{e.message}")
       end
 
       def render_possible_duplicate(error)

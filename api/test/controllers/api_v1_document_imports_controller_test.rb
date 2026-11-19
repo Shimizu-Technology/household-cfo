@@ -1903,7 +1903,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       raw_input: "Statement row"
     )
     original_split = draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 10_342, category_name: "Groceries")
-    match = draft.transaction_draft_matches.create!(household_transaction: existing, confidence: 0.98, match_reason: "same amount")
+    draft.transaction_draft_matches.create!(household_transaction: existing, confidence: 0.98, match_reason: "same amount")
     corrected_splits = [
       { id: original_split.id, amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
       { amount: "18.00", budget_category_id: dining.id, notes: "Other" }
@@ -1915,26 +1915,18 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "possible_duplicate", response.parsed_body.fetch("code")
     assert_equal "pending", draft.reload.status
-    assert_equal [ 10_342 ], draft.transaction_draft_splits.pluck(:amount_cents), "the refused correction is not saved"
-    assert_equal "proposed", match.reload.status
+    assert_equal [ 8_542, 1_800 ], draft.transaction_draft_splits.order(:id).pluck(:amount_cents), "her split correction is kept for the question"
+    assert_equal [ existing.id ], draft.transaction_draft_matches.proposed.pluck(:household_transaction_id)
 
+    # Her split correction is already saved on the purchase, so "Different purchase" sends only her answer.
     assert_difference("HouseholdTransaction.count", 1) do
-      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
-        params: {
-          transaction_draft: {
-            different_purchase: true,
-            splits: [
-              { id: original_split.id, amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
-              { amount: "18.00", budget_category_id: dining.id, notes: "Other" }
-            ]
-          }
-        },
-        headers: auth_headers(@user),
-        as: :json
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", params: { transaction_draft: { different_purchase: true } }, headers: auth_headers(@user), as: :json
     end
 
     assert_response :success
-    assert_equal "corrected", draft.reload.status
+    # The split correction was already saved when it asked, so this confirms it as it now reads.
+    assert_equal "confirmed", draft.reload.status
+    assert_equal [ 8_542, 1_800 ], draft.confirmed_transaction.transaction_splits.order(:id).pluck(:amount_cents)
     assert_equal [ "rejected" ], draft.transaction_draft_matches.reload.map(&:status)
   end
 
@@ -2237,7 +2229,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :unprocessable_entity
-    assert_match(/already matched to another one you logged/i, JSON.parse(response.body).fetch("errors").join)
+    assert_match(/already matched to another line from this file/i, JSON.parse(response.body).fetch("errors").join)
     assert_equal "matched", first_draft.reload.status
     assert_equal "pending", second_draft.reload.status
     assert_equal "proposed", second_match.reload.status

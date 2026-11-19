@@ -29,7 +29,7 @@ module HouseholdFinance
       date = first.occurred_on.year == today.year ? first.occurred_on.strftime("%b %-d") : first.occurred_on.strftime("%b %-d, %Y")
       amount = ActiveSupport::NumberHelper.number_to_currency(Money.dollars(first.total_amount_cents))
       also = others.positive? ? " or #{others} other #{'purchase'.pluralize(others)}" : ""
-      "This looks like #{store_name(first.merchant)} on #{date} (#{amount})#{also}, which you already have. Is it the same purchase or a different one? Nothing changed."
+      "This looks like #{store_name(first.merchant)} on #{date} (#{amount})#{also}, which you already have. Is it the same purchase or a different one? Nothing was added to your spending."
     end
 
     # The store as she knows it, without bank wording ("Purchase authorized on 06/23 … Tamuning Gum").
@@ -69,6 +69,7 @@ module HouseholdFinance
 
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ "Transaction draft is not pending" ])
     rescue PossibleDuplicate => e
+      keep_for_review!
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ e.message ], possible_matches: e.matches)
     rescue InvalidDraftCorrection, ArgumentError => e
       Result.new(success?: false, draft: draft.reload, transaction: transaction, errors: [ e.message ])
@@ -97,13 +98,41 @@ module HouseholdFinance
       draft.transaction_draft_matches.proposed.update_all(status: "rejected", updated_at: Time.current)
     end
 
+    # Refused, but her correction is hers to keep: save it on the purchase,
+    # which stays pending, and keep the suggestions so its card can ask
+    # "Same purchase as …?". Nothing counts. A caller's own transaction (an
+    # operation, a group confirm) can still roll this back; the confirm
+    # endpoint then saves the correction through transaction.draft.update.
+    def keep_for_review!
+      draft.reload
+      ApplicationRecord.transaction(requires_new: true) do
+        draft.with_lock do
+          next unless draft.pending?
+
+          if corrections_requested?
+            apply_corrections!(keep_pending: true)
+            # Suggestions for the amount she corrected away no longer apply.
+            draft.transaction_draft_matches.proposed.destroy_all
+          end
+          TransactionDraftMatcher.new(draft.reload).call
+        end
+      end
+    rescue InvalidDraftCorrection, ArgumentError, ActiveRecord::RecordInvalid => e
+      Rails.logger.warn("Possible duplicate kept without its correction draft_id=#{draft.id}: #{e.class}: #{e.message}")
+    end
+
+    def corrections_requested?
+      attributes.slice(:occurred_on, :merchant, :amount, :budget_category_id, :splits).values.any?(&:present?)
+    end
+
     def possible_match_payload(match)
       transaction = match.household_transaction
       { transaction_id: transaction.id, merchant: transaction.merchant, store_name: self.class.store_name(transaction.merchant), occurred_on: transaction.occurred_on.iso8601,
         amount_cents: transaction.total_amount_cents, confidence: match.confidence&.to_f }
     end
 
-    def apply_corrections!
+    # keep_pending: save her correction on a purchase that is not being confirmed.
+    def apply_corrections!(keep_pending: false)
       original_signature = correction_signature
       draft.assign_attributes(
         occurred_on: parsed_date(attributes[:occurred_on]) || draft.occurred_on,
@@ -114,7 +143,7 @@ module HouseholdFinance
       draft.save! if draft.changed?
       apply_split_corrections!
       corrected = correction_signature != original_signature
-      draft.status = "corrected" if corrected
+      draft.status = "corrected" if corrected && !keep_pending
       draft.save! if draft.changed?
       corrected
     end

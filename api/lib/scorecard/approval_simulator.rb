@@ -260,7 +260,7 @@ module Scorecard
             # views answer from the answer key, like any other duplicate question.
             same = result.possible_matches.find { |candidate| bank_event_id(candidate.fetch(:transaction_id)) == event_id }
             if same
-              accept_asked_receipt_match!(draft, attributes, same.fetch(:transaction_id), doc)
+              accept_asked_receipt_match!(draft, same.fetch(:transaction_id), doc)
               next
             end
             result = HouseholdFinance::TransactionDraftConfirmer.new(draft, attributes, different_purchase: true).call
@@ -276,16 +276,11 @@ module Scorecard
       row_answers[HouseholdTransaction.find(transaction_id).financial_source_event_id]&.fetch("event_id")
     end
 
-    # "Same purchase": the receipt form saves her corrections, the card shows
-    # the bank line it matches, and she matches it. One receipt-match action.
-    def accept_asked_receipt_match!(draft, attributes, transaction_id, doc)
-      if attributes.any?
-        saved = HouseholdFinance::TransactionDraftUpdater.new(draft, attributes).call
-        raise "Receipt correction failed: #{saved.errors.join(', ')}" unless saved.success?
-      else
-        HouseholdFinance::TransactionDraftMatcher.new(draft).call
-      end
-      match = draft.transaction_draft_matches.proposed.find_by!(household_transaction_id: transaction_id)
+    # "Same purchase": the refused confirmation kept her corrections and the
+    # match on the pending receipt, so its card asks and she accepts that
+    # match. One receipt-match action.
+    def accept_asked_receipt_match!(draft, transaction_id, doc)
+      match = draft.reload.transaction_draft_matches.proposed.find_by!(household_transaction_id: transaction_id)
       count(doc, :receipt_match)
       result = HouseholdFinance::TransactionDraftMatchAccepter.new(draft, match_id: match.id).call
       raise "Receipt match failed" unless result.success?

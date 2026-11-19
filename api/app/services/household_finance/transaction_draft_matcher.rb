@@ -14,7 +14,7 @@ module HouseholdFinance
 
     def call
       # A suggestion she can't accept is no help: drop ones whose purchase was
-      # since matched to another entry from the same place.
+      # since matched to another line of the same file.
       draft.transaction_draft_matches.proposed.where(household_transaction_id: claimed_transaction_ids).destroy_all
       candidate_results.first(5).each do |result|
         next if result.confidence < MIN_CONFIDENCE
@@ -52,10 +52,12 @@ module HouseholdFinance
         .to_a
     end
 
-    # Purchases another entry from the same place (the same receipt or
-    # statement file, or both typed in) is already matched to. Matching this
-    # one too is refused by TransactionDraftMatchAccepter, so never offer it.
+    # Purchases another line of the same receipt or statement file is already
+    # matched to. TransactionDraftMatchAccepter refuses a second line of one
+    # file, so never offer it. Typed-in purchases have no file and can match.
     def claimed_transaction_ids
+      return [] if draft.financial_document_import_id.nil?
+
       @claimed_transaction_ids ||= begin
         others = household.transaction_drafts.where(financial_document_import_id: draft.financial_document_import_id).where.not(id: draft.id)
         matched = others.where(status: "matched").where.not(matched_transaction_id: nil).pluck(:matched_transaction_id)

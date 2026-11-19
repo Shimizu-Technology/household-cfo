@@ -26,7 +26,7 @@ module HouseholdFinance
           matched_transaction = accepted_match.household_transaction
           matched_transaction.lock!
           raise ArgumentError, "Matched transaction belongs to another household" unless matched_transaction.household_id == draft.household_id
-          raise ArgumentError, "That purchase is already matched to another one you logged. Nothing changed." if matched_elsewhere?(matched_transaction)
+          raise ArgumentError, "That purchase is already matched to another line from this file. Nothing changed." if matched_elsewhere?(matched_transaction)
 
           accepted_match.update!(status: "accepted")
           draft.transaction_draft_matches.where.not(id: accepted_match.id).update_all(status: "rejected", updated_at: Time.current)
@@ -48,7 +48,13 @@ module HouseholdFinance
       match_id.present? ? scope.find_by(id: match_id) : scope.first
     end
 
+    # Two lines of one statement or receipt are two purchases, so they can't
+    # both be one existing purchase. Purchases she typed in (no file) can: the
+    # same purchase logged twice is matched twice, and matching never adds
+    # spending.
     def matched_elsewhere?(matched_transaction)
+      return false if draft.financial_document_import_id.nil?
+
       matched_drafts_for_same_import(matched_transaction).exists? ||
         accepted_matches_for_same_import(matched_transaction).exists?
     end

@@ -23,7 +23,7 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
       result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
 
       refute result.success?
-      assert_equal [ "This looks like Payless Supermarket on Aug 3 ($103.42), which you already have. Is it the same purchase or a different one? Nothing changed." ], result.errors
+      assert_equal [ "This looks like Payless Supermarket on Aug 3 ($103.42), which you already have. Is it the same purchase or a different one? Nothing was added to your spending." ], result.errors
       assert_equal [ bank_line.id ], result.possible_matches.map { |candidate| candidate.fetch(:transaction_id) }
       assert_equal "pending", draft.reload.status
       assert_equal "proposed", match.reload.status
@@ -67,16 +67,14 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
       assert_equal [ bank_line.id ], result.possible_matches.map { |candidate| candidate.fetch(:transaction_id) }
       assert_match "Tasi Demo Home Store on Jun 23 ($34.88)", result.errors.sole
       receipt.reload
-      assert_equal "pending", receipt.status
-      assert_equal 18_488, receipt.total_amount_cents, "the refused correction is not half-saved"
-      assert_empty receipt.transaction_draft_matches
+      assert_equal "pending", receipt.status, "nothing counts yet, and it is not marked corrected"
+      assert_equal 3_488, receipt.total_amount_cents, "her correction is kept"
+      assert_equal [ 3_488 ], receipt.transaction_draft_splits.pluck(:amount_cents)
       assert_equal 1, @household.household_transactions.count
 
-      # "Same purchase": the edit is saved, the card shows the match, and she accepts it.
-      split = receipt.transaction_draft_splits.sole
-      saved = HouseholdFinance::TransactionDraftUpdater.new(receipt, { amount: "34.88", splits: [ { id: split.id, amount: "34.88", budget_category_id: @household_goods.id } ] }).call
-      assert saved.success?, saved.errors.to_sentence
-      match = receipt.reload.transaction_draft_matches.proposed.sole
+      # "Same purchase": the card shows the match and she accepts it.
+      match = receipt.transaction_draft_matches.proposed.sole
+      assert_equal bank_line.id, match.household_transaction_id
       accepted = HouseholdFinance::TransactionDraftMatchAccepter.new(receipt, match_id: match.id).call
 
       assert accepted.success?, accepted.errors.to_sentence
@@ -86,18 +84,36 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
     end
   end
 
-  test "a refusal inside a caller's transaction leaves the correction unsaved" do
+  test "a refused correction stays on the pending purchase with its question, also inside a caller's transaction" do
     travel_to Date.new(2026, 7, 1) do
-      existing_purchase(merchant: "Tasi Demo Home Store", cents: 3_488, on: Date.new(2026, 6, 23), category: @household_goods)
+      bank_line = existing_purchase(merchant: "Tasi Demo Home Store", cents: 3_488, on: Date.new(2026, 6, 23), category: @household_goods)
       receipt = create_draft(merchant: "Tasi Demo Home Store", amount: "184.88", on: "2026-06-23", category: @household_goods)
 
       ApplicationRecord.transaction do
         result = HouseholdFinance::TransactionDraftConfirmer.new(receipt, { amount: "34.88" }).call
         refute result.success?
-        assert_equal 18_488, receipt.reload.total_amount_cents
-        assert_equal [ 18_488 ], receipt.transaction_draft_splits.pluck(:amount_cents)
-        assert_empty receipt.transaction_draft_matches
+        receipt.reload
+        assert_equal "pending", receipt.status
+        assert_equal 3_488, receipt.total_amount_cents
+        assert_equal [ 3_488 ], receipt.transaction_draft_splits.pluck(:amount_cents)
+        assert_equal [ bank_line.id ], receipt.transaction_draft_matches.proposed.pluck(:household_transaction_id)
+        assert_equal [ bank_line.id ], @household.household_transactions.pluck(:id)
       end
+    end
+  end
+
+  test "different purchase with the same correction adds one purchase at the corrected amount" do
+    travel_to Date.new(2026, 7, 1) do
+      existing_purchase(merchant: "Tasi Demo Home Store", cents: 3_488, on: Date.new(2026, 6, 23), category: @household_goods)
+      receipt = create_draft(merchant: "Tasi Demo Home Store", amount: "184.88", on: "2026-06-23", category: @household_goods)
+      refute HouseholdFinance::TransactionDraftConfirmer.new(receipt, { amount: "34.88" }).call.success?
+
+      result = HouseholdFinance::TransactionDraftConfirmer.new(receipt, { amount: "34.88" }, different_purchase: true).call
+
+      assert result.success?, result.errors.to_sentence
+      assert_equal 3_488, result.transaction.total_amount_cents
+      assert_equal [ 3_488, 3_488 ], @household.household_transactions.where(status: "confirmed").pluck(:total_amount_cents)
+      assert_equal [ "rejected" ], receipt.reload.transaction_draft_matches.map(&:status)
     end
   end
 
@@ -172,20 +188,41 @@ class HouseholdFinanceTransactionDraftPossibleDuplicateTest < ActiveSupport::Tes
     end
   end
 
-  test "a purchase already matched to another entry she typed is not offered again" do
+  test "a purchase typed in twice still asks, and both can be the same bank line" do
     travel_to Date.new(2026, 8, 10) do
       bank_line = existing_purchase(merchant: "Payless Supermarkets - Mangilao", cents: 10_342, on: Date.new(2026, 8, 3))
       first = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
-      second = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
-      assert_equal [ bank_line.id ], second.transaction_draft_matches.proposed.map(&:household_transaction_id)
-
       matched = HouseholdFinance::TransactionDraftMatchAccepter.new(first, match_id: first.transaction_draft_matches.proposed.sole.id).call
       assert matched.success?, matched.errors.to_sentence
 
-      HouseholdFinance::TransactionDraftMatcher.new(second.reload).call
-      assert_empty second.reload.transaction_draft_matches.proposed, "the taken bank line is no longer suggested"
-      result = HouseholdFinance::TransactionDraftConfirmer.new(second).call
-      assert result.success?, result.errors.to_sentence
+      second = create_draft(merchant: "Payless", amount: "103.42", on: "2026-08-03")
+      assert_equal [ bank_line.id ], second.transaction_draft_matches.proposed.map(&:household_transaction_id), "the second copy still asks"
+      refute HouseholdFinance::TransactionDraftConfirmer.new(second).call.success?
+
+      again = HouseholdFinance::TransactionDraftMatchAccepter.new(second, match_id: second.transaction_draft_matches.proposed.sole.id).call
+      assert again.success?, again.errors.to_sentence
+      assert_equal [ "matched", "matched" ], [ first.reload.status, second.reload.status ]
+      assert_equal [ bank_line.id ], @household.household_transactions.pluck(:id), "matching twice never adds spending"
+    end
+  end
+
+  test "a second line of the same file is not offered a purchase the first line took" do
+    travel_to Date.new(2026, 8, 10) do
+      bank_line = existing_purchase(merchant: "Payless Supermarkets - Mangilao", cents: 10_342, on: Date.new(2026, 8, 3))
+      receipt = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "receipt", status: "needs_review",
+        filename: "talun-receipt.png", content_type: "image/png", byte_size: 100, s3_key: "household-cfo/test/talun-receipt.png")
+      lines = 2.times.map do |index|
+        receipt.transaction_drafts.create!(household: @household, occurred_on: Date.new(2026, 8, 3), merchant: "Payless", total_amount_cents: 10_342,
+          budget_category: @groceries, source_type: "receipt", status: "pending", raw_input: "Receipt line #{index + 1}").tap do |line|
+          line.transaction_draft_splits.create!(budget_category: @groceries, amount_cents: 10_342)
+          HouseholdFinance::TransactionDraftMatcher.new(line).call
+        end
+      end
+      assert HouseholdFinance::TransactionDraftMatchAccepter.new(lines.first, match_id: lines.first.transaction_draft_matches.proposed.sole.id).call.success?
+
+      HouseholdFinance::TransactionDraftMatcher.new(lines.last.reload).call
+      assert_empty lines.last.reload.transaction_draft_matches.proposed
+      assert_equal bank_line.id, lines.first.reload.matched_transaction_id
     end
   end
 
