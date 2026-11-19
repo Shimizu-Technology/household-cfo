@@ -30,6 +30,7 @@ module HouseholdFinance
       |cancel(?:s|led|ling|ing)?
       |eliminat(?:e|es|ing)
       |(?<!\bthe\s)(?<!\ba\s)(?<!\byour\s)(?<!\bno\s)(?<!\bcredit\s)limit(?:s|ing)?
+      |(?:set|put|place)(?:s|ting)?\s+(?:a|an)\s+(?:\w+\s+)?(?:limit|cap|ceiling)\s+on
       |scal(?:e|es|ing)\s+down(?:\s+on)?
       |pull(?:s|ing)?\s+back(?:\s+on)?
       |eas(?:e|es|ing)\s+off(?:\s+on)?

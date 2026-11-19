@@ -173,7 +173,9 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
       "Switch to a cheaper option for the clinic visits.",
       "Switching to a cheaper plan for medical care would save money.",
       "Send Auntie Lina a smaller amount this month.",
-      "Sending Auntie Lina less would free up $100."
+      "Sending Auntie Lina less would free up $100.",
+      "Set a limit on the clinic visits.",
+      "Putting a monthly cap on what goes to Auntie Lina would help."
     ].each do |reply|
       assert_equal [ "protected_cut" ], rules_for(reply, ledger: PROTECTED_LEDGER), reply
     end
@@ -187,7 +189,9 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
       "Don't eliminate the clinic visits.",
       "I won't suggest limiting the clinic visits.",
       "Never take a break from the clinic visits.",
-      "Don't send Auntie Lina a smaller amount."
+      "Don't send Auntie Lina a smaller amount.",
+      "Set a limit on Jamaican Grill.",
+      "Don't set a limit on the clinic visits."
     ].each do |reply|
       assert_empty rules_for(reply, ledger: PROTECTED_LEDGER), reply
     end
