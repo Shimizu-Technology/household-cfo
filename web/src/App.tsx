@@ -84,6 +84,7 @@ import { Metric } from './components/Metric'
 import { PurchaseReviewSummary } from './components/PurchaseReviewSummary'
 import { PlaidConnections } from './components/PlaidConnections'
 import { IgnoredTransactionList, ReviewedTransactionsPanel, TransactionReopenButton } from './components/ReviewedTransactions'
+import { confirmAfterCreate, isPossibleDuplicateRefusal, reloadReviewData } from './lib/confirmRefusal'
 import { bulkConfirmPhraseMismatchMessage, POSSIBLE_DUPLICATE_NOTICE, transactionCategoryWarningCopy, transactionItemName, transactionReopenConfirmMessage, transactionReviewStackTitle } from './lib/transactionReview'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
@@ -2654,18 +2655,21 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }
   }
 
-  async function restoreSelectedBudgetPlan(returnedBudget: BudgetData) {
-    if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return
+  // True when the selected budget year is current. afterRefusal: nothing was saved, so never say it was.
+  async function restoreSelectedBudgetPlan(returnedBudget: BudgetData, { afterRefusal = false } = {}): Promise<boolean> {
+    if (!budgetView || returnedBudget.annual_plan?.year === budgetView.year) return true
     const generation = financialMutationGenerationRef.current
     try {
       const selected = await fetchBudget(budgetView.year)
-      if (generation !== financialMutationGenerationRef.current) return
+      if (generation !== financialMutationGenerationRef.current) return false
       if (selected.annual_plan?.year !== budgetView.year) throw new Error('The selected budget year could not be refreshed.')
       setData((current) => current ? { ...current, budget: selected } : current)
       setWorkspaceRefreshNotice(current => current?.kind === 'selected' ? null : current)
+      return true
     } catch {
-      if (generation !== financialMutationGenerationRef.current) return
-      setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
+      if (generation !== financialMutationGenerationRef.current) return false
+      if (!afterRefusal) setWorkspaceRefreshNotice({ kind: 'selected', message: 'Your change was saved, but the selected budget year could not refresh. Reopen that year before using its totals.' })
+      return false
     }
   }
 
@@ -3176,34 +3180,23 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       let confirmationFailed = false
       let possibleDuplicate = response.transaction_draft.matches?.some(match => match.status === 'proposed') ?? false
       if (confirm && !possibleDuplicate) {
-        try {
-          const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
-          response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
+        const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
+        const draftId = response.transaction_draft.id
+        // Both attempts use the same key, so a retried confirmation is never counted twice.
+        const outcome = await confirmAfterCreate(() => confirmTransactionDraft(draftId, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)))
+        if (outcome.kind === 'confirmed') {
           transactionOperationKeysRef.current.complete(confirmSignature)
+          response = { ...response, workspace: outcome.workspace }
           rememberPurchase(response.transaction_draft, 'confirmed')
-        } catch (caught) {
+        } else if (outcome.kind === 'asking') {
+          // It looks like a purchase she already has. It stays in Review, which asks "Same purchase as …?".
+          possibleDuplicate = true
+          try {
+            response = { ...response, workspace: await fetchAppData(true) }
+          } catch { /* The created purchase is still in Review; its card asks once the workspace loads. */ }
+        } else {
+          // Still unknown: the purchase stays in Review, where Confirm uses the same key again.
           confirmationFailed = true
-          if (caught instanceof ApiRequestError && caught.code === 'possible_duplicate') {
-            // It looks like a purchase she already has. It stays in Review, which asks "Same purchase as …?".
-            possibleDuplicate = true
-            confirmationFailed = false
-            try {
-              const latest = await fetchAppData(true)
-              response = { ...response, workspace: latest }
-            } catch { /* The created purchase is still in Review; its card asks once the workspace loads. */ }
-          // A lost response can hide a confirmation that went through. Ask once more with the same key:
-          // the server replays a finished confirmation and never counts the purchase twice.
-          } else if (!(caught instanceof ApiRequestError) || caught.status >= 500) {
-            try {
-              const confirmSignature = `transaction:confirm:${response.transaction_draft.id}`
-              response = { ...response, workspace: await confirmTransactionDraft(response.transaction_draft.id, {}, transactionOperationKeysRef.current.keyFor(confirmSignature)) }
-              transactionOperationKeysRef.current.complete(confirmSignature)
-              rememberPurchase(response.transaction_draft, 'confirmed')
-              confirmationFailed = false
-            } catch {
-              // Still unknown: the purchase stays in Review, where Confirm uses the same key again.
-            }
-          }
         }
       }
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
@@ -3296,20 +3289,20 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
   }
 
   async function refreshStaleTransactionReview(caught: unknown) {
-    if (caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate'].includes(caught.code ?? '')) {
-      const isCurrent = captureWorkspaceReloadGuard()
-      try {
-        const latest = await fetchAppData(true)
-        if (isCurrent()) {
-          setData(latest)
-          replaceMiaHistory(latest.mia)
-          await restoreSelectedBudgetPlan(latest.budget)
-          void refreshDocumentImports({ quiet: true })
-        }
-        return true
-      } catch { /* Keep the conflict message visible if the refresh is offline. */ }
-    }
-    return false
+    if (!(caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate'].includes(caught.code ?? ''))) return false
+    // The action was refused, so nothing was saved. False keeps its message visible: offline, overtaken,
+    // or a selected budget year that didn't reload.
+    const isCurrent = captureWorkspaceReloadGuard()
+    return reloadReviewData({
+      fetchLatest: () => fetchAppData(true),
+      isCurrent,
+      apply: latest => {
+        setData(latest)
+        replaceMiaHistory(latest.mia)
+        void refreshDocumentImports({ quiet: true })
+      },
+      restoreSelectedYear: latest => restoreSelectedBudgetPlan(latest.budget, { afterRefusal: true }),
+    })
   }
 
   async function handleConfirmTransactionDraft(draft: TransactionDraft, options: { differentPurchase?: boolean } = {}) {
@@ -3343,8 +3336,8 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       actionFailed = true
       // It looks like a purchase she already has. Nothing changed; the refreshed card now asks
       // "Same purchase as …?" so she can answer instead of reading an error.
-      const asking = await refreshStaleTransactionReview(caught)
-      if (asking && caught instanceof ApiRequestError && caught.code === 'possible_duplicate') return
+      const current = await refreshStaleTransactionReview(caught)
+      if (current && isPossibleDuplicateRefusal(caught)) return
       trackPilotWorkflowFailure('transaction_review', 'confirm')
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))

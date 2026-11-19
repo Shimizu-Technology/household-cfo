@@ -18044,6 +18044,35 @@ test('BOG UI F2 a confirm the server refuses as a possible duplicate turns into 
   expect(confirmBodies).toEqual([{ transaction_draft: {} }, { transaction_draft: { different_purchase: true } }])
 })
 
+test('BOG UI F2 a retried confirm that is refused as a possible duplicate still asks Same purchase', async ({ page }) => {
+  const workspace = await f2Mock(page)
+  const draft = { id: 7895, occurred_on: '2026-11-14', merchant: 'Market', amount: 45.2, amount_cents: 4520, status: 'pending', source_type: 'manual_ui', category_id: 2, category_name: 'Flexible spending', splits: [{ id: 7896, budget_category_id: 2, category_name: 'Flexible spending', stack_key: 'discretionary', amount: 45.2, amount_cents: 4520, metadata: {} }], matches: [] as Array<Record<string, unknown>> }
+  await page.route('http://api.test/api/v1/transaction_drafts', async route => {
+    workspace.budget.annual_plan.pending_transaction_drafts = [draft]
+    f2SyncSnapshot(workspace)
+    await route.fulfill({ json: { transaction_draft: draft, workspace } })
+  })
+  const keys: string[] = []
+  await page.route('http://api.test/api/v1/transaction_drafts/7895/confirm', async route => {
+    keys.push(route.request().headers()['idempotency-key'])
+    // The first response is lost on the way back.
+    if (keys.length === 1) return route.abort('connectionreset')
+    // Meanwhile its bank line was approved: the server saved the suggestion and refused.
+    draft.matches = [{ id: 7897, status: 'proposed', confidence: 0.92, match_reason: 'same amount', transaction: { id: 7898, occurred_on: '2026-11-14', merchant: 'POS PURCHASE MARKET', store_name: 'Market', amount: 45.2, source_type: 'statement', categories: ['Flexible spending'] } }]
+    f2SyncSnapshot(workspace)
+    return route.fulfill({ status: 409, json: { errors: ['This looks like Market on Nov 14 ($45.20), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'], code: 'possible_duplicate', possible_matches: [{ transaction_id: 7898 }] } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Review')
+  await fix1EnterPurchase(page)
+  await page.getByLabel('Date', { exact: true }).fill('2026-11-14')
+  await page.getByRole('button', { name: 'Add and confirm', exact: true }).click()
+  await expect(page.locator('.manual-transaction-capture [role=status]')).toContainText('This may be a purchase you already have')
+  await expect(page.locator('.manual-transaction-capture [role=status]')).not.toContainText('Confirmation did not finish')
+  await expect(page.locator('[data-review-item="7895"]')).toContainText('Same purchase as Market on Nov 14 ($45.20)?')
+  expect(keys).toHaveLength(2)
+  expect(keys[1]).toBe(keys[0])
+})
+
 test('BOG UI F2 fix1 double tap then Undo replaces the manual confirmation notice', async ({ page }) => {
   const workspace = await f2Mock(page)
   const calls = await fix1PurchaseRoutes(page, workspace)
