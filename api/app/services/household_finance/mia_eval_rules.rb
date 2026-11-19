@@ -153,9 +153,9 @@ module HouseholdFinance
       return [] if merchants.empty?
 
       sentences.filter_map do |sentence|
-        next if sentence.match?(ONE_OFF)
-
+        # "It was one-time" excuses only its own clause; "…one-time, so cutting it saves $345 a month" still claims a monthly saving.
         merchant = sentence.split(CLAUSE_BREAK).filter_map do |clause|
+          next if clause.match?(ONE_OFF)
           next unless clause.match?(MONTHLY) && clause.match?(SAVING) && !clause.match?(NO_SAVING)
 
           merchants.find { |row| label_terms(row["label"]).any? { |term| names_in?(clause, term) } || share_of_total?(clause, row["total_cents"]) }

@@ -169,7 +169,9 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
       "Halving that $690 PayPal payment could save $345 a month.",
       "Halving the nursery payment saves $345 a month.",
       # The figure alone: half of the one payment, stated as a month.
-      "Trimming that shopping could save $345 a month."
+      "Trimming that shopping could save $345 a month.",
+      # A one-time label elsewhere in the sentence doesn't excuse the monthly claim.
+      "The PayPal *IslandNursery payment was one-time, so cutting it saves $345 a month."
     ].each do |reply|
       assert_equal [ "one_month_saving" ], rules_for(reply, ledger: ledger), reply
     end
