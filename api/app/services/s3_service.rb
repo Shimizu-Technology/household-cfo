@@ -13,7 +13,17 @@ class S3Service
       safe.present? ? safe : fallback
     end
 
+    def local?
+      return false unless ENV["STORAGE_BACKEND"] == "local"
+
+      raise MissingConfigurationError, "Local storage is only allowed in development and test" unless Rails.env.development? || Rails.env.test?
+
+      true
+    end
+
     def configured?
+      return true if local?
+
       bucket_name.present? &&
         ENV["AWS_ACCESS_KEY_ID"].present? &&
         ENV["AWS_SECRET_ACCESS_KEY"].present?
@@ -56,6 +66,8 @@ class S3Service
     end
 
     def upload(key, data, content_type: "application/octet-stream")
+      return local_store.upload(key, data, content_type: content_type) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       s3_client.put_object(
@@ -72,6 +84,8 @@ class S3Service
     end
 
     def upload_file!(key, path, content_type:, checksum_sha256:)
+      return File.open(path, "rb") { |file| local_store.upload(key, file, content_type: content_type, checksum_sha256: checksum_sha256) } if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       File.open(path, "rb") do |file|
@@ -88,6 +102,8 @@ class S3Service
     end
 
     def copy!(source_key, destination_key)
+      return local_store.copy(source_key, destination_key) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       destination = Aws::S3::Object.new(bucket_name, destination_key, client: s3_client)
@@ -107,6 +123,8 @@ class S3Service
     end
 
     def download_to_io!(key, io)
+      return local_store.download(key, io) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       # File bytes are binary; a text-mode file would try to transcode them to UTF-8
@@ -118,6 +136,8 @@ class S3Service
     end
 
     def presigned_url(key, expires_in: 300, filename: nil, disposition: :attachment)
+      return local_store.url(key, :get, expires_in: expires_in, filename: filename, disposition: disposition) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       presigner = Aws::S3::Presigner.new(client: s3_client)
@@ -138,6 +158,8 @@ class S3Service
     end
 
     def presigned_upload(key, content_type:, checksum_sha256:, expires_in: 900)
+      return { url: local_store.url(key, :put, expires_in: expires_in, content_type: content_type, checksum_sha256: checksum_sha256), headers: { "Content-Type" => content_type }, expires_in: expires_in } if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       presigner = Aws::S3::Presigner.new(client: s3_client)
@@ -162,6 +184,8 @@ class S3Service
     end
 
     def object_metadata(key)
+      return local_store.metadata(key) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       response = s3_client.head_object(bucket: bucket_name, key: key, checksum_mode: "ENABLED")
@@ -177,6 +201,8 @@ class S3Service
     end
 
     def delete(key)
+      return local_store.delete(key) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
       return true if key.blank?
 
@@ -189,6 +215,8 @@ class S3Service
     end
 
     def delete!(key)
+      return local_store.delete(key) if local?
+
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
       return true if key.blank?
 
@@ -197,6 +225,10 @@ class S3Service
     end
 
     private
+
+    def local_store
+      LocalObjectStore.new
+    end
 
     def cleanup_s3_client
       Aws::S3::Client.new(

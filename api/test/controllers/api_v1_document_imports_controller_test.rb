@@ -23,6 +23,26 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     @household.household_memberships.create!(user: @user, role: "owner")
   end
 
+  test "local storage accepts and persists a fictional statement without AWS" do
+    previous = ENV["STORAGE_BACKEND"]
+    ENV["STORAGE_BACKEND"] = "local"
+    file = uploaded_csv
+    expected_bytes = File.binread(file.path)
+    assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+      post "/api/v1/document_imports", params: { file: file, document_kind: "spreadsheet" },
+        headers: auth_headers(@user)
+    end
+    assert_response :created
+    document = FinancialDocumentImport.order(:id).last
+    io = StringIO.new
+    S3Service.download_to_io!(document.s3_key, io)
+    assert_equal expected_bytes, io.string
+    assert_equal document.byte_size, S3Service.object_metadata(document.s3_key)[:byte_size]
+  ensure
+    S3Service.delete!(document.s3_key) if document
+    previous.nil? ? ENV.delete("STORAGE_BACKEND") : ENV["STORAGE_BACKEND"] = previous
+  end
+
   test "provider file failure diagnostics stay private on participant uploads" do
     document = create_import!(status: "failed")
     document.attempts.create!(provider: "synthetic", model: "synthetic", status: "failed", prompt_version: "synthetic", schema_version: "synthetic", started_at: Time.current, completed_at: Time.current,

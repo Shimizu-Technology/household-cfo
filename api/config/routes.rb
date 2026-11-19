@@ -1,4 +1,9 @@
 Rails.application.routes.draw do
+  if Rails.env.development? || Rails.env.test?
+    get "local_storage/:token", to: "local_storage#show"
+    put "local_storage/:token", to: "local_storage#update"
+  end
+
   namespace :api do
     namespace :auth do
       get "options", to: "browser_sessions#options"
