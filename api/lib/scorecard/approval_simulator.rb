@@ -33,10 +33,18 @@ module Scorecard
         return
       end
       accounts = revision.financial_source_accounts.order(:id).map do |account|
-        identity = @key.identity_for(doc, account, mappings)
         count(doc, :account_identity)
-        { source_account_id: account.id, account_basis: identity.fetch("account_basis"),
-          label: "#{identity.fetch('institution')} #{identity.fetch('masked_identifier')}" }
+        if @correct_proposals
+          identity = @key.identity_for(doc, account, mappings)
+          { source_account_id: account.id, account_basis: identity.fetch("account_basis"),
+            label: "#{identity.fetch('institution')} #{identity.fetch('masked_identifier')}" }
+        else
+          answer = { source_account_id: account.id }
+          # Answer the ownership question when the file gives no account type.
+          # The label and tracked-account match come from the production defaults.
+          answer[:account_basis] = @key.identity_for(doc, account, mappings).fetch("account_basis") if account.account_basis == "unknown"
+          answer
+        end
       end
       approve(revision, lines: [], accounts: accounts) if accounts.any?
       # A page is reviewed as displayed; answers on that page do not magically
