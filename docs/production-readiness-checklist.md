@@ -218,3 +218,31 @@ Record failures with the in-app feedback form using only demo-safe descriptions.
 - Set `OPS_ALERT_EMAILS` on Render (comma-separated) so someone is emailed, at most hourly, when OpenRouter returns 401/402/403 (bad key, out of credits, access denied). Without it the failure is only logged and Mia quietly answers with scripted fallbacks.
 - Production has no `SENTRY_DSN`; setting one also sends these as Sentry errors.
 - Keep OpenRouter auto top-up on. On 2026-10-16 the shared account ran out of credits and production Mia fell back silently.
+
+### Local/CI private document storage
+
+For synthetic fixtures on a laptop or in CI, set `STORAGE_BACKEND=local` in the
+API environment and restart Rails. No AWS credentials are required. This mode
+is refused at boot and at runtime outside development/test. Unset it to use
+the existing S3 configuration; production environment variables are unchanged.
+
+Objects use the same namespaced keys as S3, stored under the gitignored
+`api/storage/local_s3/`, with each key component hashed using SHA-256 to avoid
+filesystem length and reserved-name collisions. Metadata reports the S3
+encryption marker for upload-completion compatibility; local files are private
+filesystem files, **not encrypted by this adapter**. Use only fictional data.
+
+Set `LOCAL_STORAGE_URL` to the API origin when it differs from
+`http://localhost:3000`. Presigned GET and PUT URLs are expiring signed bearer
+capabilities, like S3 URLs. Existing authenticated controllers authorize their
+issuance; public brand logos retain their existing public issuance path.
+Tokens bind the key, operation, filename/disposition or content type/checksum.
+The development/test-only route streams downloads and validates PUT checksums.
+Existing CORS origin rules apply. Model extraction still requires either the
+normal model configuration or test stubs; local storage never calls a model.
+
+Acceptance for this backend change is agent-executed API/service coverage:
+fictional multipart statement accepted and persisted, binary round trips,
+file upload/copy/head/delete/missing objects, unsafe keys, production refusal,
+and signed PUT/GET validity, method binding, expiry and checksum rejection.
+Browser review/approve interaction is not exercised by this backend-only pass.
