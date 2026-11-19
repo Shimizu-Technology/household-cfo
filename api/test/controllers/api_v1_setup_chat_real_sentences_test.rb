@@ -45,22 +45,21 @@ class ApiV1SetupChatRealSentencesTest < ActionDispatch::IntegrationTest
     refute_match(/don't add up|not sure it's monthly/, text(body))
   end
 
-  test "a family debt with the amount behind is put on the card, even when the reader hears hardship" do
-    body = say(FAMILY_LOAN, read(care: "hardship", setup: changes(debt_payment: debts(parts: [
+  test "a family debt with the amount behind is put on the card" do
+    body = say(FAMILY_LOAN, read(setup: changes(debt_payment: debts(parts: [
       debt("remove", "surgery bill", "", source: "The surgery bill isn't a debt yet. It's a one-time bill coming next month, so please take it off debts."),
       debt("add", "family loan from Tito Ben", "$300", source: "My real debt is a family loan from Tito Ben: I pay $300 a month and I'm about $900 behind. I'm not sure of the full balance.") ]))))
     assert_includes text(body), "Added family loan from Tito Ben $300."
-    refute_match(/heavy week|solve the whole month/i, text(body))
     assert_equal [ "Family loan from Tito Ben" ], debt_names(body)
   end
 
-  test "a feeling in the same message keeps the care reply" do
-    message = "I'm so stressed. We owe Tito Ben and I'm about $900 behind. I pay $300 a month."
-    body = say(message, read(care: "hardship", setup: changes(debt_payment: debts(parts: [ debt("add", "Tito Ben", "$300", source: "I pay $300 a month.") ]))))
-    refute_includes text(body), "Added Tito Ben"
-    message = "My husband just lost his job. I pay Tito Ben $300 a month and we're $900 behind."
-    body = say(message, read(care: "hardship", setup: changes(debt_payment: debts(parts: [ debt("add", "Tito Ben", "$300", source: "I pay Tito Ben $300 a month") ]))))
-    refute_includes text(body), "Added Tito Ben", "a life event keeps the care reply"
+  test "when the reader hears hardship beside a debt, the care reply comes first" do
+    body = say(FAMILY_LOAN, read(care: "hardship", setup: changes(debt_payment: debts(parts: [ debt("add", "family loan from Tito Ben", "$300", source: "I pay $300 a month") ]))))
+    refute_includes text(body), "Added family loan"
+  end
+
+  test "the reader is told plain debt facts are not hardship by themselves" do
+    assert_includes HouseholdFinance::ParticipantMessageReader::PROMPT, "an amount behind on it, or not knowing its full balance is a setup fact, not hardship by itself"
   end
 
   test "a one-time bill coming soon is not put in debts" do
@@ -86,23 +85,18 @@ class ApiV1SetupChatRealSentencesTest < ActionDispatch::IntegrationTest
     assert_includes text(body), "those numbers don't add up"
   end
 
-  test "distress beside a debt amount keeps the care reply" do
-    [ "They laid me off Friday. Visa minimum is $75 a month.", "I was let go last week. Visa minimum is $75 a month.",
-      "I've been out of work since August. Visa minimum is $75 a month.", "They cut my hours. Visa minimum is $75 a month.",
-      "My husband left. I pay the Visa $75 a month.", "The bank is going to repo my car. Visa minimum is $75 a month.",
-      "They're going to cut off our power on Friday. Visa minimum is $75 a month.", "Collections is garnishing my wages. Visa minimum is $75 a month.",
-      "We're 2 months behind on rent, about $2,400. Visa minimum is $75 a month.", "My son is in the ICU. Visa minimum is $75 a month.",
-      "We lost my dad last month. Visa minimum is $75 a month.", "I'm drowning in debt. Visa minimum is $75 a month.",
-      "I pay the Visa $75 a month. My husband hasn't been home in three days.", "I pay the Visa $75 a month. What happens if they take us to court?" ].each do |message|
-      body = say(message, read(care: "hardship", question: message.end_with?("?"), setup: changes(debt_payment: debts(parts: [ debt("add", "Visa", "$75", source: "$75 a month") ]))))
-      refute_includes text(body), "Added Visa", message
-    end
-  end
-
   test "a paycheck count before the amount keeps it per paycheck" do
     message = "I get two checks of $2,400 a month."
     body = say(message, read(setup: changes(primary_income: money(total_amount: "2,400", total_cadence: "per_paycheck", total_count: "two", total_source: message))))
     assert_equal 480_000, row(body, "primary_income")["total_cents"]
+  end
+
+  { "The Visa is $75, it will be paid off by summer." => [ "Visa", "$75" ], "Student loans start next month at $200." => [ "Student loans", "$200" ],
+    "The truck loan is $310 and the last payment is next month." => [ "truck loan", "$310" ] }.each_with_index do |(message, (name, minimum)), index|
+    test "a real debt with a future date stays a debt #{index}" do
+      body = say(message, read(setup: changes(debt_payment: debts(parts: [ debt("add", name, minimum, source: message) ]))))
+      assert_equal [ name.sub(/\A./, &:upcase) ], debt_names(body), message
+    end
   end
 
   test "only a bill she says is one-time or still to come leaves debts" do
@@ -110,12 +104,6 @@ class ApiV1SetupChatRealSentencesTest < ActionDispatch::IntegrationTest
     assert_equal [ "Credit card bill" ], debt_names(body)
     body = say("There's a surgery bill coming next month, about $2,000.", read(setup: changes(debt_payment: debts(parts: [ debt("add", "surgery bill", "$2,000", source: "There's a surgery bill coming next month, about $2,000.") ]))))
     refute_includes debt_names(body), "Surgery bill"
-  end
-
-  test "an employer letting her go keeps the care reply" do
-    message = "My employer let me go yesterday. My Visa minimum is $75 a month."
-    body = say(message, read(care: "hardship", setup: changes(debt_payment: debts(parts: [ debt("add", "Visa", "$75", source: "My Visa minimum is $75 a month.") ]))))
-    refute_includes text(body), "Added Visa"
   end
 
   test "a bill with a weekly payment stays a debt to clarify" do
