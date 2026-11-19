@@ -20,6 +20,29 @@ beforeEach(() => {
 })
 
 describe('statement review a participant can finish', () => {
+  it.each([null, 70])('shows the category or No category on approved cash lines (%s)', async (categoryId) => {
+    const data = participantReviewFixture()
+    const event = data.events[1]
+    event.event_type = 'cash_withdrawal'
+    data.participant_review!.plan.ready = []
+    data.participant_review!.plan.attention = []
+    data.participant_review!.categories = [{ id: 70, name: 'Cash' }]
+    data.participant_review!.rows[event.id].approved = { id: 800, digest: 'fictional-cash', version_number: 1, current: true, reason: 'Reviewed fictional cash', projection: { action: 'none' }, actual: null, facts: {
+      source_account_identity_version_id: 100, posted_on: event.posted_on, merchant: event.evidence!.merchant!, overlap_disposition: 'distinct',
+      disposition: 'include', event_type: 'cash_withdrawal', signed_amount_cents: -10000,
+      purchase_amount_cents: categoryId ? 10000 : null, budget_category_id: categoryId,
+    } }
+    fetchReview.mockResolvedValue(data)
+    mount()
+    await screen.findByRole('heading', { level: 5 })
+    fireEvent.click(screen.getByText('See all 137 lines'))
+    const button = await screen.findByRole('button', { name: `Fictional entry ${event.id - 4000 + 1}` })
+    const row = button.closest('tr')!
+    expect(within(row).getByText(categoryId ? 'Cash' : 'No category')).toBeTruthy()
+    fireEvent.click(button)
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
   it('refreshes a coverage conflict to the newer answer and clears the old mutation error', async () => {
     const data = participantReviewFixture()
     data.participant_review!.plan.coverage = { question: 'Is anything missing?', answer: null, version_id: null }

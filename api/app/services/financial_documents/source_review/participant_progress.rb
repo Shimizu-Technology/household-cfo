@@ -11,7 +11,8 @@ module FinancialDocuments
         versions = current_versions
         total = @revision.financial_source_events.count
         done = versions.count
-        without_category = versions.where(budget_category_id: nil, disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0").count
+        without_category = versions.where(budget_category_id: nil, disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0")
+          .where.not("source_review_versions.event_type = 'cash_withdrawal' AND source_review_versions.purchase_amount_cents IS NULL").count
         { total: total, done: done, without_category: without_category, spending: spending_totals,
           coverage: { question: CoverageQuestion.text(@revision, deficiencies: CoverageQuestion.document_covered?(@revision) ? [] : [ "document_page_or_sheet_coverage_unverified" ]), answer: CoverageQuestion.answer(@revision), version_id: CoverageQuestion.latest(@revision)&.id } }
       end
@@ -20,7 +21,9 @@ module FinancialDocuments
       # A statement with no purchases reports zero purchases; an amount the file did not give is never added as $0.
       def spending_totals
         read = @revision.financial_source_events.where(row_kind: "posted", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("signed_amount_cents < 0")
+        # Withdrawals approved before cash counted as spending (no purchase amount) stay movements until reviewed again.
         counted = current_versions.where(disposition: "include", event_type: FinancialSourceEvent::EXPENSE_TYPES).where("source_review_versions.signed_amount_cents < 0")
+          .where.not("source_review_versions.event_type = 'cash_withdrawal' AND source_review_versions.purchase_amount_cents IS NULL")
         read_count, read_cents = read.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(signed_amount_cents), 0)"))
         counted_count, counted_cents = counted.pick(Arel.sql("COUNT(*)"), Arel.sql("COALESCE(-SUM(source_review_versions.signed_amount_cents), 0)"))
         { read_count: read_count, read_cents: read_cents.to_i, counted_count: counted_count, counted_cents: counted_cents.to_i }

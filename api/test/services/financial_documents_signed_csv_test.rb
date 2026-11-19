@@ -3,6 +3,29 @@ require "csv"
 require "spreadsheet"
 
 class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
+  test "CSV cash withdrawals project spending and ATM fees stay fees" do
+    descriptions = [ "Non-WF ATM Withdrawal authorized on 10/04 Tasi Demo S*····4410 Card 7302", "Branch withdrawal", "Cash withdrawal", "Withdrawal - Branch", "ATM Transaction Fee", "Non-WF ATM Fee" ]
+    content = CSV.generate do |csv|
+      csv << %w[Date Description Debit Credit]
+      descriptions.each { |description| csv << [ "2026-10-04", description, "80.00", nil ] }
+    end
+    data = extract(content, account_basis: "asset")
+    events = data[:source_accounting][:events]
+    assert_equal %w[cash_withdrawal cash_withdrawal cash_withdrawal cash_withdrawal fee fee], events.pluck(:event_type)
+    assert_equal [ 8000 ] * 6, events.pluck(:expense_amount_cents)
+    assert_equal 48_000, data[:transaction_drafts].sum { |draft| draft[:total_amount_cents] }
+  end
+
+  test "a CSV with Merchant, Description and Type columns still reads an ATM withdrawal from its description" do
+    content = CSV.generate do |csv|
+      csv << %w[Date Description Merchant Type Debit Credit]
+      csv << [ "2026-10-04", "ATM Withdrawal", "Tasi Demo Bank", "purchase", "80.00", nil ]
+      csv << [ "2026-10-05", "ATM/POS Purchase", "Tasi Demo Market", "purchase", "45.00", nil ]
+    end
+    events = extract(content, account_basis: "asset")[:source_accounting][:events]
+    assert_equal %w[cash_withdrawal purchase], events.pluck(:event_type)
+  end
+
   test "running balances prove the whole bank CSV without a model" do
     data = extract(csv, account_basis: "asset")
     rows = data.fetch(:source_accounting).fetch(:events)
@@ -484,5 +507,17 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     result.data
   ensure
     file&.close!
+  end
+
+  test "a spreadsheet transfer or card payment that mentions a fee keeps its own type" do
+    extractor = FinancialDocuments::StructuredSpreadsheetExtractor.allocate
+    assert_equal "transfer", extractor.send(:source_event_type, [], {}, "Online Transfer to Savings service charge", -5_000)
+    assert_equal "debt_payment", extractor.send(:source_event_type, [], {}, "Visa payment incl late fee", -31_000)
+    assert_equal "fee", extractor.send(:source_event_type, [], {}, "Branch Withdrawal Service Charge", -300)
+    # A "Type: purchase" column can't turn an explicit ATM withdrawal into a purchase.
+    assert_equal "cash_withdrawal", extractor.send(:source_event_type, [ "purchase" ], { "type" => 0 }, "ATM Withdrawal", -8_000)
+    assert_equal "purchase", extractor.send(:source_event_type, [], {}, "ATM/POS Purchase Walmart", -4_500)
+    # Both a Merchant and a Description column: the description still counts.
+    assert_equal "cash_withdrawal", extractor.send(:source_event_type, [ "purchase", "ATM Withdrawal" ], { "type" => 0, "label" => 1 }, "Tasi Demo Bank", -8_000)
   end
 end

@@ -33,3 +33,17 @@ it.each([
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ kind: savedKind, money_direction: direction, amount_cents: 1_000 }))
 })
+
+// A cash withdrawal is spending until she says it moved between her accounts.
+it('saves a withdrawal with a chosen category and clears it when changed to moved money', () => {
+  const onSave = vi.fn()
+  render(<StatementLineSheet line={{ eventId: 1, kind: 'cash', merchant: 'Tasi Demo ATM', postedOn: '2026-10-04', amountCents: 8000, categoryId: null, leftOut: false }} categories={[{ id: 7, name: 'Cash' }]} busy={false} error={null} onSave={onSave} onLeaveOut={vi.fn()} onClose={vi.fn()} />)
+  expect(screen.getByText('Without a category, this won’t count toward your spending.')).toBeTruthy()
+  fireEvent.change(screen.getByRole('combobox', { name: /^Category/ }), { target: { value: '7' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'cash', category_id: 7, amount_cents: 8000 }))
+  fireEvent.change(screen.getByLabelText('What was this?'), { target: { value: 'moved' } })
+  expect(screen.queryByRole('combobox', { name: /^Category/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'moved', category_id: null }))
+})

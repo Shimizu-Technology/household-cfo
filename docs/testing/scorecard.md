@@ -38,12 +38,12 @@ DATABASE_TEST_NAME=household_cfo_test_t4b PARALLEL_WORKERS=1 SCORECARD_FULL=1 bi
 
 ## Baseline findings (November 19, 2026; schema 2)
 
-The full 79-document run, including both independent approval views, took 397.7 seconds. The nine-document CI subset with a native 24-row CSV slice took 31.6 seconds in the final measurement (a separate concurrent measurement took 37.5 seconds in another owned test database). The earlier full-CSV sample took 173.2 seconds including lock contention; the slice keeps routine CI bounded. All 934 full-year source rows map; the CI slice maps all 102 rows. These are local measurements, not hosted-CI timing claims.
+The original full 79-document run, including both independent approval views, took 397.7 seconds. The cash-withdrawal follow-up updates the baselines below without changing metrics, approval policy, recordings or fixture scope. The nine-document CI subset with a native 24-row CSV slice took 31.6 seconds in the final measurement (a separate concurrent measurement took 37.5 seconds in another owned test database). The earlier full-CSV sample took 173.2 seconds including lock contention; the slice keeps routine CI bounded. All 934 full-year source rows map; the CI slice maps all 102 rows. These are local measurements, not hosted-CI timing claims.
 
 | Metric | Careful-user corrections | Uncorrected / answers only |
 | --- | --- | --- |
-| Spending (expected $44,242.95) | $40,707.82; -$3,535.13 / 7.9903% | $45,596.28; +$1,353.33 / 3.0589% |
-| Monthly absolute spending error | 6.9971%–8.8262% | 6.9971%–19.1269% |
+| Spending (expected $44,242.95) | $44,307.82; +$64.87 / 0.1466% | $49,196.28; +$4,953.33 / 11.1957% |
+| Monthly absolute spending error | 0.0000%–0.9388% | 0.0000%–27.2015% |
 | Income (expected $91,263.50) | $91,263.50 | $102,372.00; +$11,108.50 |
 | Double counts | 1 | 96 |
 | Transfer leakage (spending / income) | $0 / $0 | $0 / $0 |
@@ -56,11 +56,13 @@ The full 79-document run, including both independent approval views, took 397.7 
 
 Careful-user correction fields: type **3**, amount **1**, date **0**, category **27**, direction **0**. Several fields can change in one action. The question-only run's edits, restricted to its displayed questions, change type **233**, amount **0**, date **0**, category **220**, direction **298**. There are **298 CSV direction questions/actions in both full-year views**; the careful user excludes those already-represented lines in that one action. The question-only run additionally encounters 158 save-time overlap-guard actions. The sample has 24 direction questions/actions, 82 corrected decisions and 92 question-only decisions.
 
-All four product targets retain their original thresholds. Every monthly total within 1%, zero doubles and fewer than 200 annual decisions fail in the careful-user view; zero transfer leakage passes. The answer-only annual total happens to look closer because overcounts offset omissions. Its monthly/category/income errors and 96 doubles remain separate ratchet failures if they worsen. Budget and the spending analyzer agree on these observed totals; their outputs remain independently measured.
+All four product targets retain their original thresholds. Every monthly total within 1% and zero transfer leakage pass in the careful-user view; zero doubles and fewer than 200 annual decisions still fail. Ten months now match exactly. March is $29.99 high because of its refund, and June is $34.88 high because of the unmatched voucher receipt. The answer-only spending error grows because the CSV duplicates now include cash withdrawals; missing cash previously offset some duplicates. Its monthly/category/income errors and 96 doubles remain separate ratchet failures if they worsen. Budget and the spending analyzer agree on these observed totals; their outputs remain independently measured.
 
-Both identical coffee purchases survive. The voucher still extracts $184.88 instead of $34.88, with no offered bank match. The careful user corrects its amount/category through the receipt form, but confirming the unmatched receipt still adds $34.88 alongside the bank debit. The answer-only view adds $184.88. Cash-withdrawal policy omits $3,600 annually; the single-category source projection also places $240 of store cash back into Groceries. October's bank row loses the receipt's three-category allocation. March's $29.99 refund does not reduce Budget spending. These are product findings, not fixes in this PR.
+Both identical coffee purchases survive. The voucher still extracts $184.88 instead of $34.88, with no offered bank match. The careful user corrects its amount/category through the receipt form, but confirming the unmatched receipt still adds $34.88 alongside the bank debit. The answer-only view adds $184.88. Cash withdrawals now contribute $3,600 annually. The single-category source projection still places $240 of store cash back into Groceries; cash back is not split by this change. October's bank row loses the receipt's three-category allocation. March's $29.99 refund does not reduce Budget spending. The refund, voucher and allocation discrepancies remain product findings.
 
 Final recordings: **78 completed calls, 498,935 tokens, $2.945038**. An initial pass exposed volatile CombinePDF chunk timestamps and was restarted with the Runner's fixed clock. Including its 54 completed calls, this follow-up reports **132 calls, 869,140 tokens, $5.144016**. Requests in flight at interruption may have additional unmeasured charges. The original PR's earlier $2.98352 recording run is separate. All new recordings use the 15 Runner categories; none retains the old no-active-category warning. No private source was used.
+
+The follow-up first ran both modes with `RATCHET=1` against their old baselines. The full year reported only 14 regressions: uncorrected Budget/analyzer spending-error fields for January–June and annual. The fast sample reported the same six fields for its represented January/June and annual scope. The intentional baseline override records this cash-policy change; unrelated ratcheted metrics did not regress.
 
 ## Approval policy and decision count
 

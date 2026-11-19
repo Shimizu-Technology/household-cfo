@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_16_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_19_090000) do
   execute <<~'SQL'
     CREATE OR REPLACE FUNCTION public.savings_debt_terms_valid(value jsonb)
      RETURNS boolean
@@ -2245,7 +2245,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_16_090000) do
     t.index ["id", "household_id"], name: "index_source_events_household_identity", unique: true
     t.check_constraint "event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'refund'::character varying::text, 'income'::character varying::text, 'transfer'::character varying::text, 'debt_payment'::character varying::text, 'cash_withdrawal'::character varying::text, 'interest'::character varying::text, 'adjustment'::character varying::text, 'unknown'::character varying::text])", name: "source_event_type_valid"
     t.check_constraint "expense_amount_cents IS NULL OR expense_amount_cents > 0", name: "source_event_expense_positive"
-    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying::text, 'fee'::character varying::text, 'interest'::character varying::text])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
+    t.check_constraint "expense_amount_cents IS NULL OR row_kind::text = 'posted'::text AND (event_type::text = ANY (ARRAY['purchase'::character varying, 'fee'::character varying, 'interest'::character varying, 'cash_withdrawal'::character varying]::text[])) AND signed_amount_cents < 0 AND posted_on IS NOT NULL", name: "source_event_expense_eligible"
     t.check_constraint "row_kind::text = ANY (ARRAY['posted'::character varying::text, 'informational'::character varying::text, 'unresolved'::character varying::text])", name: "source_event_kind_valid"
   end
 

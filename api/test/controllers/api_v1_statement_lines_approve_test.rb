@@ -23,6 +23,67 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     suggest(@events.fetch("Payless"), @groceries)
   end
 
+  test "cash withdrawals propose the existing Cash category and count once in Budget and Mia" do
+    cash = @household.budget_categories.create!(name: "cAsH", stack_key: "discretionary", sort_order: 2)
+    @source = build_source(rows: [ [ "Tasi Demo ATM withdrawal", -32_000, "cash_withdrawal", 1 ] ])
+    event = @source[:revision].financial_source_events.sole
+    assert event.expense_projection_eligible?
+    assert_no_difference "BudgetCategory.count" do
+      plan = review_plan
+      assert_empty plan.fetch("attention")
+      assert_equal [ event.id ], plan.fetch("ready_event_ids")
+      assert_equal cash.id, plan.fetch("ready").sole.fetch("category_id")
+      approve_lines({ lines: as_read([ event.id ]) })
+      assert_response :success, response.body
+    end
+    version = SourceReviewHead.find_by!(financial_source_event: event).approved_version
+    assert_equal "cash_withdrawal", version.event_type
+    assert version.expense?
+    assert_equal 32_000, version.purchase_amount_cents
+    assert_equal cash.id, version.budget_category_id
+    assert_equal({ "read_count" => 1, "read_cents" => 32_000, "counted_count" => 1, "counted_cents" => 32_000 }, review_plan.fetch("spending"))
+    assert_equal 1, @household.household_transactions.count
+    budget = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).plan_data
+    budget_cents = HouseholdFinance::Money.cents(budget.fetch(:rows).find { |category| category[:id] == cash.id }.fetch(:actual_total))
+    patterns = SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 8, 2), from: "2026-07-01", to: "2026-07-31").call
+    assert_equal 32_000, budget_cents
+    assert_equal budget_cents, patterns.fetch(:observed_spending_cents)
+    assert_equal 1, patterns.fetch(:purchase_count)
+    assert_empty patterns.fetch(:candidate_changes), "A one-off withdrawal is not a monthly cut"
+
+    head = version.source_review_head.reload
+    approve_lines({ lines: [ { event_id: event.id, expected_head: { approved_version_id: head.approved_version_id, lock_version: head.lock_version, account_version_id: version.source_account_identity_version_id }, decision: "edited", edit: { kind: "moved" } } ] })
+    assert_response :success, response.body
+    moved = head.reload.approved_version
+    assert_equal "transfer", moved.event_type
+    assert_nil moved.purchase_amount_cents
+    assert_nil moved.budget_category_id
+    refute moved.expense?
+    assert_empty @household.household_transactions.where(status: %w[confirmed reconciled])
+    assert_nil SpendingPatterns::Analyzer.new(@household, today: Date.new(2026, 8, 2), from: "2026-07-01", to: "2026-07-31").call[:observed_spending_cents]
+  end
+
+  test "a withdrawal without an active Cash category asks for one instead of guessing or creating it" do
+    @household.budget_categories.create!(name: "Cash", stack_key: "discretionary", active: false, sort_order: 2)
+    @groceries.update!(name: "Flexible spending")
+    @source = build_source(rows: [ [ "Tasi Demo branch withdrawal", -8000, "cash_withdrawal", 1 ] ])
+    event = @source[:revision].financial_source_events.sole
+    assert_no_difference "BudgetCategory.count" do
+      line = review_plan.fetch("attention").sole
+      assert_equal "no_category", line.fetch("kind")
+      assert_nil line.fetch("category_id")
+      approve_lines({ lines: as_read([ event.id ]) })
+      assert_response :conflict
+      assert_empty @household.household_transactions
+      approve_lines({ lines: [ { event_id: event.id, decision: "edited", edit: { kind: "cash", category_id: @groceries.id } } ] })
+      assert_response :success, response.body
+    end
+    version = SourceReviewHead.find_by!(financial_source_event: event).approved_version
+    assert_equal "cash_withdrawal", version.event_type
+    assert_equal 8000, version.purchase_amount_cents
+    assert_equal @groceries.id, @household.household_transactions.sole.transaction_splits.sole.budget_category_id
+  end
+
   test "a narrow single category asks before Ross and Amazon can be approved together" do
     @clothing.update!(active: false)
     @groceries.update!(name: "Dining out")

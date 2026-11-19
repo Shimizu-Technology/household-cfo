@@ -81,7 +81,8 @@ module FinancialBaselines
         account_identity_version_id: row[:account_identity_version_id], tracked_account_id: row[:tracked_account_id], account_basis: row[:account_basis],
         account_identity_current: row[:account_identity_current], classification: row[:event_type], signed_amount_cents: row[:signed_amount_cents],
         purchase_amount_cents: row[:purchase_amount_cents], posted_on: row[:posted_on], authorized_on: row[:authorized_on], merchant: row[:merchant],
-        expense: row[:spending_eligible], requires_funding_link: row[:requires_funding_link], source_type: "reviewed_source",
+        # Baselines allocate cash purchases separately, so withdrawals are not expenses here.
+        expense: row[:spending_eligible] && row[:event_type] != "cash_withdrawal", requires_funding_link: row[:requires_funding_link], source_type: "reviewed_source",
         splits: row[:purchase_amount_cents] ? [ { budget_category_id: row[:category][:id] || row[:category]["id"], amount_cents: row[:purchase_amount_cents] } ] : [] }
     end
 

@@ -99,19 +99,25 @@ module FinancialDocuments
         candidates = overlap_candidates(events)
         events.map do |event|
           merchant = self.class.merchant_for(event)
-          guess = suggestions[event.id]
-          guess = nil unless categories.include?(guess)
-          default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant, event_type: event.event_type)
-          guessed_category = review_categories.find { |category| category.id == guess }
-          policy = everyday_policy.suggestion(merchant: merchant) if guessed_category.nil? || SavingsChallenge::Daily::ReviewCategories.broad?(guessed_category)
-          if policy
-            guess = policy[:category]&.id
-            default = guess
+          if event.event_type == "cash_withdrawal"
+            # Cash is a household category, never a merchant-policy guess or a new category.
+            guess = review_categories.find { |category| category.name.casecmp?("Cash") }&.id
+            default = policy = chosen = nil
           else
-            guess ||= default
+            guess = suggestions[event.id]
+            guess = nil unless categories.include?(guess)
+            default = guess ? nil : SavingsChallenge::Daily::ReviewCategories.suggestion(review_categories, merchant, event_type: event.event_type)
+            guessed_category = review_categories.find { |category| category.id == guess }
+            policy = everyday_policy.suggestion(merchant: merchant) if guessed_category.nil? || SavingsChallenge::Daily::ReviewCategories.broad?(guessed_category)
+            if policy
+              guess = policy[:category]&.id
+              default = guess
+            else
+              guess ||= default
+            end
+            chosen = earlier[event.id]
+            chosen = nil unless categories.include?(chosen)
           end
-          chosen = earlier[event.id]
-          chosen = nil unless categories.include?(chosen)
           # What she chose before for this merchant beats the reader's guess; if they disagree she is asked, not overruled.
           category_id = chosen || guess
           # Only spending carries a category; nothing else is shown or saved with one.

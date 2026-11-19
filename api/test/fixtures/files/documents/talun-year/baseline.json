@@ -5,10 +5,10 @@
   "months": {
     "2026-01": {
       "total_spending": {
-        "actual_cents": 328586,
+        "actual_cents": 358586,
         "expected_cents": 358586,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3662
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -78,10 +78,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -109,10 +109,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 328586,
+        "actual_cents": 358586,
         "expected_cents": 358586,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3662
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -151,10 +151,10 @@
     },
     "2026-02": {
       "total_spending": {
-        "actual_cents": 336838,
+        "actual_cents": 366838,
         "expected_cents": 366838,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.178
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -224,10 +224,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -255,10 +255,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 336838,
+        "actual_cents": 366838,
         "expected_cents": 366838,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.178
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -300,10 +300,10 @@
     },
     "2026-03": {
       "total_spending": {
-        "actual_cents": 333590,
+        "actual_cents": 363590,
         "expected_cents": 360591,
-        "error_cents": -27001,
-        "absolute_error_percent": 7.488
+        "error_cents": 2999,
+        "absolute_error_percent": 0.8317
       },
       "spending_by_category": {
         "Housing": {
@@ -373,10 +373,10 @@
           "absolute_error_percent": 28.091
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -404,10 +404,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 333590,
+        "actual_cents": 363590,
         "expected_cents": 360591,
-        "error_cents": -27001,
-        "absolute_error_percent": 7.488
+        "error_cents": 2999,
+        "absolute_error_percent": 0.8317
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -469,10 +469,10 @@
     },
     "2026-04": {
       "total_spending": {
-        "actual_cents": 309897,
+        "actual_cents": 339897,
         "expected_cents": 339897,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.8262
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -542,10 +542,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -573,10 +573,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 309897,
+        "actual_cents": 339897,
         "expected_cents": 339897,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.8262
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -613,10 +613,10 @@
     },
     "2026-05": {
       "total_spending": {
-        "actual_cents": 348889,
+        "actual_cents": 378889,
         "expected_cents": 378889,
-        "error_cents": -30000,
-        "absolute_error_percent": 7.9179
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -686,10 +686,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -717,10 +717,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 348889,
+        "actual_cents": 378889,
         "expected_cents": 378889,
-        "error_cents": -30000,
-        "absolute_error_percent": 7.9179
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -765,10 +765,10 @@
     },
     "2026-06": {
       "total_spending": {
-        "actual_cents": 345022,
+        "actual_cents": 375022,
         "expected_cents": 371534,
-        "error_cents": -26512,
-        "absolute_error_percent": 7.1358
+        "error_cents": 3488,
+        "absolute_error_percent": 0.9388
       },
       "spending_by_category": {
         "Housing": {
@@ -838,10 +838,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -869,10 +869,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 345022,
+        "actual_cents": 375022,
         "expected_cents": 371534,
-        "error_cents": -26512,
-        "absolute_error_percent": 7.1358
+        "error_cents": 3488,
+        "absolute_error_percent": 0.9388
       },
       "double_counts": 1,
       "transfer_leakage_cents": 0,
@@ -929,10 +929,10 @@
     },
     "2026-07": {
       "total_spending": {
-        "actual_cents": 329348,
+        "actual_cents": 359348,
         "expected_cents": 359348,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3485
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1002,10 +1002,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1033,10 +1033,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 329348,
+        "actual_cents": 359348,
         "expected_cents": 359348,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3485
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1076,10 +1076,10 @@
     },
     "2026-08": {
       "total_spending": {
-        "actual_cents": 329550,
+        "actual_cents": 359550,
         "expected_cents": 359550,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3438
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1149,10 +1149,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1180,10 +1180,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 329550,
+        "actual_cents": 359550,
         "expected_cents": 359550,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3438
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1221,10 +1221,10 @@
     },
     "2026-09": {
       "total_spending": {
-        "actual_cents": 398752,
+        "actual_cents": 428752,
         "expected_cents": 428752,
-        "error_cents": -30000,
-        "absolute_error_percent": 6.9971
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1294,10 +1294,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1325,10 +1325,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 398752,
+        "actual_cents": 428752,
         "expected_cents": 428752,
-        "error_cents": -30000,
-        "absolute_error_percent": 6.9971
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1366,10 +1366,10 @@
     },
     "2026-10": {
       "total_spending": {
-        "actual_cents": 349796,
+        "actual_cents": 379796,
         "expected_cents": 379796,
-        "error_cents": -30000,
-        "absolute_error_percent": 7.899
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1439,10 +1439,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1470,10 +1470,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 349796,
+        "actual_cents": 379796,
         "expected_cents": 379796,
-        "error_cents": -30000,
-        "absolute_error_percent": 7.899
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1526,10 +1526,10 @@
     },
     "2026-11": {
       "total_spending": {
-        "actual_cents": 330156,
+        "actual_cents": 360156,
         "expected_cents": 360156,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3297
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1599,10 +1599,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1630,10 +1630,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 330156,
+        "actual_cents": 360156,
         "expected_cents": 360156,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3297
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1671,10 +1671,10 @@
     },
     "2026-12": {
       "total_spending": {
-        "actual_cents": 330358,
+        "actual_cents": 360358,
         "expected_cents": 360358,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3251
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "spending_by_category": {
         "Housing": {
@@ -1744,10 +1744,10 @@
           "absolute_error_percent": 0.0
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 30000,
           "expected_cents": 32000,
-          "error_cents": -32000,
-          "absolute_error_percent": 100.0
+          "error_cents": -2000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 12500,
@@ -1775,10 +1775,10 @@
         "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 330358,
+        "actual_cents": 360358,
         "expected_cents": 360358,
-        "error_cents": -30000,
-        "absolute_error_percent": 8.3251
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "double_counts": 0,
       "transfer_leakage_cents": 0,
@@ -1816,10 +1816,10 @@
   },
   "annual": {
     "total_spending": {
-      "actual_cents": 4070782,
+      "actual_cents": 4430782,
       "expected_cents": 4424295,
-      "error_cents": -353513,
-      "absolute_error_percent": 7.9903
+      "error_cents": 6487,
+      "absolute_error_percent": 0.1466
     },
     "income": {
       "actual_cents": 9126350,
@@ -1828,10 +1828,10 @@
       "absolute_error_percent": 0.0
     },
     "analyzer_spending": {
-      "actual_cents": 4070782,
+      "actual_cents": 4430782,
       "expected_cents": 4424295,
-      "error_cents": -353513,
-      "absolute_error_percent": 7.9903
+      "error_cents": 6487,
+      "absolute_error_percent": 0.1466
     },
     "spending_by_category": {
       "Housing": {
@@ -1901,10 +1901,10 @@
         "absolute_error_percent": 2.9018
       },
       "Cash": {
-        "actual_cents": 0,
+        "actual_cents": 360000,
         "expected_cents": 384000,
-        "error_cents": -384000,
-        "absolute_error_percent": 100.0
+        "error_cents": -24000,
+        "absolute_error_percent": 6.25
       },
       "Family support": {
         "actual_cents": 150000,
@@ -1988,7 +1988,7 @@
     "unrecognized_rows": 0
   },
   "targets": {
-    "monthly_spending_within_one_percent": false,
+    "monthly_spending_within_one_percent": true,
     "zero_double_counts": false,
     "zero_transfer_leakage": true,
     "decisions_under_200": false
@@ -1997,10 +1997,10 @@
     "months": {
       "2026-01": {
         "total_spending": {
-          "actual_cents": 400771,
+          "actual_cents": 430771,
           "expected_cents": 358586,
-          "error_cents": 42185,
-          "absolute_error_percent": 11.7643
+          "error_cents": 72185,
+          "absolute_error_percent": 20.1305
         },
         "spending_by_category": {
           "Housing": {
@@ -2070,10 +2070,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -2101,10 +2101,10 @@
           "absolute_error_percent": 29.7332
         },
         "analyzer_spending": {
-          "actual_cents": 400771,
+          "actual_cents": 430771,
           "expected_cents": 358586,
-          "error_cents": 42185,
-          "absolute_error_percent": 11.7643
+          "error_cents": 72185,
+          "absolute_error_percent": 20.1305
         },
         "double_counts": 15,
         "transfer_leakage_cents": 0,
@@ -2143,10 +2143,10 @@
       },
       "2026-02": {
         "total_spending": {
-          "actual_cents": 419221,
+          "actual_cents": 449221,
           "expected_cents": 366838,
-          "error_cents": 52383,
-          "absolute_error_percent": 14.2796
+          "error_cents": 82383,
+          "absolute_error_percent": 22.4576
         },
         "spending_by_category": {
           "Housing": {
@@ -2216,10 +2216,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -2247,10 +2247,10 @@
           "absolute_error_percent": 28.0
         },
         "analyzer_spending": {
-          "actual_cents": 419221,
+          "actual_cents": 449221,
           "expected_cents": 366838,
-          "error_cents": 52383,
-          "absolute_error_percent": 14.2796
+          "error_cents": 82383,
+          "absolute_error_percent": 22.4576
         },
         "double_counts": 16,
         "transfer_leakage_cents": 0,
@@ -2291,10 +2291,10 @@
       },
       "2026-03": {
         "total_spending": {
-          "actual_cents": 422447,
+          "actual_cents": 452447,
           "expected_cents": 360591,
-          "error_cents": 61856,
-          "absolute_error_percent": 17.1541
+          "error_cents": 91856,
+          "absolute_error_percent": 25.4737
         },
         "spending_by_category": {
           "Housing": {
@@ -2364,10 +2364,10 @@
             "absolute_error_percent": 156.1821
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -2395,10 +2395,10 @@
           "absolute_error_percent": 31.0125
         },
         "analyzer_spending": {
-          "actual_cents": 422447,
+          "actual_cents": 452447,
           "expected_cents": 360591,
-          "error_cents": 61856,
-          "absolute_error_percent": 17.1541
+          "error_cents": 91856,
+          "absolute_error_percent": 25.4737
         },
         "double_counts": 17,
         "transfer_leakage_cents": 0,
@@ -2459,10 +2459,10 @@
       },
       "2026-04": {
         "total_spending": {
-          "actual_cents": 383841,
+          "actual_cents": 413841,
           "expected_cents": 339897,
-          "error_cents": 43944,
-          "absolute_error_percent": 12.9286
+          "error_cents": 73944,
+          "absolute_error_percent": 21.7548
         },
         "spending_by_category": {
           "Housing": {
@@ -2532,10 +2532,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 25000,
@@ -2563,10 +2563,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 383841,
+          "actual_cents": 413841,
           "expected_cents": 339897,
-          "error_cents": 43944,
-          "absolute_error_percent": 12.9286
+          "error_cents": 73944,
+          "absolute_error_percent": 21.7548
         },
         "double_counts": 16,
         "transfer_leakage_cents": 0,
@@ -2602,10 +2602,10 @@
       },
       "2026-05": {
         "total_spending": {
-          "actual_cents": 422791,
+          "actual_cents": 452791,
           "expected_cents": 378889,
-          "error_cents": 43902,
-          "absolute_error_percent": 11.587
+          "error_cents": 73902,
+          "absolute_error_percent": 19.5049
         },
         "spending_by_category": {
           "Housing": {
@@ -2675,10 +2675,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -2706,10 +2706,10 @@
           "absolute_error_percent": 28.0
         },
         "analyzer_spending": {
-          "actual_cents": 422791,
+          "actual_cents": 452791,
           "expected_cents": 378889,
-          "error_cents": 43902,
-          "absolute_error_percent": 11.587
+          "error_cents": 73902,
+          "absolute_error_percent": 19.5049
         },
         "double_counts": 15,
         "transfer_leakage_cents": 0,
@@ -2752,10 +2752,10 @@
       },
       "2026-06": {
         "total_spending": {
-          "actual_cents": 442597,
+          "actual_cents": 472597,
           "expected_cents": 371534,
-          "error_cents": 71063,
-          "absolute_error_percent": 19.1269
+          "error_cents": 101063,
+          "absolute_error_percent": 27.2015
         },
         "spending_by_category": {
           "Housing": {
@@ -2825,10 +2825,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -2856,10 +2856,10 @@
           "absolute_error_percent": 28.91
         },
         "analyzer_spending": {
-          "actual_cents": 442597,
+          "actual_cents": 472597,
           "expected_cents": 371534,
-          "error_cents": 71063,
-          "absolute_error_percent": 19.1269
+          "error_cents": 101063,
+          "absolute_error_percent": 27.2015
         },
         "double_counts": 17,
         "transfer_leakage_cents": 0,
@@ -2915,10 +2915,10 @@
       },
       "2026-07": {
         "total_spending": {
-          "actual_cents": 329348,
+          "actual_cents": 359348,
           "expected_cents": 359348,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3485
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -2988,10 +2988,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3019,10 +3019,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 329348,
+          "actual_cents": 359348,
           "expected_cents": 359348,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3485
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3060,10 +3060,10 @@
       },
       "2026-08": {
         "total_spending": {
-          "actual_cents": 329550,
+          "actual_cents": 359550,
           "expected_cents": 359550,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3438
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -3133,10 +3133,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3164,10 +3164,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 329550,
+          "actual_cents": 359550,
           "expected_cents": 359550,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3438
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3203,10 +3203,10 @@
       },
       "2026-09": {
         "total_spending": {
-          "actual_cents": 398752,
+          "actual_cents": 428752,
           "expected_cents": 428752,
-          "error_cents": -30000,
-          "absolute_error_percent": 6.9971
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -3276,10 +3276,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3307,10 +3307,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 398752,
+          "actual_cents": 428752,
           "expected_cents": 428752,
-          "error_cents": -30000,
-          "absolute_error_percent": 6.9971
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3346,10 +3346,10 @@
       },
       "2026-10": {
         "total_spending": {
-          "actual_cents": 349796,
+          "actual_cents": 379796,
           "expected_cents": 379796,
-          "error_cents": -30000,
-          "absolute_error_percent": 7.899
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -3419,10 +3419,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3450,10 +3450,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 349796,
+          "actual_cents": 379796,
           "expected_cents": 379796,
-          "error_cents": -30000,
-          "absolute_error_percent": 7.899
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3504,10 +3504,10 @@
       },
       "2026-11": {
         "total_spending": {
-          "actual_cents": 330156,
+          "actual_cents": 360156,
           "expected_cents": 360156,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3297
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -3577,10 +3577,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3608,10 +3608,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 330156,
+          "actual_cents": 360156,
           "expected_cents": 360156,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3297
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3647,10 +3647,10 @@
       },
       "2026-12": {
         "total_spending": {
-          "actual_cents": 330358,
+          "actual_cents": 360358,
           "expected_cents": 360358,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3251
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "spending_by_category": {
           "Housing": {
@@ -3720,10 +3720,10 @@
             "absolute_error_percent": 0.0
           },
           "Cash": {
-            "actual_cents": 0,
+            "actual_cents": 30000,
             "expected_cents": 32000,
-            "error_cents": -32000,
-            "absolute_error_percent": 100.0
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
           },
           "Family support": {
             "actual_cents": 12500,
@@ -3751,10 +3751,10 @@
           "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 330358,
+          "actual_cents": 360358,
           "expected_cents": 360358,
-          "error_cents": -30000,
-          "absolute_error_percent": 8.3251
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "double_counts": 0,
         "transfer_leakage_cents": 0,
@@ -3790,10 +3790,10 @@
     },
     "annual": {
       "total_spending": {
-        "actual_cents": 4559628,
+        "actual_cents": 4919628,
         "expected_cents": 4424295,
-        "error_cents": 135333,
-        "absolute_error_percent": 3.0589
+        "error_cents": 495333,
+        "absolute_error_percent": 11.1957
       },
       "income": {
         "actual_cents": 10237200,
@@ -3802,10 +3802,10 @@
         "absolute_error_percent": 12.1719
       },
       "analyzer_spending": {
-        "actual_cents": 4559628,
+        "actual_cents": 4919628,
         "expected_cents": 4424295,
-        "error_cents": 135333,
-        "absolute_error_percent": 3.0589
+        "error_cents": 495333,
+        "absolute_error_percent": 11.1957
       },
       "spending_by_category": {
         "Housing": {
@@ -3875,10 +3875,10 @@
           "absolute_error_percent": 16.1334
         },
         "Cash": {
-          "actual_cents": 0,
+          "actual_cents": 360000,
           "expected_cents": 384000,
-          "error_cents": -384000,
-          "absolute_error_percent": 100.0
+          "error_cents": -24000,
+          "absolute_error_percent": 6.25
         },
         "Family support": {
           "actual_cents": 162500,
