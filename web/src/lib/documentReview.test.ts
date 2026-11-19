@@ -51,7 +51,9 @@ describe('statement status follows current saved lines rather than import proces
     expect(documentNeedsReview(source)).toBe(false)
     source.statement_review!.without_category = 13
     expect(uploadStatusLabel(source)).toBe('Saved · some without a category')
-    expect(documentNeedsReview(source)).toBe(false)
+    // A saved purchase with no category counts nowhere yet, so the statement still needs her.
+    expect(documentNeedsReview(source)).toBe(true)
+    source.statement_review!.without_category = 0
     source.statement_review!.coverage = { question: 'Is anything missing?', answer: null }
     expect(uploadStatusLabel(source)).toBe('Saved · check for missing lines')
     expect(documentNeedsReview(source)).toBe(true)

@@ -188,7 +188,18 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
   if (approved) {
     return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
       <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
-        {coverage.recorded === 'something_missing' && <p className="mia-statement-muted">{coverageMissingNote()}</p>}
+        {coverage.recorded === 'something_missing' && <>
+          <p className="mia-statement-muted">{coverageMissingNote()}</p>
+          {/* She can still change her answer here, not only in Statements. */}
+          <div className="mia-statement-question">
+            <p className="statement-question" id={`statement-coverage-${importId}`}>{coverageQuestionText({ coverage: { ...plan.coverage, question: null } })}</p>
+            <div className="statement-answers" role="group" aria-labelledby={`statement-coverage-${importId}`}>
+              <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
+              <Button variant={coverage.said === 'something_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'something_missing'} disabled={busy} onClick={() => coverage.answer('something_missing')}>Something’s missing</Button>
+            </div>
+            {coverage.failed && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert"><p>I couldn’t save your answer yet. Please try again.</p><Button variant="secondary" disabled={busy} onClick={coverage.answerAgain}>Try again</Button></div>}
+          </div>
+        </>}
       </MiaCardResult>
     </section>
   }

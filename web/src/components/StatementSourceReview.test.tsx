@@ -425,7 +425,7 @@ describe('statement review a participant can finish', () => {
     expect(screen.getByRole('button', { name: 'Something’s missing' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: 'Nothing’s missing' }))
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1))
-    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [], coverage_answer: 'nothing_missing' })
+    expect(mutate.mock.calls[0][3]).toMatchObject({ lines: [], coverage_answer: 'nothing_missing', expected_coverage_id: 912 })
   })
 
   it('shows the year on line dates when the file runs across a new year', async () => {

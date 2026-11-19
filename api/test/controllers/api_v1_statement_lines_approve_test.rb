@@ -91,6 +91,48 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "exclude", SourceReviewHead.find_by!(financial_source_event: hardware).approved_version.disposition
   end
 
+  test "choosing a category for a saved line keeps her corrected amount, name and kind" do
+    @source = build_source(rows: [ [ "Tasi Demo Hardware", -12_500, "purchase", 1 ], [ "Own savings", -3_000, "transfer", 2 ] ])
+    hardware, moved = @source[:revision].financial_source_events.order(:position).to_a
+    approve_lines({ lines: [ { event_id: hardware.id, decision: "edited", edit: { kind: "spending", merchant: "Tasi Demo Hardware store", amount_cents: 1250, category_id: nil } },
+      { event_id: moved.id, decision: "edited", edit: { kind: "spending", category_id: nil } } ] })
+    assert_response :success, response.body
+
+    rows = review_plan.fetch("attention").index_by { |row| row["event_id"] }
+    assert_equal [ -1250, "Tasi Demo Hardware store", "purchase" ], rows.fetch(hardware.id).values_at("signed_amount_cents", "merchant", "event_type"), "She is shown what she saved"
+    assert_equal [ -3000, "purchase" ], rows.fetch(moved.id).values_at("signed_amount_cents", "event_type")
+
+    # The category alone is what she changes; nothing else reverts to the statement as first read.
+    approve_lines({ lines: [ hardware, moved ].map { |event| { event_id: event.id, expected_head: rows.fetch(event.id).fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @groceries.id } } } })
+    assert_response :success, response.body
+    saved = [ hardware, moved ].map { |event| SourceReviewHead.find_by!(financial_source_event: event).approved_version }
+    assert_equal [ [ -1250, "Tasi Demo Hardware store", "purchase" ], [ -3000, "Own savings", "purchase" ] ], saved.map { |version| [ version.signed_amount_cents, version.merchant, version.event_type ] }
+    assert_equal [ 1250, 3000 ], @household.household_transactions.where(status: %w[confirmed reconciled]).order(:total_amount_cents).pluck(:total_amount_cents)
+  end
+
+  test "a saved line she called a different charge can still get its category" do
+    # The same amount on the same day in a second file looks like a copy of the first file's line.
+    first_file = build_source(rows: [ [ "Tasi Demo Cafe", -1250, "purchase", 1 ] ])
+    approve_lines({ lines: [ { event_id: first_file[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", category_id: @groceries.id } } ] }, source: first_file)
+    assert_response :success, response.body
+    # Another name for the store, so nothing from the first file's category carries over.
+    @source = build_source(rows: [ [ "Tasi Demo Coffee Bar", -1250, "purchase", 1 ] ])
+    copy = @source[:revision].financial_source_events.sole
+    assert_equal "duplicate", review_plan.fetch("attention").sole.fetch("kind")
+    approve_lines({ lines: [ { event_id: copy.id, decision: "different", shown: { category_id: nil, event_type: "purchase" } } ] })
+    assert_response :success, response.body
+    assert_equal [ "distinct", nil ], SourceReviewHead.find_by!(financial_source_event: copy).approved_version.then { |version| [ version.overlap_disposition, version.budget_category_id ] }
+
+    row = review_plan.fetch("attention").sole
+    assert_equal "no_category", row.fetch("kind")
+    approve_lines({ lines: [ { event_id: copy.id, expected_head: row.fetch("expected_head"), decision: "edited", edit: { kind: "spending", merchant: row["merchant"], posted_on: row["posted_on"], amount_cents: 1250, category_id: @groceries.id } } ] })
+    assert_response :success, response.body
+    version = SourceReviewHead.find_by!(financial_source_event: copy).approved_version
+    assert_equal [ "distinct", @groceries.id ], [ version.overlap_disposition, version.budget_category_id ], "Her different-charge answer stands"
+    assert_empty review_plan.fetch("attention")
+    assert_equal 2, @household.household_transactions.where(status: %w[confirmed reconciled]).count
+  end
+
   test "a withdrawal without an active Cash category asks for one instead of guessing or creating it" do
     @household.budget_categories.create!(name: "Cash", stack_key: "discretionary", active: false, sort_order: 2)
     @groceries.update!(name: "Flexible spending")

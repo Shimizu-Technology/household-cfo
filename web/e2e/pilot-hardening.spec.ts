@@ -9195,7 +9195,8 @@ test('BOG UI completing a statement refreshes Home purchase counts without a pag
   await expect(page.getByRole('button', { name: /Review \d+ purchases/ })).toHaveCount(0)
   await openSection(page, 'Review')
   await expect(page.getByText('No purchases to review', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: /1 file waiting for review/ })).toBeVisible()
+  // The statement just saved still has one purchase with no category, so it stays on her list beside the other file.
+  await expect(page.getByRole('button', { name: /2 files waiting for review/ })).toBeVisible()
 })
 
 test('BOG UI Mia posts a card for a statement she has read, and the participant approves it without leaving the chat', async ({ page }) => {

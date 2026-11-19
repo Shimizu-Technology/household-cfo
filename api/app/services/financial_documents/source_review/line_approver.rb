@@ -135,8 +135,8 @@ module FinancialDocuments
         raise ArgumentError, "Unknown answer for a statement line" unless decision.in?(DECISIONS)
         event = line.event
         identity = domain.account_heads.find_by(financial_source_account_id: event.financial_source_account_id)&.approved_version
-        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id)
         head = domain.heads.find_by(financial_source_event_id: event.id)
+        facts = facts_for(line, decision, entry[:edit].to_h.deep_symbolize_keys, identity.id, (head&.approved_version if line.done))
         if line.done && same_facts?(head.approved_version, facts)
           counts[:unchanged] += 1
           return
@@ -163,41 +163,49 @@ module FinancialDocuments
         end
       end
 
-      def facts_for(line, decision, edit, identity_id)
+      def facts_for(line, decision, edit, identity_id, saved = nil)
         base = ParticipantPlan.facts_as_read(line.event, identity_id: identity_id, merchant: line.merchant, category_id: line.category_id)
+        # A line she already saved changes from what she saved, never from the statement as first read:
+        # choosing a category must not undo a corrected amount, name, date or kind, or her "different charge".
+        if saved&.disposition == "include"
+          base = base.merge(saved.reviewed_facts.slice(:event_type, :signed_amount_cents, :purchase_amount_cents, :posted_on, :authorized_on, :merchant, :overlap_disposition))
+        end
         case decision
         when "as_read" then base
         when "different" then base.merge(overlap_disposition: "distinct")
         when "leave_out" then base.merge(disposition: "exclude", purchase_amount_cents: nil, budget_category_id: nil, overlap_disposition: "excluded")
-        else edited_facts(base, line.event, edit)
+        else edited_facts(base, edit)
         end
       end
 
-      def edited_facts(base, event, edit)
+      def edited_facts(base, edit)
         kind = edit[:kind].to_s
         type = KINDS.fetch(kind) { raise ArgumentError, "Choose what this line was" }
         # "Spending" covers fees, interest and cash withdrawals too: choosing a category for one must not turn it into a purchase.
-        type = event.event_type if kind == "spending" && event.event_type.in?(ParticipantPlan::EXPENSE_TYPES)
-        if event.signed_amount_cents.nil? && !edit[:money_direction].in?(%w[in out])
+        type = base[:event_type] if kind == "spending" && base[:event_type].in?(ParticipantPlan::EXPENSE_TYPES)
+        if base[:signed_amount_cents].nil? && !edit[:money_direction].in?(%w[in out])
           raise ArgumentError, "Choose whether this was money out or money in."
         end
         if (edit[:money_direction] == "in" && kind.in?(%w[spending cash])) || (edit[:money_direction] == "out" && kind.in?(%w[money_in refund]))
           raise ArgumentError, "Choose a kind that matches money out or money in."
         end
-        cents = edit.key?(:amount_cents) ? edit[:amount_cents] : event.signed_amount_cents&.abs
+        cents = edit.key?(:amount_cents) ? edit[:amount_cents] : base[:signed_amount_cents]&.abs
         raise ArgumentError, "Enter the amount for this line" unless cents.is_a?(Integer) && cents.positive?
         signed = case kind
         when "spending", "cash" then -cents
         when "moved", "card"
           direction = edit[:money_direction]
           raise ArgumentError, "Choose money in or money out." if direction && !direction.in?(%w[in out])
-          direction == "in" || (direction.nil? && event.signed_amount_cents.to_i.positive?) ? cents : -cents
+          direction == "in" || (direction.nil? && base[:signed_amount_cents].to_i.positive?) ? cents : -cents
         else cents
         end
         merchant = edit[:merchant].to_s.squish.presence || base[:merchant]
         expense = signed.negative? && type.in?(FinancialSourceEvent::EXPENSE_TYPES)
-        base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: edit[:posted_on].presence || base[:posted_on], merchant: merchant,
-          purchase_amount_cents: expense ? cents : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: "new")
+        posted_on = edit[:posted_on].presence || base[:posted_on]
+        # The same amount on the same day keeps her earlier "different charge"; a new amount or day is asked about again.
+        same_charge = signed == base[:signed_amount_cents] && posted_on.to_s == base[:posted_on].to_s && base[:overlap_disposition] == "distinct"
+        base.merge(disposition: "include", event_type: type, signed_amount_cents: signed, posted_on: posted_on, merchant: merchant,
+          purchase_amount_cents: expense ? cents : nil, budget_category_id: expense ? edit[:category_id].presence&.to_i : nil, overlap_disposition: same_charge ? "distinct" : "new")
       end
 
       def same_facts?(version, facts)
