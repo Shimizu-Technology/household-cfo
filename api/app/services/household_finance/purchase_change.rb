@@ -106,7 +106,7 @@ module HouseholdFinance
         rescue TransactionDraftConfirmer::PossibleDuplicate
           # With the change it would look like another purchase she already
           # has. The change card can't ask "Same purchase?", so leave it alone.
-          raise Stale, "With that change, #{draft.merchant} would look like another purchase you already have, so I left it as it was. Change it on the Spending screen, where you can say if it's the same purchase. Nothing changed."
+          raise Stale, "With that change, #{draft.merchant} would look like another purchase you already have, so I left it as it was. Open it in Review, where you can say if it's the same purchase. Nothing changed."
         end
       end
     end

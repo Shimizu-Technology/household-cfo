@@ -402,7 +402,7 @@ class ApiV1PurchaseChangeCardTest < ActionDispatch::IntegrationTest
       apply(card)
     end
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body["errors"].join, "would look like another purchase you already have"
+    assert_includes response.parsed_body["errors"].join, "would look like another purchase you already have, so I left it as it was. Open it in Review"
     purchase.reload
     assert_equal "confirmed", purchase.status
     assert_equal 18_488, purchase.confirmed_transaction.total_amount_cents
