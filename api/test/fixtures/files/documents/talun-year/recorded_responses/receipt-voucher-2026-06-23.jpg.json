@@ -5,18 +5,19 @@
   "responses": [
     {
       "label": null,
+      "request_sha256": "c232dd07de14a7d963fd3b6c13aa066f725697d972f5f4aa15cf5d6b5e693462",
       "response": {
         "success": true,
         "data": {
-          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-06-23\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"TASI Demo Home Store receipt dated 2026-06-23 for a home fan and shelf kit, total $184.88, paid with a $150.00 voucher/gift card and $34.88 on debit card 7302.\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"The $184.88 total was only partly paid from the participant's bank or card: $150.00 by voucher/gift card and $34.88 by debit card 7302. Review whether the full purchase value or only the $34.88 cash outflow should count as actual spending.\",\n    \"No active budget categories exist yet. The category names are suggestions only, so please choose the final category during review.\",\n    \"The receipt is photographed at an angle. Amounts were read from the visible text.\",\n    \"The receipt is marked as a synthetic test document with invented amounts.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-06-23\",\n      \"merchant\": \"TASI DEMO HOME STORE\",\n      \"total_amount\": 184.88,\n      \"source_type\": \"receipt\",\n      \"category_name\": \"Household goods\",\n      \"stack_key\": null,\n      \"confidence\": 0.8,\n      \"evidence\": \"Receipt SYN-VOUCHER, 2026-06-23 18:24, Tamuning, Guam. Home fan 129.99, Shelf kit 54.89, subtotal $184.88, tax $0.00, total $184.88. Voucher/gift card $150.00, Debit card 7302 $34.88, balance due $0.00.\",\n      \"raw_description\": \"Receipt SYN-VOUCHER, Register DEMO-04, cashier Lina Talun\",\n      \"external_id\": \"SYN-VOUCHER\",\n      \"warnings\": [\n        \"Paid with a $150.00 voucher/gift card plus $34.88 on debit card 7302.\"\n      ],\n      \"splits\": [\n        {\n          \"amount\": 129.99,\n          \"category_name\": \"Household goods\",\n          \"stack_key\": null,\n          \"notes\": \"Home fan\",\n          \"confidence\": 0.75\n        },\n        {\n          \"amount\": 54.89,\n          \"category_name\": \"Household goods\",\n          \"stack_key\": null,\n          \"notes\": \"Shelf kit\",\n          \"confidence\": 0.75\n        }\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
+          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-06-23\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Receipt from TASI DEMO HOME STORE (Tamuning, Guam) dated 2026-06-23 for a home fan and a shelf kit, total $184.88. Paid with a $150.00 voucher/gift card and $34.88 on debit card 7302.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"The receipt is marked as a synthetic test document with invented amounts.\",\n    \"Payment was split: $150.00 voucher/gift card and $34.88 debit card ending 7302. The participant should confirm whether the full $184.88 should be recorded as spending or only the debit-card portion.\",\n    \"Both line items were assigned to Household based on the item names (home fan, shelf kit). The participant should confirm the category.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-06-23\",\n      \"merchant\": \"TASI DEMO HOME STORE\",\n      \"total_amount\": 184.88,\n      \"source_type\": \"receipt\",\n      \"category_name\": \"Household\",\n      \"confidence\": 0.75,\n      \"evidence\": \"Home fan 129.99; Shelf kit 54.89; Subtotal $184.88; Tax $0.00; TOTAL $184.88; Voucher / gift card $150.00; Debit card 7302 $34.88; Balance due $0.00\",\n      \"raw_description\": \"Receipt SYN-VOUCHER, Register DEMO-04, 2026-06-23 18:24, Lina Talun\",\n      \"external_id\": \"SYN-VOUCHER\",\n      \"warnings\": [\n        \"Paid with $150.00 voucher/gift card plus $34.88 on debit card 7302.\"\n      ],\n      \"splits\": [\n        {\n          \"amount\": 184.88,\n          \"category_name\": \"Household\",\n          \"notes\": \"Home fan 129.99 + Shelf kit 54.89\",\n          \"confidence\": 0.75\n        }\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
         },
         "error": null,
         "metadata": {
           "usage": {
-            "prompt_tokens": 4005,
-            "completion_tokens": 1460,
-            "total_tokens": 5465,
-            "cost": 0.02261,
+            "prompt_tokens": 4123,
+            "completion_tokens": 1151,
+            "total_tokens": 5274,
+            "cost": 0.019756,
             "is_byok": false,
             "prompt_tokens_details": {
               "cached_tokens": 0,
@@ -25,12 +26,12 @@
               "video_tokens": 0
             },
             "cost_details": {
-              "upstream_inference_cost": 0.02261,
-              "upstream_inference_prompt_cost": 0.00801,
-              "upstream_inference_completions_cost": 0.0146
+              "upstream_inference_cost": 0.019756,
+              "upstream_inference_prompt_cost": 0.008246,
+              "upstream_inference_completions_cost": 0.01151
             },
             "completion_tokens_details": {
-              "reasoning_tokens": 615,
+              "reasoning_tokens": 421,
               "image_tokens": 0,
               "audio_tokens": 0
             }

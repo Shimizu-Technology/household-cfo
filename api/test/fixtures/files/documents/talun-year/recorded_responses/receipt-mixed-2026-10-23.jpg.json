@@ -5,18 +5,19 @@
   "responses": [
     {
       "label": null,
+      "request_sha256": "cfede881d2107a7483cf7fd95fbb0b589972bfa467694eb2e39ef6d748069bf4",
       "response": {
         "success": true,
         "data": {
-          "content": "{\"document_kind\":\"receipt\",\"document_date\":\"2026-10-23\",\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Receipt from Tasi Demo Market dated 2026-10-23 for $103.42, paid by debit card ending 7302. It has three line items: rice and vegetables, dish soap, and first aid supplies. The receipt is marked as a synthetic test document.\",\"confidence\":0.93,\"warnings\":[\"The receipt is labeled as a synthetic test document with invented amounts.\",\"No active budget categories exist, so category names are suggested labels and the participant should confirm them.\"],\"items\":[],\"transaction_drafts\":[{\"occurred_on\":\"2026-10-23\",\"merchant\":\"Tasi Demo Market\",\"total_amount\":103.42,\"source_type\":\"receipt\",\"category_name\":null,\"stack_key\":null,\"confidence\":0.9,\"evidence\":\"Receipt SYN-MIXED, 2026-10-23 18:24, TOTAL $103.42, paid by Debit card 7302.\",\"raw_description\":\"Tasi Demo Market, Tamuning, Guam, Register DEMO-04, cashier Lina Talun\",\"external_id\":\"SYN-MIXED\",\"warnings\":[\"Mixed-category receipt split into groceries, household supplies, and health items.\"],\"splits\":[{\"amount\":73.42,\"category_name\":\"Groceries\",\"stack_key\":\"non_discretionary\",\"notes\":\"Rice and vegetables\",\"confidence\":0.9},{\"amount\":18.0,\"category_name\":\"Household Supplies\",\"stack_key\":\"non_discretionary\",\"notes\":\"Dish soap\",\"confidence\":0.8},{\"amount\":12.0,\"category_name\":\"Health & Medical Supplies\",\"stack_key\":\"non_discretionary\",\"notes\":\"First aid supplies\",\"confidence\":0.75}]}],\"source_accounting\":null}"
+          "content": "```json\n{\n  \"document_kind\": \"receipt\",\n  \"document_date\": \"2026-10-23\",\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Receipt from Tasi Demo Market in Tamuning, Guam dated 2026-10-23 for $103.42, paid by debit card 7302. It lists groceries, dish soap and first aid supplies. The document is marked as a synthetic test document.\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"Document is labeled as a synthetic test document with fictional amounts.\",\n    \"Dish soap and first aid supplies are both mapped to Household; the participant may prefer Medical for first aid supplies.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [\n    {\n      \"occurred_on\": \"2026-10-23\",\n      \"merchant\": \"Tasi Demo Market\",\n      \"total_amount\": 103.42,\n      \"source_type\": \"receipt\",\n      \"category_name\": null,\n      \"stack_key\": null,\n      \"confidence\": 0.92,\n      \"evidence\": \"Receipt SYN-MIXED, 2026-10-23 18:24, TOTAL $103.42, paid by Debit card 7302, balance due $0.00.\",\n      \"raw_description\": \"Receipt SYN-MIXED, Register DEMO-04, cashier Lina Talun, debit card 7302\",\n      \"external_id\": \"SYN-MIXED\",\n      \"warnings\": [],\n      \"splits\": [\n        {\n          \"amount\": 73.42,\n          \"category_name\": \"Groceries\",\n          \"stack_key\": null,\n          \"notes\": \"Rice and vegetables\",\n          \"confidence\": 0.95\n        },\n        {\n          \"amount\": 18.0,\n          \"category_name\": \"Household\",\n          \"stack_key\": null,\n          \"notes\": \"Dish soap\",\n          \"confidence\": 0.9\n        },\n        {\n          \"amount\": 12.0,\n          \"category_name\": \"Medical\",\n          \"stack_key\": null,\n          \"notes\": \"First aid supplies\",\n          \"confidence\": 0.8\n        }\n      ]\n    }\n  ],\n  \"source_accounting\": null\n}\n```"
         },
         "error": null,
         "metadata": {
           "usage": {
-            "prompt_tokens": 4005,
-            "completion_tokens": 613,
-            "total_tokens": 4618,
-            "cost": 0.01414,
+            "prompt_tokens": 4123,
+            "completion_tokens": 714,
+            "total_tokens": 4837,
+            "cost": 0.015386,
             "is_byok": false,
             "prompt_tokens_details": {
               "cached_tokens": 0,
@@ -25,9 +26,9 @@
               "video_tokens": 0
             },
             "cost_details": {
-              "upstream_inference_cost": 0.01414,
-              "upstream_inference_prompt_cost": 0.00801,
-              "upstream_inference_completions_cost": 0.00613
+              "upstream_inference_cost": 0.015386,
+              "upstream_inference_prompt_cost": 0.008246,
+              "upstream_inference_completions_cost": 0.00714
             },
             "completion_tokens_details": {
               "reasoning_tokens": 0,

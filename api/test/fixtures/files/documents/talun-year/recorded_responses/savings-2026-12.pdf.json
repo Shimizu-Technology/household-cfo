@@ -5,18 +5,19 @@
   "responses": [
     {
       "label": null,
+      "request_sha256": "c33b81de7a6e13edd03c043b712df2e55ad0cba99647686d830bd36597ffbafe",
       "response": {
         "success": true,
         "data": {
-          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": \"2026-12-01\",\n  \"period_end_on\": \"2026-12-31\",\n  \"summary\": \"Talun Savings DEMO statement for account ***8642, Dec 1-31, 2026. Opening balance is $7,200.00 and closing balance is $7,400.00. One posted credit of $200.00 is an online transfer from own checking ***4410. No debits.\",\n  \"confidence\": 0.95,\n  \"warnings\": [\n    \"The statement period (2026-12-01 to 2026-12-31) is after the server reference date of 2026-11-19. Please confirm the document date and period.\",\n    \"The document is labeled as a synthetic, fictional DEMO account.\",\n    \"The transfer's source account (checking ***4410) is not a statement account here, so only the savings-side leg is recorded.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Talun Savings ***8642\",\n      \"amount\": null,\n      \"balance\": 7400,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"savings\",\n      \"debt_type\": null,\n      \"confidence\": 0.9,\n      \"evidence\": \"Ending balance: $7,400.00 for account ***8642 as of period end 2026-12-31.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"***8642\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Talun Savings DEMO\",\n        \"masked_identifier\": \"***8642\",\n        \"period_start_on\": \"2026-12-01\",\n        \"period_end_on\": \"2026-12-31\",\n        \"opening_balance_cents\": 720000,\n        \"closing_balance_cents\": 740000,\n        \"printed_debit_cents\": 0,\n        \"printed_credit_cents\": 20000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***8642; Statement period: 2026-12-01 through 2026-12-31; Beginning balance: $7,200.00; Ending balance: $7,400.00; Posted credits: $200.00; Posted debits: $0.00.\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"***8642\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-12-10\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Online Transfer from own checking DEMO ***4410\",\n        \"evidence\": \"Credit of 200.00 on 2026-12-10. Transfer from the household's own checking account ***4410 into savings.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-12-31\",\n  \"period_start_on\": \"2026-12-01\",\n  \"period_end_on\": \"2026-12-31\",\n  \"summary\": \"Talun Savings account ***8642 statement for December 2026. Opening balance $7,200.00, one posted transfer in of $200.00 from own checking ***4410, closing balance $7,400.00.\",\n  \"confidence\": 0.95,\n  \"warnings\": [],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Talun Savings ***8642\",\n      \"amount\": null,\n      \"balance\": 7400,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"savings\",\n      \"debt_type\": null,\n      \"confidence\": 0.93,\n      \"evidence\": \"Account ***8642, Ending balance: $7,400.00 as of statement period ending 2026-12-31\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"acct_8642\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Talun Savings\",\n        \"masked_identifier\": \"***8642\",\n        \"period_start_on\": \"2026-12-01\",\n        \"period_end_on\": \"2026-12-31\",\n        \"opening_balance_cents\": 720000,\n        \"closing_balance_cents\": 740000,\n        \"printed_debit_cents\": 0,\n        \"printed_credit_cents\": 20000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***8642; Statement period: 2026-12-01 through 2026-12-31; Beginning balance: $7,200.00 Ending balance: $7,400.00; Posted credits: $200.00 Posted debits: $0.00\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"acct_8642\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-12-10\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Online Transfer from own checking DEMO ***4410\",\n        \"evidence\": \"Credit of 200.00 on 2026-12-10; transfer from the participant's own checking account ***4410 into savings\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
         },
         "error": null,
         "metadata": {
           "usage": {
-            "prompt_tokens": 2575,
-            "completion_tokens": 1462,
-            "total_tokens": 4037,
-            "cost": 0.02177,
+            "prompt_tokens": 2693,
+            "completion_tokens": 929,
+            "total_tokens": 3622,
+            "cost": 0.016676,
             "is_byok": false,
             "prompt_tokens_details": {
               "cached_tokens": 0,
@@ -25,12 +26,12 @@
               "video_tokens": 0
             },
             "cost_details": {
-              "upstream_inference_cost": 0.01977,
-              "upstream_inference_prompt_cost": 0.00515,
-              "upstream_inference_completions_cost": 0.01462
+              "upstream_inference_cost": 0.014676,
+              "upstream_inference_prompt_cost": 0.005386,
+              "upstream_inference_completions_cost": 0.00929
             },
             "completion_tokens_details": {
-              "reasoning_tokens": 397,
+              "reasoning_tokens": 0,
               "image_tokens": 0,
               "audio_tokens": 0
             }
