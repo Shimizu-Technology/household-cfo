@@ -3,7 +3,7 @@ import { api, expect, signIn, test } from './stack'
 type Me = { user: { coach_workspaces?: Array<{ id: number; name: string }> } }
 type Assignable = { cohorts: Array<{ name: string; persona_assignment?: { persona?: { name?: string } } | null }> }
 type Cohorts = { cohorts: Array<{ id: number; name: string }> }
-type Experience = { experience_configuration: { published_version: null | { id: number; config?: { module_order?: string[] } } } }
+type Experience = { experience_configuration: { published_version: null | { id: number; config?: { optional_modules?: Record<string, boolean> } } } }
 
 async function published(workspace: number | undefined, name: string) {
   const { cohorts } = await api<Cohorts>('admin', '/api/v1/admin/cohorts', workspace)
@@ -65,8 +65,8 @@ test('Go live starts with no group ticked and reaches only the group she ticks @
   // Only the ticked group got the program's voice and its new tools; the other kept what it had.
   expect([Boolean(row(groups[0])?.persona_assignment), Boolean(row(groups[1])?.persona_assignment)]).toEqual([true, false])
   const groupA = await published(workspace, groups[0])
-  expect(groupA?.config?.module_order, 'Group A published without Wealth').toBeDefined()
-  expect(groupA?.config?.module_order).not.toContain('wealth')
+  // optional_modules is what turns a tool on or off; module_order is only its position.
+  expect(groupA?.config?.optional_modules?.wealth, 'Group A published with Wealth turned off').toBe(false)
   expect((await published(workspace, groups[1]))?.id ?? null).toEqual(groupBBefore?.id ?? null)
 })
 
