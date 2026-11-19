@@ -11,6 +11,10 @@ module SpendingPatterns
     PERSON_TRANSFER = /\A(?:zelle\b|venmo\b|cash\s*app\b|money\s+transfer\b|online\s+transfer\b|transfer\s+(?:to|from)\b|payment\s+to\b)|paypal\s*\*\s*[a-z]+\.[a-z]+/i
     # A store seen in only one month is a one-off, not a monthly habit.
     MIN_MONTHS_FOR_A_CUT = 2
+    # Services people pay for every month. With the bank's own "Recurring Payment" marker, these may change
+    # price or skip a statement and still read as a subscription.
+    KNOWN_SERVICE = /\b(?:netflix|hulu|disney|youtube|spotify|apple\.com|icloud|apple\s+(?:music|tv|one)|google\s+(?:one|workspace|storage)|amazon\s+prime|prime\s+video|audible|peacock|paramount|hbo|starlink|chatgpt|zoom|adobe|microsoft\s+365|dropbox|xbox|playstation|nintendo|crunchyroll)/i
+    BANK_RECURRING = /\Arecurring\s+payment\b/i
 
     def self.protected_category?(name) = name.to_s.match?(PROTECTED_CATEGORY)
 
@@ -41,6 +45,7 @@ module SpendingPatterns
       rows.each do |row|
         # Check the bank's own wording and the cleaned label, so "Purchase: Venmo to …" is still money sent to a person.
         row[:transfer_to_person] = [ row[:merchant].to_s, row[:merchant].to_s.sub(MerchantName::BANK_PREFIX, "") ].any? { |text| text.match?(PERSON_TRANSFER) }
+        row[:bank_recurring] = row[:merchant].to_s.match?(BANK_RECURRING)
         row[:merchant] = MerchantName.call(row[:merchant])
       end
       rows.reject! { |row| row[:amount_cents].zero? }
@@ -98,6 +103,8 @@ module SpendingPatterns
       end.sort_by { |row| [ -row[:total_cents], row[:label] ] }
     end
 
+    def autopay_protected?(name) = self.class.protected_category?(name) || name.to_s.match?(/\b(?:insurance|premiums?|takecare|loan|mortgage|tuition)\b/i)
+
     def bank_charge?(row)
       return row[:kind].in?(%w[fee interest]) if row[:kind].present?
 
@@ -118,17 +125,35 @@ module SpendingPatterns
     def recurring(rows)
       rows.group_by { |row| row[:merchant].downcase.squish }.filter_map do |_, group|
         # A repeated retail purchase is a habit, not a subscription. Only flag
-        # subscription wording or a participant-labelled subscription category.
+        # subscription wording, a participant-labelled subscription category,
+        # a known monthly service or the bank's own recurring marker.
         subscription_label = group.first[:merchant].match?(/\b(?:subscriptions?|membership|stream(?:ing)?\s+service|netflix|spotify|gym|software|phone\s+plan|internet\s+plan)\b/i) ||
           group.any? { |row| row[:splits].any? { |split| split[:name].match?(/\b(?:subscriptions?|memberships?|streaming|software|gym|phone\s+plan|internet\s+plan)\b/i) } }
-        next unless subscription_label
-        next unless group.length >= 3 && group.map { |row| row[:date].strftime("%Y-%m") }.uniq.length >= 3
+        known = group.first[:merchant].match?(KNOWN_SERVICE)
+        bank_marked = group.any? { |row| row[:bank_recurring] }
+        # The bank marks every autopay recurring, daycare and insurance included. Those are
+        # protected costs, never a subscription to reconsider.
+        bank_marked = false if group.any? { |row| row[:splits].any? { |split| autopay_protected?(split[:name]) } || autopay_protected?(row[:merchant]) }
+        marked = known || bank_marked
+        next unless subscription_label || marked
+        dated = group.sort_by { |row| row[:date] }
         amounts = group.map { |row| row[:amount_cents] }.sort
         median = amounts[amounts.length / 2]
-        next unless amounts.all? { |amount| (amount - median).abs <= [ 25, median / 100 ].max }
-        next unless group.sort_by { |row| row[:date] }.each_cons(2).all? { |first, second| (26..35).cover?((second[:date] - first[:date]).to_i) }
-        { merchant: group.first[:merchant], typical_amount_cents: median, observed_payments: group.length, confirmed_subscription: false }
-      end.sort_by { |row| [ -row[:typical_amount_cents], row[:merchant] ] }
+        steady = if marked
+          # A price rise or one missed statement still reads as the same plan, but at least one
+          # month-to-month charge must show it is monthly (two games two months apart are not).
+          gaps = dated.each_cons(2).map { |first, second| (second[:date] - first[:date]).to_i }
+          amounts.all? { |amount| (amount - median).abs <= [ 25, median * 15 / 100 ].max } &&
+            gaps.any? { |gap| (26..35).cover?(gap) } && gaps.all? { |gap| (26..35).cover?(gap) || (bank_marked && (54..70).cover?(gap)) }
+        else
+          group.length >= 3 && dated.map { |row| row[:date].strftime("%Y-%m") }.uniq.length >= 3 &&
+            amounts.all? { |amount| (amount - median).abs <= [ 25, median / 100 ].max } &&
+            dated.each_cons(2).all? { |first, second| (26..35).cover?((second[:date] - first[:date]).to_i) }
+        end
+        next unless steady
+        { merchant: group.first[:merchant], typical_amount_cents: median, latest_amount_cents: dated.last[:amount_cents],
+          last_charged_on: dated.last[:date].iso8601, observed_payments: group.length, confirmed_subscription: false }
+      end.sort_by { |row| [ -row[:latest_amount_cents], row[:merchant] ] }
     end
   end
 end

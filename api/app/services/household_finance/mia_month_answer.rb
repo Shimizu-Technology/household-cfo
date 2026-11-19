@@ -7,10 +7,12 @@ module HouseholdFinance
   # Planned out includes monthly debt payments. Spent so far is confirmed category
   # spending, so it is compared with category budgets, never with bank cash.
   class MiaMonthAnswer
-    QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b/i
+    # "Is our budget realistic?" is answered with the month's plan, not deflected.
+    REALISTIC = /\b(?:is|are)\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:realistic|doable|workable|enough|working|sustainable|ok(?:ay)?)\b(?!\s+(?:to|for)\b)|\bdoes\s+(?:our|my|the|this)\s+(?:monthly\s+)?(?:budget|plan)\s+(?:work|add\s+up|make\s+sense)\b|\bcan\s+(?:we|i)\s+(?:really\s+)?(?:live\s+on|stick\s+to|keep\s+to|manage\s+on)\s+(?:our|my|this|the)\s+(?:budget|plan)\b/i
+    QUESTION = /\bhow much (?:do (?:i|we) have|is) left(?: (?:this|last) month\b|(?=[.!?]*\s*\z))|\bhow did (?:this month|last month|(?:#{MonthTerms.pattern})(?: 20\d{2})?) look\b|\bhow (?:am i|are we|is (?:my|our) (?:month|budget)) doing\b|\bhow (?:am i|are we) doing\b|\bhow (?:does|is) (?:this|my|our) month (?:look|going)\b|\bhow much is left in (?:my|our|the) plan (?:this|last) month\b|#{REALISTIC.source}/i
 
     def self.question?(message)
-      return false if MessageReplyIntent.purchase_question?(message)
+      return false if MessageReplyIntent.purchase_question?(message) || MiaIncomeAnswer.topic?(message) || SpendingPatterns::Answerer.subscriptions_question?(message)
 
       excluded = /\b(?:bank|account|grocer(?:y|ies)|food|week)\b/i
       if (question = message.to_s.match(QUESTION))

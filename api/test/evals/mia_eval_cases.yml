@@ -743,3 +743,36 @@ cases:
       - /\bdon.t (?:buy|get)\b/
       - /\byou should not\b/
       - enough approved data to answer that as a fact
+
+  # Real-data test (Nov 18 2026): Mia answers the question that was asked.
+  - id: round9_how_much_came_in
+    route: controller
+    prompt: How much came in last month?
+    expected_phrases: [I don’t have income for June 2026]
+    forbidden_phrases: [you spent, flexible spending, purchases for this period]
+    live_expected: [/income/]
+    live_forbidden: [/\byou spent\b/, flexible spending]
+
+  - id: round9_how_much_came_in_this_month
+    route: controller
+    prompt: How much came in this month?
+    expected_phrases: ["Your plan counts $8,000 coming in for July 2026", not a total of the deposits]
+    forbidden_phrases: [you spent, flexible spending]
+    live_expected: ["$8,000"]
+    live_forbidden: [/\byou spent\b/, flexible spending]
+
+  - id: round9_subscriptions
+    route: controller
+    prompt: What subscriptions am I paying for?
+    expected_phrases: [repeats every month at a steady price, another card or account]
+    forbidden_phrases: [Spending half, one step at a time, biggest flexible spending]
+    live_expected: [/subscription/]
+    live_forbidden: [Spending half, one step at a time, biggest flexible spending]
+
+  - id: round9_budget_realistic
+    route: controller
+    prompt: Our family is growing. Is our budget realistic?
+    expected_phrases: ["Your plan leaves about $1,890 for July 2026"]
+    forbidden_phrases: [one step at a time, You choose what we work on next, biggest flexible spending]
+    live_expected: ["$1,890"]
+    live_forbidden: [one step at a time, You choose what we work on next]
