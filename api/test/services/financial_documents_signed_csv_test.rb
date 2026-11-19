@@ -16,6 +16,16 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     assert_equal 48_000, data[:transaction_drafts].sum { |draft| draft[:total_amount_cents] }
   end
 
+  test "a CSV with Merchant, Description and Type columns still reads an ATM withdrawal from its description" do
+    content = CSV.generate do |csv|
+      csv << %w[Date Description Merchant Type Debit Credit]
+      csv << [ "2026-10-04", "ATM Withdrawal", "Tasi Demo Bank", "purchase", "80.00", nil ]
+      csv << [ "2026-10-05", "ATM/POS Purchase", "Tasi Demo Market", "purchase", "45.00", nil ]
+    end
+    events = extract(content, account_basis: "asset")[:source_accounting][:events]
+    assert_equal %w[cash_withdrawal purchase], events.pluck(:event_type)
+  end
+
   test "running balances prove the whole bank CSV without a model" do
     data = extract(csv, account_basis: "asset")
     rows = data.fetch(:source_accounting).fetch(:events)
