@@ -158,7 +158,9 @@ module HouseholdFinance
           next if clause.match?(ONE_OFF)
           next unless clause.match?(MONTHLY) && clause.match?(SAVING) && !clause.match?(NO_SAVING)
 
-          merchants.find { |row| label_terms(row["label"]).any? { |term| names_in?(clause, term) } || share_of_total?(clause, row["total_cents"]) }
+          # "…one-time, so cutting it saves $200 a month": a pronoun points back at the store named earlier in the sentence.
+          scope = clause.match?(/\b(?:it|that|this|those|them)\b/i) ? sentence : clause
+          merchants.find { |row| label_terms(row["label"]).any? { |term| names_in?(scope, term) } || share_of_total?(clause, row["total_cents"]) }
         end.first
         violation("one_month_saving", "#{merchant['label']}: #{sentence}") if merchant
       end

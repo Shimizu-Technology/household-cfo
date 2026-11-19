@@ -171,10 +171,15 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
       # The figure alone: half of the one payment, stated as a month.
       "Trimming that shopping could save $345 a month.",
       # A one-time label elsewhere in the sentence doesn't excuse the monthly claim.
-      "The PayPal *IslandNursery payment was one-time, so cutting it saves $345 a month."
+      "The PayPal *IslandNursery payment was one-time, so cutting it saves $345 a month.",
+      "The PayPal *IslandNursery payment was one-time, so cutting it saves $200 a month."
     ].each do |reply|
       assert_equal [ "one_month_saving" ], rules_for(reply, ledger: ledger), reply
     end
+    # A plain label list, with no totals, still links the pronoun to the store.
+    assert_equal [ "one_month_saving" ], rules_for("The PayPal *IslandNursery payment was one-time, so cutting it saves $345 a month.", ledger: { "one_month_merchants" => [ "PayPal *IslandNursery" ] })
+    # Without a pronoun, a saving about something else is not tied to the one-off.
+    assert_empty rules_for("The PayPal *IslandNursery payment was one-time; trimming dining could save $40 a month.", ledger: ledger)
     [
       "The PayPal *IslandNursery payment was one-time, so it is not a monthly saving.",
       "The $690 to PayPal *IslandNursery was a single payment; there's nothing to save every month.",
