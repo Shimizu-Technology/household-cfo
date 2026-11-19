@@ -54,11 +54,13 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}
-    {creating && <NewGroup platformMode={platformMode} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
+    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id) }} />}
   </section>
 }
 
-function NewGroup({ platformMode, onClose, onCreated }: { platformMode: boolean; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
+function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode: boolean; programs: Array<{ id: number; name: string }>; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
+  const { selectCoachWorkspace } = useAuthContext()
+  const [programId, setProgramId] = useState(programs.length === 1 ? String(programs[0].id) : '')
   const [name, setName] = useState('')
   const [starts, setStarts] = useState('')
   const [busy, setBusy] = useState(false)
@@ -66,17 +68,35 @@ function NewGroup({ platformMode, onClose, onCreated }: { platformMode: boolean;
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (busy) return
-    if (platformMode) { setError('Choose a program at the top of the page first, so the group has a home.'); return }
+    if (platformMode && !programId) { setError('Choose the program this group belongs to.'); return }
     if (!name.trim()) { setError('Give the group a name.'); return }
     setBusy(true); setError(null)
     // The program stays put until the group exists and the list has reloaded, so the new group is never lost.
     const release = holdWorkspaceLock()
-    try { await onCreated(await createAdminCohort({ name: name.trim(), status: 'enrolling', ...(starts ? { starts_on: starts } : {}) })) }
+    let created: AdminCohort | null = null
+    const values = { name: name.trim(), status: 'enrolling' as const, ...(starts ? { starts_on: starts } : {}) }
+    try { created = await (platformMode ? createAdminCohort(values, Number(programId)) : createAdminCohort(values)) }
     catch (caught) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
     finally { release() }
+    if (!created) return
+    // From "All programs", continue inside the program the group was created in.
+    if (platformMode) selectCoachWorkspace(Number(programId))
+    await onCreated(created)
   }
+  if (platformMode && programs.length === 0) return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose}>
+    <div className="admin-stack">
+      <p>A group belongs to a program. Start a program first, then add its groups.</p>
+      <div className="admin-actions"><Button onClick={() => { onClose(); navigateTo(adminPath('settings')) }}>Start a program</Button></div>
+    </div>
+  </AdminDialog>
   return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose} locked={busy}>
     <form className="admin-stack" onSubmit={submit} noValidate>
+      {platformMode && <label className="admin-field"><span>Program</span>
+        <select value={programId} onChange={event => setProgramId(event.target.value)}>
+          {programs.length > 1 && <option value="">Choose one</option>}
+          {programs.map(program => <option key={program.id} value={program.id}>{program.name}</option>)}
+        </select>
+      </label>}
       <label className="admin-field"><span>Group name</span><input autoFocus maxLength={120} value={name} placeholder="Tuesday evening group" onChange={event => setName(event.target.value)} /></label>
       <label className="admin-field"><span>Start date (optional)</span><input type="date" value={starts} onChange={event => setStarts(event.target.value)} /></label>
       {error && <p className="admin-alert error" role="alert">{error}</p>}

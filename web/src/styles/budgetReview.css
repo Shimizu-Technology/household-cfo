@@ -179,3 +179,8 @@ body #root .activity-screen .transaction-draft-actions > .ui-btn--text { width: 
 
 /* This dialog title is wrapped by its form rather than a header. */
 body :where(.bulk-confirm-dialog) form > h3:first-child { font-family: var(--font-display); font-weight: var(--weight-semibold); font-variant-numeric: tabular-nums lining-nums; }
+
+/* On a phone the year arrows stay beside the month; "This month" or "This year" takes its own row instead of pushing an arrow down. */
+@media (max-width: 480px) {
+  .budget-screen .budget-view-controls .current-period-button { order: 1; flex: 1 0 100%; }
+}

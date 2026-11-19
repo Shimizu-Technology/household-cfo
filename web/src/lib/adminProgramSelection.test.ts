@@ -2,7 +2,7 @@
 import { beforeEach, expect, it } from 'vitest'
 import type { CurrentUser } from '../api'
 import { rememberAdminProgram, restoredAdminProgram } from './adminProgramSelection'
-const admin = {id:1,clerk_id:'admin-one',is_admin:true,coach_workspaces:[{id:2}]} as CurrentUser
+const admin = {id:1,clerk_id:'admin-one',is_admin:true,coach_workspaces:[{id:2},{id:4}]} as CurrentUser
 beforeEach(()=>localStorage.clear())
 it('scopes remembered programs to the verified user and validates current access',()=>{
  rememberAdminProgram(admin,2)
@@ -10,6 +10,13 @@ it('scopes remembered programs to the verified user and validates current access
  expect(restoredAdminProgram({...admin,id:3,clerk_id:'admin-two'})).toBeNull()
  expect(restoredAdminProgram({...admin,coach_workspaces:[]})).toBeNull()
  expect(restoredAdminProgram(admin)).toBeNull()
+})
+it('starts an administrator with one program in it until they choose All programs',()=>{
+ const single = {...admin,coach_workspaces:[{id:2}]} as CurrentUser
+ expect(restoredAdminProgram(single)).toBe(2)
+ expect(restoredAdminProgram({...single,coach_workspaces:[]})).toBeNull()
+ rememberAdminProgram(single,null)
+ expect(restoredAdminProgram(single)).toBeNull()
 })
 it('remembers All workspaces and leaves non-admin defaults to the server',()=>{
  rememberAdminProgram(admin,null)
