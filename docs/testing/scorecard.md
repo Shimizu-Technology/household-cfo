@@ -86,7 +86,7 @@ RAILS_ENV=test DATABASE_TEST_NAME=household_cfo_test_t4 bin/rails scorecard:reco
   RECORDING_ENV_FILE=/absolute/path/to/api/.env
 ```
 
-Only missing recording files are created. For a deliberate re-record, remove the selected **fictional** recording files first. The `.env` is read with `Dotenv.parse`; its key is neither printed nor committed. Do not load an entire private environment file into the shell. Before committing, inspect the new responses and verify that every name, descriptor, account and amount comes from the fictional sources. Record usage/cost in the PR. A changed source checksum or provider section label fails replay. A new model-dependent path without a recording fails closed; CI has no live-model fallback. The Minitest test blocks `Net::HTTP.start` as an additional network guard.
+Only missing recording files are created. For a deliberate re-record, remove the selected **fictional** recording files first. The `.env` is read with `Dotenv.parse`; its key is neither printed nor committed. Do not load an entire private environment file into the shell. Before committing, inspect the new responses and verify that every name, descriptor, account and amount comes from the fictional sources. Record usage/cost in the PR. A changed source checksum or provider section label fails replay. A natively parsed statement may bypass an older recording only when none of its provider sections was consumed; a partly consumed recording still fails. A new model-dependent path without a recording fails closed; CI has no live-model fallback. The Minitest test blocks `Net::HTTP.start` as an additional network guard.
 
 ## Update a baseline after an improvement
 

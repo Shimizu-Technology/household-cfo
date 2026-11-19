@@ -21,7 +21,11 @@ module Scorecard
 
     def call(document, &block)
       result = super
-      raise "Unused recorded provider sections" unless @record || @remaining.empty?
+      native = result.metadata[:extraction_mode] == "native_statement"
+      # A newly supported native template may bypass an older recording. Like
+      # the corpus tests, permit that only when no recorded section was consumed.
+      consumed = @recording.fetch("responses").length - @remaining.length
+      raise "Unused recorded provider sections" unless @record || @remaining.empty? || native && consumed.zero?
       if @record && result.success?
         @path.dirname.mkpath
         @path.write(JSON.pretty_generate(recording) + "\n")

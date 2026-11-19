@@ -58,6 +58,27 @@ class ScorecardTest < ActiveSupport::TestCase
     assert_raises(RuntimeError) { extractor.send(:perform_openrouter_request, {}) }
   end
 
+  test "native extraction can bypass an older model recording without consuming it" do
+    require "tmpdir"
+    root = Rails.root.join("test/fixtures/files/documents")
+    source = root.join("bank-of-guam-2026-09.pdf")
+    Dir.mktmpdir("scorecard-native-") do |directory|
+      previous = ENV.to_h.slice("STORAGE_BACKEND", "LOCAL_STORAGE_ROOT")
+      ENV["STORAGE_BACKEND"], ENV["LOCAL_STORAGE_ROOT"] = "local", File.realpath(directory)
+      recording = Pathname.new(directory).join("recording.json")
+      observed = JSON.parse(Scorecard::Runner::TALUN.join("recorded_responses/checking-2026-01.pdf.json").read)
+      observed["sha256"] = Digest::SHA256.file(source).hexdigest
+      recording.write(JSON.generate(observed))
+      S3Service.upload_file!("native/source", source, content_type: "application/pdf", checksum_sha256: observed.fetch("sha256"))
+      document = FinancialDocumentImport.new(filename: source.basename.to_s, document_kind: "statement", content_type: "application/pdf", s3_key: "native/source")
+      result = without_network { Scorecard::RecordedExtractor.new(path: recording, source: source).call(document) }
+      assert result.success?, result.error
+      assert_equal "native_statement", result.metadata[:extraction_mode]
+    ensure
+      %w[STORAGE_BACKEND LOCAL_STORAGE_ROOT].each { |key| previous.key?(key) ? ENV[key] = previous[key] : ENV.delete(key) }
+    end
+  end
+
   private
 
   def without_network
