@@ -23,6 +23,7 @@ module SavingsChallenge
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
       current = HouseholdFinance::ParticipantMessageReader::Current
       return false if current.message.to_s.squish == message.to_s.squish && current.reading&.facts&.any?
+      return true if SpendingPatterns::Answerer.subscriptions_question?(message)
 
       return HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns") if HouseholdFinance::MessageReplyIntent.known?(message)
 
@@ -419,6 +420,11 @@ module SavingsChallenge
       end
       return false unless self.class.patterns_question?(@message)
       @patterns = SpendingPatterns::Analyzer.new(@household, today: @enrollment.local_today).call
+      if SpendingPatterns::Answerer.subscriptions_question?(@message)
+        @answer = SpendingPatterns::Answerer.subscriptions_reply(@patterns)
+        @topic = { type: "challenge_patterns", choices: [] }
+        return true
+      end
       if (partial = SpendingPatterns::Answerer.partial_month_summary(@patterns, today: @enrollment.local_today))
         @answer = partial
         @topic = { type: "challenge_patterns", choices: [] }

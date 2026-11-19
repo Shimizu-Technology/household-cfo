@@ -8,17 +8,25 @@ module SpendingPatterns
     # These double as nouns ("my spending log"), so only an object after them
     # makes them a request.
     ACTION_REQUEST = /\b(?:draft|prepare|log|record|transfer|cancel)\s+(?:a|an|the|my|our|this|that|these|those|it|them|me|\$|\d)/i.freeze
+    # The subscriptions must be what she's asking about: "what subscriptions do we pay for?",
+    # not "how are we doing after cancelling the gym membership?" or "a Costco membership?".
+    SUBSCRIPTIONS_QUESTION = /\b(?:what|which|any|list|show|check|tell\s+me|how\s+many|how\s+much|too\s+many)\b[^.?!]{0,40}\b(?:subscriptions|memberships|subscription\s+(?:charges|services)|streaming\s+services|recurring\s+(?:charges|payments|bills))\b|\bwhich\s+subscription\b|\b(?:do|am|are)\s+(?:i|we)\s+(?:have|paying|pay(?:ing)?\s+for)\s+(?:any\s+|too\s+many\s+|an?\s+[\w+.]+\s+)?(?:subscriptions?|memberships|streaming\s+services)\b/i.freeze
 
     # Conservative read-only floor for an unavailable reader. The live reader
     # handles meaning; this only recognizes clear requests to observe spending.
     def self.observation_question?(message)
       return false if HouseholdFinance::MessageReplyIntent.purchase_question?(message) || HouseholdFinance::ParticipantCare.required?(message)
+      return true if subscriptions_question?(message)
+      # Income and "is our budget realistic?" have their own answers.
+      return false if HouseholdFinance::MiaIncomeAnswer.topic?(message) || HouseholdFinance::MiaMonthAnswer.question?(message)
       return true if HouseholdFinance::MessageReplyIntent.matches?(message, "spending_patterns")
       return false if HouseholdFinance::MessageReplyIntent.known?(message)
 
       (message.match?(/\b(?:what(?:s|['’]s)?|which|show|tell|notice|spot|see|look|analy[sz]e)\b/i) && message.match?(PATTERN)) ||
         message.match?(/\b(?:notice|stands? out|unusual|weird)\b.{0,45}\b(?:spending|statement|purchases?)\b|\b(?:where|how)\b.{0,20}\b(?:cut back|trim spending)\b(?:[?.!]*\s*\z|.{0,25}\b(?:spending|purchases|shopping|groceries|takeout|budget)\b)|\bsmall (?:buys|purchases)\b.{0,20}\badd(?:ing)? up\b/i)
     end
+
+    def self.subscriptions_question?(message) = message.to_s.match?(SUBSCRIPTIONS_QUESTION)
 
     def self.matches?(message)
       current = HouseholdFinance::ParticipantMessageReader::Current
@@ -54,6 +62,23 @@ module SpendingPatterns
       "#{observed}#{waterfall}#{estimate} #{question}"
     end
 
+    # Rails states what repeats; there is nothing for a narrator to round or rename.
+    def self.subscriptions_reply(patterns)
+      present = patterns[:coverage][:months].select { |row| row[:spending_cents] }.map { |row| Date.iso8601("#{row[:month]}-01").strftime("%b") }
+      return "I don’t have reviewed purchases to check for subscriptions yet. You can review a statement or tell me about a few purchases to start." if present.empty?
+
+      span = present.one? ? "In #{present.first}" : "From #{present.first} to #{present.last}"
+      other_accounts = "A subscription paid from another card or account won’t show until that statement is reviewed."
+      found = patterns[:possible_subscriptions]
+      return "#{span}, I don’t see a charge in your reviewed purchases that repeats every month at a steady price. #{other_accounts}" if found.empty?
+
+      list = found.map { |row| "#{row[:merchant]} (#{money(row[:latest_amount_cents])})" }
+      together = found.one? ? "" : " Together that’s about #{money(found.sum { |row| row[:latest_amount_cents] })} a month."
+      "#{span}, #{found.one? ? 'this repeats' : 'these repeat'} about monthly at a steady price, so #{found.one? ? 'it looks like a subscription' : 'they look like subscriptions'}: #{list.to_sentence}.#{together} #{other_accounts} Is there one you don’t use anymore?"
+    end
+
+    def self.money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
+
     def initialize(household:, message:, persona:, history:, approved_content:, available_product_modules: nil)
       @household, @message, @persona, @history, @approved_content = household, message, persona, history, approved_content
       @available_product_modules = available_product_modules
@@ -63,6 +88,7 @@ module SpendingPatterns
 
     def call
       @supplied_content_context = []
+      return subscriptions_answer if self.class.subscriptions_question?(@message)
       period = RequestedPeriod.new(@message).call
       @patterns = Analyzer.new(@household, **period).call
       if period.present? && @patterns[:purchase_count].zero?
@@ -112,10 +138,23 @@ module SpendingPatterns
 
     private
 
+    def subscriptions_answer
+      # "every month" is how subscriptions are paid, not a period to read. A named
+      # period still counts, but one month can't show a repeat, so look back at least three.
+      period = begin
+        RequestedPeriod.new(@message).call
+      rescue RequestedPeriod::Unsupported
+        {}
+      end
+      period = period.merge(from: [ period[:from], period[:to].beginning_of_month - 2.months ].min) if period.present?
+      @patterns = Analyzer.new(@household, **period).call
+      self.class.subscriptions_reply(@patterns)
+    end
+
     def pattern_reference(observed, waterfall, estimate, question)
       self.class.question_reference(message: @message, observed: observed, waterfall: waterfall, estimate: estimate, question: question)
     end
 
-    def money(cents) = ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: cents % 100 == 0 ? 0 : 2)
+    def money(cents) = self.class.money(cents)
   end
 end
