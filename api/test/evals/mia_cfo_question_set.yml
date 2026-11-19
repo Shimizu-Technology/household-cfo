@@ -22,10 +22,6 @@ cases:
     expected_amounts:
       - { ledger: month_income, month: "2026-06" }
     live_expected: [/income/]
-    known_gap:
-      checks: [expected_amounts, income_answered_with_spending]
-      reason: >-
-        Answered with June's spending ($3,798.48), not income. PR #311 (MiaIncomeAnswer) answers with the plan's income.
 
   - id: cfo_income_this_month
     route: controller
@@ -33,10 +29,6 @@ cases:
     expected_amounts:
       - { ledger: month_income, month: "2026-07" }
     live_expected: [/income/]
-    known_gap:
-      checks: [expected_amounts, income_answered_with_spending, raw_bank_descriptor]
-      reason: >-
-        Answered with July's spending report, which also prints raw bank descriptors. PR #311 (MiaIncomeAnswer) answers with the plan's income.
 
   # Where it went, against the plan
   - id: cfo_spent_last_month
@@ -178,12 +170,6 @@ cases:
     expected_phrases: [Netflix, Spotify]
     expected_amounts: ["$15.49", "$11.99"]
     live_expected: [Netflix, Spotify]
-    known_gap:
-      checks: [raw_bank_descriptor]
-      reason: >-
-        Answered with July's Subscriptions category report, and it names Spotify as "Recurring
-        Payment authorized on 07/05 Spotify USA S*····4410 Card 7302". PR #311 adds a
-        subscriptions answer.
 
   # Is our budget realistic
   - id: cfo_budget_realistic
@@ -191,11 +177,6 @@ cases:
     prompt: We have a baby due soon. Is our budget realistic?
     expected_amounts:
       - { ledger: month_plan_left, month: "2026-07" }
-    known_gap:
-      checks: [expected_amounts]
-      modes: [deterministic]
-      reason: >-
-        Deflects ("Let's take this one step at a time"). PR #311 answers with the month's plan.
 
   - id: cfo_how_am_i_doing
     route: controller

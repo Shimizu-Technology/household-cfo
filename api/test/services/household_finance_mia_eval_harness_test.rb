@@ -20,9 +20,9 @@ class HouseholdFinanceMiaEvalHarnessTest < ActionDispatch::IntegrationTest
   # regression. When one closes, take it off here and in the YAML; if it regresses
   # later, it fails as an ordinary case.
   CFO_KNOWN_GAPS = %w[
-    cfo_income_last_month cfo_income_this_month cfo_spent_this_month cfo_dining_out_june cfo_over_budget
+    cfo_spent_this_month cfo_dining_out_june cfo_over_budget
     cfo_where_it_went_against_plan cfo_where_most_money_goes cfo_cut_first cfo_cut_prenatal_clinic
-    cfo_stop_family_support cfo_one_off_every_month cfo_subscriptions cfo_budget_realistic
+    cfo_stop_family_support cfo_one_off_every_month
     cfo_savings_goal_by_march cfo_debt_minimums_total cfo_bonus cfo_make_it_to_payday
     cfo_make_it_to_payday_with_numbers cfo_runway_if_job_lost
   ].freeze
