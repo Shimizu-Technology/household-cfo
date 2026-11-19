@@ -45,6 +45,7 @@ describe('reloadReviewData', () => {
     isCurrent: vi.fn().mockReturnValue(true),
     apply: vi.fn(),
     restoreSelectedYear: vi.fn().mockResolvedValue(true),
+    refreshDocuments: vi.fn().mockResolvedValue(true),
     ...overrides,
   })
 
@@ -60,6 +61,12 @@ describe('reloadReviewData', () => {
     await expect(reloadReviewData(priorYearFailed)).resolves.toBe(false)
   })
 
+  it('keeps the refusal visible when the receipt or statement behind the card fails to reload', async () => {
+    const documentFailed = steps({ refreshDocuments: vi.fn().mockResolvedValue(false) })
+    await expect(reloadReviewData(documentFailed)).resolves.toBe(false)
+    expect(documentFailed.restoreSelectedYear).toHaveBeenCalled()
+  })
+
   it('keeps the refusal visible when offline or overtaken by a newer change', async () => {
     const offline = steps({ fetchLatest: vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) })
     await expect(reloadReviewData(offline)).resolves.toBe(false)
@@ -69,6 +76,7 @@ describe('reloadReviewData', () => {
     await expect(reloadReviewData(overtaken)).resolves.toBe(false)
     expect(overtaken.apply).not.toHaveBeenCalled()
     expect(overtaken.restoreSelectedYear).not.toHaveBeenCalled()
+    expect(overtaken.refreshDocuments).not.toHaveBeenCalled()
   })
 })
 

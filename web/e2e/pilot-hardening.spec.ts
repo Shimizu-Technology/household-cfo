@@ -5259,6 +5259,52 @@ test('confirmed import history does not project the same draft into budget impac
   await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
 })
 
+for (const detailReloads of [true, false]) {
+  test(`a receipt purchase refused as a possible duplicate ${detailReloads ? 'asks Same purchase once its receipt reloads' : 'keeps the refusal when its receipt fails to reload'}`, async ({ page }) => {
+    const pendingDraft = {
+      id: 506, occurred_on: `${currentYear}-08-05`, merchant: 'Tasi Demo Home Store', amount: 34.88, amount_cents: 3_488,
+      status: 'pending', source_type: 'receipt', financial_document_import_id: 507, category_id: 2, category_name: 'Dining out',
+      splits: [{ id: 508, budget_category_id: 2, category_name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 34.88, amount_cents: 3_488, notes: null, confidence: 0.9, metadata: {} }],
+      matches: [] as Array<Record<string, unknown>>,
+    }
+    const receipt = {
+      id: 507, household_id: 77, document_kind: 'receipt', status: 'needs_review', filename: 'talun-voucher-receipt.jpg', content_type: 'image/jpeg', byte_size: 2_048,
+      document_date: pendingDraft.occurred_on, period_start_on: null, period_end_on: null, extracted_summary: 'One purchase to review.', extraction_error: null,
+      processed_at: `${currentYear}-08-16T01:00:00Z`, applied_at: null, source_deleted_at: null, updated_at: `${currentYear}-08-16T01:00:00Z`,
+      source_available: false, details_included: true, uploaded_by: null, applied_by: null, source_deleted_by: null, metadata: {}, items: [],
+      transaction_drafts: [pendingDraft], attempts: [],
+    }
+    const refusal = 'This looks like Tasi Demo Home Store on Aug 5 ($34.88), which you already have. Is it the same purchase or a different one? Nothing was added to your spending.'
+    const bankLine = { id: 509, status: 'proposed', confidence: 0.94, match_reason: 'same amount', transaction: { id: 510, occurred_on: pendingDraft.occurred_on, merchant: 'Purchase authorized on 08/05 Tasi Demo Home Store Tamuning Gum', store_name: 'Tasi Demo Home Store', amount: 34.88, source_type: 'statement', categories: ['Dining out'] } }
+    let detailRequests = 0
+    await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+    await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [receipt] } }))
+    await page.route('http://api.test/api/v1/document_imports/507', (route) => {
+      detailRequests++
+      // The server saved the suggestion when it refused; only the receipt's own details carry it to this card.
+      if (!detailReloads) return route.fulfill({ status: 503, json: { errors: ['Try again shortly.'] } })
+      return route.fulfill({ status: 200, json: { document_import: { ...receipt, transaction_drafts: [{ ...pendingDraft, matches: [bankLine] }] } } })
+    })
+    await page.route('http://api.test/api/v1/transaction_drafts/506/confirm', (route) => route.fulfill({ status: 409, json: { errors: [refusal], code: 'possible_duplicate', possible_matches: [{ transaction_id: 510 }] } }))
+
+    await page.goto('/?pilot_e2e_role=participant#Statements')
+    const card = page.locator('[data-review-item="506"]')
+    await card.getByRole('button', { name: /^Confirm / }).click()
+    await expect.poll(() => detailRequests).toBe(1)
+
+    if (detailReloads) {
+      await expect(card).toContainText('Same purchase as Tasi Demo Home Store on Aug 5 ($34.88)?')
+      await expect(card.getByRole('button', { name: /^Confirm / })).toHaveCount(0)
+      await expect(card).not.toContainText(refusal)
+    } else {
+      // The card still shows the old Confirm, so the refusal must stay visible beside it.
+      await expect(card).toContainText(refusal)
+      await expect(card.locator('.transaction-duplicate-question')).toHaveCount(0)
+    }
+    await expect(page.getByText(/Your change was saved/)).toHaveCount(0)
+  })
+}
+
 test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
   const pdfImport = {
     id: 606,

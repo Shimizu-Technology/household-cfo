@@ -34,14 +34,16 @@ export async function confirmAfterCreate(confirm: () => Promise<AppData>): Promi
 
 /**
  * Reloads what Review shows after a refused or out-of-date action. True only when every view she
- * may be looking at is current, including a selected budget year other than this one; only then
- * can a card replace the refusal message with its question.
+ * may be looking at is current: the workspace, a selected budget year other than this one, and the
+ * details of any receipt or statement whose purchase cards showed the action. Only then can a card
+ * replace the refusal message with its question.
  */
 export async function reloadReviewData(steps: {
   fetchLatest: () => Promise<AppData>
   isCurrent: () => boolean
   apply: (latest: AppData) => void
   restoreSelectedYear: (latest: AppData) => Promise<boolean>
+  refreshDocuments: () => Promise<boolean>
 }): Promise<boolean> {
   let latest: AppData
   try {
@@ -51,5 +53,7 @@ export async function reloadReviewData(steps: {
   }
   if (!steps.isCurrent()) return false
   steps.apply(latest)
-  return steps.restoreSelectedYear(latest)
+  // Both run even if one fails, so as much as possible is current.
+  const [yearCurrent, documentsCurrent] = await Promise.all([steps.restoreSelectedYear(latest), steps.refreshDocuments()])
+  return yearCurrent && documentsCurrent
 }

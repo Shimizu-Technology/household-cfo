@@ -3234,7 +3234,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
     } catch (caught) {
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be updated.')
       // This failure belongs to the review card.
       // The editor announces the returned failure beside Save draft.
@@ -3288,11 +3288,14 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     }))
   }
 
-  async function refreshStaleTransactionReview(caught: unknown) {
+  // drafts: the purchases whose cards showed the refused action. A card from a receipt or statement
+  // reads its file's details, which a summary reload keeps as they were, so those are fetched again.
+  async function refreshStaleTransactionReview(caught: unknown, drafts: TransactionDraft[] = []) {
     if (!(caught instanceof ApiRequestError && ['stale_review', 'changed_elsewhere', 'possible_duplicate'].includes(caught.code ?? ''))) return false
     // The action was refused, so nothing was saved. False keeps its message visible: offline, overtaken,
-    // or a selected budget year that didn't reload.
+    // a selected budget year that didn't reload, or a file whose purchases didn't reload.
     const isCurrent = captureWorkspaceReloadGuard()
+    const importIds = [...new Set(drafts.flatMap(draft => draft.financial_document_import_id ? [draft.financial_document_import_id] : []))]
     return reloadReviewData({
       fetchLatest: () => fetchAppData(true),
       isCurrent,
@@ -3302,6 +3305,16 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         void refreshDocumentImports({ quiet: true })
       },
       restoreSelectedYear: latest => restoreSelectedBudgetPlan(latest.budget, { afterRefusal: true }),
+      refreshDocuments: async () => {
+        try {
+          const documentImports = await Promise.all(importIds.map(id => fetchDocumentImport(id)))
+          if (!isCurrent()) return false
+          setDocumentImports(current => documentImports.reduce(replaceImport, current))
+          return true
+        } catch {
+          return false
+        }
+      },
     })
   }
 
@@ -3336,7 +3349,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       actionFailed = true
       // It looks like a purchase she already has. Nothing changed; the refreshed card now asks
       // "Same purchase as …?" so she can answer instead of reading an error.
-      const current = await refreshStaleTransactionReview(caught)
+      const current = await refreshStaleTransactionReview(caught, [draft])
       if (current && isPossibleDuplicateRefusal(caught)) return
       trackPilotWorkflowFailure('transaction_review', 'confirm')
       const message = participantErrorMessage(caught, 'Transaction draft could not be confirmed.')
@@ -3376,7 +3389,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
     } catch (caught) {
       actionFailed = true
       trackPilotWorkflowFailure('transaction_review', 'ignore')
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be ignored.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3426,7 +3439,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
       trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, drafts)
       const message = participantErrorMessage(caught, `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`)
       if (activeSectionRef.current === 'Statements') setDocumentsError(message)
       else if (activeSectionRef.current === 'Ask Mia') setMiaError(message)
@@ -3462,7 +3475,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
       })
     } catch (caught) {
       actionFailed = true
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be matched.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
@@ -3501,7 +3514,7 @@ function WorkspaceApp({selectedCohortId, onChooseProgram, onChooseHousehold, onP
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      await refreshStaleTransactionReview(caught)
+      await refreshStaleTransactionReview(caught, [draft])
       const message = participantErrorMessage(caught, 'Transaction draft could not be reopened.')
       setReviewErrors(current => ({ ...current, [`purchase:${draft.id}`]: message }))
       // The card keeps the error next to the action that failed.
