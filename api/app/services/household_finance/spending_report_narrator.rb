@@ -1,6 +1,8 @@
 module HouseholdFinance
   class SpendingReportNarrator
     BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
+    # A cleaned name that is only an everyday word ("Check 1234" -> "Check") can't be what she asked about.
+    GENERIC_STORE = /\A(?:checks?|payments?|transfers?|deposits?|zelle|venmo|withdrawals?|purchases?|atm|fees?|transactions?|cash)\z/i
     CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
 
     def initialize(report, prompt: nil)
@@ -110,12 +112,17 @@ module HouseholdFinance
       remaining = totals.fetch(:remaining).to_f
       provisional = bank_needs_review + non_plaid_pending
       projected_remaining = planned - actual - provisional
+      # "Am I over budget?" asks the opposite of "am I within budget?", so the yes and no swap.
+      first = @prompt.match(/\b(?:over\s+(?:my\s+|our\s+|the\s+)?(?:budget|plan)|off\s+track|overspen\w*|within|under\s+(?:budget|plan)|on\s+track|staying)\b/i)
+      negated = @prompt[0...first.begin(0)].match?(/\b(?:not|n['’]t|never)\s+(?:\w+\s+){0,2}\z/i) if first
+      over_question = first && first[0].match?(/\A(?:over|off|overspen)/i) && !negated && !@prompt.match?(/\bover\s+or\s+under\b/i)
+      yes, no = over_question ? %w[No Yes] : %w[Yes No]
       status_line = if remaining.negative?
-        "No — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} #{prorated? ? "over the plan so far" : "over the confirmed budget"}: #{money(actual)} actual against #{planned_phrase(planned)}."
+        "#{no} — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} #{prorated? ? "over the plan so far" : "over the confirmed budget"}: #{money(actual)} actual against #{planned_phrase(planned)}."
       elsif provisional.positive? && projected_remaining.negative?
         "Almost — confirmed spending for #{report.fetch(:period_label)} is within #{prorated? ? "the plan so far" : "budget"}, but posted bank activity and other drafts awaiting review would put you #{money(projected_remaining.abs)} over if they are all valid."
       else
-        "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within #{prorated? ? "the plan so far" : "budget"}: #{money(actual)} confirmed against #{planned_phrase(planned)}."
+        "#{yes} — based on confirmed transactions for #{report.fetch(:period_label)}, you are within #{prorated? ? "the plan so far" : "budget"}: #{money(actual)} confirmed against #{planned_phrase(planned)}."
       end
 
       pending_line = provisional.positive? ? "Provisional outflows total #{money(provisional)}: #{money(bank_needs_review)} is posted bank activity needing review and #{money(non_plaid_pending)} comes from other drafts. Bank-pending charges remain separate." : "No posted outflows or other drafts are waiting for household review in this period."
@@ -126,10 +133,13 @@ module HouseholdFinance
     end
 
     def bank_merchant_line(bank)
-      merchants = Array(bank[:top_merchants]).first(3)
+      # Different raw spellings of one store ("ROSS STORES #497", "ROSS DRESS FOR LESS #123") are one store in a reply.
+      merchants = Array(bank[:top_merchants]).group_by { |row| store(row.fetch(:merchant)).downcase }.map do |_key, rows|
+        { merchant: store(rows.first.fetch(:merchant)), amount: rows.sum { |row| row.fetch(:amount).to_d }, count: rows.sum { |row| row.fetch(:count) } }
+      end.sort_by { |row| -row[:amount] }.first(3)
       return if merchants.empty?
 
-      details = merchants.map { |row| "#{row.fetch(:merchant)} #{money(row.fetch(:amount))} (#{row.fetch(:count)} #{'time'.pluralize(row.fetch(:count))})" }.to_sentence
+      details = merchants.map { |row| "#{row[:merchant]} #{money(row[:amount])} (#{row[:count]} #{'time'.pluralize(row[:count])})" }.to_sentence
       "Top bank-observed merchants: #{details}."
     end
 
@@ -138,11 +148,12 @@ module HouseholdFinance
       return if transactions.empty?
 
       details = transactions.map do |transaction|
-        merchant = transaction[:merchant].presence || "Transaction"
+        # Bank wording and card tails stay in statement review; a reply names the store.
+        merchant = SpendingPatterns::MerchantName.call(transaction[:merchant]).presence || "Transaction"
         date = transaction[:occurred_on].present? ? Date.iso8601(transaction[:occurred_on]).strftime("%b %-d") : nil
         [ merchant, money(transaction[:amount]), date ].compact.join(" ")
       rescue ArgumentError
-        [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]) ].compact.join(" ")
+        [ SpendingPatterns::MerchantName.call(transaction[:merchant]).presence || "Transaction", money(transaction[:amount]) ].compact.join(" ")
       end.to_sentence
       "Recent confirmed transactions: #{details}."
     end
@@ -219,15 +230,16 @@ module HouseholdFinance
     def merchant_focus_answer
       transactions = Array(report[:transactions])
       drafts = Array(report[:pending_drafts])
-      merchant = (transactions + drafts).map { |row| row[:merchant].to_s }.compact_blank.uniq
-        .select { |name| normalized(name).length >= 3 && mentions?(name) }
+      # She asks about the store ("Jollibee"), not the bank's descriptor ("Purchase: Jollibee Tamuning Gum").
+      merchant = (transactions + drafts).map { |row| store(row[:merchant]) }.compact_blank.uniq
+        .select { |name| normalized(name).length >= 3 && !name.match?(GENERIC_STORE) && mentions?(name) }
         .max_by(&:length)
       return unless merchant
 
       truncated = transactions.length >= SpendingReport::MAX_TRANSACTIONS
       scope = truncated ? "In the most recent #{SpendingReport::MAX_TRANSACTIONS} transactions of #{report.fetch(:period_label)}" : "For #{report.fetch(:period_label)}"
-      matches = transactions.select { |transaction| normalized(transaction[:merchant]) == normalized(merchant) }
-      pending = drafts.select { |draft| normalized(draft[:merchant]) == normalized(merchant) }
+      matches = transactions.select { |transaction| normalized(store(transaction[:merchant])) == normalized(merchant) }
+      pending = drafts.select { |draft| normalized(store(draft[:merchant])) == normalized(merchant) }
       total = matches.sum { |transaction| transaction[:amount].to_f }
       count = matches.length
       dates = matches.first(3).map { |transaction| transaction_label(transaction) }.to_sentence
@@ -247,10 +259,12 @@ module HouseholdFinance
 
     def transaction_label(transaction)
       date = Date.iso8601(transaction[:occurred_on].to_s).strftime("%b %-d") if transaction[:occurred_on].present?
-      [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]), date ].compact.join(" ")
+      [ store(transaction[:merchant]).presence || "Transaction", money(transaction[:amount]), date ].compact.join(" ")
     rescue ArgumentError
-      [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]) ].join(" ")
+      [ store(transaction[:merchant]).presence || "Transaction", money(transaction[:amount]) ].join(" ")
     end
+
+    def store(merchant) = SpendingPatterns::MerchantName.call(merchant.to_s)
 
     def totals_actual
       report.fetch(:totals).fetch(:actual).to_f

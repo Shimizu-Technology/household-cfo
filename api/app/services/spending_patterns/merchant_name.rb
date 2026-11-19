@@ -12,6 +12,9 @@ module SpendingPatterns
     STATE = /(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})/
     GUAM = FinancialDocuments::MerchantNormalizer::GUAM_LOCATION
     PLACE_TAIL = /(?:,\s*#{STATE}|\s+#{GUAM}\s+#{STATE}|\s+(?:#{GUAM}|Gum|GU)|(?<=\d)\s+#{STATE}|\s+\d{3}-[\d·•*xX-]+)\z/
+    # A card network's web-address tail: "Render.Com Render.Com CA", "Openai *Chatgpt Su Openai.Com CA".
+    # Never the store itself after a processor star ("Paypal *Hotels.com", "SP * ALLBIRDS.COM").
+    DOMAIN_TAIL = /(?<![*])\s+(?![*])[^\s*]*\.(?:com|net|org|io|ai|co|us|app)(?:\.[a-z]{2})?\b(?:\s*,?\s*#{STATE})?\z/i
     STORE_NUMBER = /(?:\s+(?:store\s*)?\#\s*\d+|\s+(?:store\s*(?:no\.?|number)?\s*)?\d{3,})\z/i
 
     # Refund matching keeps the narrower label it has always used, so wider coaching labels never widen a refund match.
@@ -22,6 +25,18 @@ module SpendingPatterns
       short.presence || full
     end
 
+    # The network repeats the store as a web address ("Openai *Chatgpt Su Openai.Com CA"). A domain that
+    # names something new ("Acme Shop.com", "Expedia Hotels.com") is part of the store's name.
+    def self.echoed_domain?(text)
+      tail = text[DOMAIN_TAIL]
+      return false unless tail
+
+      rest = text.delete_suffix(tail).squish
+      name = tail.strip.split(/[\s,]/).first.to_s.downcase.split(".").reject(&:empty?)
+      label = (name.length > 2 && name[-2].length <= 3 ? name[-3] : name[-2]).to_s.sub(/\A[^a-z0-9]+/, "")
+      label.length >= 3 && !rest.end_with?("*") && rest.downcase.match?(/(?<![a-z0-9])#{Regexp.escape(label)}(?![a-z0-9])/)
+    end
+
     def self.call(value)
       full = FinancialDocuments::MerchantNormalizer.call(value)
       return full if full.blank?
@@ -29,6 +44,7 @@ module SpendingPatterns
       short = short.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
       4.times do
         trimmed = short.sub(PLACE_TAIL, "").sub(STORE_NUMBER, "").squish
+        trimmed = trimmed.sub(DOMAIN_TAIL, "").squish if echoed_domain?(trimmed)
         break if trimmed == short || trimmed.blank?
         short = trimmed
       end

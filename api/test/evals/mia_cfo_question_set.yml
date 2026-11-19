@@ -53,23 +53,12 @@ cases:
     prompt: How much did I spend this month?
     expected_amounts:
       - { ledger: month_spending, month: "2026-07" }
-    known_gap:
-      checks: [raw_bank_descriptor]
-      reason: >-
-        The total is right, but "Recent confirmed transactions" prints the bank's descriptor
-        ("Purchase authorized on 07/10 Island Prenatal Clinic Tamuning Gum S*····4410 Card 7302")
-        instead of the store name. The spending report doesn't use SpendingPatterns::MerchantName.
 
   - id: cfo_dining_out_june
     route: controller
     prompt: How much did we spend on dining out in June?
     expected_amounts:
       - { ledger: category_spending, category: Dining Out, month: "2026-06" }
-    known_gap:
-      checks: [raw_bank_descriptor]
-      reason: >-
-        The $130 is right, but "Top merchants" prints "Purchase authorized on 06/20 Reef Coffee Co
-        Hagatna GU S*····4410 Card 7302". The category report doesn't clean store names.
 
   - id: cfo_store_june
     route: controller
@@ -83,12 +72,6 @@ cases:
     forbidden_phrases: [/\ANo\b/]
     expected_amounts:
       - { ledger: month_spending, month: "2026-07" }
-    known_gap:
-      checks: [forbidden_phrases]
-      reason: >-
-        Answers "No — … you are $477.19 over the plan so far". SpendingReportNarrator answers
-        "am I within budget?", so "Am I over budget?" gets Yes and No backwards (the base
-        household's budget_status case gets "Yes — … within" the same way).
 
   - id: cfo_where_it_went_against_plan
     route: controller
@@ -215,9 +198,6 @@ cases:
     prompt: How much are our debt payments each month?
     expected_amounts:
       - { ledger: debt_minimums }
-    known_gap:
-      checks: [expected_amounts]
-      reason: Lists each debt's minimum ($310, $95, $35) but never the $440 a month they add up to.
 
   # Can I afford it
   - id: cfo_afford_tv
@@ -244,9 +224,6 @@ cases:
     prompt: What should I do with a $1,000 bonus?
     expected_amounts: ["$1,000"]
     forbidden_phrases: [car registration]
-    known_gap:
-      checks: [forbidden_phrases]
-      reason: The bonus answer always asks for "the due date for car registration", a fixed line; this household has no car registration.
 
   # Will we make it to payday
   - id: cfo_make_it_to_payday
