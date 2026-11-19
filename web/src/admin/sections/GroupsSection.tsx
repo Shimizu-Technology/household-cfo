@@ -1,5 +1,5 @@
 import { AdminScope } from '../AdminScope'
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { createAdminCohort, fetchAdminPersonaAssignableCohorts, updateAdminCohort } from '../../api'
 import type { AdminCohort, AdminCohortStatus, AdminPersonaAssignableCohort, CurrentUser } from '../../api'
 import { Button } from '../../components/Button'
@@ -65,6 +65,9 @@ function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode
   const [starts, setStarts] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A reply that arrives after she has left this screen must not move her to another program.
+  const mounted = useRef(true)
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (busy) return
@@ -73,14 +76,18 @@ function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode
     setBusy(true); setError(null)
     // The program stays put until the group exists and the list has reloaded, so the new group is never lost.
     const release = holdWorkspaceLock()
-    let created: AdminCohort | null = null
+    let created: AdminCohort | undefined
     const values = { name: name.trim(), status: 'enrolling' as const, ...(starts ? { starts_on: starts } : {}) }
-    try { created = await (platformMode ? createAdminCohort(values, Number(programId)) : createAdminCohort(values)) }
-    catch (caught) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
-    finally { release() }
-    if (!created) return
+    try {
+      if (!platformMode) { await onCreated(await createAdminCohort(values)); return }
+      created = await createAdminCohort(values, Number(programId))
+    } catch (caught) {
+      if (mounted.current) { setError(message(caught, 'The group couldn’t be created. Try again.')); setBusy(false) }
+      return
+    } finally { release() }
+    if (!created || !mounted.current) return
     // From "All programs", continue inside the program the group was created in.
-    if (platformMode) selectCoachWorkspace(Number(programId))
+    selectCoachWorkspace(Number(programId))
     await onCreated(created)
   }
   if (platformMode && programs.length === 0) return <AdminDialog title="New group" labelId="admin-new-group-title" onClose={onClose}>

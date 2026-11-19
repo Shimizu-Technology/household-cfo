@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AdminCohort } from '../../api'
 import { adminUser, group, person, savings, staff } from '../../test/adminFixtures'
 
 const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), changeSavingsChallengeAccess: vi.fn() }))
@@ -114,6 +115,21 @@ describe('Groups', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
     await waitFor(() => expect(api.createAdminCohort).toHaveBeenCalledWith(expect.objectContaining({ name: 'Somewhere' }), 6))
     expect(selectCoachWorkspace).toHaveBeenCalledWith(6)
+  })
+  it('does not move an admin to another program when the create reply arrives after she left Groups', async () => {
+    auth.workspaceId = null
+    let finish: (created: AdminCohort) => void = () => undefined
+    api.createAdminCohort.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    render(<GroupsSection currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Late reply' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    await waitFor(() => expect(api.createAdminCohort).toHaveBeenCalledWith(expect.objectContaining({ name: 'Late reply' }), 5))
+    cleanup()
+    finish(group(9, 'Late reply'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(selectCoachWorkspace).not.toHaveBeenCalled()
   })
   it('picks the only program for a platform admin, and sends an admin with no program to start one', async () => {
     auth.workspaceId = null
