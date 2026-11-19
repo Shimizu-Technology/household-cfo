@@ -507,5 +507,7 @@ class FinancialDocumentsSignedCsvTest < ActiveSupport::TestCase
     # A "Type: purchase" column can't turn an explicit ATM withdrawal into a purchase.
     assert_equal "cash_withdrawal", extractor.send(:source_event_type, [ "purchase" ], { "type" => 0 }, "ATM Withdrawal", -8_000)
     assert_equal "purchase", extractor.send(:source_event_type, [], {}, "ATM/POS Purchase Walmart", -4_500)
+    # Both a Merchant and a Description column: the description still counts.
+    assert_equal "cash_withdrawal", extractor.send(:source_event_type, [ "purchase", "ATM Withdrawal" ], { "type" => 0, "label" => 1 }, "Tasi Demo Bank", -8_000)
   end
 end

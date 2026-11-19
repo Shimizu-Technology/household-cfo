@@ -344,12 +344,14 @@ module FinancialDocuments
     end
 
     def source_event_type(values, map, merchant, amount)
-      label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), merchant ].compact.join(" ").downcase
+      # The description is evidence even when a Merchant column names the store ("ATM Withdrawal" at "Tasi Demo Bank").
+      description = [ merchant, cell(values, map, "label") ].compact.uniq.join(" ")
+      label = [ cell(values, map, "direction"), cell(values, map, "type"), cell(values, map, "category"), description ].compact.join(" ").downcase
       return "debt_payment" if label.match?(/payment\s+thank\s+you|(?:credit card|card|loan|debt|visa|mastercard)\s+(?:payment|pmt)|payment\s+(?:to|for)\s+(?:card|loan|debt)/)
       return "transfer" if label.match?(/transfer|wallet\s+funding|payment[_ ]sent/)
       return "fee" if amount.to_i.negative? && label.match?(/\b(?:fees?|surcharge|service charge)\b/i)
       # "ATM/POS Purchase" in the description is a purchase; a "Type: purchase" column can't override "ATM Withdrawal".
-      return "cash_withdrawal" if !amount.to_i.positive? && label.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !merchant.to_s.match?(/\b(?:purchase|pos)\b/i)
+      return "cash_withdrawal" if !amount.to_i.positive? && label.match?(/\b(?:ATM\b|(?:Branch|Cash)\s+Withdrawal|Withdrawal\s*-\s*Branch)\b/i) && !description.match?(/\b(?:purchase|pos)\b/i)
       return "refund" if label.match?(/refund|reimburse|reversal/)
       return "interest" if label.match?(/interest/)
       return "income" if amount.to_i.positive?
