@@ -9336,9 +9336,6 @@ export function AnnualBudgetPlanner({
           <p>Choose the month, review your plan, or make a change.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Previous year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>‹</button>
-            {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
-            )}
             <label className="ui-period">
               <span className="sr-only">Report month</span>
               <select aria-label="Report month" value={currentMonthIndex} disabled={hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
@@ -9346,10 +9343,11 @@ export function AnnualBudgetPlanner({
               </select>
               <strong className="budget-year-label">{plan.year}</strong>
             </label>
-            {isViewingCurrentYear && !isViewingCurrentMonth && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
-            )}
             <button type="button" className="secondary-button budget-year-arrow" aria-label="Next year" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>›</button>
+            {/* After the arrows in the markup too, so keyboard focus follows what she sees at every width. */}
+            {!isViewingCurrentMonth && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges || hasUnsavedIncomeChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>{isViewingCurrentYear ? 'This month' : 'This year'}</button>
+            )}
           </div>
         </div>
       </div>
