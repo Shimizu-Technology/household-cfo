@@ -29,6 +29,25 @@ class CiTestShardsTest < ActiveSupport::TestCase
     end
   end
 
+  test "a measured weight beats file size, and a file without one is estimated from its size" do
+    Dir.mktmpdir("ci-shards-") do |root|
+      FileUtils.mkdir_p(File.join(root, "test/models"))
+      FileUtils.mkdir_p(File.join(root, "lib"))
+      # A tiny file that is slow, and four big files that are fast.
+      File.write(File.join(root, "test/models/slow_test.rb"), "#")
+      %w[a b c d].each { |name| File.write(File.join(root, "test/models/#{name}_test.rb"), "#" * 10_000) }
+      File.write(File.join(root, "lib/ci_test_shard_weights.json"), JSON.generate("test/models/slow_test.rb" => 100.0))
+
+      assert_equal %w[test/models/slow_test.rb], CiTestShards.files(root: root, index: 1, total: 2)
+      assert_equal %w[test/models/a_test.rb test/models/b_test.rb test/models/c_test.rb test/models/d_test.rb], CiTestShards.files(root: root, index: 2, total: 2)
+    end
+  end
+
+  test "the committed weights keep the three shards within ten percent of each other" do
+    loads = CiTestShards.loads(root: Rails.root.to_s, total: 3)
+    assert_operator loads.max, :<=, loads.min * 1.1, loads.inspect
+  end
+
   test "an out-of-range shard is refused" do
     [ [ 0, 3 ], [ 4, 3 ], [ 1, 0 ] ].each do |index, total|
       assert_raises(ArgumentError) { CiTestShards.files(root: Rails.root.to_s, index: index, total: total) }

@@ -10,7 +10,7 @@ Branch protection on `main` requires exactly four checks: `rails_security`, `rai
 
 ## Rails test shards
 
-`api/lib/ci_test_shards.rb` splits the files `bin/rails test` runs (everything under `api/test` except `system/`) into three shards. Files are sorted by size, largest first, and dealt to the shard with the least work so far, so the split is the same on every run and each file runs in exactly one shard (`api/test/lib/ci_test_shards_test.rb`). Each shard has its own Postgres service and runs `db:prepare`. Shard 1 also runs `zeitwerk:check`. To list a shard's files locally: `cd api && ruby script/ci_test_shard.rb 2 3`.
+`api/lib/ci_test_shards.rb` splits the files `bin/rails test` runs (everything under `api/test` except `system/`) into three shards. Each file has a weight: its measured run time in seconds from `api/lib/ci_test_shard_weights.json` (files that take a second or more), or an estimate from its size for any file not listed. Files are dealt heaviest first to the shard with the least work so far, so the split is the same on every run and each file runs in exactly one shard (`api/test/lib/ci_test_shards_test.rb`, which also checks that the shards stay within ten percent of each other). Each shard has its own Postgres service and runs `db:prepare`. Shard 1 also runs `zeitwerk:check`. To list a shard's files locally: `cd api && ruby script/ci_test_shard.rb 2 3`. Size alone balanced badly (the first run took 4, 8 and 13 minutes of test time per shard), so refresh the weights when the shards drift: run `bin/rails test -v`, add up each test class's seconds per file, and keep the files at one second or more.
 
 ## Browser tests skip when they can't be affected
 
