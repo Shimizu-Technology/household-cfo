@@ -26,14 +26,14 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
 
   test "Mia never offers medical care, family support, money sent to people or a one-off as a cut" do
     medical = @household.budget_categories.create!(name: "Doctor and medical", stack_key: "discretionary", sort_order: 2)
-    kami = @household.budget_categories.create!(name: "Kami", stack_key: "discretionary", sort_order: 3)
+    support = @household.budget_categories.create!(name: "Family help", stack_key: "discretionary", sort_order: 3)
     dining = @household.budget_categories.create!(name: "Eating out and coffee", stack_key: "discretionary", sort_order: 4)
     [ Date.new(2026, 9, 14), Date.new(2026, 10, 14) ].each do |date|
-      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Dr Shiehs Clinic Tamuning Gum S*····5237 Card 1150", 41_000, category: medical)
-      purchase(date, "Zelle to Shimizu Kami on #{date.strftime('%m/%d')} Ref # Wfct22MR7Gpl", 30_000, category: kami)
-      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Island Girl Coffee Barrigada Gum S*····#{date.day}95 Card 1150", 9_000, category: dining)
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Harbor Family Clinic Tamuning Gum S*····4410 Card 7302", 41_000, category: medical)
+      purchase(date, "Zelle to Reyes Ana on #{date.strftime('%m/%d')} Ref # Demo1A2B3C4D", 30_000, category: support)
+      purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Reef Coffee Co Barrigada Gum S*····#{date.day}95 Card 7302", 9_000, category: dining)
     end
-    purchase(Date.new(2026, 9, 17), "Money Transfer authorized on 09/17 Paypal *Madison.Mafnas San Jose CA S*····6808 Card", 69_000, category: @category)
+    purchase(Date.new(2026, 9, 17), "Money Transfer authorized on 09/17 Paypal *Jordan.Cruz San Jose CA S*····5519 Card", 69_000, category: @category)
     purchase(Date.new(2026, 10, 3), "Ross", 50_000)
     pharmacy = @household.budget_categories.create!(name: "Medication", stack_key: "discretionary", sort_order: 5)
     [ Date.new(2026, 9, 20), Date.new(2026, 10, 20) ].each do |date|
@@ -43,11 +43,11 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
     end
     result = analyze
     labels = result[:candidate_changes].map { |row| row[:merchant] }
-    assert_equal [ "Island Girl Coffee" ], labels
+    assert_equal [ "Reef Coffee Co" ], labels
     assert_equal 9_000, result[:candidate_changes].first[:monthly_impact_cents] * 2
     refute_includes result[:discretionary_categories].map { |row| row[:label] }, "Doctor and medical"
-    refute(result[:discretionary_merchants].any? { |row| row[:label].include?("Dr Shiehs") })
-    assert_equal 1, result[:discretionary_merchants].count { |row| row[:label] == "Island Girl Coffee" }
+    refute(result[:discretionary_merchants].any? { |row| row[:label].include?("Harbor Family") })
+    assert_equal 1, result[:discretionary_merchants].count { |row| row[:label] == "Reef Coffee Co" }
     assert_equal 41_000 * 2 + 30_000 * 2 + 9_000 * 2 + 69_000 + 50_000 + (12_000 + 8_000 + 6_000) * 2, result[:observed_spending_cents]
   end
 
