@@ -24,7 +24,7 @@ module FinancialDocuments
           accounts: revision.financial_source_accounts.order(:id).map do |account|
             head = account_heads[account.id]
             { source_account_id: account.id, head: head_state(head), approved: head&.approved_version && record(head.approved_version),
-              **account_name(account, head&.approved_version&.source_tracked_account) }
+              **account_details(account, head&.approved_version&.source_tracked_account) }
           end,
           coverage: state,
           approved_coverage: approval && { id: approval.id, digest: approval.digest, status: approval.coverage_status,
@@ -129,11 +129,21 @@ module FinancialDocuments
           category_id: line.category_id, category_name: names[line.category_id], expected_head: line.expected_head }
       end
 
-      # One name and last four for every sentence that names the account, so none of them shows a system label.
-      def account_name(account, tracked)
-        payload = account.financial_source_evidence&.payload || {}
-        label = tracked&.label.presence || payload["label"]
-        AccountName.parts(label, payload["masked_identifier"])
+      def account_details(account, tracked)
+        return AccountName.parts(tracked.label) if tracked
+
+        basis = account.account_basis
+        label = AccountMatch.default_label(account, basis)
+        name = AccountName.parts(label)
+        choices = (@account_choices ||= AccountMatch.candidates(household).to_a)
+        eligible = choices.select { |choice| choice.account_basis == basis || basis == "unknown" }
+        suggested = AccountMatch.suggested(household, label, basis, account: account)
+        needs_choice = !suggested && (basis == "unknown" || account.limitations.include?("account_label_ambiguous") || name[:last4].nil? || AccountMatch.with_last_four(eligible, name[:last4]).many?)
+        name.merge(needs_choice: needs_choice, suggested: suggested && account_choice(suggested), choices: eligible.map { |choice| account_choice(choice) })
+      end
+
+      def account_choice(account)
+        { id: account.id, account_basis: account.account_basis, **AccountName.parts(account.label) }
       end
 
       def head_state(head)

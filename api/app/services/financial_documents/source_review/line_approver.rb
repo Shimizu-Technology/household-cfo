@@ -97,17 +97,24 @@ module FinancialDocuments
           current = head&.approved_version
           next if current && change.empty?
           tracked = current&.source_tracked_account
-          basis = change[:account_basis].presence || tracked&.account_basis || (account.account_basis unless account.account_basis == "unknown")
+          if current && change[:tracked_account_id].present? && change[:tracked_account_id].to_s != tracked.id.to_s
+            raise Domain::StaleReview, "This statement’s account is already saved. Refresh to see the saved account."
+          end
+
+          selected = domain.tracked_account(change[:tracked_account_id]) if change[:tracked_account_id].present?
+          basis = tracked&.account_basis || selected&.account_basis || change[:account_basis].presence || account.account_basis
           raise ArgumentError, "Choose whether this is a bank account or a credit card." unless basis.in?(%w[asset liability])
-          label = change[:label].presence || tracked&.label || AccountMatch.default_label(account, basis)
+          default = AccountMatch.default_label(account, basis)
+          # The form shows the name and last four separately. Keep the file's last
+          # four when saving a participant's new name so the next file can match it.
+          last4 = AccountName.parts(change[:label])[:last4] || AccountName.parts(default)[:last4]
+          label = tracked&.label || AccountName.default_label(change[:label].presence || default, ("····#{last4}" if last4), basis)
           facts = statement_facts(account, current, change)
-          # A repeat of a change that already saved must not append another identity: that would make every line approved under it stale.
-          # Changing only the dates keeps the account it already is. Looking it up again by a generic name such as "Bank account"
-          # would find another account that says the same thing and merge the two.
-          kept = current && tracked.label == label && tracked.account_basis == basis
-          next if kept && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
-          existing = if kept then tracked
-          elsif change[:label].present? || AccountMatch.named?(label) then AccountMatch.existing(household, label, basis)
+          next if current && current.statement_facts.symbolize_keys.slice(:period_start_on, :period_end_on) == facts.slice(:period_start_on, :period_end_on)
+
+          existing = tracked || selected
+          unless existing || change.key?(:tracked_account_id)
+            existing = AccountMatch.suggested(household, label, basis, account: account, allow_last_four: change[:label].blank?)
           end
           raw = { source_account_id: account.id, tracked_account_id: existing&.id, label: label, account_basis: basis,
             base_version_id: head&.approved_version_id, base_lock_version: head&.lock_version || 0, statement_facts: facts, reason: REASON }

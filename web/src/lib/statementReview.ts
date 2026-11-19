@@ -1,5 +1,6 @@
 import { formatMonthRange } from './plainDates'
 import type { SourceAccount, SourceEvent } from './sourceReview'
+import type { ReviewedSourceAccount } from './participantSourceReview'
 import { statementCents } from './participantSourceReview'
 
 // What a participant sees first about a statement: how many lines look right and the few that need her answer.
@@ -49,7 +50,7 @@ export type LineEdit = { money_direction?: 'in' | 'out'; kind: LineKind; merchan
 /** What her screen showed for a line she says yes to; the server refuses the whole request if it no longer matches. */
 export type LineShown = { event_type: SourceEvent['event_type']; category_id: number | null }
 export type LineDecision = { event_id: number; decision: 'as_read' | 'different' | 'leave_out' | 'edited'; edit?: LineEdit; shown?: LineShown; expected_head?: ExpectedLineHead }
-export type AccountChange = { source_account_id: number; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
+export type AccountChange = { source_account_id: number; tracked_account_id?: number | null; label?: string; account_basis?: 'asset' | 'liability'; period_start_on?: string; period_end_on?: string }
 export type ApproveLinesInput = { expect_ready_ids?: number[]; paged?: boolean; lines: LineDecision[]; accounts?: AccountChange[]; coverage_answer?: CoverageAnswer; expected_coverage_id?: number | null }
 /** A long statement is approved this many lines at a time; each request saves exactly the lines shown, all or none. */
 export const APPROVE_PAGE = 100
@@ -174,8 +175,14 @@ export function accountSentence(label: AccountLabel | undefined): string {
 }
 
 export function describeAccounts(accounts: SourceAccount[], names: Record<number, AccountLabel>): string {
-  if (accounts.length > 1) return `${accounts.length} accounts`
-  return (accounts.length === 1 && accountSentence(names[accounts[0].id])) || 'your statement'
+  const distinct = new Map<string | number, AccountLabel | undefined>()
+  for (const { id } of accounts) {
+    const label = names[id]
+    const key = label?.name || label?.last4 ? JSON.stringify([label.name.trim().toLowerCase(), label.last4]) : id
+    if (!distinct.has(key)) distinct.set(key, label)
+  }
+  if (distinct.size > 1) return `${distinct.size} accounts`
+  return accountSentence(distinct.values().next().value) || 'your statement'
 }
 
 export function statementPeriodText(accounts: SourceAccount[], plan: StatementPlan): string {
@@ -244,6 +251,17 @@ export function spansYears(plan: Pick<StatementPlan, 'first_on' | 'last_on'>): b
 
 export function coverageMissingNote(): string {
   return 'Your lines are saved. We’ll keep this statement marked as not finished, because something may be missing.'
+}
+
+export function accountMatchNote(accounts: ReviewedSourceAccount[]): string {
+  const matches = new Map(accounts.flatMap(row => {
+    const id = row.approved?.tracked_account.id ?? row.suggested?.id
+    const last4 = row.approved ? row.last4 : row.suggested?.last4
+    return id != null && last4 ? [[id, last4] as const] : []
+  }))
+  if (matches.size !== 1 || accounts.some(row => !row.approved && !row.suggested)) return ''
+  const last4 = matches.values().next().value
+  return accounts.every(row => row.approved) ? `Saved with your account ending ${last4}` : `We’ll use your account ending ${last4}`
 }
 
 export function accountsNeedingBasis(accounts: SourceAccount[], reviewed: Array<{ source_account_id: number; approved: unknown }>): SourceAccount[] {

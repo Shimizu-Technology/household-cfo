@@ -3,6 +3,23 @@ require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
+  test "keeps CSV account names and masks account numbers without collapsing distinct numbers" do
+    Tempfile.create([ "accounts", ".csv" ]) do |file|
+      file.write(<<~CSV)
+        Date,Account,Description,Debit
+        2026-01-02,Everyday checking,Demo Market,12.00
+        2026-01-02,111122226824,Demo Cafe,7.00
+        2026-01-03,333344446824,Demo Store,30.00
+      CSV
+      file.flush
+      result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "accounts.csv").call
+      accounts = result.data.fetch(:source_accounting).fetch(:accounts)
+      assert_equal [ "Everyday checking", "····6824", "····6824" ], accounts.map { |account| account.dig(:evidence, :label) }
+      assert_equal 3, accounts.pluck(:source_key).uniq.size
+      assert accounts.drop(1).all? { |account| account[:limitations].include?("account_label_ambiguous") }
+    end
+  end
+
   test "ATM purchases fees and cash back remain whole expenses distinct from withdrawals" do
     descriptions = {
       "ATM/POS Purchase Walmart" => "purchase", "Purchase with Cash Back $20" => "purchase",

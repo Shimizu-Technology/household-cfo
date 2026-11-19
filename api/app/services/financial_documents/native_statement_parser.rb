@@ -212,11 +212,11 @@ module FinancialDocuments
           debit = aligned_money(runs, outgoing, 573.25, tolerance: 1)
           reject!("apple_summary_amounts") unless credit >= 0 && debit <= 0 && aligned_money(runs, incoming, 415, tolerance: 1) == credit && aligned_money(runs, outgoing, 415, tolerance: 1) == debit
           account = { account_key: "apple_cash:#{global[:identifier]}:#{month.strftime('%Y-%m')}", account_basis: "asset",
-            label: "Apple Cash #{month.strftime('%B %Y')}", masked_identifier: "****#{global[:identifier]}",
+            label: "Apple Cash", masked_identifier: "****#{global[:identifier]}",
             period_start_on: start.iso8601, period_end_on: finish.iso8601,
             opening_balance_cents: aligned_money(runs, opening, 573.25, tolerance: 1), closing_balance_cents: aligned_money(runs, ending, 573.25, tolerance: 1),
             printed_credit_cents: credit, printed_debit_cents: -debit, printed_row_count: nil,
-            header_evidence: "Apple Cash; printed monthly summary within the printed overall statement period" }
+            header_evidence: "Apple Cash; #{month.strftime('%B %Y')} summary within the printed overall statement period" }
           @accounts << account
           month_sections << [ finish, credit, -debit, account[:closing_balance_cents] ]
           balance = account[:opening_balance_cents]

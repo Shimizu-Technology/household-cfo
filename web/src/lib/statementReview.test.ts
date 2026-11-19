@@ -9,6 +9,14 @@ afterEach(() => vi.useRealTimers())
 
 describe('a line whose direction she supplies', () => {
   const unsigned = (eventType: 'refund' | 'transfer' | 'cash_withdrawal') => ({ ...plan().attention[0], kind: 'direction' as never, event_type: eventType, signed_amount_cents: null, amount_cents: 10_000 })
+  it('describes repeated monthly Apple Cash sections as one wallet', () => {
+    const data = participantReviewFixture()
+    const accounts = [{ ...data.accounts[0], id: 501 }, { ...data.accounts[0], id: 502 }]
+    const names = { 501: { name: 'Apple Cash', last4: '6824' }, 502: { name: 'apple cash', last4: '6824' } }
+    expect(statementHeadline(accounts, names, plan())).toContain('from Apple Cash ····6824')
+    expect(statementHeadline(accounts, { ...names, 502: { ...names[502], last4: '1111' } }, plan())).toContain('from 2 accounts')
+  })
+
   it('keeps a refund only as money in: the server refuses a refund that is money out', () => {
     expect(lineSheetWithDirection(unsigned('refund'), 'in')).toMatchObject({ kind: 'refund', moneyDirection: 'in' })
     expect(lineSheetWithDirection(unsigned('refund'), 'out')).toMatchObject({ kind: 'spending', moneyDirection: 'out' })

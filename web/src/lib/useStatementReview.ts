@@ -80,6 +80,8 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   const categories = review?.categories ?? []
   const names = data && review ? accountNames(data.accounts, review.accounts) : {}
   const needBasis = data && review ? accountsNeedingBasis(data.accounts, review.accounts) : []
+  const needsAccountChoice = review?.accounts.some(account => account.needs_choice) ?? false
+  const needsAccount = needsAccountChoice || needBasis.length > 0
   const counts = plan ? statementCounts(plan) : null
   const said = coverageAnswer ?? plan?.coverage.answer ?? null
   // Only what the server recorded counts as answered: the next step opens after the save that records it.
@@ -152,7 +154,7 @@ export function useStatementReview({ importId, revisionId: sourceRevisionId, ref
   }
 
   return {
-    data, error, refreshing, review, plan, categories, names, needBasis, counts, mutation, busy: mutation.busy || signBusy,
+    data, error, refreshing, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, busy: mutation.busy || signBusy,
     answerSign, signError,
     coverage: { ask: askCoverage, said, recorded, failed: coverageFailed, answer: answerCoverage, answerAgain: () => { if (coverageAnswer) answerCoverage(coverageAnswer) } },
     finished, savingLines, unsavedAnswer, focusAfterRef: focusAfter,

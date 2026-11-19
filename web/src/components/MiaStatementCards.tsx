@@ -6,7 +6,7 @@ import type { FinancialDocumentImport } from '../api'
 import { formatReviewMoney } from '../lib/reviewMoney'
 import { MAX_STATEMENT_CARDS, monthsCovered, statementCardEntries, waitsOnMissingLines } from '../lib/statementCards'
 import {
-  APPROVE_PAGE, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, describeAccounts, accountSentence, lineSheetForAnswer, lineSheetWithDirection, statementPeriodText,
+  APPROVE_PAGE, accountMatchNote, asBeforeNote, coverageMissingNote, coverageQuestionText, spansYears, describeAccounts, accountSentence, lineSheetForAnswer, lineSheetWithDirection, statementPeriodText,
   type LineDecision, type LineEdit, type PlanAnswerId, type PlanAttention, type SheetLine, type StatementPlan,
 } from '../lib/statementReview'
 import { formatMonthDay } from '../lib/plainDates'
@@ -121,7 +121,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     refreshKey: `${documentImport.updated_at}:${JSON.stringify(documentImport.statement_review ?? null)}:${saves}`,
   })
   const liveResult = useLiveMiaResult(state.finished, Boolean(state.data))
-  const { data, error, review, plan, categories, names, needBasis, counts, mutation, coverage, savingLines, unsavedAnswer } = state
+  const { data, error, review, plan, categories, names, needBasis, needsAccountChoice, needsAccount, counts, mutation, coverage, savingLines, unsavedAnswer } = state
   // Nothing is answered from lines that are being read again; the buttons come back as soon as the new read arrives.
   const busy = state.busy || state.refreshing || waiting
   const [sheet, setSheet] = useState<SheetLine | null>(null)
@@ -155,6 +155,8 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
   }
 
   const title = statementTitle(data.accounts, names, plan)
+  const matchNote = accountMatchNote(review.accounts)
+  const suggested = review.accounts.some(account => account.suggested)
   const approved = state.finished
   const empty = plan.total === 0
 
@@ -204,6 +206,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
   if (approved) {
     return <section className={`mia-statement-card is-approved ui-card${liveResult}`} data-import-id={importId} aria-label={`Statement: ${title}`}>
       <MiaCardResult title={title} status={`Approved. ${countedSentence(plan)}`} headingRef={heading} live={Boolean(liveResult)}>
+        {matchNote && <p>{matchNote}</p>}
         {coverage.recorded === 'something_missing' && <>
           <p className="mia-statement-muted">{coverageMissingNote()}</p>
           {/* She can still change her answer here, not only in Statements. */}
@@ -228,22 +231,24 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     {recovery}
     {note && <p className="mia-statement-notice" role="status">{note}</p>}
     <h3 ref={heading} tabIndex={-1}>{title}</h3>
+    {matchNote && <p>{matchNote}</p>}
     <p className="mia-statement-read">{readSentence(plan)}</p>
     <p role="status">{counts.sentence}</p>
     {savingLines >= APPROVE_PAGE && busy && <p className="mia-statement-muted" role="status">Saving {savingLines} lines. This can take a minute.</p>}
     {asBeforeNote(plan) && <p className="mia-statement-muted">{asBeforeNote(plan)}</p>}
 
-    {needBasis.length === 1 && <div className="mia-statement-question">
+    {!needsAccountChoice && needBasis.length === 1 && <div className="mia-statement-question">
       <p className="statement-question">Is {accountSentence(names[needBasis[0].id]) || 'this'} a bank account or a credit card?</p>
       <div className="statement-answers">
         <Button variant="secondary" disabled={busy} onClick={() => state.chooseBasis(needBasis[0].id, 'asset')}>Bank account</Button>
         <Button variant="secondary" disabled={busy} onClick={() => state.chooseBasis(needBasis[0].id, 'liability')}>Credit card</Button>
       </div>
     </div>}
-    {needBasis.length > 1 && <Button disabled={busy} onClick={() => onReview(importId)}>Say what each account is</Button>}
+    {!needsAccountChoice && needBasis.length > 1 && <Button disabled={busy} onClick={() => onReview(importId)}>Say what each account is</Button>}
 
+    {(needsAccountChoice || suggested) && <Button variant="secondary" disabled={busy} onClick={() => onReview(importId)}>{needsAccountChoice ? 'Choose account' : 'Different account'}</Button>}
     <StatementSignQuestion state={state} disabled={waiting} />
-    {needBasis.length === 0 && !plan.signed_amount_question && inline.length > 0 && <ul className="mia-statement-exceptions" ref={questions} aria-label="Lines that need a quick look">
+    {!needsAccount && !plan.signed_amount_question && inline.length > 0 && <ul className="mia-statement-exceptions" ref={questions} aria-label="Lines that need a quick look">
       {inline.map((item, index) => <li key={item.event_id}>
         <p className="mia-statement-line"><span className="mia-statement-merchant">{item.merchant ?? 'Unreadable line'}</span> <span className="mia-statement-amount">{item.signed_amount_cents == null ? sourceMoney(item.amount_cents) : sourceMoney(Math.abs(item.signed_amount_cents))}</span>
           <span className="mia-statement-meta">{[formatMonthDay(item.posted_on, { year: spansYears(plan) }) || 'Date unknown', item.category_name].filter(Boolean).join(' · ')}</span></p>
@@ -251,10 +256,10 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
         <StatementAnswers item={item} categories={categories} disabled={busy} unsaved={unsavedAnswer} inlineCategory onAnswer={(id, categoryId) => answer(item, index, id, categoryId)} />
       </li>)}
     </ul>}
-    {needBasis.length === 0 && !plan.signed_amount_question && more > 0 && <Button variant="secondary" onClick={() => onReview(importId)}>{`and ${more} more — review ${more === 1 ? 'it' : 'them'}`}</Button>}
+    {!needsAccount && !plan.signed_amount_question && more > 0 && <Button variant="secondary" onClick={() => onReview(importId)}>{`and ${more} more — review ${more === 1 ? 'it' : 'them'}`}</Button>}
     {unsavedAnswer && !mutation.pendingRequest && <Button variant="secondary" disabled={busy} onClick={state.retryUnsaved}>Try saving this answer again</Button>}
 
-    {needBasis.length === 0 && !plan.signed_amount_question && coverage.ask && <div className="mia-statement-question">
+    {!needsAccount && !plan.signed_amount_question && coverage.ask && <div className="mia-statement-question">
       <p className="statement-question" id={`statement-coverage-${importId}`}>{coverageQuestionText(plan)}</p>
       <div className="statement-answers" role="group" aria-labelledby={`statement-coverage-${importId}`}>
         <Button variant={coverage.said === 'nothing_missing' ? 'primary' : 'secondary'} aria-pressed={coverage.said === 'nothing_missing'} disabled={busy} onClick={() => coverage.answer('nothing_missing')}>Nothing’s missing</Button>
@@ -265,7 +270,7 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
     </div>}
 
     <div className="mia-statement-actions ui-actions">
-      {needBasis.length === 0 && !plan.signed_amount_question && counts.action && <Button disabled={busy} onClick={() => { void approve() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
+      {!needsAccount && !plan.signed_amount_question && counts.action && <Button disabled={busy} onClick={() => { void approve() }}>{mutation.pendingRequest?.working ? 'Saving' : counts.action}</Button>}
       <Button variant="secondary" onClick={() => onReview(importId)}>See every line</Button>
     </div>
 

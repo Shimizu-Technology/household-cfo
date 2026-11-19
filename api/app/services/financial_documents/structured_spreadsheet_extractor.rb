@@ -202,9 +202,10 @@ module FinancialDocuments
           merchant_cell = %w[merchant label].any? { |field| map[field].to_i.positive? && cell(values, map, field).present? }
           next unless financial_cell || merchant_cell
           next if !transaction_like_row?(values, map) && item_from_row(values, map, cell_types: row[:cell_types], cell_formats: row[:cell_formats])
-          key = cell(values, map, "account").to_s.presence || "sheet-#{sheet_index}"
+          account_label = cell(values, map, "account").to_s.presence
+          key = account_label || "sheet-#{sheet_index}"
           basis = @account_basis || cell(values, map, "account_basis").to_s.downcase
-          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: "Spreadsheet account #{sheet_index + 1}" }
+          raw_accounts << { account_key: key, account_basis: basis.in?(%w[asset liability]) ? basis : "unknown", label: SourceReview::AccountName.display_label(account_label).presence || "Spreadsheet account #{sheet_index + 1}" }
           merchant = clean_text(cell(values, map, "merchant").presence || cell(values, map, "label"), max_length: 120)
           notes = clean_text(cell(values, map, "notes"), max_length: 500)
           category = clean_text(cell(values, map, "category"), max_length: 120)
@@ -230,6 +231,14 @@ module FinancialDocuments
             external_id: clean_text(cell(values, map, "external_reference"), max_length: 120).presence || "sheet-#{sheet_index}-row-#{row[:row]}", limitations: limitations
           }
         end
+      end
+      # Distinct account numbers in one file can have an identical masked label.
+      # Keep their source keys and ask which account each section belongs to.
+      raw_accounts = raw_accounts.uniq { |account| [ account[:account_key], account[:account_basis] ] }
+      raw_accounts.group_by { |account| [ account[:label], account[:account_basis] ] }.each_value do |group|
+        next unless group.many?
+
+        group.each { |account| account[:limitations] = [ "account_label_ambiguous" ] }
       end
       contract = raw_events.any? ? AccountingContract::VERSION : AccountingContract::LEGACY_VERSION
       AccountingContract.normalize({ contract_version: contract, accounts: raw_accounts, events: raw_events },

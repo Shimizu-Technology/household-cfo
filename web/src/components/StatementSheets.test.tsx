@@ -2,7 +2,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { LineKind } from '../lib/statementReview'
-import { StatementLineSheet } from './StatementSheets'
+import { participantReviewFixture } from '../../e2e/sourceReviewFixtures'
+import { StatementAccountSheet, StatementLineSheet } from './StatementSheets'
 
 afterEach(cleanup)
 
@@ -46,4 +47,21 @@ it('saves a withdrawal with a chosen category and clears it when changed to move
   expect(screen.queryByRole('combobox', { name: /^Category/ })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
   expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'moved', category_id: null }))
+})
+
+it('can choose a different saved account or explicitly save a new one', () => {
+  const fixture = participantReviewFixture()
+  const row = fixture.participant_review!.accounts[0]
+  const proposed = { id: 10, name: 'Bank of Hawaii', last4: '6824', account_basis: 'asset' } as const
+  const other = { id: 11, name: 'Everyday checking', last4: '8899', account_basis: 'asset' } as const
+  const onSave = vi.fn()
+  render(<StatementAccountSheet accounts={fixture.accounts} reviewed={[{ ...row, approved: null, suggested: proposed, choices: [proposed, other] }]} names={{}} busy={false} error={null} onSave={onSave} onClose={vi.fn()} />)
+  const account = screen.getByRole('combobox', { name: 'Account' })
+  expect((account as HTMLSelectElement).value).toBe('10')
+  fireEvent.change(account, { target: { value: '11' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(onSave).toHaveBeenLastCalledWith([expect.objectContaining({ tracked_account_id: 11 })])
+  fireEvent.change(account, { target: { value: 'new' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+  expect(onSave).toHaveBeenLastCalledWith([expect.objectContaining({ tracked_account_id: null })])
 })

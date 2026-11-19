@@ -15,7 +15,7 @@ export function StatementSignQuestion({ state, disabled = false }: { disabled?: 
   const effect = state.plan?.sign_effect
   const canAnswer = state.plan?.signed_amount_question || state.plan?.signed_amount_answerable
   const showQuestion = !effect || editingEffect === effect
-  if (state.needBasis.length > 0) return null
+  if (state.needsAccount) return null
   if (!canAnswer) return effect ? <p className="statement-sign-result" tabIndex={-1} role="status">{effect}</p> : null
   const liability = state.data?.accounts.some(account => (state.review?.accounts.find(reviewed => reviewed.source_account_id === account.id)?.approved?.tracked_account.account_basis ?? account.account_basis) === 'liability')
   return <div className="statement-question-row">
