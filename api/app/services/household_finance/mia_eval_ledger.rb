@@ -139,7 +139,7 @@ module HouseholdFinance
     # Store labels seen in fewer months than a monthly cut needs, with what was paid there.
     def one_month_merchants
       patterns[:merchants].select { |row| row[:observed_months].length < SpendingPatterns::Analyzer::MIN_MONTHS_FOR_A_CUT }
-        .map { |row| { "label" => row[:label], "total_cents" => row[:total_cents] } }
+        .map { |row| { "label" => row[:label], "total_cents" => row[:total_cents], "months" => row[:observed_months].length } }
     end
 
     def patterns

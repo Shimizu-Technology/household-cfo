@@ -100,13 +100,27 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
 
   test "the nightly workflow gives the OpenRouter key only to the steps that use it and pins third-party actions" do
     workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
-    job = workflow.dig("jobs", "live")
-    assert_not job.fetch("env").key?("OPENROUTER_API_KEY")
-    keyed = job.fetch("steps").select { |step| step.dig("env", "OPENROUTER_API_KEY") }.pluck("name")
+    jobs = workflow.fetch("jobs")
+    assert_equal %w[check-key live], jobs.keys
+    jobs.each_value { |job| assert_not job.fetch("env", {}).key?("OPENROUTER_API_KEY") }
+    keyed = jobs.values.flat_map { |job| job.fetch("steps").select { |step| step.dig("env", "OPENROUTER_API_KEY") }.pluck("name") }
     assert_equal [ "Check for the OpenRouter key", "Run live Mia evals" ], keyed
-    job.fetch("steps").filter_map { |step| step["uses"] }.each do |action|
+    jobs.values.flat_map { |job| job.fetch("steps") }.filter_map { |step| step["uses"] }.each do |action|
       assert_match(/@[0-9a-f]{40}\z/, action, "#{action} is not pinned to a commit")
     end
+  end
+
+  test "without the OpenRouter key the live job is skipped, so a missing key can't look like a pass" do
+    workflow = YAML.safe_load_file(Rails.root.join("../.github/workflows/mia-live-evals.yml"))
+    live = workflow.dig("jobs", "live")
+    assert_equal "check-key", live.fetch("needs")
+    assert_equal "needs.check-key.outputs.present == 'true'", live.fetch("if")
+    assert_equal "${{ steps.key.outputs.present }}", workflow.dig("jobs", "check-key", "outputs", "present")
+    script = workflow.dig("jobs", "check-key", "steps").sole.fetch("run")
+    assert_match(/::warning title=Mia live evals did not run/, script)
+    assert_match(/Mia live evals did NOT run/, script)
+    assert_match(/GITHUB_STEP_SUMMARY/, script)
+    assert_no_match(/::notice/, script)
   end
 
   test "test database names must carry the test suffix" do
