@@ -11,14 +11,12 @@ import { adminPath, navigateTo } from '../../lib/appRoutes'
 import { useMatchMedia } from '../../lib/useMatchMedia'
 import { AdminDialog } from '../AdminDialog'
 import { GroupTools } from './GroupTools'
+import { cancelGroupOpen, handOffGroupOpen, takeGroupOpen } from './groupOpenHandoff'
 import { groupLine, groupStatusLabel, runsChallenge, shortDay } from '../adminWords'
 import { joinedCount, useAdminRoster } from '../useAdminRoster'
 import './sections.css'
 
 const message = (caught: unknown, fallback: string) => caught instanceof Error ? caught.message : fallback
-// A group created from "All programs" opens after the switch into its program, which remounts this section.
-let openAfterProgramSwitch: number | null = null
-const takeOpenAfterSwitch = () => { const id = openAfterProgramSwitch; openAfterProgramSwitch = null; return id }
 const statuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
 const dates = (group: AdminCohort) => group.starts_on && group.ends_on ? `${shortDay(group.starts_on)} – ${shortDay(group.ends_on)}` : group.starts_on ? `Starts ${shortDay(group.starts_on)}` : 'No dates yet'
 const challengeWords = (group: AdminCohort) => !group.savings_challenge || !runsChallenge(group) ? '—' : ({ open: 'Open', paused: 'Paused', ready: 'Ready to open', not_set_up: 'Not set up yet' })[group.savings_challenge.state]
@@ -27,7 +25,7 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
   const { activeCoachWorkspaceId } = useAuthContext()
   const { details: groups, people, loading, error, reload } = useAdminRoster(currentUser)
   const wide = useMatchMedia('(min-width: 840px)')
-  const [openId, setOpenId] = useState<number | null>(takeOpenAfterSwitch)
+  const [openId, setOpenId] = useState<number | null>(() => takeGroupOpen(currentUser.id, activeCoachWorkspaceId))
   const [creating, setCreating] = useState(false)
   const [showArchived, setShowArchived] = useState(false)
   const open = groups.find(group => group.id === openId) ?? null
@@ -57,11 +55,11 @@ export function GroupsSection({ currentUser, onDirtyChange }: { currentUser: Cur
         <strong>{group.name}</strong>
         <span>{groupLine(group, joinedCount(people, group.id)).replace(`${group.name} · `, '')}</span>
       </button></li>)}</ul>}
-    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id); if (openAfterProgramSwitch === group.id) openAfterProgramSwitch = null }} />}
+    {creating && <NewGroup platformMode={platformMode} programs={currentUser.coach_workspaces ?? []} onClose={() => setCreating(false)} userId={currentUser.id} onCreated={async group => { setCreating(false); await reload(); setOpenId(group.id); cancelGroupOpen(group.id) }} />}
   </section>
 }
 
-function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode: boolean; programs: Array<{ id: number; name: string }>; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
+function NewGroup({ platformMode, programs, userId, onClose, onCreated }: { platformMode: boolean; programs: Array<{ id: number; name: string }>; userId: number; onClose: () => void; onCreated: (group: AdminCohort) => Promise<void> }) {
   const { selectCoachWorkspace } = useAuthContext()
   const [programId, setProgramId] = useState(programs.length === 1 ? String(programs[0].id) : '')
   const [name, setName] = useState('')
@@ -90,7 +88,7 @@ function NewGroup({ platformMode, programs, onClose, onCreated }: { platformMode
     } finally { release() }
     if (!created || !mounted.current) return
     // From "All programs", continue inside the program the group was created in, with the group open.
-    openAfterProgramSwitch = created.id
+    handOffGroupOpen(created.id, Number(programId), userId)
     selectCoachWorkspace(Number(programId))
     await onCreated(created)
   }
