@@ -1,0 +1,44 @@
+{
+  "sha256": "da9c8bb3d5923e6bdae2972c1face923cb2b71c8d313f38993490e69c47fac16",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": null,\n  \"period_end_on\": null,\n  \"summary\": \"Partial bank account activity capture for account ****6824 (Lina and Mateo Talun), September 2026, showing 6 rows (5 posted, 1 pending). No statement totals or balances are visible.\",\n  \"confidence\": 0.9,\n  \"warnings\": [\n    \"Capture is a partial screenshot with no printed statement period, opening/closing balances, or totals; period dates are left null.\",\n    \"One row (2026-09-11 POS purchase -$32.38) is PENDING and not posted; recorded as informational.\",\n    \"Rows 2026-09-04, 2026-09-08 and 2026-09-11 share the same merchant but have different amounts and are kept as distinct rows.\",\n    \"Because only part of the month is shown, monthly normalized figures were not produced.\"\n  ],\n  \"items\": [],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Lina and Mateo Talun checking/deposit account\",\n        \"masked_identifier\": \"****6824\",\n        \"period_start_on\": null,\n        \"period_end_on\": null,\n        \"opening_balance_cents\": null,\n        \"closing_balance_cents\": null,\n        \"printed_debit_cents\": null,\n        \"printed_credit_cents\": null,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Header: 'Bank of Guam-style DEMO | Lina and Mateo Talun | ****6824 | 2026-09 activity | Capture 1'; footer: 'Fictional account; crop has no statement totals'\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"income\",\n        \"signed_amount_cents\": 165000,\n        \"amount_column_cents\": 165000,\n        \"posted_on\": \"2026-09-02\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 1},\n        \"merchant\": \"Tasi Services DEMO\",\n        \"raw_description\": \"Tasi Services DEMO payroll Mateo\",\n        \"evidence\": \"POSTED 2026-09-02, +$1,650.00; payroll deposit for Mateo\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3084,\n        \"amount_column_cents\": -3084,\n        \"posted_on\": \"2026-09-04\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 2},\n        \"merchant\": \"TASI DEMO MARKET\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"POSTED 2026-09-04, -$30.84; point-of-sale market purchase\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3161,\n        \"amount_column_cents\": -3161,\n        \"posted_on\": \"2026-09-08\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 3},\n        \"merchant\": \"TASI DEMO MARKET\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"POSTED 2026-09-08, -$31.61; point-of-sale market purchase\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"cash_withdrawal\",\n        \"signed_amount_cents\": -20000,\n        \"amount_column_cents\": -20000,\n        \"posted_on\": \"2026-09-10\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 4},\n        \"merchant\": null,\n        \"raw_description\": \"BRANCH CASH WITHDRAWAL - HAGATNA DEMO\",\n        \"evidence\": \"POSTED 2026-09-10, -$200.00; branch cash withdrawal at Hagatna\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 50000,\n        \"amount_column_cents\": 50000,\n        \"posted_on\": \"2026-09-11\",\n        \"authorized_on\": null,\n        \"locator\": {\"page\": 1, \"row\": 5},\n        \"merchant\": null,\n        \"raw_description\": \"Transfer from own checking DEMO ****4410\",\n        \"evidence\": \"POSTED 2026-09-11, +$500.00; transfer from participant's own account ****4410\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"acct_6824\",\n        \"row_kind\": \"informational\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -3238,\n        \"amount_column_cents\": -3238,\n        \"posted_on\": null,\n        \"authorized_on\": \"2026-09-11\",\n        \"locator\": {\"page\": 1, \"row\": 6},\n        \"merchant\": \"TASI DEMO MARKET\",\n        \"raw_description\": \"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\n        \"evidence\": \"PENDING 2026-09-11, -$32.38; pending point-of-sale purchase, not yet posted\",\n        \"limitations\": \"Row is pending; the date shown is not confirmed as a posted date.\"\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4205,
+            "completion_tokens": 1986,
+            "total_tokens": 6191,
+            "cost": 0.02827,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.02827,
+              "upstream_inference_prompt_cost": 0.00841,
+              "upstream_inference_completions_cost": 0.01986
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

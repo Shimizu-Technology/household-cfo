@@ -136,7 +136,13 @@ class TalunYearTest(unittest.TestCase):
         self.assertEqual(manifest['document_count'], len(self.documents))
         self.assertEqual(531, len(self.events))
         self.assertEqual(len(self.events), len(manifest['events']))
-        self.assertEqual(set(self.documents) | {'README.md', 'manifest.json'}, {p.name for p in ROOT.iterdir() if p.name != '.DS_Store'})
+        # Generated sources remain exactly the manifest inventory. T4 adds
+        # separately maintained observations and aggregate scorecard baselines.
+        scorecard_artifacts = {'recorded_responses', 'baseline.json', 'baseline-fast.json'}
+        self.assertEqual(set(self.documents) | {'README.md', 'manifest.json'} | scorecard_artifacts,
+                         {p.name for p in ROOT.iterdir() if p.name != '.DS_Store'})
+        self.assertEqual({name + '.json' for name in self.documents},
+                         {p.name for p in (ROOT / 'recorded_responses').iterdir()})
         self.assertLess(sum(d['size_bytes'] for d in self.documents.values()), 6_000_000)
         account_keys = {a['account_key'] for a in manifest['accounts']}
         self.assertEqual({'checking', 'bog', 'savings', 'apple', 'card'}, account_keys)

@@ -1,0 +1,44 @@
+{
+  "sha256": "4dd1bb8996857a6d9c5c65c36e979c03d9deed466199ffa068022fffed0bd7d6",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"statement\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Partial bank account activity screenshot (Capture 2) for account ****6824, showing 7 posted rows from 2026-02-11 to 2026-02-22. No statement totals, balances or printed period are shown.\",\"confidence\":0.85,\"warnings\":[\"This is a partial capture with no printed statement period, opening/closing balances, or totals; other rows for 2026-02 may exist outside this crop.\",\"Only part of the month is covered, so no monthly normalized values were produced; use the row dates.\",\"The document is labeled as a synthetic test document with a fictional account.\",\"The account type (checking vs. savings) is not stated, so account_basis is set to asset based on the activity but is not confirmed.\"],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":{\"contract_version\":\"source_accounting_v1\",\"reported_row_count\":null,\"accounts\":[{\"account_key\":\"acct_6824\",\"account_basis\":\"asset\",\"label\":\"Lina and Mateo Talun account\",\"masked_identifier\":\"****6824\",\"period_start_on\":null,\"period_end_on\":null,\"opening_balance_cents\":null,\"closing_balance_cents\":null,\"printed_debit_cents\":null,\"printed_credit_cents\":null,\"printed_row_count\":null,\"header_evidence\":\"Header: Bank of Guam-style DEMO | Lina and Mateo Talun | ****6824 | 2026-02 activity | Capture 2\"}],\"events\":[{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"transfer\",\"signed_amount_cents\":50000,\"amount_column_cents\":50000,\"posted_on\":\"2026-02-11\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":1},\"merchant\":null,\"raw_description\":\"Transfer from own checking DEMO ****4410\",\"evidence\":\"Transfer from the participant's own checking account ****4410; +$500.00 POSTED\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3077,\"amount_column_cents\":-3077,\"posted_on\":\"2026-02-12\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":2},\"merchant\":\"Tasi Demo Market\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"POS purchase at market; -$30.77 POSTED\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-5200,\"amount_column_cents\":-5200,\"posted_on\":\"2026-02-14\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":3},\"merchant\":\"Tasi Demo Fuel\",\"raw_description\":\"Tasi Demo Fuel\",\"evidence\":\"Fuel purchase; -$52.00 POSTED\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"income\",\"signed_amount_cents\":165000,\"amount_column_cents\":165000,\"posted_on\":\"2026-02-16\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":4},\"merchant\":\"Tasi Services DEMO\",\"raw_description\":\"Tasi Services DEMO payroll Mateo\",\"evidence\":\"Payroll deposit for Mateo; +$1,650.00 POSTED; pay frequency not shown\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-8500,\"amount_column_cents\":-8500,\"posted_on\":\"2026-02-18\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":5},\"merchant\":\"Tasi Demo Internet\",\"raw_description\":\"Tasi Demo Internet\",\"evidence\":\"Internet bill payment; -$85.00 POSTED\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3154,\"amount_column_cents\":-3154,\"posted_on\":\"2026-02-19\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":6},\"merchant\":\"Tasi Demo Market\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"POS purchase at market; -$31.54 POSTED; separate row from the 2026-02-12 purchase\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-2850,\"amount_column_cents\":-2850,\"posted_on\":\"2026-02-22\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":7},\"merchant\":\"Tasi Demo Noodle House\",\"raw_description\":\"Tasi Demo Noodle House\",\"evidence\":\"Restaurant purchase; -$28.50 POSTED\",\"limitations\":null}]}}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4205,
+            "completion_tokens": 1699,
+            "total_tokens": 5904,
+            "cost": 0.0254,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.0254,
+              "upstream_inference_prompt_cost": 0.00841,
+              "upstream_inference_completions_cost": 0.01699
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

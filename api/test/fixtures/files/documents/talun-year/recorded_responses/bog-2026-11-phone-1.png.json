@@ -1,0 +1,44 @@
+{
+  "sha256": "02ff713d2d41813a9c24b717330bd9c79eb39ec3087f4ef37ec77475e7b76c8f",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"statement\",\"document_date\":null,\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Synthetic bank activity capture for account ****6824 (Lina and Mateo Talun), November 2026, showing 6 rows: 5 posted and 1 pending. No statement totals or balances are printed.\",\"confidence\":0.85,\"warnings\":[\"Capture has no printed statement period, opening/closing balances, or totals; period dates and balances are unknown.\",\"Row 6 (2026-11-11) is PENDING and not posted; recorded as informational and should not be counted as posted spending until it posts.\",\"Three POS purchases at the same merchant have different dates and amounts; they are distinct rows and not merged.\",\"Document is labeled as a synthetic test document with a fictional account.\"],\"items\":[],\"transaction_drafts\":[],\"source_accounting\":{\"contract_version\":\"source_accounting_v1\",\"reported_row_count\":null,\"accounts\":[{\"account_key\":\"acct_6824\",\"account_basis\":\"asset\",\"label\":\"Lina and Mateo Talun account\",\"masked_identifier\":\"****6824\",\"period_start_on\":null,\"period_end_on\":null,\"opening_balance_cents\":null,\"closing_balance_cents\":null,\"printed_debit_cents\":null,\"printed_credit_cents\":null,\"printed_row_count\":null,\"header_evidence\":\"Header: Bank of Guam-style DEMO, Lina and Mateo Talun | ****6824, 2026-11 activity | Capture 1. Footer: crop has no statement totals.\"}],\"events\":[{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"income\",\"signed_amount_cents\":165000,\"amount_column_cents\":165000,\"posted_on\":\"2026-11-02\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":1},\"merchant\":\"Tasi Services DEMO\",\"raw_description\":\"Tasi Services DEMO payroll Mateo\",\"evidence\":\"Payroll deposit for Mateo, +$1,650.00, status POSTED.\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3130,\"amount_column_cents\":-3130,\"posted_on\":\"2026-11-04\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":2},\"merchant\":\"Tasi Demo Market\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"POS purchase at market, -$31.30, status POSTED.\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3207,\"amount_column_cents\":-3207,\"posted_on\":\"2026-11-08\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":3},\"merchant\":\"Tasi Demo Market\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"POS purchase at market, -$32.07, status POSTED.\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"cash_withdrawal\",\"signed_amount_cents\":-20000,\"amount_column_cents\":-20000,\"posted_on\":\"2026-11-10\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":4},\"merchant\":null,\"raw_description\":\"BRANCH CASH WITHDRAWAL - HAGATNA DEMO\",\"evidence\":\"Branch cash withdrawal, -$200.00, status POSTED.\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"posted\",\"event_type\":\"transfer\",\"signed_amount_cents\":50000,\"amount_column_cents\":50000,\"posted_on\":\"2026-11-11\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":5},\"merchant\":null,\"raw_description\":\"Transfer from own checking DEMO ****4410\",\"evidence\":\"Transfer in from participant's own checking ****4410, +$500.00, status POSTED.\",\"limitations\":null},{\"account_key\":\"acct_6824\",\"row_kind\":\"informational\",\"event_type\":\"purchase\",\"signed_amount_cents\":-3284,\"amount_column_cents\":-3284,\"posted_on\":null,\"authorized_on\":\"2026-11-11\",\"locator\":{\"page\":1,\"row\":6},\"merchant\":\"Tasi Demo Market\",\"raw_description\":\"POS PURCHASE TASI DEMO MARKET MANGILAO GU\",\"evidence\":\"Pending POS purchase at market, -$32.84, status PENDING dated 2026-11-11; not yet posted.\",\"limitations\":\"Pending status; posted date not available.\"}]}}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4205,
+            "completion_tokens": 1590,
+            "total_tokens": 5795,
+            "cost": 0.02431,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.02431,
+              "upstream_inference_prompt_cost": 0.00841,
+              "upstream_inference_completions_cost": 0.0159
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

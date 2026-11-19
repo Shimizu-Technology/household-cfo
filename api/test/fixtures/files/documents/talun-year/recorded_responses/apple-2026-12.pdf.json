@@ -1,0 +1,44 @@
+{
+  "sha256": "4291008286baaafb7466f99987c7716dab85b9f42d5ad07e4d33590b8b3672ce",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": null,\n  \"period_start_on\": \"2026-12-01\",\n  \"period_end_on\": \"2026-12-31\",\n  \"summary\": \"Apple Cash-style wallet statement for account ***9056, Dec 2026. Opening balance $366.70, ending balance $377.60. It shows one $100.00 top-up credit and five debits totaling $89.10: four purchases and one transfer to own bank ***4410.\",\n  \"confidence\": 0.93,\n  \"warnings\": [\n    \"The statement period (2026-12-01 to 2026-12-31) and all row dates fall after the server reference date of 2026-11-19. The dates are used as printed, so please verify them.\",\n    \"No statement issue date is printed, so document_date is null.\",\n    \"The document is labeled as a synthetic, fictional test account.\",\n    \"The balances reconcile: 366.70 + 100.00 - 89.10 = 377.60.\"\n  ],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Apple Cash-style wallet ***9056\",\n      \"amount\": null,\n      \"balance\": 377.6,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"other\",\n      \"debt_type\": null,\n      \"confidence\": 0.85,\n      \"evidence\": \"Account ***9056; ending balance $377.60 for the period 2026-12-01 through 2026-12-31.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"9056\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Apple Cash-style wallet\",\n        \"masked_identifier\": \"***9056\",\n        \"period_start_on\": \"2026-12-01\",\n        \"period_end_on\": \"2026-12-31\",\n        \"opening_balance_cents\": 36670,\n        \"closing_balance_cents\": 37760,\n        \"printed_debit_cents\": 8910,\n        \"printed_credit_cents\": 10000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***9056 | Statement period: 2026-12-01 through 2026-12-31 | Beginning balance: $366.70 Ending balance: $377.60 | Posted credits: $100.00 Posted debits: $89.10\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 10000,\n        \"amount_column_cents\": 10000,\n        \"posted_on\": \"2026-12-12\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Card top-up from own debit card 7302\",\n        \"evidence\": \"Credit of 100.00. Transfer from the participant's own debit card 7302 into the wallet.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1875,\n        \"amount_column_cents\": 1875,\n        \"posted_on\": \"2026-12-13\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 2\n        },\n        \"merchant\": \"Tasi Demo Dining Room GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Dining Room GU\",\n        \"evidence\": \"Debit of 18.75. Dining purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -2310,\n        \"amount_column_cents\": 2310,\n        \"posted_on\": \"2026-12-17\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 3\n        },\n        \"merchant\": \"Tasi Demo Market GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Market GU\",\n        \"evidence\": \"Debit of 23.10. Market purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -650,\n        \"amount_column_cents\": 650,\n        \"posted_on\": \"2026-12-21\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 4\n        },\n        \"merchant\": \"Tasi Demo Coffee GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Coffee GU\",\n        \"evidence\": \"Debit of 6.50. Coffee purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"purchase\",\n        \"signed_amount_cents\": -1575,\n        \"amount_column_cents\": 1575,\n        \"posted_on\": \"2026-12-24\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 5\n        },\n        \"merchant\": \"Tasi Demo Bus GU\",\n        \"raw_description\": \"Apple Cash purchase - Tasi Demo Bus GU\",\n        \"evidence\": \"Debit of 15.75. Bus or transit purchase.\",\n        \"limitations\": null\n      },\n      {\n        \"account_key\": \"9056\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": -2500,\n        \"amount_column_cents\": 2500,\n        \"posted_on\": \"2026-12-26\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 6\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Transfer to own bank ***4410\",\n        \"evidence\": \"Debit of 25.00. Transfer to the participant's own bank account ***4410.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2771,
+            "completion_tokens": 2855,
+            "total_tokens": 5626,
+            "cost": 0.036092,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.034092,
+              "upstream_inference_prompt_cost": 0.005542,
+              "upstream_inference_completions_cost": 0.02855
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 725,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

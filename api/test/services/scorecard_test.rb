@@ -1,0 +1,71 @@
+require "test_helper"
+
+class ScorecardTest < ActiveSupport::TestCase
+  test "Talun scorecard replays offline and never worsens the committed baseline" do
+    # Fail at the network boundary, including calls introduced outside extraction.
+    without_network do
+      users = User.count
+      households = Household.count
+      full = ENV["SCORECARD_FULL"] == "1"
+      report = Scorecard::Runner.new(document_paths: full ? nil : Scorecard::Runner::FAST_PATHS).call
+      baseline = JSON.parse(Scorecard::Runner::TALUN.join(full ? "baseline.json" : "baseline-fast.json").read)
+      assert_empty Scorecard::Ratchet.regressions(report, baseline)
+      assert_equal full ? 79 : Scorecard::Runner::FAST_PATHS.length, report.fetch("document_count")
+      assert_equal users, User.count
+      assert_equal households, Household.count
+    end
+  end
+
+  test "ratchet allows improvements and rejects a worse monthly error" do
+    baseline = { "months" => { "2026-01" => { "total_spending" => { "error_cents" => -100 }, "decisions" => 5, "matched_to_bank" => false } } }
+    improved = Marshal.load(Marshal.dump(baseline))
+    improved["months"]["2026-01"]["total_spending"]["error_cents"] = 0
+    improved["months"]["2026-01"]["matched_to_bank"] = true
+    assert_empty Scorecard::Ratchet.regressions(improved, baseline)
+    improved["months"]["2026-01"]["total_spending"]["error_cents"] = 101
+    assert_includes Scorecard::Ratchet.regressions(improved, baseline), "months.2026-01.total_spending.error_cents"
+  end
+
+  test "private mode rejects repository inputs" do
+    assert_raises(ArgumentError) { Scorecard::Runner.new(private_mode: true) }
+  end
+
+  test "private interface replays external fictional inputs without retaining records or storage" do
+    require "tmpdir"
+    Dir.mktmpdir("scorecard-private-test-") do |directory|
+      root = Pathname.new(directory)
+      source = Scorecard::Runner::TALUN
+      root.join("recorded_responses").mkpath
+      %w[manifest.json checking-2026-01.pdf recorded_responses/checking-2026-01.pdf.json].each do |name|
+        FileUtils.cp(source.join(name), root.join(name))
+      end
+      before = Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      users = User.count
+      result = without_network do
+        Scorecard::Runner.new(family_dir: root, answer_key: root.join("manifest.json"), private_mode: true, document_limit: 1).call
+      end
+      assert_equal 1, result.fetch("document_count")
+      assert_equal users, User.count
+      assert_equal before, Dir.glob(Rails.root.join("storage/**/*").to_s).sort
+      refute_includes JSON.generate(result), directory
+    end
+  end
+
+  test "recordings fail closed if provider sections change" do
+    root = Scorecard::Runner::TALUN
+    source = root.join("checking-2026-01.pdf")
+    extractor = Scorecard::RecordedExtractor.new(path: root.join("recorded_responses/checking-2026-01.pdf.json"), source: source)
+    assert_raises(RuntimeError) { extractor.send(:perform_openrouter_request, {}) }
+  end
+
+  private
+
+  def without_network
+    singleton = Net::HTTP.singleton_class
+    original = singleton.instance_method(:start)
+    singleton.define_method(:start) { |*| raise "Scorecard must never use the network" }
+    yield
+  ensure
+    singleton.define_method(:start, original)
+  end
+end

@@ -1,0 +1,44 @@
+{
+  "sha256": "3c0b0f8bcd1069324abb4930695a0ca263213e95ce10339cd6af5c4575623efc",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"statement\",\"document_date\":\"2026-10-31\",\"period_start_on\":\"2026-10-01\",\"period_end_on\":\"2026-10-31\",\"summary\":\"Talun Savings DEMO statement for account ***8642, October 2026. Beginning balance $6,800.00, ending balance $7,000.00, with one posted $200.00 transfer in from own checking ***4410.\",\"confidence\":0.95,\"warnings\":[],\"items\":[{\"target_type\":\"account\",\"label\":\"Talun Savings ***8642\",\"amount\":null,\"balance\":7000,\"payment\":null,\"interest_rate_percent\":null,\"cadence\":null,\"source_type\":\"statement\",\"stack_key\":null,\"account_type\":\"savings\",\"debt_type\":null,\"confidence\":0.9,\"evidence\":\"Account ***8642, Talun Savings DEMO; ending balance $7,000.00 as of 2026-10-31\",\"metadata\":{\"goal_type\":null}}],\"transaction_drafts\":[],\"source_accounting\":{\"contract_version\":\"source_accounting_v1\",\"reported_row_count\":null,\"accounts\":[{\"account_key\":\"***8642\",\"account_basis\":\"asset\",\"label\":\"Talun Savings DEMO\",\"masked_identifier\":\"***8642\",\"period_start_on\":\"2026-10-01\",\"period_end_on\":\"2026-10-31\",\"opening_balance_cents\":680000,\"closing_balance_cents\":700000,\"printed_debit_cents\":0,\"printed_credit_cents\":20000,\"printed_row_count\":null,\"header_evidence\":\"Statement period: 2026-10-01 through 2026-10-31; Beginning balance: $6,800.00 Ending balance: $7,000.00; Posted credits: $200.00 Posted debits: $0.00\"}],\"events\":[{\"account_key\":\"***8642\",\"row_kind\":\"posted\",\"event_type\":\"transfer\",\"signed_amount_cents\":20000,\"amount_column_cents\":20000,\"posted_on\":\"2026-10-10\",\"authorized_on\":null,\"locator\":{\"page\":1,\"row\":1},\"merchant\":null,\"raw_description\":\"Online Transfer from own checking DEMO ***4410\",\"evidence\":\"Transfer from the participant's own checking account ***4410 into savings; shown in the Credit column.\",\"limitations\":null}]}}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2575,
+            "completion_tokens": 746,
+            "total_tokens": 3321,
+            "cost": 0.01461,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.01261,
+              "upstream_inference_prompt_cost": 0.00515,
+              "upstream_inference_completions_cost": 0.00746
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

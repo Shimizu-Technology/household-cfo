@@ -1,0 +1,44 @@
+{
+  "sha256": "1310ff9850164f974c82861f82919b7bde4e9b3ae3330a8f9335f0773688afda",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "```json\n{\n  \"document_kind\": \"statement\",\n  \"document_date\": \"2026-02-28\",\n  \"period_start_on\": \"2026-02-01\",\n  \"period_end_on\": \"2026-02-28\",\n  \"summary\": \"Talun Savings statement for account ***8642, February 2026. Opening balance $5,200.00, closing balance $5,400.00, with one posted $200.00 credit transferred from the household's own checking account ***4410.\",\n  \"confidence\": 0.95,\n  \"warnings\": [],\n  \"items\": [\n    {\n      \"target_type\": \"account\",\n      \"label\": \"Talun Savings ***8642\",\n      \"amount\": null,\n      \"balance\": 5400,\n      \"payment\": null,\n      \"interest_rate_percent\": null,\n      \"cadence\": null,\n      \"source_type\": \"statement\",\n      \"stack_key\": null,\n      \"account_type\": \"savings\",\n      \"debt_type\": null,\n      \"confidence\": 0.93,\n      \"evidence\": \"Account ***8642; statement period 2026-02-01 through 2026-02-28; ending balance $5,400.00.\",\n      \"metadata\": {\n        \"goal_type\": null\n      }\n    }\n  ],\n  \"transaction_drafts\": [],\n  \"source_accounting\": {\n    \"contract_version\": \"source_accounting_v1\",\n    \"reported_row_count\": null,\n    \"accounts\": [\n      {\n        \"account_key\": \"***8642\",\n        \"account_basis\": \"asset\",\n        \"label\": \"Talun Savings\",\n        \"masked_identifier\": \"***8642\",\n        \"period_start_on\": \"2026-02-01\",\n        \"period_end_on\": \"2026-02-28\",\n        \"opening_balance_cents\": 520000,\n        \"closing_balance_cents\": 540000,\n        \"printed_debit_cents\": 0,\n        \"printed_credit_cents\": 20000,\n        \"printed_row_count\": null,\n        \"header_evidence\": \"Account: ***8642 | Statement period: 2026-02-01 through 2026-02-28 | Beginning balance: $5,200.00 Ending balance: $5,400.00 | Posted credits: $200.00 Posted debits: $0.00\"\n      }\n    ],\n    \"events\": [\n      {\n        \"account_key\": \"***8642\",\n        \"row_kind\": \"posted\",\n        \"event_type\": \"transfer\",\n        \"signed_amount_cents\": 20000,\n        \"amount_column_cents\": 20000,\n        \"posted_on\": \"2026-02-10\",\n        \"authorized_on\": null,\n        \"locator\": {\n          \"page\": 1,\n          \"row\": 1\n        },\n        \"merchant\": null,\n        \"raw_description\": \"Online Transfer from own checking DEMO ***4410\",\n        \"evidence\": \"Credit column 200.00. Transfer from the household's own checking account ***4410 into savings.\",\n        \"limitations\": null\n      }\n    ]\n  }\n}\n```"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 2575,
+            "completion_tokens": 929,
+            "total_tokens": 3504,
+            "cost": 0.01644,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.01444,
+              "upstream_inference_prompt_cost": 0.00515,
+              "upstream_inference_completions_cost": 0.00929
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}

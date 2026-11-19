@@ -1,0 +1,44 @@
+{
+  "sha256": "2797e5061787c8917d0c26f1608cc9041d0db01be2ed7af449aa3b5e47d29edb",
+  "model": "anthropic/claude-sonnet-5.5",
+  "prompt_version": "financial_document_extraction_v7",
+  "responses": [
+    {
+      "label": null,
+      "response": {
+        "success": true,
+        "data": {
+          "content": "{\"document_kind\":\"receipt\",\"document_date\":\"2026-10-23\",\"period_start_on\":null,\"period_end_on\":null,\"summary\":\"Receipt from Tasi Demo Market dated 2026-10-23 for $103.42, paid by debit card ending 7302. It has three line items: rice and vegetables, dish soap, and first aid supplies. The receipt is marked as a synthetic test document.\",\"confidence\":0.93,\"warnings\":[\"The receipt is labeled as a synthetic test document with invented amounts.\",\"No active budget categories exist, so category names are suggested labels and the participant should confirm them.\"],\"items\":[],\"transaction_drafts\":[{\"occurred_on\":\"2026-10-23\",\"merchant\":\"Tasi Demo Market\",\"total_amount\":103.42,\"source_type\":\"receipt\",\"category_name\":null,\"stack_key\":null,\"confidence\":0.9,\"evidence\":\"Receipt SYN-MIXED, 2026-10-23 18:24, TOTAL $103.42, paid by Debit card 7302.\",\"raw_description\":\"Tasi Demo Market, Tamuning, Guam, Register DEMO-04, cashier Lina Talun\",\"external_id\":\"SYN-MIXED\",\"warnings\":[\"Mixed-category receipt split into groceries, household supplies, and health items.\"],\"splits\":[{\"amount\":73.42,\"category_name\":\"Groceries\",\"stack_key\":\"non_discretionary\",\"notes\":\"Rice and vegetables\",\"confidence\":0.9},{\"amount\":18.0,\"category_name\":\"Household Supplies\",\"stack_key\":\"non_discretionary\",\"notes\":\"Dish soap\",\"confidence\":0.8},{\"amount\":12.0,\"category_name\":\"Health & Medical Supplies\",\"stack_key\":\"non_discretionary\",\"notes\":\"First aid supplies\",\"confidence\":0.75}]}],\"source_accounting\":null}"
+        },
+        "error": null,
+        "metadata": {
+          "usage": {
+            "prompt_tokens": 4005,
+            "completion_tokens": 613,
+            "total_tokens": 4618,
+            "cost": 0.01414,
+            "is_byok": false,
+            "prompt_tokens_details": {
+              "cached_tokens": 0,
+              "cache_write_tokens": 0,
+              "audio_tokens": 0,
+              "video_tokens": 0
+            },
+            "cost_details": {
+              "upstream_inference_cost": 0.01414,
+              "upstream_inference_prompt_cost": 0.00801,
+              "upstream_inference_completions_cost": 0.00613
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0,
+              "image_tokens": 0,
+              "audio_tokens": 0
+            }
+          },
+          "finish_reason": "stop",
+          "provider": "Claude Platform on AWS"
+        }
+      }
+    }
+  ]
+}
