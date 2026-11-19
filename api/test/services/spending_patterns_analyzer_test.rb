@@ -26,7 +26,7 @@ class SpendingPatternsAnalyzerTest < ActiveSupport::TestCase
 
   test "Mia never offers medical care, family support, money sent to people or a one-off as a cut" do
     medical = @household.budget_categories.create!(name: "Doctor and medical", stack_key: "discretionary", sort_order: 2)
-    support = @household.budget_categories.create!(name: "Family help", stack_key: "discretionary", sort_order: 3)
+    support = @household.budget_categories.create!(name: "Money sent", stack_key: "discretionary", sort_order: 3)
     dining = @household.budget_categories.create!(name: "Eating out and coffee", stack_key: "discretionary", sort_order: 4)
     [ Date.new(2026, 9, 14), Date.new(2026, 10, 14) ].each do |date|
       purchase(date, "Purchase authorized on #{date.strftime('%m/%d')} Harbor Family Clinic Tamuning Gum S*····4410 Card 7302", 41_000, category: medical)
