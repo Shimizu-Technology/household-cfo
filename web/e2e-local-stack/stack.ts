@@ -45,9 +45,14 @@ export async function api<T>(role: Role, path: string, workspaceId?: number): Pr
 /** Budget's report month in a given year, whatever year Budget opens on. */
 export async function showBudgetMonth(page: Page, year: number, month: string) {
   const label = page.locator('.budget-year-label')
-  for (let step = 0; step < 5 && Number(await label.textContent()) !== year; step += 1) {
-    await page.getByRole('button', { name: Number(await label.textContent()) > year ? 'Previous year' : 'Next year' }).click()
-    await expect(label).not.toHaveText('')
+  await expect(label).toHaveText(/^\d{4}$/)
+  let shown = Number(await label.textContent())
+  // One year per click, waiting for each year to load before the next click, so it never overshoots.
+  for (let step = 0; step < 30 && shown !== year; step += 1) {
+    const next = shown > year ? shown - 1 : shown + 1
+    await page.getByRole('button', { name: shown > year ? 'Previous year' : 'Next year' }).click()
+    await expect(label).toHaveText(String(next))
+    shown = next
   }
   await expect(label).toHaveText(String(year))
   await page.getByLabel('Report month').selectOption({ label: month })

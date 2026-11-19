@@ -2,6 +2,15 @@ import { api, expect, signIn, test } from './stack'
 
 type Me = { user: { coach_workspaces?: Array<{ id: number; name: string }> } }
 type Assignable = { cohorts: Array<{ name: string; persona_assignment?: { persona?: { name?: string } } | null }> }
+type Cohorts = { cohorts: Array<{ id: number; name: string }> }
+type Experience = { experience_configuration: { published_version: null | { id: number; config?: { module_order?: string[] } } } }
+
+async function published(workspace: number | undefined, name: string) {
+  const { cohorts } = await api<Cohorts>('admin', '/api/v1/admin/cohorts', workspace)
+  const cohort = cohorts.find(item => item.name === name)
+  expect(cohort, `${name} exists`).toBeTruthy()
+  return (await api<Experience>('admin', `/api/v1/admin/cohorts/${cohort!.id}/experience_configuration`, workspace)).experience_configuration.published_version
+}
 const stamp = new Date().toISOString().slice(11, 19).replaceAll(':', '')
 
 test('Go live starts with no group ticked and reaches only the group she ticks @saves', async ({ page }) => {
@@ -30,6 +39,9 @@ test('Go live starts with no group ticked and reaches only the group she ticks @
   await page.getByRole('button', { name: 'Save draft' }).click()
   await expect(page.getByText('Tools saved. Review them in Go live.')).toBeVisible()
 
+  const workspace = (await api<Me>('admin', '/api/v1/auth/me')).user.coach_workspaces?.[0]?.id
+  const groupBBefore = await published(workspace, groups[1])
+
   await signIn(page, 'admin', '/admin/coaching')
   // A new program's first visit asks what the assistant is called; the default name starts its voice draft.
   const describe = page.getByRole('button', { name: 'Describe this assistant' })
@@ -46,11 +58,16 @@ test('Go live starts with no group ticked and reaches only the group she ticks @
   await expect(page.getByText(`Live for ${groups[0]}.`, { exact: false })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText(groups[1], { exact: false }).filter({ hasText: 'Live for' })).toHaveCount(0)
 
-  // Read back what each group now has, not only the receipt: only the ticked group got the program's voice.
-  const workspace = (await api<Me>('admin', '/api/v1/auth/me')).user.coach_workspaces?.[0]?.id
+  // Read back what each group now has, not only the receipt.
   const { cohorts } = await api<Assignable>('admin', '/api/v1/admin/personas/assignable_cohorts', workspace)
-  const assigned = (name: string) => Boolean(cohorts.find(cohort => cohort.name === name)?.persona_assignment)
-  expect([assigned(groups[0]), assigned(groups[1])]).toEqual([true, false])
+  const row = (name: string) => cohorts.find(cohort => cohort.name === name)
+  for (const name of groups) expect(row(name), `${name} is listed`).toBeTruthy()
+  // Only the ticked group got the program's voice and its new tools; the other kept what it had.
+  expect([Boolean(row(groups[0])?.persona_assignment), Boolean(row(groups[1])?.persona_assignment)]).toEqual([true, false])
+  const groupA = await published(workspace, groups[0])
+  expect(groupA?.config?.module_order, 'Group A published without Wealth').toBeDefined()
+  expect(groupA?.config?.module_order).not.toContain('wealth')
+  expect((await published(workspace, groups[1]))?.id ?? null).toEqual(groupBBefore?.id ?? null)
 })
 
 test('Groups lists the new groups at phone width @reads', async ({ page }) => {

@@ -25,7 +25,7 @@ It uses the real API with nothing mocked, and fails if the browser sends any req
 | A4 | The groups list on a phone. | 390 (WebKit), 320 |
 | A5 | Budget's year arrows stay on the month row, and Budget, Statements and Groups don't scroll sideways. | 390 (WebKit), 320 |
 
-The suite assumes a fresh stack; the statement test stops at once if the participant already has uploads. The review flow itself runs only at desktop width; phone widths are checked by hand (M3).
+The suite assumes a fresh stack; the statement test stops at once if the participant already has uploads. The review flow itself runs only at desktop width; reviewing a statement at phone width is checked by hand (M9).
 
 ## 2. By hand, on the local full stack
 
@@ -41,6 +41,7 @@ Use the fictional people `bin/local-stack status` lists. Check each at 1366, 390
 | M6 | Ask Mia "What should I cut first?" and "Where is my money going?" with medical and family-support spending present. | No suggestion to cut medical, childcare or family support; no one-off payment offered as a monthly saving; store names are clean. Needs a model key. |
 | M7 | Admin with no program creates a group; admin with one program opens Groups and Coaching. | No program: offered "Start a program". One program: starts inside it, no picker step. |
 | M8 | Join a savings challenge with an invite code, check in "How was today?", set a goal and an amount set aside, reload. | The day, goal and amount set aside are kept; the coach sees check-ins but no amounts. |
+| M9 | At 390 and 320, upload the fictional CSV from A1 and answer each kind of question (coverage, account type, own-account transfer, cash category, card payment, refund), then approve the rest. | Every control is reachable without sideways scrolling; the saved result is the same as A1 ($2,339.65 for August 2026). |
 
 ## 3. On production, after a release that touches money
 
