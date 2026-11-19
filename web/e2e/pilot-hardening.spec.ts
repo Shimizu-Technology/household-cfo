@@ -5977,7 +5977,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   await page.getByRole('button', { name: 'New group' }).click()
   await page.getByLabel('Group name').fill('Somewhere')
   await page.getByRole('button', { name: 'Create group' }).click()
-  await expect(page.getByText(/Choose a program at the top of the page first/)).toBeVisible()
+  await expect(page.getByText('Choose the program this group belongs to.')).toBeVisible()
 })
 
 test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
@@ -14983,7 +14983,7 @@ for (const count of [7, 4, 2]) {
 }
 
 // Fix-round acceptance uses the existing synthetic API fixtures; preview transport remains mocked.
-test('Admin UI a sole-program administrator can retain All programs after reload and open household reset', async ({ page }) => {
+test('Admin UI a sole-program administrator starts in that program, can retain All programs after reload, and open household reset', async ({ page }) => {
   await mockFinancialRestartBrowser(page)
   await page.route('http://api.test/api/v1/auth/me', route => route.fulfill({ json: { user: {
     ...pilotAdminUser, id: 900, clerk_id: 'e2e_admin', role: 'admin', is_admin: true, is_staff: true,
@@ -14991,8 +14991,6 @@ test('Admin UI a sole-program administrator can retain All programs after reload
     coach_workspaces: [{ id: 1, name: 'Only program', slug: 'only', membership_role: 'platform_admin', coach_profile: null }],
   } } }))
   await page.goto('/admin/today?pilot_e2e_role=admin&pilot_e2e_live_api=true')
-  await expectAdminProgramValue(page, 'platform')
-  await selectAdminProgram(page, '1')
   await expectAdminProgramValue(page, '1')
   await selectAdminProgram(page, 'platform')
   await page.reload()

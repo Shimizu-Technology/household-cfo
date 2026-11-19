@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { AdminCohort } from '../../api'
 import { adminUser, group, person, savings, staff } from '../../test/adminFixtures'
 
 const api = vi.hoisted(() => ({ fetchAdminCohorts: vi.fn(), fetchAdminUsers: vi.fn(), createAdminCohort: vi.fn(), updateAdminCohort: vi.fn(), fetchAdminPersonaAssignableCohorts: vi.fn(), changeSavingsChallengeAccess: vi.fn() }))
 vi.mock('../../api', async original => ({ ...await original<typeof import('../../api')>(), ...api }))
 const auth = vi.hoisted(() => ({ workspaceId: 5 as number | null }))
-vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: auth.workspaceId, selectCoachWorkspace: vi.fn() }) }))
+const selectCoachWorkspace = vi.hoisted(() => vi.fn())
+vi.mock('../../contexts/authContextValue', () => ({ useAuthContext: () => ({ activeCoachWorkspaceId: auth.workspaceId, selectCoachWorkspace }) }))
 vi.mock('../../lib/useMatchMedia', () => ({ useMatchMedia: () => true }))
 vi.mock('../../components/CohortExperienceStudio', () => ({ CohortExperienceStudio: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => <><p>Tools for this group</p><button onClick={() => onDirtyChange(true)}>Change a tool</button></> }))
 const nav = vi.hoisted(() => ({ navigateTo: vi.fn() }))
@@ -98,14 +100,88 @@ describe('Groups', () => {
     expect(confirm).toHaveBeenCalledTimes(2)
     confirm.mockRestore()
   })
-  it('asks a platform admin to choose a program before creating a group', async () => {
+  it('lets a platform admin choose the program in the form, creates the group there, and continues inside it', async () => {
     auth.workspaceId = null
-    render(<GroupsSection currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    const twoPrograms = { ...adminUser(), coach_workspaces: [{ id: 5, name: 'Mel program' }, { id: 6, name: 'Tasi program' }] } as ReturnType<typeof adminUser>
+    api.createAdminCohort.mockResolvedValue(group(9, 'Somewhere'))
+    render(<GroupsSection currentUser={twoPrograms} onDirtyChange={vi.fn()} />)
     await screen.findByRole('table')
     fireEvent.click(screen.getByRole('button', { name: 'New group' }))
     fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Somewhere' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
-    expect(await screen.findByText(/Choose a program at the top of the page first/)).toBeTruthy()
+    expect(await screen.findByText('Choose the program this group belongs to.')).toBeTruthy()
+    expect(api.createAdminCohort).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Program'), { target: { value: '6' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    await waitFor(() => expect(api.createAdminCohort).toHaveBeenCalledWith(expect.objectContaining({ name: 'Somewhere' }), 6))
+    expect(selectCoachWorkspace).toHaveBeenCalledWith(6)
+  })
+  it('opens the new group inside its program after the switch remounts Groups, as the admin shell does', async () => {
+    auth.workspaceId = null
+    const created = group(9, 'Switched group')
+    api.createAdminCohort.mockResolvedValue(created)
+    const view = render(<GroupsSection key="platform" currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    // The shell keys the section by program, so choosing one mounts a fresh Groups.
+    selectCoachWorkspace.mockImplementation((id: number) => {
+      auth.workspaceId = id
+      api.fetchAdminCohorts.mockResolvedValue([bog, household, created])
+      view.rerender(<GroupsSection key={`program-${id}`} currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    })
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Switched group' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    expect(await screen.findByRole('heading', { name: 'Switched group' })).toBeTruthy()
+    expect(selectCoachWorkspace).toHaveBeenCalledWith(5)
+  })
+  it('still opens the new group when the old screen reloads before the remount renders', async () => {
+    auth.workspaceId = null
+    const created = group(9, 'Fast reload group')
+    api.createAdminCohort.mockResolvedValue(created)
+    api.fetchAdminCohorts.mockResolvedValue([bog, household, created])
+    const view = render(<GroupsSection key="platform" currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    // React applies the switch on a later render; let the old screen's reload finish first.
+    selectCoachWorkspace.mockImplementation((id: number) => {
+      auth.workspaceId = id
+      setTimeout(() => view.rerender(<GroupsSection key={`program-${id}`} currentUser={adminUser()} onDirtyChange={vi.fn()} />), 50)
+    })
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Fast reload group' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    // After the remount, the fresh Groups (not the old one) has the group open.
+    await waitFor(() => expect(selectCoachWorkspace).toHaveBeenCalledWith(5))
+    await new Promise(resolve => setTimeout(resolve, 150))
+    expect(await screen.findByRole('heading', { name: 'Fast reload group' })).toBeTruthy()
+  })
+  it('does not move an admin to another program when the create reply arrives after she left Groups', async () => {
+    auth.workspaceId = null
+    let finish: (created: AdminCohort) => void = () => undefined
+    api.createAdminCohort.mockReturnValue(new Promise(resolve => { finish = resolve }))
+    render(<GroupsSection currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    fireEvent.change(screen.getByLabelText('Group name'), { target: { value: 'Late reply' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }))
+    await waitFor(() => expect(api.createAdminCohort).toHaveBeenCalledWith(expect.objectContaining({ name: 'Late reply' }), 5))
+    cleanup()
+    finish(group(9, 'Late reply'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(selectCoachWorkspace).not.toHaveBeenCalled()
+  })
+  it('picks the only program for a platform admin, and sends an admin with no program to start one', async () => {
+    auth.workspaceId = null
+    render(<GroupsSection currentUser={adminUser()} onDirtyChange={vi.fn()} />)
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    expect((screen.getByLabelText('Program') as HTMLSelectElement).value).toBe('5')
+    cleanup()
+    render(<GroupsSection currentUser={{ ...adminUser(), coach_workspaces: [] } as ReturnType<typeof adminUser>} onDirtyChange={vi.fn()} />)
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: 'New group' }))
+    expect(screen.getByText('A group belongs to a program. Start a program first, then add its groups.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Start a program' }))
+    expect(nav.navigateTo).toHaveBeenCalledWith('/admin/settings')
     expect(api.createAdminCohort).not.toHaveBeenCalled()
   })
   it('opens a group to its challenge, details, voice link and tools, saving details with the version it saw', async () => {

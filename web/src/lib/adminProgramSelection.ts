@@ -8,6 +8,8 @@ export function restoredAdminProgram(user: CurrentUser): number | null {
   try {
     const saved = localStorage.getItem(key(user))
     if (saved === 'all') return null
+    // With one program and no earlier choice, start in it: groups and the coach's voice always belong to a program.
+    if (saved === null && fallback === null && user.coach_workspaces?.length === 1) return user.coach_workspaces[0].id
     const id = Number(saved)
     if (user.coach_workspaces?.some(workspace => workspace.id === id)) return id
     localStorage.removeItem(key(user))

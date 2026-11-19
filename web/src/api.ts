@@ -3643,8 +3643,13 @@ export async function fetchAdminPlaidHealth(): Promise<AdminPlaidHealth> {
   return fetchJson<AdminPlaidHealth>('/api/v1/admin/plaid_health')
 }
 
-export async function createAdminCohort(values: AdminCohortInput): Promise<AdminCohort> {
-  const payload = await postJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', { cohort: values })
+// workspaceId: the program the group belongs to, when an administrator is looking at all programs.
+export async function createAdminCohort(values: AdminCohortInput, workspaceId?: number): Promise<AdminCohort> {
+  const payload = await fetchJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(workspaceId ? { 'X-Coach-Workspace-Id': String(workspaceId) } : {}) },
+    body: JSON.stringify({ cohort: values }),
+  })
   return payload.cohort
 }
 
