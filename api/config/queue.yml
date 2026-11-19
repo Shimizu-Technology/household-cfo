@@ -6,7 +6,9 @@ default: &default
     - queues: "*"
       threads: 3
       processes: <%= ENV.fetch("JOB_CONCURRENCY", 1) %>
-      polling_interval: 0.1
+      # Solid Queue wakes workers as occupied threads finish; this interval
+      # bounds pickup of new work when idle without ten empty polls per second.
+      polling_interval: 0.5
 
 development:
   <<: *default
