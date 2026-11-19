@@ -100,6 +100,27 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     refute_includes status, "within budget: $0 confirmed against $0 planned"
   end
 
+  test "am I over budget answers yes when over and no when within, and replies name stores cleanly" do
+    travel_to HouseholdFinance::MiaEvalHousehold.eval_time do
+      _user, household = HouseholdFinance::MiaEvalHousehold.create!
+      report = -> { HouseholdFinance::SpendingReport.new(household, start_on: Date.new(2026, 7, 1), end_on: Date.new(2026, 7, 31)).as_json }
+      narrate = ->(prompt) { HouseholdFinance::SpendingReportNarrator.new(report.call, prompt: prompt).call }
+      assert narrate.call("Am I over budget?").start_with?("No —"), "within the plan, so not over"
+      assert narrate.call("Am I within budget?").start_with?("Yes —")
+
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      dining = household.budget_categories.find_by!(name: "Dining Out")
+      transaction = household.household_transactions.create!(budget_period: manager.current_period_for(Date.new(2026, 7, 10)), occurred_on: Date.new(2026, 7, 10),
+        merchant: "Purchase authorized on 07/10 Reef Coffee Co Dededo Gum S*····4410 Card 7302", total_amount_cents: 800_000, source_type: "statement", status: "confirmed")
+      transaction.transaction_splits.create!(budget_category: dining, amount_cents: 800_000)
+      assert narrate.call("Am I over budget?").start_with?("Yes —"), narrate.call("Am I over budget?")
+      assert narrate.call("Are we within budget?").start_with?("No —")
+      general = narrate.call("How was spending in July?")
+      assert_includes general, "Reef Coffee Co"
+      refute_match(/authorized on|S\*····|Card 7302/, general)
+    end
+  end
+
   test "bank-observed spending leaves out transfers and card payments" do
     household = create_household
     user = household.created_by_user

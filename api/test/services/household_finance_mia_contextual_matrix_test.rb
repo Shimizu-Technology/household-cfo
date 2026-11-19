@@ -3,6 +3,19 @@ require "test_helper"
 class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
+  test "a bonus answer names car registration only when she mentions it" do
+    travel_to Time.zone.local(2026, 7, 15, 12) do
+      _user, household = create_user_and_household
+      seed_household!(household)
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      bonus = HouseholdFinance::MiaCoachAnswerer.new(household, "I got a $500 bonus, emergency fund or debt?", annual_budget_manager: manager, reference_month: 7).call
+      assert_includes bonus, "your next planned yearly cost"
+      refute_includes bonus, "car registration"
+      registration = HouseholdFinance::MiaCoachAnswerer.new(household, "I got $300 extra for car registration and savings.", annual_budget_manager: manager, reference_month: 7).call
+      assert_includes registration, "car registration"
+    end
+  end
+
   test "mia contextual response matrix covers long-context coaching and routing" do
     travel_to Time.zone.local(2026, 7, 15, 12) do
       user, household = create_user_and_household

@@ -284,6 +284,11 @@ module HouseholdFinance
       rows = scope.limit(MAX_RECORDS).map do |debt|
         "#{label(debt.label)} (#{debt.debt_type.humanize}): balance #{known_money(debt.balance_known?, debt.balance_cents)}, monthly minimum #{known_money(debt.minimum_payment_known?, debt.minimum_payment_cents)}, APR #{debt.interest_rate_percent.nil? ? 'unknown' : "#{debt.interest_rate_percent.to_s('F')}%"}."
       end
+      known = scope.select(&:minimum_payment_known?)
+      if known.any?
+        unknown = scope.count - known.length
+        rows << (unknown.zero? ? "Together, the monthly minimums are #{Money.plain(known.sum(&:minimum_payment_cents))}." : "The known monthly minimums total #{Money.plain(known.sum(&:minimum_payment_cents))}; #{unknown} #{'debt'.pluralize(unknown)} #{unknown == 1 ? 'has' : 'have'} no minimum saved.")
+      end
       inventory_result(:debts, scope.count, rows, "These are saved household debts, separate from the challenge's optional card-term review. Missing values remain unknown; the list does not establish complete debt coverage or lender payoff amounts.")
     end
 

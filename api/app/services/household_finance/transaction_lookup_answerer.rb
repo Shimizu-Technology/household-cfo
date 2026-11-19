@@ -237,7 +237,7 @@ module HouseholdFinance
 
       breakdown = Hash.new { |hash, key| hash[key] = { cents: 0, count: 0 } }
       outflows.each do |transaction|
-        merchant = transaction.merchant_name.presence || transaction.name
+        merchant = SpendingPatterns::MerchantName.call(transaction.merchant_name.presence || transaction.name)
         breakdown[merchant][:cents] += transaction.amount_cents
         breakdown[merchant][:count] += 1
       end
@@ -265,8 +265,9 @@ module HouseholdFinance
 
       breakdown = Hash.new { |hash, key| hash[key] = { cents: 0, count: 0 } }
       transactions.each do |transaction|
-        breakdown[transaction.merchant][:cents] += amount_cents_for(transaction, target)
-        breakdown[transaction.merchant][:count] += 1
+        merchant = SpendingPatterns::MerchantName.call(transaction.merchant)
+        breakdown[merchant][:cents] += amount_cents_for(transaction, target)
+        breakdown[merchant][:count] += 1
       end
       return if breakdown.empty?
 

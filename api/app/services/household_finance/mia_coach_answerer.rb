@@ -541,7 +541,7 @@ module HouseholdFinance
       yellow_gap = runway_gap_cents(yellow_runway_target_cents)
       amount_cents = amount_from_message_cents
       amount_line = amount_cents&.positive? ? " The amount you named is #{money(amount_cents)}." : ""
-      "Treat the extra money like a stabilizer, not a permission slip.#{amount_line} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for car registration and the next debt minimum, then split the extra dollars only after those two facts are clear."
+      "Treat the extra money like a stabilizer, not a permission slip.#{amount_line} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for #{normalized_message.match?(CAR_REGISTRATION_PATTERN) ? 'car registration' : 'your next planned yearly cost'} and the next debt minimum, then split the extra dollars only after those two facts are clear."
     end
 
     def purchase_impact_answer

@@ -12,6 +12,8 @@ module SpendingPatterns
     STATE = /(?-i:#{FinancialDocuments::MerchantNormalizer::REGION.source})/
     GUAM = FinancialDocuments::MerchantNormalizer::GUAM_LOCATION
     PLACE_TAIL = /(?:,\s*#{STATE}|\s+#{GUAM}\s+#{STATE}|\s+(?:#{GUAM}|Gum|GU)|(?<=\d)\s+#{STATE}|\s+\d{3}-[\d·•*xX-]+)\z/
+    # A card network's web-address tail: "Render.Com Render.Com CA", "Openai *Chatgpt Su Openai.Com CA".
+    DOMAIN_TAIL = /\s+\S*\.(?:com|net|org|io|ai|co|us|app)\b(?:\s*,?\s*#{STATE})?\z/i
     STORE_NUMBER = /(?:\s+(?:store\s*)?\#\s*\d+|\s+(?:store\s*(?:no\.?|number)?\s*)?\d{3,})\z/i
 
     # Refund matching keeps the narrower label it has always used, so wider coaching labels never widen a refund match.
@@ -28,7 +30,7 @@ module SpendingPatterns
       short = full.sub(BANK_PREFIX, "").sub(CARD_TAIL, "").sub(REFERENCE_TAIL, "").squish
       short = short.gsub(/\([^)]*\)/, " ").split(" - ", 2).first.to_s.squish.sub(STORE_NUMBER, "").squish
       4.times do
-        trimmed = short.sub(PLACE_TAIL, "").sub(STORE_NUMBER, "").squish
+        trimmed = short.sub(PLACE_TAIL, "").sub(DOMAIN_TAIL, "").sub(STORE_NUMBER, "").squish
         break if trimmed == short || trimmed.blank?
         short = trimmed
       end

@@ -110,12 +110,15 @@ module HouseholdFinance
       remaining = totals.fetch(:remaining).to_f
       provisional = bank_needs_review + non_plaid_pending
       projected_remaining = planned - actual - provisional
+      # "Am I over budget?" asks the opposite of "am I within budget?", so the yes and no swap.
+      over_question = @prompt.match?(/\b(?:over\s+(?:budget|plan)|off\s+track|overspen\w*)\b/i) && !@prompt.match?(/\b(?:within|under\s+(?:budget|plan)|on\s+track|staying)\b/i)
+      yes, no = over_question ? %w[No Yes] : %w[Yes No]
       status_line = if remaining.negative?
-        "No — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} #{prorated? ? "over the plan so far" : "over the confirmed budget"}: #{money(actual)} actual against #{planned_phrase(planned)}."
+        "#{no} — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} #{prorated? ? "over the plan so far" : "over the confirmed budget"}: #{money(actual)} actual against #{planned_phrase(planned)}."
       elsif provisional.positive? && projected_remaining.negative?
         "Almost — confirmed spending for #{report.fetch(:period_label)} is within #{prorated? ? "the plan so far" : "budget"}, but posted bank activity and other drafts awaiting review would put you #{money(projected_remaining.abs)} over if they are all valid."
       else
-        "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within #{prorated? ? "the plan so far" : "budget"}: #{money(actual)} confirmed against #{planned_phrase(planned)}."
+        "#{yes} — based on confirmed transactions for #{report.fetch(:period_label)}, you are within #{prorated? ? "the plan so far" : "budget"}: #{money(actual)} confirmed against #{planned_phrase(planned)}."
       end
 
       pending_line = provisional.positive? ? "Provisional outflows total #{money(provisional)}: #{money(bank_needs_review)} is posted bank activity needing review and #{money(non_plaid_pending)} comes from other drafts. Bank-pending charges remain separate." : "No posted outflows or other drafts are waiting for household review in this period."
@@ -129,7 +132,7 @@ module HouseholdFinance
       merchants = Array(bank[:top_merchants]).first(3)
       return if merchants.empty?
 
-      details = merchants.map { |row| "#{row.fetch(:merchant)} #{money(row.fetch(:amount))} (#{row.fetch(:count)} #{'time'.pluralize(row.fetch(:count))})" }.to_sentence
+      details = merchants.map { |row| "#{SpendingPatterns::MerchantName.call(row.fetch(:merchant))} #{money(row.fetch(:amount))} (#{row.fetch(:count)} #{'time'.pluralize(row.fetch(:count))})" }.to_sentence
       "Top bank-observed merchants: #{details}."
     end
 
@@ -138,11 +141,12 @@ module HouseholdFinance
       return if transactions.empty?
 
       details = transactions.map do |transaction|
-        merchant = transaction[:merchant].presence || "Transaction"
+        # Bank wording and card tails stay in statement review; a reply names the store.
+        merchant = SpendingPatterns::MerchantName.call(transaction[:merchant]).presence || "Transaction"
         date = transaction[:occurred_on].present? ? Date.iso8601(transaction[:occurred_on]).strftime("%b %-d") : nil
         [ merchant, money(transaction[:amount]), date ].compact.join(" ")
       rescue ArgumentError
-        [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]) ].compact.join(" ")
+        [ SpendingPatterns::MerchantName.call(transaction[:merchant]).presence || "Transaction", money(transaction[:amount]) ].compact.join(" ")
       end.to_sentence
       "Recent confirmed transactions: #{details}."
     end
