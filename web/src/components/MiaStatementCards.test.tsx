@@ -185,6 +185,22 @@ describe('Mia’s statement cards in the chat', () => {
     expect(mutate.mock.calls[1].slice(0, 5)).toEqual(mutate.mock.calls[0].slice(0, 5))
   })
 
+  it('still offers Check again on an approved card when an unconfirmed answer did save', async () => {
+    const coverage = (answer: 'something_missing' | 'nothing_missing') => ({ question: null, answer, version_id: 77 })
+    serve(review(planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [], coverage: coverage('something_missing') })))
+    mutate.mockRejectedValueOnce(new ApiRequestError('Interrupted', { status: 503 }))
+    mount([statement(1, { statement_review: { ...progress(27), coverage: coverage('something_missing') } })])
+    fireEvent.click(within(await screen.findByRole('region', { name: /Statement: / })).getByRole('button', { name: 'Nothing’s missing' }))
+    expect(await screen.findByText('I’m not sure your last change saved.')).toBeTruthy()
+    // The save went through; Mia is reopened and the server now says nothing is missing.
+    cleanup()
+    serve(review(planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [], coverage: coverage('nothing_missing') })))
+    mount([statement(1, { statement_review: { ...progress(27), coverage: coverage('nothing_missing') } })])
+    const card = await screen.findByRole('region', { name: /Statement: / })
+    expect(await within(card).findByText('I’m not sure your last change saved.')).toBeTruthy()
+    expect(within(card).getByRole('button', { name: 'Check again' })).toBeTruthy()
+  })
+
   it('says when patterns will be offered after she answers "Something’s missing"', async () => {
     const done = planWith([], { total: 27, done: 27, ready: [], ready_event_ids: [] })
     serve(review(done))

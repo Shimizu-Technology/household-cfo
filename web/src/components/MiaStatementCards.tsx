@@ -215,8 +215,9 @@ function MiaStatementCard({ documentImport, saves, waiting, onReview, onSaved, f
             </div>
             {coverage.failed && !mutation.pendingRequest && <div className="mia-statement-notice" role="alert"><p>I couldn’t save your answer yet. Please try again.</p><Button variant="secondary" disabled={busy} onClick={coverage.answerAgain}>Try again</Button></div>}
           </div>
-          {recovery}
         </>}
+        {/* Whatever the recorded answer now is, an unconfirmed save can still be checked or retried here. */}
+        {recovery}
       </MiaCardResult>
     </section>
   }
