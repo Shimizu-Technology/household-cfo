@@ -239,7 +239,8 @@ module FinancialDocuments
         asked = CoverageQuestion.text(revision, deficiencies: state[:deficiencies]).present?
         said = answer || CoverageQuestion.answer(revision)
         return false if asked && said.nil?
-        accounted = !asked || said == "nothing_missing"
+        # "Something's missing" always stands, even when the statement's own totals would not have asked.
+        accounted = said != "something_missing" && (!asked || said == "nothing_missing")
         last = SourceRevisionApproval.where(household: household, financial_extraction_revision: revision).order(version_number: :desc).first
         return true if last&.digest == state[:content_digest] && last.coverage_attestation["all_document_rows_accounted"] == accounted
         accounts = revision.financial_source_accounts.order(:id).map do |account|

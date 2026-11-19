@@ -638,6 +638,70 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_equal "nothing_missing", plan_for(source).dig("coverage", "answer")
   end
 
+  test "lines the reader could not classify still close the printed totals, so she is not told the totals don't add up" do
+    account = { opening_balance_cents: 0, closing_balance_cents: 13_500, printed_debit_cents: 1_500, printed_credit_cents: 15_000, printed_row_count: 3, period_start_on: "2026-07-01", period_end_on: "2026-07-31" }
+    rows = [ [ "Pay 1", 10_000, "income", 1 ], [ "Stripe Transfer", 5_000, "unknown", 2 ], [ "Non-Wells Fargo ATM Transaction Fee", -1_500, "unknown", 3 ] ]
+    source = build_source(rows: rows, account: account)
+    # The stored extraction report counts only classified lines, so on its own it is $50 short of the printed credits.
+    assert_equal 5_000, source[:revision].reconciliation.dig("accounts", 0, "credit_residual_cents")
+    assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
+    plan = plan_for(source)
+    assert_nil plan.dig("coverage", "question")
+    assert_equal 2, plan.fetch("attention").count { |row| row["kind"] == "unclear" }
+
+    # An unread page still means "we couldn't read every page", even when the unclear lines close the totals.
+    unread_report = source[:revision].reconciliation.deep_dup.merge("page_coverage" => { "expected" => 2, "processed" => [ 1 ], "all_processed" => false })
+    source[:revision].define_singleton_method(:reconciliation) { unread_report }
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
+    assert_equal "We couldn’t read every page of your statement. Is anything missing?", FinancialDocuments::SourceReview::CoverageQuestion.text(source[:revision])
+
+    # The same account printed with two different headers: its stored totals prove nothing.
+    conflicting = build_source(rows: rows, account: account, extra_accounts: [ { account_key: "synthetic-account", account_basis: "liability" } ])
+    assert_includes conflicting[:revision].financial_source_accounts.sole.limitations, "conflicting_header_account_basis"
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(conflicting[:revision])
+
+    # A line whose amount the reader guessed can't prove the totals close: the guess could be what makes them close.
+    guessed = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "unknown", 2, nil, [ "conflicting_debit_credit" ] ], rows[2] ], account: account)
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(guessed[:revision])
+
+    # An unresolved line with no stated reason can't prove the totals close either.
+    unexplained = build_source(rows: [ rows[0], [ "Stripe Transfer", 5_000, "income", 2, nil, [] ], rows[2] ], account: account)
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(unexplained[:revision])
+
+    # A printed line count that differs is still said as a count problem.
+    counted = build_source(rows: rows, account: account.merge(printed_row_count: 4))
+    assert_equal "count", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(counted[:revision])
+
+    # A credit card closes with the opposite sign.
+    card = build_source(basis: "liability", rows: [ [ "Card payment", 10_000, "debt_payment", 1 ], [ "Store", -4_000, "unknown", 2 ] ],
+      account: { opening_balance_cents: 20_000, closing_balance_cents: 14_000, printed_debit_cents: 4_000, printed_credit_cents: 10_000, printed_row_count: 2, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(card[:revision])
+
+    # Once she has said something is missing, the arithmetic doesn't overrule her.
+    question = FinancialDocuments::SourceReview::CoverageQuestion
+    original = question.method(:answer)
+    question.define_singleton_method(:answer) { |_revision| "something_missing" }
+    begin
+      assert_equal "mismatch", question.totals_check(build_source(rows: rows, account: account)[:revision])
+    ensure
+      question.define_singleton_method(:answer, original)
+    end
+
+    short = build_source(rows: rows, account: account.merge(printed_credit_cents: 20_000, closing_balance_cents: 18_500))
+    assert_equal "mismatch", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(short[:revision])
+    assert_equal "The totals on your statement don’t add up with the lines we found. Is anything missing?", plan_for(short).dig("coverage", "question")
+  end
+
+  test "something missing sent with the save is kept even when the statement reconciles" do
+    source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
+    plan = plan_for(source)
+    assert_nil plan.dig("coverage", "question")
+    approve_lines({ expect_ready_ids: plan.fetch("ready_event_ids"), coverage_answer: "something_missing",
+      lines: plan.fetch("ready").map { |row| { event_id: row["event_id"], decision: "as_read", shown: row.slice("category_id", "event_type").symbolize_keys } } }, source: source)
+    assert_response :success
+    assert_equal false, SourceRevisionApproval.where(household: @household).order(:version_number).last.coverage_attestation.fetch("all_document_rows_accounted")
+  end
+
   test "a statement that reconciles needs no question" do
     source = build_source(rows: [ [ "Pay 1", 10_000, "income", 1 ] ], account: { opening_balance_cents: 0, closing_balance_cents: 10_000, printed_debit_cents: 0, printed_credit_cents: 10_000, printed_row_count: 1, period_start_on: "2026-07-01", period_end_on: "2026-07-31" })
     assert_equal "matches", FinancialDocuments::SourceReview::CoverageQuestion.totals_check(source[:revision])
@@ -1102,14 +1166,14 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32))
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [])
     document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
-    events = rows.map do |name, cents, type, row, key|
-      { account_key: key || "synthetic-account", row_kind: "posted", event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
+    events = rows.map do |name, cents, type, row, key, limitations|
+      { account_key: key || "synthetic-account", row_kind: type == "unknown" || limitations ? "unresolved" : "posted", limitations: Array(limitations), event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }
     end
     accounting = FinancialDocuments::AccountingContract.normalize({ contract_version: FinancialDocuments::AccountingContract::VERSION,
-      accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) },
+      accounts: (rows.filter_map { |row| row[4] }.uniq.presence || [ "synthetic-account" ]).map { |key| { account_key: key, account_basis: basis, label: label }.merge(account) } + extra_accounts,
       events: events, reported_row_count: reported || events.length }, coverage: { expected_page_count: 1, processed_pages: [ 1 ] })
     result = FinancialDocuments::SourceAccountingPersister.new(document, attempt: attempt, accounting: accounting).call
     document.update!(metadata: { "source_accounting_revision_id" => result[:revision].id, "source_accounting_review_pending" => true })
