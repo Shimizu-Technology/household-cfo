@@ -104,15 +104,22 @@ module LocalStack
   def fingerprint(key) = Digest::SHA256.hexdigest(key.to_s)
 
   # libpq accepts a comma-separated list and tries each in turn, so every entry must be a socket folder or this machine.
+  # An empty entry is libpq's default local socket.
   def local_database_host?(value)
-    hosts = value.to_s.split(",").map(&:strip)
-    hosts.empty? || hosts.all? { |host| host.start_with?("/") || local_host?(host) }
+    hosts = value.to_s.split(",", -1).map(&:strip)
+    hosts.empty? || hosts.all? { |host| host.empty? || host.start_with?("/") || local_host?(host) }
   end
 
+  # "localhost", "localhost:5432", "127.0.0.1", "::1", "[::1]:3128" or a URL naming one of them.
   def local_host?(value)
-    host = value.to_s.strip
+    host = value.to_s.strip.downcase
     host = URI.parse(host).host.to_s if host.include?("://")
-    host.downcase.delete_prefix("[").delete_suffix("]").sub(/:\d+\z/, "").in?(LOCAL_HOSTS)
+    if host.start_with?("[")
+      host = host[1...host.index("]")] if host.include?("]")
+    elsif host.count(":") == 1
+      host = host.split(":").first.to_s
+    end
+    host.in?(LOCAL_HOSTS)
   rescue URI::InvalidURIError
     false
   end

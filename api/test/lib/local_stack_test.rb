@@ -65,6 +65,9 @@ class LocalStackTest < ActiveSupport::TestCase
     assert_match(/on this machine/, problems(safe_env, database_configs: [ local_database(host: "/tmp,db.example.com") ]).join)
     assert_match(/on this machine/, problems(safe_env, database_configs: [ local_database(hostaddr: "203.0.113.7") ]).join)
     assert_empty problems(safe_env, database_configs: [ local_database(host: "/tmp,localhost") ])
+    # An empty entry is libpq's default socket, and IPv6 loopback is this machine.
+    assert_empty problems(safe_env, database_configs: [ local_database(host: "/tmp,,localhost") ])
+    assert_empty problems(safe_env, database_configs: [ local_database(host: "::1", hostaddr: "::1") ])
   end
 
   test "a PRIMARY_DATABASE_URL in the environment shows up in what Rails would use" do
@@ -92,6 +95,7 @@ class LocalStackTest < ActiveSupport::TestCase
     assert_match(/PGSERVICE must be empty/, problems(safe_env("PGSERVICE" => "prod")).join)
     assert_match(/HTTPS_PROXY/, problems(safe_env("HTTPS_PROXY" => "http://proxy.example.com:3128")).join)
     assert_empty problems(safe_env("PGHOST" => "localhost", "http_proxy" => "http://127.0.0.1:8080"))
+    assert_empty problems(safe_env("PGHOST" => "::1", "HTTPS_PROXY" => "http://[::1]:3128", "ALL_PROXY" => "localhost:3128"))
   end
 
   test "a model key needs the fingerprint of the key the launcher checked" do

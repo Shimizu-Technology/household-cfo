@@ -189,18 +189,20 @@ up() {
 }
 
 stop_pid() { # stop_pid <pidfile>
-  local file="$1" pid
+  local file="$1" pid start
   [[ -f "$file" ]] || return 0
-  pid="$(pid_of "$file")"
-  if ! pid_alive "$file"; then
-    if kill -0 "$pid" 2>/dev/null; then say "  Left PID $pid running: it isn't the process this stack started."; fi
+  # Read once: every later check is about this PID and start time, even if the file changes meanwhile.
+  read -r pid start <"$file" || true
+  ours() { [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && [[ "$(started_at "$pid")" == "$start" ]]; }
+  if ! ours; then
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then say "  Left PID $pid running: it isn't the process this stack started."; fi
     rm -f "$file"
     return 0
   fi
   kill "$pid" 2>/dev/null || true
-  for _ in $(seq 1 20); do pid_alive "$file" || break; sleep 0.5; done
+  for _ in $(seq 1 20); do ours || break; sleep 0.5; done
   # Escalate only while it is still the same process: a PID reused meanwhile is left alone.
-  if pid_alive "$file"; then kill -9 "$pid" 2>/dev/null || true; fi
+  if ours; then kill -9 "$pid" 2>/dev/null || true; fi
   rm -f "$file"
   say "  Stopped PID $pid"
 }
