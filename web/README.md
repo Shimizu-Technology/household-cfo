@@ -59,3 +59,4 @@ npm audit --audit-level=moderate
 ## Data safety
 
 Use demo-safe sample data only. Do not add real client financial data, statements, pay stubs, credentials, or private documents to the frontend.
+
