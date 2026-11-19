@@ -19,6 +19,17 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
     @previous_env.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
 
+  test "unknown case ids are refused instead of running nothing, and a valid subset runs" do
+    with_env("SET" => "cfo", "CASES" => "definitely-missing-case") do
+      error = assert_raises(ArgumentError) { @runner.send(:selected_cases) }
+      assert_includes error.message, "definitely-missing-case"
+    end
+    first = HouseholdFinance::MiaEvalHarness.load_cases(HouseholdFinance::MiaEvalHarness::CASE_SETS.fetch("cfo")).first.fetch("id")
+    with_env("SET" => "cfo", "CASES" => first) do
+      assert_equal [ first ], @runner.send(:selected_cases).pluck("id")
+    end
+  end
+
   test "preflight passes only for the local test database with no sign-in provider" do
     assert_preflight true
   end
@@ -157,6 +168,14 @@ class MiaEvalsLiveRunnerTest < ActiveSupport::TestCase
   end
 
   private
+
+  def with_env(values)
+    previous = values.keys.to_h { |key| [ key, ENV[key] ] }
+    values.each { |key, value| ENV[key] = value }
+    yield
+  ensure
+    previous.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
+  end
 
   def assert_preflight(expected, message = nil)
     passed = nil

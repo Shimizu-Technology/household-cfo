@@ -212,7 +212,12 @@ module MiaEvals
     def selected_cases
       cases = HouseholdFinance::MiaEvalHarness.load_cases(HouseholdFinance::MiaEvalHarness::CASE_SETS.fetch(case_set))
       ids = ENV["CASES"].to_s.split(",").map(&:strip).reject(&:blank?)
-      ids.any? ? cases.select { |eval_case| ids.include?(eval_case.fetch("id")) } : cases
+      return cases if ids.empty?
+
+      unknown = ids - cases.map { |eval_case| eval_case.fetch("id") }
+      raise ArgumentError, "Unknown case id(s) for the #{case_set} set: #{unknown.join(', ')}" if unknown.any?
+
+      cases.select { |eval_case| ids.include?(eval_case.fetch("id")) }
     end
 
     def run_case(eval_case)

@@ -61,7 +61,8 @@ module HouseholdFinance
 
       # Checks the gap names that pass now: that part of the gap has closed.
       def closed_gap_checks
-        known_gap ? Array(gap_checks) - failed_checks : []
+        # A case that raised ran none of its checks, so none of them closed.
+        known_gap && !error ? Array(gap_checks) - failed_checks : []
       end
     end
 
@@ -164,7 +165,14 @@ module HouseholdFinance
       missing_phrases = missing_phrases(response, expected_phrases_for(eval_case))
       forbidden_matches = matching_phrases(response, forbidden_phrases_for(eval_case))
       amounts = MiaEvalAmounts.check(eval_case, response, ledger, strict: mode != :live)
-      violations = rule_violations(eval_case, replies_from(output, eval_case, response), ledger)
+      replies = replies_from(output, eval_case, response)
+      violations = rule_violations(eval_case, replies, ledger)
+      # Every turn must answer, not only the last one.
+      replies.each_with_index do |reply, index|
+        next if reply["response"].present? || index == replies.length - 1
+
+        violations << { "rule" => "no_reply", "detail" => "turn #{index + 1} got no reply" }
+      end
 
       case_result(
         eval_case,

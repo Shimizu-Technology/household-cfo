@@ -222,7 +222,26 @@ class HouseholdFinanceMiaEvalChecksTest < ActiveSupport::TestCase
       assert_empty rules_for(reply, prompt: "How much came in last month?", ledger: with_income)
       # With the plan's income known, the reply has to state that figure.
       assert_includes rules_for("Income was $3,798.48 in June.", prompt: "How much came in last month?", ledger: with_income), "income_answered_with_spending"
+      # Naming the income figure as spending is not stating the income.
+      assert_includes rules_for("You spent $5,400 in June.", prompt: "How much came in last month?", ledger: with_income), "income_answered_with_spending"
+      assert_empty rules_for("Income was $5,400; you spent $3,798.48.", prompt: "How much came in last month?", ledger: with_income)
     end
+  end
+
+  test "a case that raised reports no closed gap checks" do
+    eval_case = { "id" => "gap", "route" => "controller", "prompt" => "How much came in?", "expected_amounts" => [ "$5,400" ],
+      "known_gap" => { "checks" => [ "expected_amounts" ], "reason" => "Not answered yet." } }
+    result = HouseholdFinance::MiaEvalHarness.new(cases: [ eval_case ], runner: ->(_eval_case) { raise "boom" }).call
+    assert_empty result.case_results.sole.closed_gap_checks
+    refute result.passed?
+  end
+
+  test "an empty earlier turn fails even when the last turn answers" do
+    eval_case = { "id" => "two_turns", "route" => "controller_sequence", "messages" => [ "first", "second" ] }
+    output = { response: "Here is the answer.", replies: [ { prompt: "first", response: "" }, { prompt: "second", response: "Here is the answer." } ] }
+    result = HouseholdFinance::MiaEvalHarness.new(cases: [ eval_case ], runner: ->(_eval_case) { output }).call
+    refute result.passed?
+    assert_includes result.case_results.sole.rule_violations.pluck("rule"), "no_reply"
   end
 
   test "a case skips a rule only with a reason and a known rule name" do

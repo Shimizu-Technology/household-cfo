@@ -204,9 +204,11 @@ module HouseholdFinance
 
     # With the month's planned income in the ledger, the reply must state it; without it, it must state some figure as income.
     def income_answered?(response, income_cents)
-      return MiaEvalAmounts.mentions?(response, income_cents) if income_cents.to_i.positive?
+      # "You spent $5,400" names the figure but not as income; the figure must sit in an income statement.
+      statements = response.to_s.to_enum(:scan, INCOME_STATEMENT).map { Regexp.last_match[0] }
+      return statements.any? { |statement| MiaEvalAmounts.mentions?(statement, income_cents) } if income_cents.to_i.positive?
 
-      response.to_s.match?(INCOME_STATEMENT)
+      statements.any?
     end
 
     def names_in?(text, name)
