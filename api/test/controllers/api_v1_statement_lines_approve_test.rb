@@ -92,7 +92,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   end
 
   test "choosing a category for a saved line keeps her corrected amount, name and kind" do
-    @source = build_source(rows: [ [ "Tasi Demo Hardware", -12_500, "purchase", 1 ], [ "Own savings", -3_000, "transfer", 2 ] ])
+    @source = build_source(rows: [ [ "Tasi Demo Hardware", -12_500, "purchase", 1 ], [ "Own savings", -3_100, "transfer", 2 ] ])
     hardware, moved = @source[:revision].financial_source_events.order(:position).to_a
     approve_lines({ lines: [ { event_id: hardware.id, decision: "edited", edit: { kind: "spending", merchant: "Tasi Demo Hardware store", amount_cents: 1250, category_id: nil } },
       { event_id: moved.id, decision: "edited", edit: { kind: "spending", category_id: nil } } ] })
@@ -100,14 +100,14 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
     rows = review_plan.fetch("attention").index_by { |row| row["event_id"] }
     assert_equal [ -1250, "Tasi Demo Hardware store", "purchase" ], rows.fetch(hardware.id).values_at("signed_amount_cents", "merchant", "event_type"), "She is shown what she saved"
-    assert_equal [ -3000, "purchase" ], rows.fetch(moved.id).values_at("signed_amount_cents", "event_type")
+    assert_equal [ -3100, "purchase" ], rows.fetch(moved.id).values_at("signed_amount_cents", "event_type")
 
     # The category alone is what she changes; nothing else reverts to the statement as first read.
     approve_lines({ lines: [ hardware, moved ].map { |event| { event_id: event.id, expected_head: rows.fetch(event.id).fetch("expected_head"), decision: "edited", edit: { kind: "spending", category_id: @groceries.id } } } })
     assert_response :success, response.body
     saved = [ hardware, moved ].map { |event| SourceReviewHead.find_by!(financial_source_event: event).approved_version }
-    assert_equal [ [ -1250, "Tasi Demo Hardware store", "purchase" ], [ -3000, "Own savings", "purchase" ] ], saved.map { |version| [ version.signed_amount_cents, version.merchant, version.event_type ] }
-    assert_equal [ 1250, 3000 ], @household.household_transactions.where(status: %w[confirmed reconciled]).order(:total_amount_cents).pluck(:total_amount_cents)
+    assert_equal [ [ -1250, "Tasi Demo Hardware store", "purchase" ], [ -3100, "Own savings", "purchase" ] ], saved.map { |version| [ version.signed_amount_cents, version.merchant, version.event_type ] }
+    assert_equal [ 1250, 3100 ], @household.household_transactions.where(status: %w[confirmed reconciled]).order(:total_amount_cents).pluck(:total_amount_cents)
   end
 
   test "a saved line she called a different charge can still get its category" do
@@ -157,7 +157,7 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
   test "a narrow single category asks before Ross and Amazon can be approved together" do
     @clothing.update!(active: false)
     @groceries.update!(name: "Dining out")
-    source = build_source(rows: [ [ "Ross", -500, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
+    source = build_source(rows: [ [ "Ross", -510, "purchase", 1 ], [ "Amazon", -700, "purchase", 2 ] ])
     plan = FinancialDocuments::SourceReview::ParticipantPlan.new(@household, source[:revision])
     assert_empty plan.ready_ids
     assert_equal [ :suggested_category, :suggested_category ], plan.attention.map(&:kind)
@@ -1119,6 +1119,65 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
     assert_empty plan_for(two).fetch("attention").select { |row| row["kind"] == "duplicate" }
   end
 
+  test "a CSV charge one day before its PDF copy asks before either can count twice" do
+    pdf = build_source(label: "Demo checking ····6824", content_type: "application/pdf", rows: [ [ "ROSS DRESS FOR LESS #123 HAGATNA GU", -1700, "purchase", 2 ] ])
+    original = pdf[:revision].financial_source_events.sole
+    approve_lines({ lines: [ { event_id: original.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: pdf)
+    assert_response :success, response.body
+
+    csv = build_source(label: "Demo checking 6824", rows: [ [ "Ross", -1700, "purchase", 1 ], [ "Bonus", 700, "income", 6 ] ])
+    copy, bonus = csv[:revision].financial_source_events.order(:position)
+    plan = plan_for(csv)
+    question = plan.fetch("attention").sole
+    assert_equal "Is this the same charge as one you already have?", question.fetch("question")
+    assert_equal copy.id, question.fetch("event_id")
+    assert_equal [ bonus.id ], plan.fetch("ready_event_ids")
+
+    shown = question.slice("category_id", "event_type").symbolize_keys
+    assert_no_difference "HouseholdTransaction.count" do
+      approve_lines({ expect_ready_ids: [ bonus.id, copy.id ], lines: [ { event_id: copy.id, decision: "as_read", shown: shown } ] }, source: csv)
+      assert_response :conflict
+      approve_lines({ lines: [ { event_id: copy.id, decision: "as_read", shown: shown } ] }, source: csv)
+      assert_response :conflict
+      approve_lines({ lines: [ { event_id: copy.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: csv)
+      assert_response :unprocessable_entity
+      assert_includes response.parsed_body.fetch("errors").first, "rows may overlap"
+    end
+
+    assert_difference "HouseholdTransaction.count", 1 do
+      approve_lines({ lines: [ { event_id: copy.id, decision: "different", shown: shown } ] }, source: csv)
+      assert_response :success, response.body
+    end
+  end
+
+  test "different days in one file do not make recurring charges overlap" do
+    source = build_source(label: "Demo checking", rows: [ [ "Ross", -1700, "purchase", 1 ], [ "Ross", -1700, "purchase", 2 ] ])
+    plan = plan_for(source)
+    assert_empty plan.fetch("attention").select { |row| row["kind"] == "duplicate" }
+    lines = source[:revision].financial_source_events.order(:position).map do |row|
+      { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
+    end
+    assert_difference "HouseholdTransaction.count", 2 do
+      approve_lines({ lines: lines }, source: source)
+      assert_response :success, response.body
+    end
+  end
+
+  test "a near date also needs the same signed amount and merchant" do
+    first = build_source(label: "Demo checking", rows: [ [ "Ross", -1700, "purchase", 1 ] ])
+    approve_lines({ lines: [ { event_id: first[:revision].financial_source_events.sole.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } } ] }, source: first)
+    assert_response :success, response.body
+    second = build_source(label: "Demo checking", rows: [ [ "Ross", -1800, "purchase", 2 ], [ "Other store", -1700, "purchase", 3 ], [ "Ross", -1700, "purchase", 5 ] ])
+    assert_empty plan_for(second).fetch("attention").select { |row| row["kind"] == "duplicate" }
+    lines = second[:revision].financial_source_events.order(:position).map do |row|
+      { event_id: row.id, decision: "edited", edit: { kind: "spending", category_id: @clothing.id } }
+    end
+    assert_difference "HouseholdTransaction.count", 3 do
+      approve_lines({ lines: lines }, source: second)
+      assert_response :success, response.body
+    end
+  end
+
   test "an older line she edited is compared by what she approved, so a copy of the edited line is asked about and the rest can be approved" do
     first = build_source(rows: [ [ "Pay", 7_000, "income", 2 ] ], label: "BOG Everyday Checking")
     older = first[:revision].financial_source_events.sole
@@ -1406,8 +1465,8 @@ class ApiV1StatementLinesApproveTest < ActionDispatch::IntegrationTest
 
   DEFAULT_ROWS = [ [ "Payroll", 200_000, "income", 1 ], [ "Payless", -1_000, "purchase", 2 ], [ "Ross", -500, "purchase", 3 ], [ "Own savings", -3_000, "transfer", 4 ], [ "Unreadable", nil, "purchase", 5 ] ].freeze
 
-  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [])
-    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: "synthetic.csv", content_type: "text/csv", byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
+  def build_source(basis: "asset", rows: DEFAULT_ROWS, label: "Spreadsheet account", reported: nil, account: {}, checksum: SecureRandom.hex(32), extra_accounts: [], content_type: "text/csv")
+    document = FinancialDocumentImport.create!(household: @household, uploaded_by_user: @user, document_kind: "statement", status: "needs_review", filename: content_type == "application/pdf" ? "synthetic.pdf" : "synthetic.csv", content_type: content_type, byte_size: 10, s3_key: "synthetic/#{SecureRandom.hex(8)}.csv", checksum_sha256: checksum)
     attempt = document.attempts.create!(provider: "synthetic", model: "synthetic", prompt_version: "synthetic-v1", schema_version: 2, status: "processing", started_at: Time.current)
     events = rows.map do |name, cents, type, row, key, limitations|
       { account_key: key || "synthetic-account", row_kind: type == "unknown" || limitations ? "unresolved" : "posted", limitations: Array(limitations), event_type: type, signed_amount_cents: cents, posted_on: (Date.new(2026, 7, 2) + ((row - 1) % 28)).iso8601, merchant: name, locator: { page: 1, row: row } }

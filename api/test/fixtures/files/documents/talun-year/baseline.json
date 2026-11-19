@@ -1996,10 +1996,10 @@
     "months": {
       "2026-01": {
         "total_spending": {
-          "actual_cents": 430771,
+          "actual_cents": 390657,
           "expected_cents": 358586,
-          "error_cents": 72185,
-          "absolute_error_percent": 20.1305
+          "error_cents": 32071,
+          "absolute_error_percent": 8.9437
         },
         "spending_by_category": {
           "Housing": {
@@ -2009,28 +2009,28 @@
             "absolute_error_percent": 100.0
           },
           "Groceries": {
-            "actual_cents": 92806,
+            "actual_cents": 80894,
             "expected_cents": 58859,
-            "error_cents": 33947,
-            "absolute_error_percent": 57.6751
+            "error_cents": 22035,
+            "absolute_error_percent": 37.4369
           },
           "Dining": {
-            "actual_cents": 16245,
+            "actual_cents": 13395,
             "expected_cents": 12745,
-            "error_cents": 3500,
-            "absolute_error_percent": 27.4617
+            "error_cents": 650,
+            "absolute_error_percent": 5.1
           },
           "Transport": {
-            "actual_cents": 21747,
+            "actual_cents": 16547,
             "expected_cents": 11661,
-            "error_cents": 10086,
-            "absolute_error_percent": 86.4934
+            "error_cents": 4886,
+            "absolute_error_percent": 41.9004
           },
           "Utilities": {
-            "actual_cents": 172001,
+            "actual_cents": 157823,
             "expected_cents": 32823,
-            "error_cents": 139178,
-            "absolute_error_percent": 424.0258
+            "error_cents": 125000,
+            "absolute_error_percent": 380.8305
           },
           "Phone": {
             "actual_cents": 13000,
@@ -2057,10 +2057,10 @@
             "absolute_error_percent": 0.0
           },
           "Household": {
-            "actual_cents": 14998,
+            "actual_cents": 11199,
             "expected_cents": 11199,
-            "error_cents": 3799,
-            "absolute_error_percent": 33.9227
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           },
           "Clothing": {
             "actual_cents": 8425,
@@ -2087,30 +2087,30 @@
             "absolute_error_percent": 0.0
           },
           "Interest": {
-            "actual_cents": 4350,
+            "actual_cents": 2175,
             "expected_cents": 2175,
-            "error_cents": 2175,
-            "absolute_error_percent": 100.0
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           }
         },
         "income": {
-          "actual_cents": 997000,
+          "actual_cents": 768500,
           "expected_cents": 768500,
-          "error_cents": 228500,
-          "absolute_error_percent": 29.7332
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 430771,
+          "actual_cents": 390657,
           "expected_cents": 358586,
-          "error_cents": 72185,
-          "absolute_error_percent": 20.1305
+          "error_cents": 32071,
+          "absolute_error_percent": 8.9437
         },
-        "double_counts": 15,
+        "double_counts": 6,
         "transfer_leakage_cents": 0,
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
         "receipts": [],
-        "decisions": 121,
+        "decisions": 135,
         "decisions_by_kind": {
           "account_identity": 10,
           "approve_page": 11,
@@ -2118,7 +2118,7 @@
           "transfer": 9,
           "card_payment": 2,
           "direction": 50,
-          "duplicate_guard": 26,
+          "duplicate_guard": 40,
           "coverage": 1
         },
         "manual_correction": 63,
@@ -2142,10 +2142,10 @@
       },
       "2026-02": {
         "total_spending": {
-          "actual_cents": 449221,
+          "actual_cents": 410769,
           "expected_cents": 366838,
-          "error_cents": 82383,
-          "absolute_error_percent": 22.4576
+          "error_cents": 43931,
+          "absolute_error_percent": 11.9756
         },
         "spending_by_category": {
           "Housing": {
@@ -2155,28 +2155,28 @@
             "absolute_error_percent": 100.0
           },
           "Groceries": {
-            "actual_cents": 93059,
+            "actual_cents": 81134,
             "expected_cents": 59050,
-            "error_cents": 34009,
-            "absolute_error_percent": 57.5936
+            "error_cents": 22084,
+            "absolute_error_percent": 37.3988
           },
           "Dining": {
-            "actual_cents": 14945,
+            "actual_cents": 12095,
             "expected_cents": 12095,
-            "error_cents": 2850,
-            "absolute_error_percent": 23.5635
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
           },
           "Transport": {
-            "actual_cents": 23344,
+            "actual_cents": 18144,
             "expected_cents": 11672,
-            "error_cents": 11672,
-            "absolute_error_percent": 100.0
+            "error_cents": 6472,
+            "absolute_error_percent": 55.4489
           },
           "Utilities": {
-            "actual_cents": 172001,
+            "actual_cents": 157823,
             "expected_cents": 32823,
-            "error_cents": 139178,
-            "absolute_error_percent": 424.0258
+            "error_cents": 125000,
+            "absolute_error_percent": 380.8305
           },
           "Phone": {
             "actual_cents": 13000,
@@ -2203,619 +2203,10 @@
             "absolute_error_percent": 100.0
           },
           "Household": {
-            "actual_cents": 14998,
+            "actual_cents": 11199,
             "expected_cents": 11199,
-            "error_cents": 3799,
-            "absolute_error_percent": 33.9227
-          },
-          "Clothing": {
-            "actual_cents": 8425,
-            "expected_cents": 8425,
             "error_cents": 0,
             "absolute_error_percent": 0.0
-          },
-          "Cash": {
-            "actual_cents": 30000,
-            "expected_cents": 32000,
-            "error_cents": -2000,
-            "absolute_error_percent": 6.25
-          },
-          "Family support": {
-            "actual_cents": 12500,
-            "expected_cents": 12500,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Fees": {
-            "actual_cents": 1800,
-            "expected_cents": 1300,
-            "error_cents": 500,
-            "absolute_error_percent": 38.4615
-          },
-          "Interest": {
-            "actual_cents": 4350,
-            "expected_cents": 2175,
-            "error_cents": 2175,
-            "absolute_error_percent": 100.0
-          }
-        },
-        "income": {
-          "actual_cents": 960000,
-          "expected_cents": 750000,
-          "error_cents": 210000,
-          "absolute_error_percent": 28.0
-        },
-        "analyzer_spending": {
-          "actual_cents": 449221,
-          "expected_cents": 366838,
-          "error_cents": 82383,
-          "absolute_error_percent": 22.4576
-        },
-        "double_counts": 16,
-        "transfer_leakage_cents": 0,
-        "transfer_leakage_spending_cents": 0,
-        "transfer_leakage_income_cents": 0,
-        "receipts": [],
-        "decisions": 107,
-        "decisions_by_kind": {
-          "account_identity": 7,
-          "approve_page": 7,
-          "transfer": 8,
-          "card_payment": 2,
-          "coverage": 3,
-          "duplicate": 3,
-          "no_category": 2,
-          "direction": 49,
-          "duplicate_guard": 26
-        },
-        "manual_correction": 51,
-        "manual_exclusion": 0,
-        "accepted_as_proposed": 46,
-        "corrections_by_field": {
-          "type": 38,
-          "amount": 0,
-          "date": 0,
-          "category": 35,
-          "direction": 49
-        },
-        "questions_by_kind": {
-          "transfer": 8,
-          "card_payment": 2,
-          "duplicate": 3,
-          "no_category": 2,
-          "direction": 49
-        },
-        "unmapped_spending_cents": 0,
-        "unmapped_spending_count": 0
-      },
-      "2026-03": {
-        "total_spending": {
-          "actual_cents": 452447,
-          "expected_cents": 360591,
-          "error_cents": 91856,
-          "absolute_error_percent": 25.4737
-        },
-        "spending_by_category": {
-          "Housing": {
-            "actual_cents": 0,
-            "expected_cents": 125000,
-            "error_cents": -125000,
-            "absolute_error_percent": 100.0
-          },
-          "Groceries": {
-            "actual_cents": 93312,
-            "expected_cents": 59241,
-            "error_cents": 34071,
-            "absolute_error_percent": 57.5125
-          },
-          "Dining": {
-            "actual_cents": 14945,
-            "expected_cents": 12095,
-            "error_cents": 2850,
-            "absolute_error_percent": 23.5635
-          },
-          "Transport": {
-            "actual_cents": 23366,
-            "expected_cents": 11683,
-            "error_cents": 11683,
-            "absolute_error_percent": 100.0
-          },
-          "Utilities": {
-            "actual_cents": 172001,
-            "expected_cents": 32823,
-            "error_cents": 139178,
-            "absolute_error_percent": 424.0258
-          },
-          "Phone": {
-            "actual_cents": 13000,
-            "expected_cents": 6500,
-            "error_cents": 6500,
-            "absolute_error_percent": 100.0
-          },
-          "Subscriptions": {
-            "actual_cents": 1399,
-            "expected_cents": 1399,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Childcare": {
-            "actual_cents": 42000,
-            "expected_cents": 42000,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Medical": {
-            "actual_cents": 0,
-            "expected_cents": 0,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Household": {
-            "actual_cents": 18599,
-            "expected_cents": 11199,
-            "error_cents": 7400,
-            "absolute_error_percent": 66.0773
-          },
-          "Clothing": {
-            "actual_cents": 27350,
-            "expected_cents": 10676,
-            "error_cents": 16674,
-            "absolute_error_percent": 156.1821
-          },
-          "Cash": {
-            "actual_cents": 30000,
-            "expected_cents": 32000,
-            "error_cents": -2000,
-            "absolute_error_percent": 6.25
-          },
-          "Family support": {
-            "actual_cents": 12500,
-            "expected_cents": 12500,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Fees": {
-            "actual_cents": 1800,
-            "expected_cents": 1300,
-            "error_cents": 500,
-            "absolute_error_percent": 38.4615
-          },
-          "Interest": {
-            "actual_cents": 2175,
-            "expected_cents": 2175,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          }
-        },
-        "income": {
-          "actual_cents": 1025500,
-          "expected_cents": 782750,
-          "error_cents": 242750,
-          "absolute_error_percent": 31.0125
-        },
-        "analyzer_spending": {
-          "actual_cents": 452447,
-          "expected_cents": 360591,
-          "error_cents": 91856,
-          "absolute_error_percent": 25.4737
-        },
-        "double_counts": 17,
-        "transfer_leakage_cents": 0,
-        "transfer_leakage_spending_cents": 0,
-        "transfer_leakage_income_cents": 0,
-        "receipts": [
-          {
-            "new_money": {
-              "actual_cents": 10500,
-              "expected_cents": 5250,
-              "error_cents": 5250,
-              "absolute_error_percent": 100.0
-            },
-            "matched_to_bank": true,
-            "extracted_new_money": {
-              "actual_cents": 5250,
-              "expected_cents": 5250,
-              "error_cents": 0,
-              "absolute_error_percent": 0.0
-            },
-            "category_allocation_error_cents": 5250
-          }
-        ],
-        "decisions": 129,
-        "decisions_by_kind": {
-          "account_identity": 8,
-          "approve_page": 8,
-          "no_category": 2,
-          "transfer": 8,
-          "card_payment": 2,
-          "duplicate": 17,
-          "coverage": 3,
-          "refund": 1,
-          "direction": 51,
-          "duplicate_guard": 28,
-          "receipt_match": 1
-        },
-        "manual_correction": 53,
-        "manual_exclusion": 0,
-        "accepted_as_proposed": 48,
-        "corrections_by_field": {
-          "type": 39,
-          "amount": 0,
-          "date": 0,
-          "category": 35,
-          "direction": 51
-        },
-        "questions_by_kind": {
-          "no_category": 2,
-          "transfer": 8,
-          "card_payment": 2,
-          "duplicate": 17,
-          "refund": 1,
-          "direction": 51
-        },
-        "unmapped_spending_cents": 0,
-        "unmapped_spending_count": 0
-      },
-      "2026-04": {
-        "total_spending": {
-          "actual_cents": 413841,
-          "expected_cents": 339897,
-          "error_cents": 73944,
-          "absolute_error_percent": 21.7548
-        },
-        "spending_by_category": {
-          "Housing": {
-            "actual_cents": 0,
-            "expected_cents": 125000,
-            "error_cents": -125000,
-            "absolute_error_percent": 100.0
-          },
-          "Groceries": {
-            "actual_cents": 84939,
-            "expected_cents": 59432,
-            "error_cents": 25507,
-            "absolute_error_percent": 42.918
-          },
-          "Dining": {
-            "actual_cents": 21665,
-            "expected_cents": 12095,
-            "error_cents": 9570,
-            "absolute_error_percent": 79.1236
-          },
-          "Transport": {
-            "actual_cents": 23388,
-            "expected_cents": 11694,
-            "error_cents": 11694,
-            "absolute_error_percent": 100.0
-          },
-          "Utilities": {
-            "actual_cents": 147678,
-            "expected_cents": 14178,
-            "error_cents": 133500,
-            "absolute_error_percent": 941.5997
-          },
-          "Phone": {
-            "actual_cents": 6500,
-            "expected_cents": 6500,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Subscriptions": {
-            "actual_cents": 2798,
-            "expected_cents": 1399,
-            "error_cents": 1399,
-            "absolute_error_percent": 100.0
-          },
-          "Childcare": {
-            "actual_cents": 42000,
-            "expected_cents": 42000,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Medical": {
-            "actual_cents": 0,
-            "expected_cents": 0,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Household": {
-            "actual_cents": 14998,
-            "expected_cents": 11199,
-            "error_cents": 3799,
-            "absolute_error_percent": 33.9227
-          },
-          "Clothing": {
-            "actual_cents": 8425,
-            "expected_cents": 8425,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Cash": {
-            "actual_cents": 30000,
-            "expected_cents": 32000,
-            "error_cents": -2000,
-            "absolute_error_percent": 6.25
-          },
-          "Family support": {
-            "actual_cents": 25000,
-            "expected_cents": 12500,
-            "error_cents": 12500,
-            "absolute_error_percent": 100.0
-          },
-          "Fees": {
-            "actual_cents": 2100,
-            "expected_cents": 1300,
-            "error_cents": 800,
-            "absolute_error_percent": 61.5385
-          },
-          "Interest": {
-            "actual_cents": 4350,
-            "expected_cents": 2175,
-            "error_cents": 2175,
-            "absolute_error_percent": 100.0
-          }
-        },
-        "income": {
-          "actual_cents": 750000,
-          "expected_cents": 750000,
-          "error_cents": 0,
-          "absolute_error_percent": 0.0
-        },
-        "analyzer_spending": {
-          "actual_cents": 413841,
-          "expected_cents": 339897,
-          "error_cents": 73944,
-          "absolute_error_percent": 21.7548
-        },
-        "double_counts": 16,
-        "transfer_leakage_cents": 0,
-        "transfer_leakage_spending_cents": 0,
-        "transfer_leakage_income_cents": 0,
-        "receipts": [],
-        "decisions": 92,
-        "decisions_by_kind": {
-          "account_identity": 5,
-          "approve_page": 5,
-          "transfer": 8,
-          "card_payment": 2,
-          "direction": 47,
-          "duplicate_guard": 25
-        },
-        "manual_correction": 47,
-        "manual_exclusion": 0,
-        "accepted_as_proposed": 46,
-        "corrections_by_field": {
-          "type": 36,
-          "amount": 0,
-          "date": 0,
-          "category": 31,
-          "direction": 47
-        },
-        "questions_by_kind": {
-          "transfer": 8,
-          "card_payment": 2,
-          "direction": 47
-        },
-        "unmapped_spending_cents": 0,
-        "unmapped_spending_count": 0
-      },
-      "2026-05": {
-        "total_spending": {
-          "actual_cents": 452791,
-          "expected_cents": 378889,
-          "error_cents": 73902,
-          "absolute_error_percent": 19.5049
-        },
-        "spending_by_category": {
-          "Housing": {
-            "actual_cents": 0,
-            "expected_cents": 125000,
-            "error_cents": -125000,
-            "absolute_error_percent": 100.0
-          },
-          "Groceries": {
-            "actual_cents": 93818,
-            "expected_cents": 59623,
-            "error_cents": 34195,
-            "absolute_error_percent": 57.352
-          },
-          "Dining": {
-            "actual_cents": 14945,
-            "expected_cents": 12095,
-            "error_cents": 2850,
-            "absolute_error_percent": 23.5635
-          },
-          "Transport": {
-            "actual_cents": 23410,
-            "expected_cents": 11705,
-            "error_cents": 11705,
-            "absolute_error_percent": 100.0
-          },
-          "Utilities": {
-            "actual_cents": 192146,
-            "expected_cents": 51468,
-            "error_cents": 140678,
-            "absolute_error_percent": 273.331
-          },
-          "Phone": {
-            "actual_cents": 13000,
-            "expected_cents": 6500,
-            "error_cents": 6500,
-            "absolute_error_percent": 100.0
-          },
-          "Subscriptions": {
-            "actual_cents": 1399,
-            "expected_cents": 1399,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Childcare": {
-            "actual_cents": 42000,
-            "expected_cents": 42000,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Medical": {
-            "actual_cents": 0,
-            "expected_cents": 0,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Household": {
-            "actual_cents": 14998,
-            "expected_cents": 11199,
-            "error_cents": 3799,
-            "absolute_error_percent": 33.9227
-          },
-          "Clothing": {
-            "actual_cents": 8425,
-            "expected_cents": 8425,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Cash": {
-            "actual_cents": 30000,
-            "expected_cents": 32000,
-            "error_cents": -2000,
-            "absolute_error_percent": 6.25
-          },
-          "Family support": {
-            "actual_cents": 12500,
-            "expected_cents": 12500,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Fees": {
-            "actual_cents": 1800,
-            "expected_cents": 2800,
-            "error_cents": -1000,
-            "absolute_error_percent": 35.7143
-          },
-          "Interest": {
-            "actual_cents": 4350,
-            "expected_cents": 2175,
-            "error_cents": 2175,
-            "absolute_error_percent": 100.0
-          }
-        },
-        "income": {
-          "actual_cents": 960000,
-          "expected_cents": 750000,
-          "error_cents": 210000,
-          "absolute_error_percent": 28.0
-        },
-        "analyzer_spending": {
-          "actual_cents": 452791,
-          "expected_cents": 378889,
-          "error_cents": 73902,
-          "absolute_error_percent": 19.5049
-        },
-        "double_counts": 15,
-        "transfer_leakage_cents": 0,
-        "transfer_leakage_spending_cents": 0,
-        "transfer_leakage_income_cents": 0,
-        "receipts": [],
-        "decisions": 108,
-        "decisions_by_kind": {
-          "account_identity": 7,
-          "approve_page": 7,
-          "transfer": 8,
-          "card_payment": 2,
-          "unclear": 1,
-          "coverage": 3,
-          "duplicate": 3,
-          "no_category": 1,
-          "direction": 50,
-          "duplicate_guard": 26
-        },
-        "manual_correction": 51,
-        "manual_exclusion": 0,
-        "accepted_as_proposed": 46,
-        "corrections_by_field": {
-          "type": 39,
-          "amount": 0,
-          "date": 0,
-          "category": 35,
-          "direction": 50
-        },
-        "questions_by_kind": {
-          "transfer": 8,
-          "card_payment": 2,
-          "unclear": 1,
-          "duplicate": 3,
-          "no_category": 1,
-          "direction": 50
-        },
-        "unmapped_spending_cents": 0,
-        "unmapped_spending_count": 0
-      },
-      "2026-06": {
-        "total_spending": {
-          "actual_cents": 472597,
-          "expected_cents": 371534,
-          "error_cents": 101063,
-          "absolute_error_percent": 27.2015
-        },
-        "spending_by_category": {
-          "Housing": {
-            "actual_cents": 0,
-            "expected_cents": 125000,
-            "error_cents": -125000,
-            "absolute_error_percent": 100.0
-          },
-          "Groceries": {
-            "actual_cents": 94071,
-            "expected_cents": 59814,
-            "error_cents": 34257,
-            "absolute_error_percent": 57.2725
-          },
-          "Dining": {
-            "actual_cents": 14945,
-            "expected_cents": 12095,
-            "error_cents": 2850,
-            "absolute_error_percent": 23.5635
-          },
-          "Transport": {
-            "actual_cents": 23432,
-            "expected_cents": 11716,
-            "error_cents": 11716,
-            "absolute_error_percent": 100.0
-          },
-          "Utilities": {
-            "actual_cents": 172001,
-            "expected_cents": 32823,
-            "error_cents": 139178,
-            "absolute_error_percent": 424.0258
-          },
-          "Phone": {
-            "actual_cents": 13000,
-            "expected_cents": 6500,
-            "error_cents": 6500,
-            "absolute_error_percent": 100.0
-          },
-          "Subscriptions": {
-            "actual_cents": 1399,
-            "expected_cents": 1399,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Childcare": {
-            "actual_cents": 42000,
-            "expected_cents": 42000,
-            "error_cents": 0,
-            "absolute_error_percent": 0.0
-          },
-          "Medical": {
-            "actual_cents": 18200,
-            "expected_cents": 9100,
-            "error_cents": 9100,
-            "absolute_error_percent": 100.0
-          },
-          "Household": {
-            "actual_cents": 36974,
-            "expected_cents": 14687,
-            "error_cents": 22287,
-            "absolute_error_percent": 151.7464
           },
           "Clothing": {
             "actual_cents": 8425,
@@ -2849,18 +2240,627 @@
           }
         },
         "income": {
-          "actual_cents": 979200,
-          "expected_cents": 759600,
-          "error_cents": 219600,
-          "absolute_error_percent": 28.91
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
         },
         "analyzer_spending": {
-          "actual_cents": 472597,
-          "expected_cents": 371534,
-          "error_cents": 101063,
-          "absolute_error_percent": 27.2015
+          "actual_cents": 410769,
+          "expected_cents": 366838,
+          "error_cents": 43931,
+          "absolute_error_percent": 11.9756
         },
-        "double_counts": 17,
+        "double_counts": 8,
+        "transfer_leakage_cents": 0,
+        "transfer_leakage_spending_cents": 0,
+        "transfer_leakage_income_cents": 0,
+        "receipts": [],
+        "decisions": 119,
+        "decisions_by_kind": {
+          "account_identity": 7,
+          "approve_page": 7,
+          "transfer": 8,
+          "card_payment": 2,
+          "coverage": 3,
+          "duplicate": 3,
+          "no_category": 2,
+          "direction": 49,
+          "duplicate_guard": 38
+        },
+        "manual_correction": 51,
+        "manual_exclusion": 0,
+        "accepted_as_proposed": 46,
+        "corrections_by_field": {
+          "type": 38,
+          "amount": 0,
+          "date": 0,
+          "category": 35,
+          "direction": 49
+        },
+        "questions_by_kind": {
+          "transfer": 8,
+          "card_payment": 2,
+          "duplicate": 3,
+          "no_category": 2,
+          "direction": 49
+        },
+        "unmapped_spending_cents": 0,
+        "unmapped_spending_count": 0
+      },
+      "2026-03": {
+        "total_spending": {
+          "actual_cents": 401956,
+          "expected_cents": 360591,
+          "error_cents": 41365,
+          "absolute_error_percent": 11.4714
+        },
+        "spending_by_category": {
+          "Housing": {
+            "actual_cents": 0,
+            "expected_cents": 125000,
+            "error_cents": -125000,
+            "absolute_error_percent": 100.0
+          },
+          "Groceries": {
+            "actual_cents": 81374,
+            "expected_cents": 59241,
+            "error_cents": 22133,
+            "absolute_error_percent": 37.3609
+          },
+          "Dining": {
+            "actual_cents": 12095,
+            "expected_cents": 12095,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Transport": {
+            "actual_cents": 18166,
+            "expected_cents": 11683,
+            "error_cents": 6483,
+            "absolute_error_percent": 55.4909
+          },
+          "Utilities": {
+            "actual_cents": 157823,
+            "expected_cents": 32823,
+            "error_cents": 125000,
+            "absolute_error_percent": 380.8305
+          },
+          "Phone": {
+            "actual_cents": 13000,
+            "expected_cents": 6500,
+            "error_cents": 6500,
+            "absolute_error_percent": 100.0
+          },
+          "Subscriptions": {
+            "actual_cents": 1399,
+            "expected_cents": 1399,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Childcare": {
+            "actual_cents": 42000,
+            "expected_cents": 42000,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Medical": {
+            "actual_cents": 0,
+            "expected_cents": 0,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Household": {
+            "actual_cents": 11199,
+            "expected_cents": 11199,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Clothing": {
+            "actual_cents": 18925,
+            "expected_cents": 10676,
+            "error_cents": 8249,
+            "absolute_error_percent": 77.2668
+          },
+          "Cash": {
+            "actual_cents": 30000,
+            "expected_cents": 32000,
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
+          },
+          "Family support": {
+            "actual_cents": 12500,
+            "expected_cents": 12500,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Fees": {
+            "actual_cents": 1300,
+            "expected_cents": 1300,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Interest": {
+            "actual_cents": 2175,
+            "expected_cents": 2175,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          }
+        },
+        "income": {
+          "actual_cents": 782750,
+          "expected_cents": 782750,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "analyzer_spending": {
+          "actual_cents": 401956,
+          "expected_cents": 360591,
+          "error_cents": 41365,
+          "absolute_error_percent": 11.4714
+        },
+        "double_counts": 7,
+        "transfer_leakage_cents": 0,
+        "transfer_leakage_spending_cents": 0,
+        "transfer_leakage_income_cents": 0,
+        "receipts": [
+          {
+            "new_money": {
+              "actual_cents": 10500,
+              "expected_cents": 5250,
+              "error_cents": 5250,
+              "absolute_error_percent": 100.0
+            },
+            "matched_to_bank": true,
+            "extracted_new_money": {
+              "actual_cents": 5250,
+              "expected_cents": 5250,
+              "error_cents": 0,
+              "absolute_error_percent": 0.0
+            },
+            "category_allocation_error_cents": 5250
+          }
+        ],
+        "decisions": 142,
+        "decisions_by_kind": {
+          "account_identity": 8,
+          "approve_page": 8,
+          "no_category": 2,
+          "transfer": 8,
+          "card_payment": 2,
+          "duplicate": 17,
+          "coverage": 3,
+          "refund": 1,
+          "direction": 51,
+          "duplicate_guard": 41,
+          "receipt_match": 1
+        },
+        "manual_correction": 53,
+        "manual_exclusion": 0,
+        "accepted_as_proposed": 48,
+        "corrections_by_field": {
+          "type": 39,
+          "amount": 0,
+          "date": 0,
+          "category": 35,
+          "direction": 51
+        },
+        "questions_by_kind": {
+          "no_category": 2,
+          "transfer": 8,
+          "card_payment": 2,
+          "duplicate": 17,
+          "refund": 1,
+          "direction": 51
+        },
+        "unmapped_spending_cents": 0,
+        "unmapped_spending_count": 0
+      },
+      "2026-04": {
+        "total_spending": {
+          "actual_cents": 378566,
+          "expected_cents": 339897,
+          "error_cents": 38669,
+          "absolute_error_percent": 11.3767
+        },
+        "spending_by_category": {
+          "Housing": {
+            "actual_cents": 0,
+            "expected_cents": 125000,
+            "error_cents": -125000,
+            "absolute_error_percent": 100.0
+          },
+          "Groceries": {
+            "actual_cents": 72988,
+            "expected_cents": 59432,
+            "error_cents": 13556,
+            "absolute_error_percent": 22.8093
+          },
+          "Dining": {
+            "actual_cents": 18815,
+            "expected_cents": 12095,
+            "error_cents": 6720,
+            "absolute_error_percent": 55.5601
+          },
+          "Transport": {
+            "actual_cents": 18188,
+            "expected_cents": 11694,
+            "error_cents": 6494,
+            "absolute_error_percent": 55.5328
+          },
+          "Utilities": {
+            "actual_cents": 139178,
+            "expected_cents": 14178,
+            "error_cents": 125000,
+            "absolute_error_percent": 881.6476
+          },
+          "Phone": {
+            "actual_cents": 6500,
+            "expected_cents": 6500,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Subscriptions": {
+            "actual_cents": 2798,
+            "expected_cents": 1399,
+            "error_cents": 1399,
+            "absolute_error_percent": 100.0
+          },
+          "Childcare": {
+            "actual_cents": 42000,
+            "expected_cents": 42000,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Medical": {
+            "actual_cents": 0,
+            "expected_cents": 0,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Household": {
+            "actual_cents": 11199,
+            "expected_cents": 11199,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Clothing": {
+            "actual_cents": 8425,
+            "expected_cents": 8425,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Cash": {
+            "actual_cents": 30000,
+            "expected_cents": 32000,
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
+          },
+          "Family support": {
+            "actual_cents": 25000,
+            "expected_cents": 12500,
+            "error_cents": 12500,
+            "absolute_error_percent": 100.0
+          },
+          "Fees": {
+            "actual_cents": 1300,
+            "expected_cents": 1300,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Interest": {
+            "actual_cents": 2175,
+            "expected_cents": 2175,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          }
+        },
+        "income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "analyzer_spending": {
+          "actual_cents": 378566,
+          "expected_cents": 339897,
+          "error_cents": 38669,
+          "absolute_error_percent": 11.3767
+        },
+        "double_counts": 8,
+        "transfer_leakage_cents": 0,
+        "transfer_leakage_spending_cents": 0,
+        "transfer_leakage_income_cents": 0,
+        "receipts": [],
+        "decisions": 104,
+        "decisions_by_kind": {
+          "account_identity": 5,
+          "approve_page": 5,
+          "transfer": 8,
+          "card_payment": 2,
+          "direction": 47,
+          "duplicate_guard": 37
+        },
+        "manual_correction": 47,
+        "manual_exclusion": 0,
+        "accepted_as_proposed": 46,
+        "corrections_by_field": {
+          "type": 36,
+          "amount": 0,
+          "date": 0,
+          "category": 31,
+          "direction": 47
+        },
+        "questions_by_kind": {
+          "transfer": 8,
+          "card_payment": 2,
+          "direction": 47
+        },
+        "unmapped_spending_cents": 0,
+        "unmapped_spending_count": 0
+      },
+      "2026-05": {
+        "total_spending": {
+          "actual_cents": 412625,
+          "expected_cents": 378889,
+          "error_cents": 33736,
+          "absolute_error_percent": 8.9039
+        },
+        "spending_by_category": {
+          "Housing": {
+            "actual_cents": 0,
+            "expected_cents": 125000,
+            "error_cents": -125000,
+            "absolute_error_percent": 100.0
+          },
+          "Groceries": {
+            "actual_cents": 81854,
+            "expected_cents": 59623,
+            "error_cents": 22231,
+            "absolute_error_percent": 37.2859
+          },
+          "Dining": {
+            "actual_cents": 12095,
+            "expected_cents": 12095,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Transport": {
+            "actual_cents": 18210,
+            "expected_cents": 11705,
+            "error_cents": 6505,
+            "absolute_error_percent": 55.5745
+          },
+          "Utilities": {
+            "actual_cents": 177968,
+            "expected_cents": 51468,
+            "error_cents": 126500,
+            "absolute_error_percent": 245.7838
+          },
+          "Phone": {
+            "actual_cents": 13000,
+            "expected_cents": 6500,
+            "error_cents": 6500,
+            "absolute_error_percent": 100.0
+          },
+          "Subscriptions": {
+            "actual_cents": 1399,
+            "expected_cents": 1399,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Childcare": {
+            "actual_cents": 42000,
+            "expected_cents": 42000,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Medical": {
+            "actual_cents": 0,
+            "expected_cents": 0,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Household": {
+            "actual_cents": 11199,
+            "expected_cents": 11199,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Clothing": {
+            "actual_cents": 8425,
+            "expected_cents": 8425,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Cash": {
+            "actual_cents": 30000,
+            "expected_cents": 32000,
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
+          },
+          "Family support": {
+            "actual_cents": 12500,
+            "expected_cents": 12500,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Fees": {
+            "actual_cents": 1800,
+            "expected_cents": 2800,
+            "error_cents": -1000,
+            "absolute_error_percent": 35.7143
+          },
+          "Interest": {
+            "actual_cents": 2175,
+            "expected_cents": 2175,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          }
+        },
+        "income": {
+          "actual_cents": 750000,
+          "expected_cents": 750000,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "analyzer_spending": {
+          "actual_cents": 412625,
+          "expected_cents": 378889,
+          "error_cents": 33736,
+          "absolute_error_percent": 8.9039
+        },
+        "double_counts": 7,
+        "transfer_leakage_cents": 0,
+        "transfer_leakage_spending_cents": 0,
+        "transfer_leakage_income_cents": 0,
+        "receipts": [],
+        "decisions": 120,
+        "decisions_by_kind": {
+          "account_identity": 7,
+          "approve_page": 7,
+          "transfer": 8,
+          "card_payment": 2,
+          "unclear": 1,
+          "coverage": 3,
+          "duplicate": 3,
+          "no_category": 1,
+          "direction": 50,
+          "duplicate_guard": 38
+        },
+        "manual_correction": 51,
+        "manual_exclusion": 0,
+        "accepted_as_proposed": 46,
+        "corrections_by_field": {
+          "type": 39,
+          "amount": 0,
+          "date": 0,
+          "category": 35,
+          "direction": 50
+        },
+        "questions_by_kind": {
+          "transfer": 8,
+          "card_payment": 2,
+          "unclear": 1,
+          "duplicate": 3,
+          "no_category": 1,
+          "direction": 50
+        },
+        "unmapped_spending_cents": 0,
+        "unmapped_spending_count": 0
+      },
+      "2026-06": {
+        "total_spending": {
+          "actual_cents": 432418,
+          "expected_cents": 371534,
+          "error_cents": 60884,
+          "absolute_error_percent": 16.3872
+        },
+        "spending_by_category": {
+          "Housing": {
+            "actual_cents": 0,
+            "expected_cents": 125000,
+            "error_cents": -125000,
+            "absolute_error_percent": 100.0
+          },
+          "Groceries": {
+            "actual_cents": 82094,
+            "expected_cents": 59814,
+            "error_cents": 22280,
+            "absolute_error_percent": 37.2488
+          },
+          "Dining": {
+            "actual_cents": 12095,
+            "expected_cents": 12095,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Transport": {
+            "actual_cents": 18232,
+            "expected_cents": 11716,
+            "error_cents": 6516,
+            "absolute_error_percent": 55.6163
+          },
+          "Utilities": {
+            "actual_cents": 157823,
+            "expected_cents": 32823,
+            "error_cents": 125000,
+            "absolute_error_percent": 380.8305
+          },
+          "Phone": {
+            "actual_cents": 13000,
+            "expected_cents": 6500,
+            "error_cents": 6500,
+            "absolute_error_percent": 100.0
+          },
+          "Subscriptions": {
+            "actual_cents": 1399,
+            "expected_cents": 1399,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Childcare": {
+            "actual_cents": 42000,
+            "expected_cents": 42000,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Medical": {
+            "actual_cents": 18200,
+            "expected_cents": 9100,
+            "error_cents": 9100,
+            "absolute_error_percent": 100.0
+          },
+          "Household": {
+            "actual_cents": 33175,
+            "expected_cents": 14687,
+            "error_cents": 18488,
+            "absolute_error_percent": 125.88
+          },
+          "Clothing": {
+            "actual_cents": 8425,
+            "expected_cents": 8425,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Cash": {
+            "actual_cents": 30000,
+            "expected_cents": 32000,
+            "error_cents": -2000,
+            "absolute_error_percent": 6.25
+          },
+          "Family support": {
+            "actual_cents": 12500,
+            "expected_cents": 12500,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Fees": {
+            "actual_cents": 1300,
+            "expected_cents": 1300,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          },
+          "Interest": {
+            "actual_cents": 2175,
+            "expected_cents": 2175,
+            "error_cents": 0,
+            "absolute_error_percent": 0.0
+          }
+        },
+        "income": {
+          "actual_cents": 759600,
+          "expected_cents": 759600,
+          "error_cents": 0,
+          "absolute_error_percent": 0.0
+        },
+        "analyzer_spending": {
+          "actual_cents": 432418,
+          "expected_cents": 371534,
+          "error_cents": 60884,
+          "absolute_error_percent": 16.3872
+        },
+        "double_counts": 8,
         "transfer_leakage_cents": 0,
         "transfer_leakage_spending_cents": 0,
         "transfer_leakage_income_cents": 0,
@@ -2882,7 +2882,7 @@
             "category_allocation_error_cents": 18488
           }
         ],
-        "decisions": 100,
+        "decisions": 113,
         "decisions_by_kind": {
           "account_identity": 5,
           "approve_page": 5,
@@ -2890,7 +2890,7 @@
           "card_payment": 2,
           "no_category": 1,
           "direction": 51,
-          "duplicate_guard": 27,
+          "duplicate_guard": 40,
           "receipt_confirmation": 1
         },
         "manual_correction": 52,
@@ -3789,22 +3789,22 @@
     },
     "annual": {
       "total_spending": {
-        "actual_cents": 4919628,
+        "actual_cents": 4674951,
         "expected_cents": 4424295,
-        "error_cents": 495333,
-        "absolute_error_percent": 11.1957
+        "error_cents": 250656,
+        "absolute_error_percent": 5.6654
       },
       "income": {
-        "actual_cents": 10237200,
+        "actual_cents": 9126350,
         "expected_cents": 9126350,
-        "error_cents": 1110850,
-        "absolute_error_percent": 12.1719
+        "error_cents": 0,
+        "absolute_error_percent": 0.0
       },
       "analyzer_spending": {
-        "actual_cents": 4919628,
+        "actual_cents": 4674951,
         "expected_cents": 4424295,
-        "error_cents": 495333,
-        "absolute_error_percent": 11.1957
+        "error_cents": 250656,
+        "absolute_error_percent": 5.6654
       },
       "spending_by_category": {
         "Housing": {
@@ -3814,28 +3814,28 @@
           "absolute_error_percent": 100.0
         },
         "Groceries": {
-          "actual_cents": 937242,
+          "actual_cents": 865575,
           "expected_cents": 726256,
-          "error_cents": 210986,
-          "absolute_error_percent": 29.0512
+          "error_cents": 139319,
+          "absolute_error_percent": 19.1832
         },
         "Dining": {
-          "actual_cents": 170260,
+          "actual_cents": 153160,
           "expected_cents": 145790,
-          "error_cents": 24470,
-          "absolute_error_percent": 16.7844
+          "error_cents": 7370,
+          "absolute_error_percent": 5.0552
         },
         "Transport": {
-          "actual_cents": 209214,
+          "actual_cents": 178014,
           "expected_cents": 140658,
-          "error_cents": 68556,
-          "absolute_error_percent": 48.7395
+          "error_cents": 37356,
+          "absolute_error_percent": 26.558
         },
         "Utilities": {
-          "actual_cents": 1974766,
+          "actual_cents": 1895376,
           "expected_cents": 393876,
-          "error_cents": 1580890,
-          "absolute_error_percent": 401.3674
+          "error_cents": 1501500,
+          "absolute_error_percent": 381.2113
         },
         "Phone": {
           "actual_cents": 110500,
@@ -3862,16 +3862,16 @@
           "absolute_error_percent": 58.2456
         },
         "Household": {
-          "actual_cents": 251759,
+          "actual_cents": 225364,
           "expected_cents": 208676,
-          "error_cents": 43083,
-          "absolute_error_percent": 20.6459
+          "error_cents": 16688,
+          "absolute_error_percent": 7.9971
         },
         "Clothing": {
-          "actual_cents": 120025,
+          "actual_cents": 111600,
           "expected_cents": 103351,
-          "error_cents": 16674,
-          "absolute_error_percent": 16.1334
+          "error_cents": 8249,
+          "absolute_error_percent": 7.9815
         },
         "Cash": {
           "actual_cents": 360000,
@@ -3886,23 +3886,23 @@
           "absolute_error_percent": 8.3333
         },
         "Fees": {
-          "actual_cents": 17900,
+          "actual_cents": 16100,
           "expected_cents": 17100,
-          "error_cents": 800,
-          "absolute_error_percent": 4.6784
+          "error_cents": -1000,
+          "absolute_error_percent": 5.848
         },
         "Interest": {
-          "actual_cents": 36975,
+          "actual_cents": 28275,
           "expected_cents": 26100,
-          "error_cents": 10875,
-          "absolute_error_percent": 41.6667
+          "error_cents": 2175,
+          "absolute_error_percent": 8.3333
         }
       },
-      "double_counts": 96,
+      "double_counts": 44,
       "transfer_leakage_cents": 0,
       "transfer_leakage_spending_cents": 0,
       "transfer_leakage_income_cents": 0,
-      "decisions": 821,
+      "decisions": 897,
       "manual_correction": 320,
       "manual_exclusion": 0,
       "accepted_as_proposed": 555,
@@ -3915,7 +3915,7 @@
         "coverage": 22,
         "direction": 298,
         "duplicate": 35,
-        "duplicate_guard": 158,
+        "duplicate_guard": 234,
         "no_category": 20,
         "receipt_confirmation": 1,
         "receipt_match": 2,
